@@ -161,7 +161,7 @@ fn recovers_correlated_command_creation_and_decodes_durable_exit() {
                 writer,
                 "{}",
                 json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": request["id"],
                     "ok": true,
@@ -262,7 +262,7 @@ fn serve(
             other => panic!("unexpected operation {other}"),
         };
         let response = json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "response",
             "id": id,
             "ok": true,
@@ -293,6 +293,7 @@ fn exited_terminal_snapshot() -> Value {
     json!({
         "id": TERMINAL_ID,
         "tab_id": TAB_ID,
+        "tab_ids": [TAB_ID],
         "title": "health check",
         "cwd": "/tmp",
         "cols": 80,

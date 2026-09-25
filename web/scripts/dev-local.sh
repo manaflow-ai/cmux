@@ -3,6 +3,23 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# On developer Macs the VM owns Next and Postgres. Never start Docker here.
+if [[ "$(uname -s)" == Darwin ]]; then
+  backend_helper="$ROOT_DIR/../scripts/dev-backend.sh"
+  [[ -x "$backend_helper" ]] || { echo 'Shared GCP backend helper is missing; update the HQ worktree tooling.' >&2; exit 1; }
+  tag="${CMUX_TAG:-}"
+  if [[ -z "$tag" ]]; then
+    branch="$(git -C "$ROOT_DIR/.." branch --show-current)"
+    [[ -n "$branch" ]] || { echo 'Set CMUX_TAG for a detached checkout.' >&2; exit 1; }
+    slug="$(printf '%s' "$branch" | tr -cs 'A-Za-z0-9._-' '-' | cut -c1-45)"
+    digest="$(printf '%s' "$branch" | shasum -a 256 | cut -c1-8)"
+    tag="web-${slug}-${digest}"
+  fi
+  "$backend_helper" start --tag "$tag" --checkout "$ROOT_DIR/.." --transport direct
+  "$backend_helper" url --tag "$tag"
+  exit 0
+fi
+
 # shellcheck disable=SC1091
 source "$ROOT_DIR/scripts/load-dev-env.sh"
 
@@ -142,6 +159,9 @@ cmux web dev
   CMUX_WEB_EXTRA_SECRET_ENV_FILE=${CMUX_WEB_EXTRA_SECRET_ENV_FILE:-}
 EOF
 
+# This explicit opt-in is consumed by the billing guard. It is set only by
+# this local development launcher, never by preview or production config.
+export CMUX_LOCAL_DEV_PRO=1
 next dev --port "$CMUX_PORT" &
 next_pid=$!
 

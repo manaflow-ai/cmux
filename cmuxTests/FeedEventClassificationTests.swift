@@ -19,10 +19,20 @@ import Testing
 @Suite("Feed event classification")
 struct FeedEventClassificationTests {
     private func classify(_ source: String, _ event: String, tool: String = "")
-        -> (name: String, actionable: Bool)
+        -> (
+            name: String,
+            actionable: Bool,
+            notifiesNativeApprovalPrompt: Bool,
+            clearsNativeApprovalPrompt: Bool
+        )
     {
         let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
-        return (result.0, result.1)
+        return (
+            result.hookEventName,
+            result.isActionable,
+            result.notifiesNativeApprovalPrompt,
+            result.clearsNativeApprovalPrompt
+        )
     }
 
     // MARK: Hermes Agent (the reported bug)
@@ -122,6 +132,65 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
     }
 
+    /// Codex blocks in its OWN approval reviewer when `PermissionRequest`
+    /// fires, so the feed event must stay non-actionable telemetry — but the
+    /// bridge must still raise the "Agent Needs Permission"-gated
+    /// notification, or a blocked codex seat is silent indefinitely.
+    /// https://github.com/manaflow-ai/cmux/issues/9592
+    @Test func codexPermissionRequestRaisesPermissionPromptNotification() {
+        for event in ["PermissionRequest", "permission_request"] {
+            let classification = classify("codex", event, tool: "shell")
+            #expect(classification.notifiesNativeApprovalPrompt == true)
+            // The blocking contract is unchanged: telemetry wire event, no
+            // cmux Feed approval card competing with Codex's own reviewer.
+            #expect(classification.name == "PreToolUse")
+            #expect(classification.actionable == false)
+        }
+    }
+
+    /// The permission-prompt notification is exclusive to agents that block
+    /// in their own approval UI. Blocking-capable agents (claude, gemini,
+    /// kiro) notify through the app's actionable-approval path, ordinary
+    /// telemetry never notifies, and unknown sources stay silent by default.
+    @Test func permissionPromptNotificationStaysScopedToNativeApprovalAgents() {
+        #expect(classify("claude", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
+        #expect(classify("gemini", "PreToolUse", tool: "Bash").notifiesNativeApprovalPrompt == false)
+        #expect(classify("kiro", "preToolUse", tool: "fs_write").notifiesNativeApprovalPrompt == false)
+        #expect(classify("codex", "PreToolUse", tool: "shell").notifiesNativeApprovalPrompt == false)
+        #expect(classify("codex", "PostToolUse", tool: "shell").notifiesNativeApprovalPrompt == false)
+        #expect(classify("hermes-agent", "pre_approval_request").notifiesNativeApprovalPrompt == false)
+        #expect(classify("totally-new-agent", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
+    }
+
+    /// A COMPLETED codex tool proves any pending native approval prompt
+    /// resolved — execution strictly follows approval (by the user or by
+    /// Codex's own auto-review) — so PostToolUse clears the pane's stale
+    /// permission notification, mirroring the pane-wide clears Claude's
+    /// lifecycle hooks and Hermes' approval-response hook already perform.
+    @Test func codexToolCompletionClearsNativeApprovalPrompt() {
+        #expect(classify("codex", "PostToolUse", tool: "shell").clearsNativeApprovalPrompt == true)
+        #expect(classify("codex", "post_tool_use", tool: "shell").clearsNativeApprovalPrompt == true)
+    }
+
+    /// Pre-tool events must NOT clear: codex fires them when it INTENDS to
+    /// run a tool, with no ordering guarantee against the PermissionRequest
+    /// hook, so a start-time clear could erase the just-raised prompt while
+    /// the agent is still blocked — reintroducing #9592's silence. The clear
+    /// also stays scoped: the prompt event itself notifies rather than
+    /// clears, and agents that never raise native approval prompts must not
+    /// have their tool telemetry touch the notification queue.
+    @Test func nativeApprovalPromptClearStaysScopedToCodexToolCompletion() {
+        #expect(classify("codex", "PreToolUse", tool: "shell").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "pre_tool_use", tool: "shell").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "beforeShellExecution", tool: "shell").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "PermissionRequest", tool: "shell").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "Stop", tool: "").clearsNativeApprovalPrompt == false)
+        #expect(classify("claude", "PreToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
+        #expect(classify("claude", "PostToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
+        #expect(classify("gemini", "PreToolUse", tool: "Read").clearsNativeApprovalPrompt == false)
+        #expect(classify("totally-new-agent", "PostToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
+    }
+
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
         for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
             let classification = classify("codex", event, tool: "shell")
@@ -197,5 +266,97 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "fs_write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
+    }
+
+    // MARK: Attention command construction (the wire the feed hook sends)
+
+    private static let workspaceUUID = "11111111-2222-3333-4444-555555555555"
+    private static let surfaceUUID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+
+    private func attentionCommand(
+        _ source: String,
+        _ event: String,
+        tool: String,
+        displayName: String = "Codex",
+        workspaceId: String? = workspaceUUID,
+        surfaceId: String? = surfaceUUID
+    ) -> String? {
+        FeedEventClassifier.nativeApprovalPromptAttentionCommand(
+            classification: FeedEventClassifier.classify(source: source, event: event, toolName: tool),
+            displayName: displayName,
+            toolName: tool,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+    }
+
+    /// The exact `notify_target_async` line for a codex PermissionRequest:
+    /// UUID-addressed, tool-name-only body (never the tool input), and the
+    /// `c=needs-permission;p=0` meta that gates the alert under the "Agent
+    /// Needs Permission" setting. A malformed payload or dropped meta here
+    /// is what silently regresses https://github.com/manaflow-ai/cmux/issues/9592.
+    @Test func codexPermissionRequestBuildsGatedNotifyCommand() {
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "shell")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0"
+        )
+    }
+
+    /// Without a tool name the body falls back to the shared "Approval
+    /// needed" string rather than an empty interpolation.
+    @Test func codexPermissionRequestWithoutToolNameFallsBackToApprovalNeeded() {
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|Approval needed|c=needs-permission;p=0"
+        )
+    }
+
+    /// Tool names are payload-controlled input: pipes are the payload
+    /// delimiter and newlines would split the single socket command line,
+    /// so both must be neutralized.
+    @Test func attentionCommandSanitizesPipeAndNewlineInToolName() {
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "a|b")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a¦b needs approval|c=needs-permission;p=0"
+        )
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "a\nb")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a b needs approval|c=needs-permission;p=0"
+        )
+    }
+
+    /// Codex tool completion resolves the prompt: the exact pane-scoped
+    /// `clear_notifications` line.
+    @Test func codexToolCompletionBuildsPaneScopedClearCommand() {
+        #expect(
+            attentionCommand("codex", "PostToolUse", tool: "shell")
+                == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID)"
+        )
+    }
+
+    /// Lowercase UUIDs from the pane environment are normalized, not
+    /// rejected.
+    @Test func attentionCommandNormalizesLowercaseUUIDs() {
+        let command = attentionCommand(
+            "codex",
+            "PermissionRequest",
+            tool: "shell",
+            workspaceId: Self.workspaceUUID.lowercased(),
+            surfaceId: Self.surfaceUUID.lowercased()
+        )
+        #expect(command?.contains("notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) ") == true)
+    }
+
+    /// The command is advisory: missing or non-UUID identities yield nil
+    /// instead of a malformed socket command, and events without attention
+    /// semantics never produce a command at all.
+    @Test func attentionCommandRequiresUUIDTargetsAndAttentionSemantics() {
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: nil) == nil)
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", surfaceId: nil) == nil)
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", surfaceId: "surface:1") == nil)
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: "workspace:1") == nil)
+        #expect(attentionCommand("codex", "PreToolUse", tool: "shell") == nil)
+        #expect(attentionCommand("claude", "PermissionRequest", tool: "Bash") == nil)
+        #expect(attentionCommand("totally-new-agent", "PermissionRequest", tool: "Bash") == nil)
     }
 }

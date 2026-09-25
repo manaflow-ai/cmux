@@ -1,4 +1,4 @@
-//! Transport-independent machine routing for `cmux.protocol/1`.
+//! Transport-independent machine routing for `cmux.protocol/2`.
 //!
 //! The session mux owns local terminal state. Machine catalogs and providers
 //! live in the outer runtime, so the public router crosses this injected
@@ -6,7 +6,7 @@
 
 #[cfg(test)]
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Weak;
 
@@ -15,13 +15,14 @@ use serde_json::{Map, Value, json};
 
 use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId, ResourceError,
-    ResourceOperation, Selector, SessionPublicId,
+    ResourceOperation, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
 };
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
-    RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
-    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
-    ResourceEffectOutcome, ResourceEffectPreparation, TerminalLifecycle,
+    FrontendProjection, RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource,
+    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
+    RegistryTerminal, RegistryViewport, ResourceEffectOutcome, ResourceEffectPreparation,
+    TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
 
@@ -31,8 +32,36 @@ thread_local! {
         RefCell::new(None);
 }
 
+pub(crate) fn public_frontend_projection_snapshot(
+    session_id: &SessionPublicId,
+    id: &FrontendProjectionPublicId,
+    stored: &FrontendProjection,
+) -> Result<Value, ResourceError> {
+    let malformed = || {
+        ResourceError::operation_failed(
+            "frontend_projection.get",
+            "stored frontend projection is malformed",
+            json!({"frontend_projection":id}),
+        )
+    };
+    let envelope = stored.projection.as_object().ok_or_else(&malformed)?;
+    let frontend_id = envelope.get("frontend_id").and_then(Value::as_str).ok_or_else(&malformed)?;
+    let window_id = envelope.get("window_id").and_then(Value::as_str).ok_or_else(&malformed)?;
+    let generation = envelope.get("generation").and_then(Value::as_str).ok_or_else(&malformed)?;
+    let projection = envelope.get("projection").cloned().ok_or_else(&malformed)?;
+    Ok(json!({
+        "id":id,
+        "session_id":session_id,
+        "frontend_id":frontend_id,
+        "window_id":window_id,
+        "generation":generation,
+        "projection":projection,
+        "projection_revision":stored.projection_revision.to_string(),
+    }))
+}
+
 #[cfg(test)]
-fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
+pub(crate) fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
     SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
         *slot.borrow_mut() = Some(Box::new(hook));
     });
@@ -113,7 +142,7 @@ impl ResourceMachineService for LocalResourceMachineService {
             }
             ResourceOperation::SessionOpen => self.open_local_session(request, &context),
             operation => Err(ResourceError::operation_failed(
-                resource_operation_name(operation),
+                operation.wire_name().to_owned(),
                 "operation was routed to the wrong machine service",
                 json!({}),
             )),
@@ -356,15 +385,95 @@ pub(crate) fn operation_failed(error: anyhow::Error) -> ResourceError {
     ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
 }
 
-fn resource_operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operation serializes")
-        .as_str()
-        .expect("resource operation serializes as a string")
-        .to_string()
+pub(crate) fn terminal_tab_ids_in_canonical_order(
+    tabs: impl IntoIterator<Item = (TerminalPublicId, PanePublicId, usize, TabPublicId)>,
+) -> HashMap<TerminalPublicId, Vec<TabPublicId>> {
+    let mut tabs = tabs.into_iter().collect::<Vec<_>>();
+    tabs.sort_by(|left, right| {
+        left.1
+            .as_str()
+            .cmp(right.1.as_str())
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.as_str().cmp(right.3.as_str()))
+    });
+    let mut ordered = HashMap::<TerminalPublicId, Vec<TabPublicId>>::new();
+    for (terminal_id, _pane_id, _position, tab_id) in tabs {
+        ordered.entry(terminal_id).or_default().push(tab_id);
+    }
+    ordered
+}
+
+pub(crate) fn public_terminal_snapshot(
+    terminal_id: &TerminalPublicId,
+    durable: &RegistryTerminal,
+    surface: Option<&crate::Surface>,
+    tab_ids: Vec<TabPublicId>,
+) -> anyhow::Result<Value> {
+    let lifecycle = match durable.lifecycle {
+        TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
+        TerminalLifecycle::Running => "running",
+        TerminalLifecycle::Exited => "exited",
+        TerminalLifecycle::Tombstoned => {
+            anyhow::bail!("public terminal projection contains a tombstoned terminal")
+        }
+    };
+    let durable_size = |field: &str, fallback: u16| {
+        durable.launch_spec[field]
+            .as_u64()
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(fallback)
+    };
+    let (cols, rows) = surface
+        .map(crate::Surface::size)
+        .unwrap_or_else(|| (durable_size("cols", 80), durable_size("rows", 24)));
+    let mut terminal = json!({
+        "id": terminal_id,
+        "tab_id": tab_ids.first(),
+        "tab_ids": tab_ids,
+        "title": surface.map(crate::Surface::title).unwrap_or_default(),
+        "cols": cols.max(1),
+        "rows": rows.max(1),
+        "running": durable.lifecycle == TerminalLifecycle::Running,
+        "lifecycle": lifecycle,
+    });
+    if let Some(surface) = surface
+        && let Ok(revision) = surface.terminal_stream_revision()
+    {
+        // This is a coalesced output revision, not the resource revision. It
+        // lets external observers skip a full screen read when the PTY did
+        // not change.
+        terminal["stream_revision"] = json!(revision.to_string());
+    }
+    if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
+        terminal["cwd"] = json!(cwd);
+    }
+    if durable.lifecycle == TerminalLifecycle::Exited {
+        terminal["exit"] =
+            durable.exit.clone().context("exited terminal omitted its durable outcome")?;
+    } else {
+        debug_assert!(
+            durable.exit.is_none(),
+            "non-exited terminal unexpectedly has a durable outcome"
+        );
+    }
+    Ok(terminal)
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
+    public_session_snapshot_with_journal_head(mux).map(|(snapshot, _)| snapshot)
+}
+
+/// Returns the public session snapshot together with the session journal head
+/// read under the same registry + state projection lock. The pair is one
+/// consistent cut: every journal record at or below the returned head is
+/// reflected in the snapshot, and every later record is not. Checkpoint
+/// capture keys its consistency fence to this cut so a journal write that
+/// merely precedes the cut cannot spuriously abort the capture.
+pub(crate) fn public_session_snapshot_with_journal_head(
+    mux: &Mux,
+) -> Result<(Value, u64), ResourceError> {
+    mux.publish_pending_terminal_directories();
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -375,9 +484,11 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
+        let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
+        let terminal_resource_ids = registry.live_terminal_resource_ids()?;
         let public_projections = registry.public_projections()?;
         anyhow::ensure!(
             registry_snapshot.generation == topology.generation
@@ -416,6 +527,12 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             .terminals
             .iter()
             .map(|terminal| (terminal.terminal_id.as_str(), terminal))
+            .collect::<HashMap<_, _>>();
+        let terminal_resources_by_host =
+            terminal_resource_ids.iter().cloned().collect::<HashMap<_, _>>();
+        let terminal_hosts_by_resource = terminal_resource_ids
+            .into_iter()
+            .map(|(host_id, terminal_id)| (terminal_id, host_id))
             .collect::<HashMap<_, _>>();
 
         let workspaces = registry_snapshot
@@ -479,76 +596,84 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 let pane = panes_by_id
                     .get(&tab.pane_id)
                     .ok_or_else(|| anyhow::anyhow!("tab references a missing pane"))?;
-                let content_kind = match tab.content_id {
-                    ContentPublicId::Terminal(_) => "terminal",
-                    ContentPublicId::Browser(_) => "browser",
-                };
-                Ok(json!({
-                    "id": tab.public_id,
-                    "pane_id": tab.pane_id,
-                    "name": tab.name,
-                    "index": checked_index(tab.position)?,
-                    "focused": pane.active_tab.as_ref() == Some(&tab.public_id),
-                    "content_kind": content_kind,
-                    "content_id": tab.content_id.as_str(),
-                }))
+                checked_index(tab.position)?;
+                Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
-        let terminals = topology
-            .tabs
-            .iter()
-            .filter_map(|tab| {
-                let ContentPublicId::Terminal(terminal_id) = &tab.content_id else {
-                    return None;
-                };
-                Some((|| {
-                    let durable_id = tab
-                        .terminal_id
-                        .as_deref()
-                        .context("terminal tab omitted its durable terminal identity")?;
-                    let durable = terminals_by_id
-                        .get(durable_id)
-                        .with_context(|| format!("terminal tab references missing {durable_id}"))?;
-                    let lifecycle = match durable.lifecycle {
-                        TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
-                        TerminalLifecycle::Running => "running",
-                        TerminalLifecycle::Exited => "exited",
-                        TerminalLifecycle::Tombstoned => {
-                            anyhow::bail!("live terminal tab references a tombstoned terminal")
-                        }
-                    };
-                    let surface = state
-                        .resource_indexes
-                        .content
-                        .get(&tab.content_id)
-                        .and_then(|slot| state.surfaces.get(slot));
-                    let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
-                    let mut terminal = json!({
-                        "id": terminal_id,
-                        "tab_id": tab.public_id,
-                        "title": surface.map(|surface| surface.title()).unwrap_or_default(),
-                        "cols": cols.max(1),
-                        "rows": rows.max(1),
-                        "running": durable.lifecycle == TerminalLifecycle::Running,
-                        "lifecycle": lifecycle,
-                    });
-                    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
-                        terminal["cwd"] = json!(cwd);
-                    }
-                    if durable.lifecycle == TerminalLifecycle::Exited {
-                        terminal["exit"] = durable
-                            .exit
-                            .clone()
-                            .context("exited terminal omitted its durable outcome")?;
-                    } else {
-                        anyhow::ensure!(
-                            durable.exit.is_none(),
-                            "non-exited terminal unexpectedly has a durable outcome"
-                        );
-                    }
-                    Ok(terminal)
-                })())
+        let mut terminal_order = Vec::new();
+        let mut seen_terminals = HashSet::new();
+        for tab in &topology.tabs {
+            if let ContentPublicId::Terminal(terminal_id) = &tab.content_id {
+                if seen_terminals.insert(terminal_id.clone()) {
+                    terminal_order.push(terminal_id.clone());
+                }
+                let host_id = terminal_hosts_by_resource.get(terminal_id).with_context(|| {
+                    format!("terminal {terminal_id} omitted its durable identity")
+                })?;
+                if let Some(tab_host_id) = &tab.terminal_id {
+                    anyhow::ensure!(
+                        tab_host_id == host_id,
+                        "terminal {terminal_id} references a mismatched durable host"
+                    );
+                }
+            }
+        }
+        let mut tab_ids_by_terminal =
+            terminal_tab_ids_in_canonical_order(topology.tabs.iter().filter_map(|tab| {
+                match &tab.content_id {
+                    ContentPublicId::Terminal(terminal_id) => Some((
+                        terminal_id.clone(),
+                        tab.pane_id.clone(),
+                        tab.position,
+                        tab.public_id.clone(),
+                    )),
+                    ContentPublicId::Browser(_) => None,
+                }
+            }));
+        for durable in &terminal_registry.terminals {
+            if let Some(terminal_id) = terminal_resources_by_host.get(&durable.terminal_id)
+                && seen_terminals.insert(terminal_id.clone())
+            {
+                terminal_order.push(terminal_id.clone());
+            }
+        }
+        for (host_id, terminal_id) in &terminal_resources_by_host {
+            if !terminals_by_id.contains_key(host_id.as_str()) {
+                // A resource row whose durable host vanished (a close that
+                // tombstoned the registry but not the resource row, or a crash
+                // between the two writes) must not fail the whole snapshot:
+                // every client renders a failed snapshot as "machine
+                // unreachable". Skip the dangling row; the close path owns the
+                // repair.
+                eprintln!(
+                    "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
+                );
+            }
+        }
+
+        let terminals = terminal_order
+            .into_iter()
+            .map(|terminal_id| {
+                let surface = state.terminal_catalog.get(&terminal_id);
+                let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
+                    format!("terminal {terminal_id} omitted its durable identity")
+                })?;
+                if let Some(surface) = surface {
+                    let runtime_host =
+                        mux.resource_terminal_host_identity(surface).with_context(|| {
+                            format!("terminal {terminal_id} runtime omitted its durable identity")
+                        })?;
+                    anyhow::ensure!(
+                        runtime_host.terminal_id == *host_id,
+                        "terminal {terminal_id} runtime references a mismatched durable host"
+                    );
+                }
+                let durable = terminals_by_id.get(host_id.as_str()).with_context(|| {
+                    format!("terminal {terminal_id} references missing {host_id}")
+                })?;
+                let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
+                public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -565,11 +690,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                     return None;
                 };
                 let durable = *browsers_by_id.get(browser_id)?;
-                let surface = state
-                    .resource_indexes
-                    .content
-                    .get(&tab.content_id)
-                    .and_then(|slot| state.surfaces.get(slot));
+                let surface = state.surface_by_content_public_id(&tab.content_id);
                 Some(public_browser_snapshot(tab, durable, surface))
             })
             .collect::<Vec<_>>();
@@ -589,16 +710,15 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                     "unread": notification
                         .terminal_id
                         .as_ref()
-                        .and_then(|terminal_id| {
-                            state.resource_indexes.content.get(&ContentPublicId::Terminal(
-                                terminal_id.clone(),
-                            ))
-                        })
-                        .and_then(|surface| mux.surface_notification(*surface))
+                        .and_then(|terminal_id| mux.terminal_notification(terminal_id))
                         .is_some_and(|notification| notification.unread),
+                    "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
                     snapshot["terminal_id"] = json!(terminal_id);
+                }
+                if let Some(subtitle) = notification.subtitle {
+                    snapshot["subtitle"] = json!(subtitle);
                 }
                 snapshot
             })
@@ -606,17 +726,23 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         let mut agents = public_projections
             .agents
             .into_iter()
-            .map(|agent| {
-                json!({
-                    "id": agent.id,
-                    "session_id": topology.session_id,
-                    "terminal_id": agent.terminal_id,
-                    "state": agent.state,
-                    "source": agent.source,
-                    "updated_at_ms": agent.updated_at_ms.to_string(),
-                    "source_session": agent.source_session,
-                })
+            .filter(|agent| {
+                (agent.source != "hook" || agent.state != "done")
+                    && !agent
+                        .source_session
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
             })
+            .map(|mut agent| {
+                if agent.source_session.as_deref().is_some_and(|value| {
+                    value.starts_with("cmux-hook-sequence:")
+                        || value.starts_with("cmux-hook-ended:")
+                }) {
+                    agent.source_session = None;
+                }
+                agent
+            })
+            .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
@@ -625,17 +751,13 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             .frontend_projections
             .into_iter()
             .map(|projection| {
-                let id = FrontendProjectionPublicId::parse(projection.subject_key)?;
-                Ok(json!({
-                    "id": id,
-                    "session_id": topology.session_id,
-                    "projection": projection.projection,
-                }))
+                let id = FrontendProjectionPublicId::parse(projection.subject_key.as_str())?;
+                public_frontend_projection_snapshot(&topology.session_id, &id, &projection)
             })
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
 
-        Ok(json!({
+        let snapshot = json!({
             "machine": machine_snapshot(&context),
             "session": session_snapshot(&context),
             "workspaces": workspaces,
@@ -653,7 +775,8 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
             },
-        }))
+        });
+        Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)
 }
@@ -785,7 +908,7 @@ fn public_browser_snapshot(
             RegistryBrowserSource::External => "external",
             RegistryBrowserSource::Launched => "launched",
             RegistryBrowserSource::Unknown => match durable.launch {
-                RegistryBrowserLaunch::Create => "launched",
+                RegistryBrowserLaunch::Create => "external",
                 RegistryBrowserLaunch::Adopted => "external",
             },
         });
@@ -827,7 +950,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> Value {
         let mut request = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,
@@ -895,6 +1018,217 @@ mod tests {
     }
 
     #[test]
+    fn cloud_cwd_snapshot_presents_the_launch_directory_until_the_shell_reports() {
+        // https://github.com/manaflow-ai/cmux/issues/10756: the daemon spawned
+        // the shell in a known directory, and a shell that has not reported
+        // (or never will, without shell integration) still presents it.
+        let mux = Mux::new_for_test(
+            "cloud-cwd-launch",
+            SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        let cwd = |mux: &Mux| {
+            public_session_snapshot(mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str())
+                .unwrap()["cwd"]
+                .clone()
+        };
+        assert_eq!(cwd(&mux), "/tmp");
+        // A report replaces the launch directory; an explicit clear removes the
+        // directory instead of resurrecting the launch directory.
+        surface.set_test_pwd(Some("file://localhost/srv/live".into()));
+        assert_eq!(cwd(&mux), "/srv/live");
+        surface.set_test_pwd(None);
+        assert!(cwd(&mux).is_null());
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_cwd_snapshot_follows_reported_directory_instead_of_launch_directory() {
+        let mux = Mux::new_for_test(
+            "cloud-cwd",
+            SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        for directory in ["/srv/first", "/srv/second"] {
+            surface.set_test_pwd(Some(format!("file://localhost{directory}")));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let terminal = snapshot["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str())
+                .unwrap();
+            assert_eq!(terminal["cwd"], directory);
+        }
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_cwd_changes_publish_ordered_terminal_deltas_and_clear_untrusted_reports() {
+        let mux = Mux::new_for_test("cloud-cwd-events", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let mut revision = initial["cursor"]["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        for raw in [
+            Some("file://localhost/srv/one"),
+            Some("file://localhost/srv/two"),
+            Some("file://unrelated.invalid/Users/local"),
+        ] {
+            surface.set_test_pwd(raw.map(str::to_string));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let page = mux.resource_events_after(revision).unwrap();
+            assert_eq!(page.batches.len(), 1);
+            let batch = &page.batches[0];
+            assert_eq!(batch.previous_revision, revision);
+            assert_eq!(batch.revision, revision + 1);
+            assert_eq!(batch.changes[0]["resource"], "terminal");
+            assert_eq!(batch.changes[0]["value"]["cwd"], snapshot["terminals"][0]["cwd"]);
+            assert_eq!(batch.changes[0]["value"], snapshot["terminals"][0]);
+            assert_eq!(snapshot["tabs"], initial["tabs"]);
+            revision = batch.revision;
+            let _ = public_session_snapshot(&mux).unwrap();
+            assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
+        }
+        assert!(public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"].is_null());
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_reaches_snapshot_and_event_feed() {
+        let mux = Mux::new_for_test(
+            "cloud-cwd-osc",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '\\033]7;file://localhost/srv/live\\007'; read value".into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let _surface = mux.new_workspace(Some("osc".into()), None).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let epoch = mux.resource_event_epoch();
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            if snapshot["terminals"][0]["cwd"] == "/srv/live" {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "OSC 7 cwd never reached the public graph");
+            mux.wait_for_resource_event(epoch, remaining);
+        }
+        assert!(mux.resource_events_after(0).unwrap().batches.iter().any(|batch| {
+            batch.changes.as_array().unwrap().iter().any(|change| {
+                change["resource"] == "terminal" && change["value"]["cwd"] == "/srv/live"
+            })
+        }));
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_clear_reaches_snapshot() {
+        // A shell that reports a directory and later reports none (an empty
+        // OSC 7, as when it leaves the host it described) must clear the
+        // published cwd through the same incremental parser path.
+        let mux = Mux::new_for_test(
+            "cloud-cwd-osc-clear",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '\\033]7;file://localhost/srv/live\\007'; read value; printf '\\033]7;\\007'; read value"
+                        .into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("osc-clear".into()), None).unwrap();
+        let wait_for_cwd = |expected: Option<&str>, message: &str| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let epoch = mux.resource_event_epoch();
+                let cwd = &public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"];
+                let reached = match expected {
+                    Some(directory) => cwd == directory,
+                    None => cwd.is_null(),
+                };
+                if reached {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                assert!(!remaining.is_zero(), "{message}");
+                mux.wait_for_resource_event(epoch, remaining);
+            }
+        };
+        wait_for_cwd(Some("/srv/live"), "OSC 7 cwd never reached the public graph");
+        surface.write_bytes(b"\n").unwrap();
+        wait_for_cwd(None, "an empty OSC 7 report never cleared the published cwd");
+        mux.shutdown();
+    }
+
+    #[test]
+    fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
+        let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("restoring".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        mux.remove_terminal_catalog_for_test(&terminal_id).unwrap();
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("durable terminal remains visible while its runtime is not adopted");
+        assert_eq!(terminal["cols"], 80);
+        assert_eq!(terminal["rows"], 24);
+        assert_eq!(terminal["lifecycle"], "running");
+
+        // The daemon owns terminal lifecycle. A renderer snapshot must expose
+        // each durable terminal exactly once even when its runtime is absent.
+        let terminal_ids = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|terminal| terminal["id"].as_str().expect("terminal id"))
+            .collect::<HashSet<_>>();
+        assert_eq!(terminal_ids.len(), snapshot["terminals"].as_array().unwrap().len());
+    }
+
+    #[test]
+    fn snapshot_keeps_exited_terminal_receipt_after_its_last_view_detaches() {
+        let mux = Mux::new_for_test("snapshot-exited-receipt", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.surface_exited(surface.id);
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("durable exit receipt remains publicly addressable until terminal.close");
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert!(terminal["exit"].is_object());
+        mux.shutdown();
+    }
+
+    #[test]
     fn snapshot_cursor_and_auxiliary_values_share_one_durable_cut() {
         let mux = Mux::new_for_test("snapshot-cut", SurfaceOptions::default());
         let created = resource_request(
@@ -945,7 +1279,7 @@ mod tests {
                 "machine":"current",
                 "session":"current",
                 "terminal_id":terminal_id,
-                "state":"done",
+                "state":"blocked",
                 "source":"hook",
                 "source_session":"after",
             }),
@@ -985,6 +1319,9 @@ mod tests {
                 "machine":"current",
                 "session":"current",
                 "frontend_projection":"projection_00000000000000000000000000000001",
+                "frontend_id":"cmux-test",
+                "window_id":"window-snapshot-cut",
+                "generation":"launch-snapshot-cut",
                 "projection":{"cut":"after"},
             }),
             Some("snapshot-cut-projection"),
@@ -1092,12 +1429,12 @@ mod tests {
             },
         ];
         let tabs = vec![RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
             public_id: tab_a.clone(),
             pane_id: pane_a,
             position: 0,
-            content_id: ContentPublicId::Terminal(
-                crate::resource::TerminalPublicId::random().unwrap(),
-            ),
+            content_id: ContentPublicId::Terminal(TerminalPublicId::random().unwrap()),
             name: None,
             browser_url: None,
             terminal_id: Some("hosted".into()),

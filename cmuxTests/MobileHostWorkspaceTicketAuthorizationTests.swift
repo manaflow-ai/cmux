@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CoreGraphics
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -68,6 +69,70 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
         let data = try #require(Data(base64Encoded: encoded))
         return try CmxAttachTicketCompactCoder().decode(data)
+    }
+
+    // `MobileHostPublicStatusCache` is process-wide, and the app host installs a
+    // `UserDefaults.didChangeNotification` observer (`AppDelegate`.`installMobileHostSettingsObserver`)
+    // that re-syncs the mobile host on a main-actor task after *any* defaults
+    // write anywhere in the process. With pairing off, that sync runs
+    // `MobileHostIrxRuntime.prepareForStop()`, which calls
+    // `MobileHostPublicStatusCache.removeAll()`. So a fixture publication parked
+    // in that cache does not survive an `await`: every suspension in this test
+    // is a window for another suite's defaults write to empty it. This test
+    // therefore reads the cache and resolves the ticket subject within a single
+    // main-actor turn instead of driving the async mint entry point.
+    @Test func pairingTicketUsesThePublishedV2InstallationIdentity() throws {
+        let deviceID = "123e4567-e89b-42d3-a456-426614174088"
+        let route = try irohRoute()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        defer {
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+        }
+
+        // An Iroh ticket must not be minted against the legacy per-install
+        // identity before the v2 installation identity has been published.
+        MobileHostPublicStatusCache.update(routes: [route])
+        MobileHostPublicStatusCache.updateV2DeviceID(nil)
+        #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try MobileHostService.attachTicketSubject(
+                publishedStatus: MobileHostPublicStatusCache.publishedStatus(),
+                routeID: nil,
+                routeKind: nil,
+                target: .physicalDevice
+            )
+        }
+
+        // Once it is published, the mint takes BOTH halves — the dialable
+        // routes and the Mac identity — from that same publication.
+        MobileHostPublicStatusCache.updateV2DeviceID(deviceID)
+        let published = MobileHostPublicStatusCache.publishedStatus()
+        #expect(published.routes.contains(route))
+        #expect(published.v2DeviceID == deviceID)
+        let subject = try MobileHostService.attachTicketSubject(
+            publishedStatus: published,
+            routeID: nil,
+            routeKind: nil,
+            target: .physicalDevice
+        )
+        #expect(subject.deviceID == deviceID)
+        #expect(subject.routes.allSatisfy { $0.kind == .iroh })
+
+        // ...and that identity reaches the phone through the v2 pairing URL.
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: subject.routes,
+            ttl: 60,
+            macDeviceID: subject.deviceID
+        )
+        #expect(ticket.macDeviceID == deviceID)
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let url = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxPairingQRCode().decode(try #require(URLComponents(string: url)))
+        #expect(decoded.macDeviceID == deviceID)
     }
 
     @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
@@ -232,6 +297,69 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(try compactTicket(from: attachURL).routes == ticket.routes)
     }
 
+    @Test func omittedTargetTailscaleCompatibilityCodeIsMinimalV2() throws {
+        let store = MobileAttachTicketStore()
+        let secondaryTailscale = try tailscaleRoute(
+            id: "tailscale_2",
+            host: "100.64.0.6",
+            priority: 20
+        )
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [
+                try loopbackRoute(),
+                try tailscaleRoute(),
+                secondaryTailscale,
+                try irohRoute(),
+            ],
+            ttl: 3600,
+            macUserEmail: "Owner@Example.com",
+            macUserID: "user_mac_123",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: "0.65.0",
+            macAppBuild: "42"
+        )
+
+        let payload = try store.payload(for: ticket)
+        let attachURL = try #require(payload["attach_url"] as? String)
+
+        // The pairing window's Tailscale code speaks the plain v2 grammar:
+        // routes plus the account binding (`ub`, the wrong-account fast-fail)
+        // and the compatibility level (`pc`, which fielded decoders default
+        // to 0 when absent, spuriously firing the cross-version warning).
+        // Never base64 JSON carrying device id, display name, or build
+        // metadata: those arrive post-handshake from `mobile.host.status`.
+        #expect(CmxPairingQRCode().isPairingCodeURLString(attachURL))
+        #expect(!attachURL.contains("payload="))
+        #expect(!attachURL.contains("av="))
+        #expect(!attachURL.contains("ab="))
+        #expect(!attachURL.lowercased().contains("owner@example.com"))
+        #expect(!attachURL.contains("relay.should-not-leak.example"))
+        #expect(!attachURL.contains(try #require(ticket.authToken)))
+
+        let components = try #require(URLComponents(string: attachURL))
+        let decoded = try CmxPairingQRCode().decode(components)
+        #expect(decoded.routes == [try tailscaleRoute(), secondaryTailscale])
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(
+            decoded.macPairingCompatibilityVersion
+                == CmxMobileDefaults.pairingCompatibilityVersion
+        )
+        #expect(decoded.macAppVersion == nil)
+        #expect(decoded.macAppBuild == nil)
+        #expect(decoded.macDisplayName == nil)
+        #expect(decoded.macDeviceID == "")
+
+        // Scannability: the account-bound two-route code stays at or below
+        // QR version 8 (49x49 modules) at the renderer's ECC M, so modules
+        // render large on a glossy screen. The full-key JSON payload this
+        // replaced rendered version 23 (109x109 modules).
+        let image = try #require(CmxPairingQRBitmap().makeImage(payload: attachURL))
+        let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+        #expect(modules <= 49, "pairing QR too dense: \(modules)x\(modules) modules")
+    }
+
     #if DEBUG
     @Test func omittedTargetRPCPreservesLegacyAttachURL() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -240,18 +368,8 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         defer { TerminalController.shared.setActiveTabManager(previousManager) }
 
         let service = MobileHostService.shared
-        service.debugSetListenerStateForTesting(
-            generation: UUID(),
-            usesEphemeralFallback: false,
-            port: 61_234
-        )
-        defer {
-            service.debugSetListenerStateForTesting(
-                generation: UUID(),
-                usesEphemeralFallback: false,
-                port: nil
-            )
-        }
+        MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
+        defer { MobileHostPublicStatusCache.removeAll() }
         let workspace = try #require(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -286,13 +404,20 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
+    @Test func attachTicketWithoutPublishedRoutesPreservesNoRoutesError() async {
         let service = MobileHostService.shared
-        service.debugSetListenerStateForTesting(
-            generation: UUID(),
-            usesEphemeralFallback: false,
-            port: nil
-        )
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        defer {
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+            if let route = previousRoutes.first(where: { $0.kind == .iroh }),
+               case let .peer(identity, pathHints) = route.endpoint {
+                MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
+            }
+        }
+        MobileHostPublicStatusCache.removeAll()
 
         await #expect(throws: MobileAttachTicketStoreError.noRoutes) {
             try await service.createAttachTicket(
@@ -312,6 +437,30 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             ("workspace.action", ["workspace_id": "other-workspace", "action": "rename"], "forbidden"),
             ("workspace.close", ["workspace_id": "workspace"], nil),
             ("workspace.close", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.surface.focus", ["workspace_id": "workspace", "surface_id": "surface"], nil),
+            ("mobile.surface.focus", ["workspace_id": "other-workspace", "surface_id": "surface"], "forbidden"),
+            ("mobile.todo.add", ["workspace_id": "workspace", "text": "item"], nil),
+            ("mobile.todo.add", ["workspace_id": "other-workspace", "text": "item"], "forbidden"),
+            ("mobile.todo.set_state", ["workspace_id": "workspace", "id": "item", "state": "completed"], nil),
+            ("mobile.todo.set_state", ["workspace_id": "other-workspace", "id": "item", "state": "completed"], "forbidden"),
+            ("mobile.todo.edit", ["workspace_id": "workspace", "id": "item", "text": "edited"], nil),
+            ("mobile.todo.edit", ["workspace_id": "other-workspace", "id": "item", "text": "edited"], "forbidden"),
+            ("mobile.todo.move", ["workspace_id": "workspace", "id": "item", "to_index": "0"], nil),
+            ("mobile.todo.move", ["workspace_id": "other-workspace", "id": "item", "to_index": "0"], "forbidden"),
+            ("mobile.todo.remove", ["workspace_id": "workspace", "id": "item"], nil),
+            ("mobile.todo.remove", ["workspace_id": "other-workspace", "id": "item"], "forbidden"),
+            ("mobile.todo.open", ["workspace_id": "workspace"], nil),
+            ("mobile.todo.open", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.status.set", ["workspace_id": "workspace", "status": "done"], nil),
+            ("mobile.status.set", ["workspace_id": "other-workspace", "status": "done"], "forbidden"),
+            ("mobile.status.cycle", ["workspace_id": "workspace"], nil),
+            ("mobile.status.cycle", ["workspace_id": "other-workspace"], "forbidden"),
+            ("mobile.panel.artifact.stat", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.stat", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.fetch", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "workspace", "surface_id": "surface", "path": "/tmp/a"], nil),
+            ("mobile.panel.artifact.thumbnail", ["workspace_id": "other-workspace", "surface_id": "surface", "path": "/tmp/a"], "forbidden"),
         ]
 
         for testCase in cases {

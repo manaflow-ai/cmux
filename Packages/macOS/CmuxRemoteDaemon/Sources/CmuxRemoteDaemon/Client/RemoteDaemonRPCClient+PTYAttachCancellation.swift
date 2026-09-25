@@ -1,6 +1,34 @@
 internal import Foundation
 internal import CmuxFoundation
 
+/// Owns the cancellation deadline's dispatch source across callback queues.
+///
+/// `DispatchSourceTimer` supports concurrent, idempotent cancellation, but
+/// Xcode 16 does not declare it `Sendable`. This wrapper is the explicit
+/// concurrency boundary shared by the timer callback and transport writer.
+private final class PTYAttachCancellationTimer: @unchecked Sendable {
+    private let source: any DispatchSourceTimer
+
+    init(
+        deadline: DispatchTime,
+        queue: DispatchQueue,
+        handler: @escaping @Sendable () -> Void
+    ) {
+        source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(deadline: deadline)
+        source.setEventHandler(handler: handler)
+        source.activate()
+    }
+
+    deinit {
+        source.cancel()
+    }
+
+    func cancel() {
+        source.cancel()
+    }
+}
+
 extension RemoteDaemonRPCClient {
     func sendPTYAttachCancellation(
         requestID: Int,
@@ -29,13 +57,13 @@ extension RemoteDaemonRPCClient {
         let deadlineSettled = AtomicBooleanGate(false)
         // A one-shot DispatchSource is required here because this legacy
         // synchronous client has no async task in which to host the deadline.
-        let timeoutTimer = DispatchSource.makeTimerSource(queue: ptyAttachCancellationTimerQueue)
-        timeoutTimer.schedule(deadline: .now() + Self.ptyAttachCancellationWriteTimeout)
-        timeoutTimer.setEventHandler { [weak self] in
+        let timeoutTimer = PTYAttachCancellationTimer(
+            deadline: .now() + Self.ptyAttachCancellationWriteTimeout,
+            queue: ptyAttachCancellationTimerQueue
+        ) { [weak self] in
             guard deadlineSettled.compareExchange(expected: false, desired: true) else { return }
             self?.stop(suppressTerminationCallback: false)
         }
-        timeoutTimer.resume()
         writeQueue.async { [weak self] in
             defer {
                 _ = deadlineSettled.compareExchange(expected: false, desired: true)

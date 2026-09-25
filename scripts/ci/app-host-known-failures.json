@@ -1,0 +1,51 @@
+{
+  "_comment": "Temporary known-main app-host failures. Bootstrap entries come only from a reproducible current-main census. After bootstrap this set may only shrink.",
+  "bootstrap_main_sha": "638aaa717d431661e8fb85748964ac08ea87cc1b",
+  "version": 1,
+  "tests": {
+    "AppDelegateEqualizeSplitsShortcutTests/testConfigurationReloadQueuesRequestDuringAsyncReconciliation()": {
+      "classification": "unknown",
+      "issue": 13928
+    },
+    "AppDelegateEqualizeSplitsShortcutTests/testConfigurationReloadRemainsActiveUntilAsyncReconciliationCompletes()": {
+      "classification": "unknown",
+      "issue": 13928
+    },
+    "AppDelegateEqualizeSplitsShortcutTests/testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers()": {
+      "classification": "test bug",
+      "issue": 13916
+    },
+    "AppDelegateEqualizeSplitsShortcutTests/testFullConfigurationReloadStagesAppearanceUntilConfigurationCommit()": {
+      "classification": "unknown",
+      "issue": 13928
+    },
+    "AppDelegateEqualizeSplitsShortcutTests/testGhosttyAppConfigUpdateWaitsForFontBarrier()": {
+      "classification": "unknown",
+      "issue": 13928
+    },
+    "AppDelegateSurfaceShortcutRoutingTests/keyboardCopyModeKeyClearsTerminalUnread()": {
+      "classification": "host/display dependency",
+      "issue": 13948
+    },
+    "AppDelegateSurfaceShortcutRoutingTests/workspaceFontSizeShortcutPreservesBackgroundTerminalUnread()": {
+      "classification": "host/display dependency",
+      "issue": 13948
+    },
+    "AppDelegateTerminalTypingShortcutFastPathTests/plainTerminalTextDoesNotResolveAppShortcutContext()": {
+      "classification": "host/display dependency",
+      "issue": 13948
+    },
+    "SidebarHiddenPresentationTests/visibilityToggleKeepsAppKitTableContainerMounted()": {
+      "classification": "product bug",
+      "issue": 13931
+    },
+    "TerminalNotificationDirectInteractionTests/testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway()": {
+      "classification": "host/display dependency",
+      "issue": 13948
+    },
+    "WorkspaceTerminalFocusRecoveryTests/testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction()": {
+      "classification": "host/display dependency",
+      "issue": 13948
+    }
+  }
+}

@@ -1,0 +1,26 @@
+name: IndexNow notification tests
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/indexnow.yml
+      - .github/workflows/indexnow-tests.yml
+      - scripts/ci/notify-indexnow.py
+      - tests/test_indexnow_notification.py
+      - web/app/lib/indexnow.ts
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: indexnow-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  notification-tests:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: python3 tests/test_indexnow_notification.py
