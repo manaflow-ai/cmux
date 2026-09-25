@@ -37,7 +37,7 @@ public struct ComputersSection: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Label(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"), systemImage: "desktopcomputer")
                             .font(.callout.weight(.medium))
-                        Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and turn on Allow access to this Mac in Computers settings."))
+                        Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
