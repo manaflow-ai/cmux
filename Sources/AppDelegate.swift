@@ -1402,8 +1402,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                for: .applicationSupportDirectory,
                in: .userDomainMask
            ).first,
-           let runnerExecutableURL = Bundle.main.resourceURL?
-               .appendingPathComponent("bin/cmux", isDirectory: false),
+           let runnerExecutableURL = [
+               Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false),
+               Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+           ].compactMap({ $0 }).first(where: { fileManager.isExecutableFile(atPath: $0.path) }),
            fileManager.isExecutableFile(atPath: runnerExecutableURL.path) {
             let broker = SudoBroker(
                 paths: SudoBrokerPaths(
