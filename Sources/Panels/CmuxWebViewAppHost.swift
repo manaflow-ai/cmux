@@ -8,6 +8,9 @@ import WebKit
 /// directly before it moved into CmuxBrowser.
 @MainActor
 final class CmuxWebViewAppHost: CmuxWebViewHost {
+    /// Stateless: every call reads `AppDelegate.shared` when it runs, so construction needs no isolation.
+    nonisolated init() {}
+
     func makeDiffViewerNavigationKeyRouter() -> any CmuxWebViewNavigationKeyRouting {
         DiffViewerNavigationKeyRouterAdapter()
     }
