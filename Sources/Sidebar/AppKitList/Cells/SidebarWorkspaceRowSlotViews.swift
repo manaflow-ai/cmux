@@ -228,28 +228,9 @@ final class SidebarRowProgressView: NSView {
     }
 }
 
-/// One wrapping/truncating text line (or block) with measured height.
-@MainActor
-final class SidebarRowTextView: NSTextField {
-    init(lines: Int) {
-        super.init(frame: .zero)
-        isEditable = false
-        isBordered = false
-        drawsBackground = false
-        isSelectable = false
-        lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
-        maximumNumberOfLines = lines
-        cell?.truncatesLastVisibleLine = true
-        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func measuredHeight(width: CGFloat) -> CGFloat {
-        guard !isHidden else { return 0 }
-        let size = cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)) ?? .zero
-        return ceil(size.height)
-    }
+extension NSAttributedString.Key {
+    /// Row-owned replacement for `.link`. AppKit gives no way to override the
+    /// color it paints `.link` runs in, so the sidebar carries the destination
+    /// here and styles the run itself.
+    static let sidebarRowLink = NSAttributedString.Key("com.cmux.sidebarRowLink")
 }

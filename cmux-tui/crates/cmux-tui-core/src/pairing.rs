@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::Mutex;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -62,7 +62,7 @@ struct PendingPairing {
     challenge: PairingChallenge,
     peer: IpAddr,
     expires_at: Instant,
-    response: Sender<PairingDecision>,
+    response: SyncSender<PairingDecision>,
 }
 
 struct Credential {
@@ -125,7 +125,10 @@ impl PairingBroker {
             peer: peer.to_string(),
             expires_in: CHALLENGE_TTL.as_secs(),
         };
-        let (tx, rx) = channel();
+        // A pairing request produces exactly one decision, so a one-slot
+        // bounded channel prevents abandoned requests from growing memory
+        // without changing delivery semantics.
+        let (tx, rx) = sync_channel(1);
         state.recent.entry(peer).or_default().push_back(now);
         state.pending.insert(
             id,
@@ -140,15 +143,39 @@ impl PairingBroker {
     }
 
     pub(crate) fn respond(&self, id: u64, approve: bool) -> bool {
+        self.respond_after(id, approve, |_| Ok(())).ok().flatten().is_some()
+    }
+
+    /// Run a durable commit while this exact pending request is reserved,
+    /// then publish the decision. Credential allocation happens before the
+    /// commit, and every step after it succeeds is infallible.
+    pub(crate) fn respond_after<R>(
+        &self,
+        id: u64,
+        approve: bool,
+        commit: impl FnOnce(&PairingChallenge) -> anyhow::Result<R>,
+    ) -> anyhow::Result<Option<R>> {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
-        let Some(request) = state.pending.remove(&id) else { return false };
-        let decision = if approve {
-            let Ok(value) = random_credential() else {
-                let _ = request.response.send(PairingDecision::Denied);
-                return false;
-            };
+        let Some(challenge) = state.pending.get(&id).map(|request| request.challenge.clone())
+        else {
+            return Ok(None);
+        };
+        let credential = if approve {
+            Some(random_credential().map_err(|error| anyhow::anyhow!(error.to_string()))?)
+        } else {
+            None
+        };
+        if credential.is_some() {
+            state.credentials.try_reserve(1).map_err(|error| {
+                anyhow::anyhow!("could not reserve pairing credential: {error}")
+            })?;
+        }
+        let committed = commit(&challenge)?;
+        let request =
+            state.pending.remove(&id).expect("pairing lock reserves the validated pending request");
+        let decision = if let Some(value) = credential {
             state
                 .credentials
                 .push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL });
@@ -159,7 +186,12 @@ impl PairingBroker {
         } else {
             PairingDecision::Denied
         };
-        request.response.send(decision).is_ok()
+        // The requesting connection may already be gone. A nonblocking send
+        // keeps the pairing mutex available even if its receiver stopped
+        // polling; the decision is advisory because resolution is already
+        // authoritative and the credential remains valid.
+        let _ = request.response.try_send(decision);
+        Ok(Some(committed))
     }
 
     pub(crate) fn cancel(&self, id: u64) -> bool {

@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Customization"
   short_description: "Customize cmux actions, UI, layouts, and presets."
-  default_prompt: "Use $cmux-customization to pick an examples-library preset, wire it into cmux.json, and validate the cmux config."
+  default_prompt: "Use $cmux-customization to run cmux docs workflows --json, choose the matching shipped workflow example, adapt its concrete recipe to the project, validate the config, and save the finished workspace as a reusable layout when useful."

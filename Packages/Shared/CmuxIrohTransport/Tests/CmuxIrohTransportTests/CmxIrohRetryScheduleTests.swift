@@ -62,5 +62,34 @@ struct CmxIrohRetryScheduleTests {
             retryAfterSeconds: 600,
             jitterUnitInterval: 1
         ) == 750)
+        #expect(schedule.delay(
+            failureCount: 20,
+            retryAfterSeconds: 7_200,
+            jitterUnitInterval: 1
+        ) == 7_200)
+    }
+
+    @Test
+    func relayPolicyScheduleIsCauseAwareOnEveryPlatform() {
+        let authorization = CmxIrohRetrySchedule.relayPolicy(
+            for: .authorizationFailed
+        )
+        #expect(authorization.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 2)
+        #expect(authorization.delay(
+            failureCount: 20,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 120)
+
+        let connectivity = CmxIrohRetrySchedule.relayPolicy(for: .offline)
+        #expect(connectivity.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 30)
     }
 }

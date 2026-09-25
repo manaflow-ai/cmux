@@ -134,7 +134,8 @@ enum FileDropTextDropController {
         panelId: UUID,
         hostedView: GhosttySurfaceScrollView,
         urls: [URL],
-        window: NSWindow?
+        window: NSWindow?,
+        pasteboard: NSPasteboard? = nil
     ) -> Bool {
         performPanelTextDrop(
             workspace: workspace,
@@ -142,7 +143,7 @@ enum FileDropTextDropController {
             focusIntent: .terminal(.surface),
             window: window,
             insert: {
-                hostedView.handleDroppedURLs(urls)
+                hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
             }
         )
     }
@@ -150,7 +151,8 @@ enum FileDropTextDropController {
     @discardableResult
     static func performTerminalFileDrop(
         terminal: GhosttyNSView,
-        urls: [URL]
+        urls: [URL],
+        pasteboard: NSPasteboard? = nil
     ) -> Bool {
         guard let workspaceId = terminal.tabId,
               let terminalSurfaceId = terminal.terminalSurface?.id,
@@ -159,7 +161,7 @@ enum FileDropTextDropController {
                 terminalSurfaceId: terminalSurfaceId,
                 workspace: workspace
               ) else {
-            return terminal.handleDroppedFileURLs(urls)
+            return terminal.handleDroppedFileURLs(urls, pasteboard: pasteboard)
         }
         return performPanelTextDrop(
             workspace: workspace,
@@ -167,7 +169,7 @@ enum FileDropTextDropController {
             focusIntent: .terminal(.surface),
             window: terminal.window,
             insert: {
-                terminal.handleDroppedFileURLs(urls)
+                terminal.handleDroppedFileURLs(urls, pasteboard: pasteboard)
             }
         )
     }
@@ -191,6 +193,8 @@ enum FileDropTextDropController {
 enum DragOverlayRoutingPolicy {
     static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
+    /// A Cloud tree row (a catalog resource: terminal, screen, or browser) dragged into the main view.
+    static let surfaceResourceTransferType = NSPasteboard.PasteboardType("com.cmux.surface-resource")
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
 
     static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
@@ -198,9 +202,29 @@ enum DragOverlayRoutingPolicy {
         return pasteboardTypes.contains(bonsplitTabTransferType)
     }
 
+    /// Resolves an internal tab capability only when its advertised type and
+    /// live registry entry agree. Residual UTIs therefore remain inert.
+    @MainActor
+    static func hasLiveTabTransfer(
+        in pasteboard: NSPasteboard,
+        pasteboardTypes: [NSPasteboard.PasteboardType]? = nil,
+        resolver: LiveTabDragCapabilityResolver?
+    ) -> Bool {
+        let types = pasteboardTypes ?? pasteboard.types
+        guard hasBonsplitTabTransfer(types) || hasFilePreviewTransfer(types) else {
+            return false
+        }
+        return resolver?.resolve(from: pasteboard) != nil
+    }
+
     static func hasFilePreviewTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let pasteboardTypes else { return false }
         return pasteboardTypes.contains(filePreviewTransferType)
+    }
+
+    static func hasSurfaceResourceTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(surfaceResourceTransferType)
     }
 
     static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
@@ -216,16 +240,53 @@ enum DragOverlayRoutingPolicy {
         hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
     }
 
+    /// Returns whether a file drop payload is live rather than residual.
+    ///
+    /// Finder drops are identified by their file URL. File-preview drags also
+    /// publish a file URL, but their private transfer type is only accepted
+    /// while the process-local capability registry still resolves it.
+    @MainActor
+    static func hasLiveFileDropPayload(
+        from pasteboard: NSPasteboard,
+        pasteboardTypes: [NSPasteboard.PasteboardType]? = nil,
+        resolver: LiveTabDragCapabilityResolver? = nil
+    ) -> Bool {
+        let types = pasteboardTypes ?? pasteboard.types
+        guard hasFileDropPayload(types) else { return false }
+        // A file-preview writer publishes a file URL for Finder-compatible
+        // consumers, but its private UTI makes the payload process-owned. The
+        // UTI alone must never keep a stale preview drag alive.
+        if hasFilePreviewTransfer(types) {
+            return FilePreviewDragPasteboardWriter.liveFilePreviewEntry(
+                from: pasteboard,
+                pasteboardTypes: types,
+                resolver: resolver
+            ) != nil
+        }
+        // A payload with only a file URL is an external/Finder-style drop. Its
+        // native drag session, rather than cmux's internal capability registry,
+        // owns liveness.
+        return hasFileURL(types)
+    }
+
+    @MainActor
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        let pasteboardTypes = pasteboard.types
+        guard hasLiveFileDropPayload(
+            from: pasteboard,
+            pasteboardTypes: pasteboardTypes
+        ) else { return [] }
         let fileURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {
             return fileURLs
         }
-        guard let dragId = FilePreviewDragPasteboardWriter.dragID(from: pasteboard),
-              let entry = FilePreviewDragRegistry.shared.entry(id: dragId) else {
+        guard let preview = FilePreviewDragPasteboardWriter.liveFilePreviewEntry(
+            from: pasteboard,
+            pasteboardTypes: pasteboardTypes
+        ) else {
             return []
         }
-        return [URL(fileURLWithPath: entry.filePath).standardizedFileURL]
+        return [URL(fileURLWithPath: preview.entry.filePath).standardizedFileURL]
     }
 
     static func textDropOperation(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> NSDragOperation {
@@ -334,40 +395,32 @@ enum DragOverlayRoutingPolicy {
         return true
     }
 
-    static func shouldCaptureSidebarExternalOverlay(
-        hasSidebarDragState: Bool,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        guard hasSidebarDragState else { return false }
-        return hasSidebarTabReorder(pasteboardTypes)
-    }
-
-    static func shouldCaptureSidebarExternalOverlay(
-        draggedTabId: UUID?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        shouldCaptureSidebarExternalOverlay(
-            hasSidebarDragState: draggedTabId != nil,
-            pasteboardTypes: pasteboardTypes
-        )
-    }
-
     static func shouldPassThroughPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false,
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
-        guard routingContext.allowsBrowserPortalDragRouting else { return false }
+        let hasFilePreviewType = hasFilePreviewTransfer(pasteboardTypes)
         let hasTabTransfer = hasBonsplitTabTransfer(pasteboardTypes)
-        let hasSidebarReorder = hasSidebarTabReorder(pasteboardTypes)
+            && hasLiveTabTransfer
+            && (!hasFilePreviewType || hasLiveFileDropPayload)
+        let hasLiveFilePreviewTransfer = hasFilePreviewType
+            && hasLiveTabTransfer
+            && hasLiveFileDropPayload
         switch routingContext.eventKind {
         case .pointerDrag:
             return hasTabTransfer
-                || hasFilePreviewTransfer(pasteboardTypes)
-                || hasSidebarReorder
+                || hasLiveFilePreviewTransfer
         case .pointerHover:
-            return hasTabTransfer || hasSidebarReorder
-        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+            return hasTabTransfer
+        case .pointerUp:
+            guard hasActiveDropDrag else { return false }
+            return hasTabTransfer
+                || hasLiveFilePreviewTransfer
+        case .noEvent, .keyboard, .pointerDown, .scroll, .appKitRouting, .other:
             return false
         }
     }
@@ -375,7 +428,9 @@ enum DragOverlayRoutingPolicy {
     static func shouldPassThroughTerminalPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
-        hasActiveDropDrag: Bool = false
+        hasActiveDropDrag: Bool = false,
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
         guard routingContext.allowsTerminalPortalDragRouting else { return false }
@@ -383,13 +438,21 @@ enum DragOverlayRoutingPolicy {
         case .pointerDrag:
             return shouldPassThroughPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
-                eventType: eventType
-            ) || hasFileURL(pasteboardTypes)
+                eventType: eventType,
+                hasActiveDropDrag: hasActiveDropDrag,
+                hasLiveTabTransfer: hasLiveTabTransfer,
+                hasLiveFileDropPayload: hasLiveFileDropPayload
+            ) || hasLiveFileDropPayload
+                || (hasFileURL(pasteboardTypes)
+                    && !hasFilePreviewTransfer(pasteboardTypes))
         case .pointerUp:
-            guard hasActiveDropDrag else { return false }
-            return hasBonsplitTabTransfer(pasteboardTypes)
-                || hasFilePreviewTransfer(pasteboardTypes)
-                || hasSidebarTabReorder(pasteboardTypes)
+            return shouldPassThroughPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: eventType,
+                hasActiveDropDrag: hasActiveDropDrag,
+                hasLiveTabTransfer: hasLiveTabTransfer,
+                hasLiveFileDropPayload: hasLiveFileDropPayload
+            )
         case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
             return false
         }

@@ -12,19 +12,23 @@ extension Workspace {
         newPaneId: PaneID
     ) {
         guard let position,
-              let splitId = splitIdJoiningPaneIds(
+              let splitId = splitNodeJoiningPaneIds(
                 sourcePaneId.id.uuidString,
                 newPaneId.id.uuidString,
                 in: bonsplitController.treeSnapshot()
-              ) else { return }
+              ).flatMap({ UUID(uuidString: $0.id) }) else { return }
         _ = bonsplitController.setDividerPosition(position, forSplit: splitId, fromExternal: true)
+        // The divider moved after bonsplit's didSplitPane projection; re-derive
+        // the provisional pane frames from the same pre-split base.
+        applyProvisionalSplitPaneGeometry(originalPane: sourcePaneId, newPane: newPaneId)
     }
 
-    private func splitIdJoiningPaneIds(
+    /// The split whose two subtrees separate `firstPaneId` from `secondPaneId`.
+    func splitNodeJoiningPaneIds(
         _ firstPaneId: String,
         _ secondPaneId: String,
         in node: ExternalTreeNode
-    ) -> UUID? {
+    ) -> ExternalSplitNode? {
         switch node {
         case .pane:
             return nil
@@ -34,14 +38,14 @@ extension Workspace {
             let secondContainsFirst = splitTreeContainsPane(firstPaneId, in: splitNode.second)
             let secondContainsSecond = splitTreeContainsPane(secondPaneId, in: splitNode.second)
             if (firstContainsFirst && secondContainsSecond) || (firstContainsSecond && secondContainsFirst) {
-                return UUID(uuidString: splitNode.id)
+                return splitNode
             }
-            return splitIdJoiningPaneIds(firstPaneId, secondPaneId, in: splitNode.first)
-                ?? splitIdJoiningPaneIds(firstPaneId, secondPaneId, in: splitNode.second)
+            return splitNodeJoiningPaneIds(firstPaneId, secondPaneId, in: splitNode.first)
+                ?? splitNodeJoiningPaneIds(firstPaneId, secondPaneId, in: splitNode.second)
         }
     }
 
-    private func splitTreeContainsPane(_ paneId: String, in node: ExternalTreeNode) -> Bool {
+    func splitTreeContainsPane(_ paneId: String, in node: ExternalTreeNode) -> Bool {
         switch node {
         case .pane(let pane):
             return pane.id == paneId

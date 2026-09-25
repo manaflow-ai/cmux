@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import {
   CmuxClient,
   CmuxTimeoutError,
+  RENDER_ATTACH_MAX_ENCODED_CHARS,
   WebSocketTransport,
   type ClientDetachedEvent,
   type ClientInfo,
@@ -11,7 +12,7 @@ import {
   type PairingChallenge,
   type TitleChangedEvent,
   type Tree,
-} from "cmux/browser";
+} from "cmux/raw";
 import { browserClientName } from "../lib/clientName";
 import { createCoalescedRefresh } from "../lib/coalescedRefresh";
 import {
@@ -63,7 +64,7 @@ export function useCmuxClient() {
   const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
   const refreshRef = useRef<(() => Promise<Tree | null>) | null>(null);
   const clientsRefreshRef = useRef<(() => void) | null>(null);
-  const localToastId = useRef(-1);
+  const localToastId = useRef(-1n);
   const pairingCredential = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -128,6 +129,7 @@ export function useCmuxClient() {
       let canReconnect = false;
       const transport = new WebSocketTransport(config.url, {
         authToken: config.token ?? pairingCredential.current,
+        maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
         onPairingChallenge: (pairing) => {
           if (!cancelled) {
             setState((current) => ({ ...current, status: "pairing", pairing, error: null }));
@@ -335,7 +337,7 @@ export function useCmuxClient() {
 
   const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
     await runMutation(async (client) => {
-      await client.selectTab({ pane, index });
+      await client.selectTab({ pane, index: BigInt(index) });
       setUnread((current) => {
         const next = new Set(current);
         next.delete(surface);

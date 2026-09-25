@@ -25,6 +25,10 @@
   <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
+<p align="center">
+  <a href="https://cmux.com/docs/getting-started">Docs</a> · <a href="https://cmux.com/blog">Blog</a> · <a href="https://cmux.com/docs/changelog">Changelog</a> · <a href="https://cmux.com/community">Community</a>
+</p>
+
 ## Features
 
 <table>
@@ -182,6 +186,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ D | Split right |
 | ⌘ ⇧ D | Split down |
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+| ⌃ ⇧ H J K L | Resize pane left/down/up/right |
 | ⌘ ⇧ H | Flash focused panel |
 
 ### Browser
@@ -207,6 +212,8 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | ⌘ ⇧ U | Jump to latest unread |
 | ⌥ ⌘ U | Toggle current item unread state |
 | ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
+| — | Mark all notifications read (unbound by default; configure in Settings or `cmux.json`) |
+| — | Clear all notifications (unbound by default; configure in Settings or `cmux.json`) |
 
 ### Find
 
@@ -240,7 +247,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 ## Nightly Builds
 
-[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg) (universal; updates then switch to your Mac's architecture automatically)
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
@@ -255,8 +262,11 @@ state:
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
 
-cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
-unsupported terminal apps reopen as normal terminals.
+cmux does not checkpoint arbitrary live process state. Ordinary terminals,
+tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
+For live detach/reattach across cmux quit, crashes, and updates, opt in to the
+local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
+for its lifecycle and machine-sleep limits.
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
@@ -371,7 +381,15 @@ Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and 
 
 ### Are my sessions saved?
 
-Yes. cmux restores your windows, workspaces, panes, working directories, and scrollback when you relaunch, and the state survives a full computer restart, not just quitting the app. Agent sessions like Claude Code, Codex, and OpenCode come back too. See [session restore](https://cmux.com/docs/session-restore).
+cmux restores windows, workspaces, panes, working directories, and best-effort
+scrollback when you relaunch. Supported agent integrations can resume from
+their saved session IDs. Those are reconstructed app state and resume commands;
+they do not keep arbitrary live processes running. Use `cmux local-tmux` for
+live local detach/reattach across cmux quit, crashes, and updates. A local tmux
+server cannot survive logout, restart, shutdown, or power loss; use
+`cmux ssh-tmux`, `cmux mosh-tmux`, or a persistent cloud VM when the owner must
+remain online while this Mac is offline. See [session restore](https://cmux.com/docs/session-restore)
+and [`docs/local-tmux.md`](docs/local-tmux.md).
 
 ### How does it compare to tmux?
 
@@ -400,6 +418,9 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 </a>
 
 ## Contributing
+
+For code contributions, start with the [contributor guide](CONTRIBUTING.md) and
+[fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
 Ways to get involved:
 
@@ -435,6 +456,31 @@ cmux is free, open source, and always will be. If you'd like to support developm
 - **Early access: Cloud VMs**
 - **Early access: Voice mode**
 - **My personal iMessage/WhatsApp**
+
+## Install
+
+### DMG (recommended)
+
+<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+  <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+</a>
+
+Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
+
+### Homebrew
+
+```bash
+brew tap manaflow-ai/cmux
+brew install --cask cmux
+```
+
+To update later:
+
+```bash
+brew upgrade --cask cmux
+```
+
+On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
 ## License
 

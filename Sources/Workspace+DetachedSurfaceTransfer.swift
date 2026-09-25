@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
 import CmuxWorkspaces
@@ -27,6 +29,8 @@ extension Workspace {
         let sessionRestoreSourceWorkspaceId: UUID?
         let panelId: UUID
         let panel: any Panel
+        var surfaceMachine: SurfaceMachineID? = nil
+        var origin: SurfaceTransferOrigin? = nil
         let title: String
         let icon: String?
         let iconImageData: Data?
@@ -36,7 +40,9 @@ extension Workspace {
         let directory: String?
         let directoryIsTrustedRemoteReport: Bool
         let directoryDisplayLabel: String?
-        let ttyName: String?
+        var ttyName: String?
+        var ttyNameWasReportedByCurrentRuntime: Bool = false
+        var ttyReportRuntimeSurfaceGeneration: UInt64? = nil
         let cachedTitle: String?
         let customTitle: String?
         let customTitleSource: Workspace.CustomTitleSource?
@@ -46,8 +52,14 @@ extension Workspace {
         let restorableAgentResumeState: RestoredAgentResumeState?
         let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
         let shellActivityState: PanelShellActivityState?
+        var restoredPanelTitleBoundary: RestoredPanelTitleBoundary? = nil
         let restoredResumeSessionWorkingDirectory: String?
+        /// Typed restore selector still awaiting its shell, carried so the
+        /// idle-prompt replay survives a Workspace/Dock move.
+        var restoredStartupInput: String? = nil
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        /// Deferred ownership resolution carried across a Workspace/Dock transfer.
+        var deferredAgentResumeRestore: DeferredAgentResumeRestore? = nil
         /// Authoritative hook identity when `resumeBinding` is an effective
         /// process-detected binding.
         let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
@@ -58,6 +70,7 @@ extension Workspace {
         var remoteTerminalLifecycleID: UUID? = nil
         var remoteTerminalAttemptID: UUID? = nil
         let remoteRelayPort: Int?
+        var remoteRelayNamespaceConfiguration: WorkspaceRemoteConfiguration? = nil
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
@@ -79,6 +92,8 @@ extension Workspace {
                 sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
+                surfaceMachine: surfaceMachine,
+                origin: origin,
                 title: title,
                 icon: icon,
                 iconImageData: iconImageData,
@@ -89,6 +104,8 @@ extension Workspace {
                 directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
                 directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
+                ttyNameWasReportedByCurrentRuntime: ttyNameWasReportedByCurrentRuntime,
+                ttyReportRuntimeSurfaceGeneration: ttyReportRuntimeSurfaceGeneration,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 customTitleSource: customTitleSource,
@@ -98,8 +115,11 @@ extension Workspace {
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
                 shellActivityState: shellActivityState,
+                restoredPanelTitleBoundary: restoredPanelTitleBoundary,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+                restoredStartupInput: restoredStartupInput,
                 resumeBinding: resumeBinding,
+                deferredAgentResumeRestore: deferredAgentResumeRestore,
                 managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
@@ -108,6 +128,7 @@ extension Workspace {
                 remoteTerminalLifecycleID: remoteTerminalLifecycleID,
                 remoteTerminalAttemptID: remoteTerminalAttemptID,
                 remoteRelayPort: remoteRelayPort,
+                remoteRelayNamespaceConfiguration: remoteRelayNamespaceConfiguration,
                 remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration
             )

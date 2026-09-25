@@ -270,6 +270,73 @@ import Testing
         #expect(mapped.customColorHex == nil)
     }
 
+    @Test func workspaceListResponseTracksWhetherGroupsFieldWasPresent() throws {
+        let absentGroupsJSON = Data("""
+        {
+          "workspaces": []
+        }
+        """.utf8)
+        let emptyGroupsJSON = Data("""
+        {
+          "workspaces": [],
+          "groups": []
+        }
+        """.utf8)
+
+        let absentGroups = try MobileSyncWorkspaceListResponse.decode(absentGroupsJSON)
+        let emptyGroups = try MobileSyncWorkspaceListResponse.decode(emptyGroupsJSON)
+
+        #expect(absentGroups.groups.isEmpty)
+        #expect(!absentGroups.groupsFieldWasPresent)
+        #expect(emptyGroups.groups.isEmpty)
+        #expect(emptyGroups.groupsFieldWasPresent)
+    }
+
+    @Test func workspaceListResponseCarriesWorkspaceGroupIcon() throws {
+        let json = Data("""
+        {
+          "workspaces": [],
+          "groups": [
+            {
+              "id": "group-1",
+              "name": "Release",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "icon_symbol": "shippingbox.fill",
+              "anchor_workspace_id": "workspace-1"
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let remoteGroup = try #require(response.groups.first)
+        #expect(remoteGroup.iconSymbol == "shippingbox.fill")
+
+        let mappedGroup = MobileWorkspaceGroupPreview(remote: remoteGroup)
+        #expect(mappedGroup.iconSymbol == "shippingbox.fill")
+    }
+
+    @Test func workspaceListResponseDefaultsMissingWorkspaceGroupIconToNil() throws {
+        let json = Data("""
+        {
+          "workspaces": [],
+          "groups": [
+            {
+              "id": "group-older",
+              "name": "Older Mac",
+              "is_collapsed": false,
+              "is_pinned": false,
+              "anchor_workspace_id": "workspace-older"
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        #expect(response.groups.first?.iconSymbol == nil)
+    }
+
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
     /// notification text + epoch seconds) for the iMessage-style row preview.
     /// Both must decode when present and stay `nil` when an older Mac omits them.
@@ -306,9 +373,10 @@ import Testing
     }
 
     /// The Mac stamps `last_activity_at` on every workspace (falling back to
-    /// creation time when there is no notification) and emits `has_unread` for
-    /// the row's unread dot. Both must decode when present and degrade safely
-    /// (nil timestamp, read state) when an older Mac omits them.
+    /// creation time when there is no notification) and emits `has_unread` +
+    /// `unread_count` for the row's unread badge. All must decode when present
+    /// and degrade safely (nil timestamp, read state, count-less dot) when an
+    /// older Mac omits them.
     @Test func workspaceListResponseDecodesLastActivityAndUnread() throws {
         let json = Data("""
         {
@@ -319,12 +387,20 @@ import Testing
               "is_selected": true,
               "last_activity_at": 1765000100.25,
               "has_unread": true,
+              "unread_count": 5,
               "terminals": []
             },
             {
               "id": "ws-2",
               "title": "older-mac",
               "is_selected": false,
+              "terminals": []
+            },
+            {
+              "id": "ws-3",
+              "title": "boolean-only-mac",
+              "is_selected": false,
+              "has_unread": true,
               "terminals": []
             }
           ]
@@ -335,18 +411,28 @@ import Testing
         let stamped = try #require(response.workspaces.first)
         #expect(stamped.lastActivityAt == 1765000100.25)
         #expect(stamped.hasUnread == true)
-        let olderMac = try #require(response.workspaces.last)
+        #expect(stamped.unreadCount == 5)
+        let olderMac = response.workspaces[1]
         #expect(olderMac.lastActivityAt == nil)
         #expect(olderMac.hasUnread == nil)
+        #expect(olderMac.unreadCount == nil)
 
         // The mapped model treats a missing unread flag as read and carries the
-        // optional timestamp through for the row's relative time.
+        // optional timestamp and count through; a known count renders the
+        // numbered badge.
         let mappedStamped = MobileWorkspacePreview(remote: stamped)
         #expect(mappedStamped.hasUnread)
         #expect(mappedStamped.lastActivityAt == Date(timeIntervalSince1970: 1765000100.25))
+        #expect(mappedStamped.unreadState == MobileWorkspaceUnreadState(isUnread: true, count: 5))
         let mappedOlder = MobileWorkspacePreview(remote: olderMac)
         #expect(!mappedOlder.hasUnread)
         #expect(mappedOlder.lastActivityAt == nil)
+        #expect(mappedOlder.unreadState == .read)
+
+        // A Mac that emits only the boolean keeps the count-less dot: unread
+        // with an unknown count, never an invented number.
+        let mappedBooleanOnly = MobileWorkspacePreview(remote: response.workspaces[2])
+        #expect(mappedBooleanOnly.unreadState == MobileWorkspaceUnreadState(isUnread: true, count: nil))
     }
 
     @Test func workspaceMoveRequestEncodesGroupAndBeforeWorkspace() throws {
@@ -601,6 +687,7 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
+        #expect(!client.usesLocallyAuthorizedTailscaleRoute)
         let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
 
         let task = Task { try await client.sendRequest(request) }
@@ -653,6 +740,7 @@ import Testing
             ticket: ticket,
             legacyTailscaleAuthorizationEvidence: evidence
         )
+        #expect(client.usesLocallyAuthorizedTailscaleRoute)
         let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
 
         let task = Task { try await client.sendRequest(request) }

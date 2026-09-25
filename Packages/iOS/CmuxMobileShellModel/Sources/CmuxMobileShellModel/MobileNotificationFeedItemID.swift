@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// A globally stable notification identity composed from its Mac and Mac-local id.
@@ -17,8 +18,12 @@ public struct MobileNotificationFeedItemID: Hashable, Comparable, Sendable {
     ///   - macInstanceTag: The owning pairing's app-instance tag, or `nil`.
     ///   - notificationID: The notification identifier within that Mac.
     public init(macDeviceID: String, macInstanceTag: String? = nil, notificationID: String) {
-        self.macDeviceID = macDeviceID
-        self.macInstanceTag = macInstanceTag
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: macInstanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
+        self.macInstanceTag = identity.instanceTag
         self.notificationID = notificationID
     }
 
