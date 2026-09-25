@@ -17,7 +17,8 @@ extension VMClientReadCoalescingTests {
         await authClient.holdTeamList()
         let fixture = try await CloudRefreshFixture.make(
             authClient: authClient,
-            awaitBootstrap: false
+            awaitBootstrap: false,
+            bootstrapFromCachedSession: true
         )
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
