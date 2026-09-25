@@ -3,7 +3,7 @@
 Choose by the task: operating the installed app and changing its implementation
 use different instructions. Load the matching `SKILL.md`, then only the reference
 needed for the current operation. Installed CLI `--help` owns available commands
-and flags; repository instructions own build routing and shared-machine limits.
+and flags; repository instructions own build and test rules.
 
 ## Working on the repository
 
