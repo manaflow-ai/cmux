@@ -98,21 +98,11 @@ extension MobileIrxRuntimeComposition {
             throw CompositionError.peerNotDiscovered
         }
         let intent = dialIntentByPeer[peerHex] ?? .automatic
-        let selectedSupervisor: IrxEndpointSupervisor?
-        switch intent {
-        case .automatic: selectedSupervisor = endpointSupervisor
-        case .direct:
-            guard !forceRelayOnly, let identity else { throw CompositionError.directDialUnavailable }
-            if directEndpointSupervisor == nil {
-                // Both local endpoints represent this same enrolled installation.
-                // A separate transport is needed because relay policy is endpoint-wide.
-                directEndpointSupervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
-                    identity: identity, pathMode: .directOnly, initialRemoteBiStreams: 0,
-                    initialRemoteUniStreams: 0), journal: journal, diagnosticLog: diagnosticLog)
-            }
-            selectedSupervisor = directEndpointSupervisor
+        if case let .direct(candidates) = intent {
+            let connection = try await dialDirectQuic(peerHex: peerHex, candidates: candidates)
+            return try await admit(connection, peerHex: peerHex, intent: intent, scope: scope, epoch: currentEpoch)
         }
-        guard let supervisor = selectedSupervisor, let cache, !cache.authorityRevoked else {
+        guard let supervisor = endpointSupervisor, let cache, !cache.authorityRevoked else {
             throw CompositionError.notSignedIn
         }
         var credentials = Self.credentials(cache)
@@ -124,36 +114,72 @@ extension MobileIrxRuntimeComposition {
             }
         }
         try await assertScope(scope, epoch: currentEpoch)
-        let relay: String?
-        var direct: [String]
-        switch intent {
-        case .automatic:
-            // The Mac's current home relay is the useful route hint. The
-            // team fleet remains a safe fallback while a freshly registered
-            // Mac publishes that hint.
-            relay = record.descriptor.metadata.relayURLs.first ?? directory.relayURLs.first
-            direct = []
-            if !forceRelayOnly {
-                let paths = (try? await localPaths.load(identity: cache.identity)) ?? []
-                for path in paths where path.isEnabled
-                    && path.macDeviceID == record.descriptor.identity.deviceID
-                    && path.instanceTag == record.descriptor.identity.buildTag {
-                    direct.append(contentsOf: path.addresses.compactMap { try? CmxIrohLocalSocketAddress($0).value })
-                }
+        // The Mac's current home relay is the useful route hint. The team
+        // fleet remains a safe fallback while a freshly registered Mac
+        // publishes that hint.
+        let relay = record.descriptor.metadata.relayURLs.first ?? directory.relayURLs.first
+        var direct: [String] = []
+        if !forceRelayOnly {
+            let paths = (try? await localPaths.load(identity: cache.identity)) ?? []
+            for path in paths where path.isEnabled
+                && path.macDeviceID == record.descriptor.identity.deviceID
+                && path.instanceTag == record.descriptor.identity.buildTag {
+                direct.append(contentsOf: path.addresses.compactMap { try? CmxIrohLocalSocketAddress($0).value })
             }
-        case let .direct(candidates):
-            guard !forceRelayOnly else { throw CompositionError.directDialUnavailable }
-            relay = nil
-            direct = candidates.prefix(16).compactMap { candidate in
-                guard let port = candidate.port, port != 0,
-                      let address = try? CmxIrohCustomPrivateAddress(candidate.address) else { return nil }
-                return address.socketAddress(port: port)
-            }
-            guard !direct.isEmpty else { throw CompositionError.directDialUnavailable }
         }
         try await assertScope(scope, epoch: currentEpoch)
         let address = try supervisor.dialAddress(peerEndpointIDHex: peerHex, relayURL: relay, directAddresses: direct)
         let connection = try await supervisor.dial(address: address, credentials: credentials)
+        return try await admit(connection, peerHex: peerHex, intent: intent, scope: scope, epoch: currentEpoch)
+    }
+
+    /// Reaches the Mac with Network.framework QUIC at exactly the method's
+    /// addresses (no Iroh relay, discovery, or NAT traversal) and verifies the
+    /// Mac's device key. Candidates race; the first authenticated one wins.
+    private func dialDirectQuic(
+        peerHex: String,
+        candidates: [CmxIrohDirectDialCandidate]
+    ) async throws -> IrxConnection {
+        guard !forceRelayOnly, let identity else { throw CompositionError.directDialUnavailable }
+        guard let cache, !cache.authorityRevoked else { throw CompositionError.notSignedIn }
+        let targets = candidates.prefix(16).compactMap { candidate -> (host: String, port: UInt16)? in
+            guard let port = candidate.port, port != 0,
+                  let address = try? CmxIrohCustomPrivateAddress(candidate.address) else { return nil }
+            return (address.value, port)
+        }
+        guard !targets.isEmpty else { throw CompositionError.directDialUnavailable }
+        let carrier = try await withThrowingTaskGroup(of: DirectQuicCarrierConnection?.self) { group in
+            for target in targets {
+                group.addTask {
+                    try? await DirectQuicCarrierConnection.dial(
+                        host: target.host, port: target.port,
+                        identity: identity, expectedEndpointIDHex: peerHex)
+                }
+            }
+            var winner: DirectQuicCarrierConnection?
+            for try await result in group {
+                guard let result else { continue }
+                if winner == nil {
+                    winner = result
+                    group.cancelAll()
+                } else {
+                    result.close(errorCode: 1, reason: IrxCloseCode.superseded.reasonData)
+                }
+            }
+            return winner
+        }
+        guard let carrier else { throw CompositionError.directDialUnavailable }
+        journal.record("direct-quic", "dialed", ["path": carrier.selectedPath().description])
+        return IrxConnection(carrier: carrier, role: .dialer, journal: journal)
+    }
+
+    private func admit(
+        _ connection: IrxConnection,
+        peerHex: String,
+        intent: DialIntent,
+        scope: AuthenticatedTeamScope,
+        epoch currentEpoch: UInt64
+    ) async throws -> IrxClientSession {
         do {
             try await assertScope(scope, epoch: currentEpoch)
             let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)

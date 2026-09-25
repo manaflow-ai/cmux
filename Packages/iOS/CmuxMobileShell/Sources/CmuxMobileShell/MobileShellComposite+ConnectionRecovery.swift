@@ -868,18 +868,22 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-        // Direct is the only method that supplies an Iroh address allowlist.
-        // Tailscale selects an authorized raw Tailscale route below and must
-        // never be converted into an Iroh dial, even when both route kinds are
-        // advertised by the pairing.
+        // Direct and Tailscale Only supply a Direct QUIC address allowlist.
+        // A Tailscale pairing without the Mac's device key has none and keeps
+        // its authorized raw Tailscale route below.
         let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
-        if resolvedMethod == .direct {
+        switch resolvedMethod {
+        case .direct:
             methodPinnedCandidates = irohMethodPinnedDialCandidates(
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag,
                 knownPairing: knownPairing
             ) ?? []
-        } else {
+        case .tailscale:
+            methodPinnedCandidates = routes.contains(where: { $0.kind == .iroh })
+                ? Self.tailscaleDirectQuicCandidates(from: legacyTailscaleRoutes)
+                : nil
+        case .automatic:
             methodPinnedCandidates = nil
         }
         if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {

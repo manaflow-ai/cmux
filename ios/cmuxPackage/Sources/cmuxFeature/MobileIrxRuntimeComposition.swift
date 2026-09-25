@@ -38,7 +38,6 @@ public actor MobileIrxRuntimeComposition {
     var endpointWarmupTask: Task<Void, Never>?
     var control: V2ControlService?
     var endpointSupervisor: IrxEndpointSupervisor?
-    var directEndpointSupervisor: IrxEndpointSupervisor?
     var identity: IrxIdentity?
     var cache: V2CachedState?
     var lastFailure: String?

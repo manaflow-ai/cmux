@@ -10,7 +10,11 @@ extension MobileIrxRuntimeComposition {
         let directory = await currentDirectory()
         let currentRelay = await endpointSupervisor?.homeRelayURL()
         let paths = await localPathSnapshot()
-        let directIsBound = await directEndpointSupervisor?.boundEndpoint() != nil
+        // Direct QUIC holds no endpoint; an admitted pinned session counts.
+        let directIsBound = activeDialIntentByPeer.values.contains { intent in
+            if case .direct = intent { return true }
+            return false
+        }
         let status: CmxIrohSettingsSnapshot.RuntimeStatus
         if activeScope == nil { status = .inactive }
         else if await endpointSupervisor?.boundEndpoint() != nil || directIsBound { status = .active }

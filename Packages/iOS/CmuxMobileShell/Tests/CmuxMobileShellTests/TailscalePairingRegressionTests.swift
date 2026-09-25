@@ -68,6 +68,34 @@ import Testing
         #expect(requests.first?.stackAccessToken == "test-stack-token")
     }
 
+    /// A current Mac's Tailscale code also names its device key, so the
+    /// entered code dials Direct QUIC pinned to exactly that Tailscale
+    /// endpoint, authenticated by the key rather than a Stack bearer on raw TCP.
+    @Test func codeNamingTheMacDeviceKeyDialsDirectQuicToTheAuthorizedEndpoint() async throws {
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac")
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let store = makeStore(runtime: runtime)
+        store.pairingCode = currentQRCode()
+            + "&i=\(String(repeating: "a", count: 64))&d=test-mac"
+
+        await store.connectPairingInput()
+
+        #expect(store.connectionState == MobileConnectionState.connected)
+        #expect(store.activeRoute?.kind == .iroh)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(factory.attemptedAuthorizationModes() == [.transportAdmission])
+        #expect(factory.attemptedPins() == [
+            [CmxIrohDirectDialCandidate(address: host, port: UInt16(port))],
+        ])
+    }
+
     @Test func replacementScanCanExplicitlyAuthorizeTailscaleForDirectMac() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()

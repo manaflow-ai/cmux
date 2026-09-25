@@ -309,11 +309,19 @@ final class MobileAttachTicketStore {
         for ticket: CmxAttachTicket,
         pairingURLScheme: CmxPairingURLScheme?
     ) -> URL? {
-        guard let routes = try? MobileAttachTarget.canonicalTailscaleRoutes(
+        guard let tailscaleRoutes = try? MobileAttachTarget.canonicalTailscaleRoutes(
             from: ticket.routes
-        ), !routes.isEmpty else {
+        ), !tailscaleRoutes.isEmpty else {
             return nil
         }
+        // The Mac's device key rides along (without path hints) so the phone
+        // can authenticate this Mac over Direct QUIC at those addresses.
+        let identityRoutes = ticket.routes.compactMap { route -> CmxAttachRoute? in
+            guard route.kind == .iroh, case let .peer(identity, _) = route.endpoint else { return nil }
+            return try? CmxAttachRoute(id: route.id, kind: .iroh,
+                endpoint: .peer(identity: identity, pathHints: []), priority: route.priority)
+        }
+        let routes = (identityRoutes.count == 1 ? identityRoutes : []) + tailscaleRoutes
         guard let compatibilityTicket = try? CmxAttachTicket(
             version: ticket.version,
             workspaceID: ticket.workspaceID,

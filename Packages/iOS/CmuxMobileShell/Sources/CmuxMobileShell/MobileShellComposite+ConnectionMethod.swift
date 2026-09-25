@@ -89,13 +89,16 @@ extension MobileShellComposite {
         }
     }
 
-    /// The method-pinned Iroh dial allowlist for one pairing, or `nil` when the
-    /// pairing's effective method places no address pin on the Iroh dial.
+    /// The method-pinned Direct QUIC allowlist for one pairing, or `nil` when
+    /// the pairing's effective method places no address pin on the dial.
     ///
-    /// Direct pins the dial to the user-enabled addresses. Tailscale Only does
-    /// not pin an Iroh dial: it selects the authorized raw Tailscale route, or
-    /// fails closed when that route is unavailable. Automatic remains the only
-    /// method that can select Iroh.
+    /// A pinned dial never uses Iroh's transport: it reaches the Mac with
+    /// Network.framework QUIC at exactly these addresses and authenticates the
+    /// Mac's device key. Direct pins the user-enabled addresses. Tailscale Only
+    /// pins the Tailscale endpoints the user authorized with a pairing code,
+    /// when the pairing knows the Mac's device key; a pairing without one keeps
+    /// the legacy raw Tailscale route. Automatic is the only method that uses
+    /// Iroh relays and discovery.
     ///
     /// An empty array means the method is pinned with nothing dialable:
     /// callers must fail closed and never substitute another path. Entries
@@ -123,9 +126,26 @@ extension MobileShellComposite {
                 )
             }
         case .tailscale:
-            return nil
+            guard pairing.routes.contains(where: { $0.kind == .iroh }) else { return nil }
+            return Self.tailscaleDirectQuicCandidates(from: pairing.legacyTailscaleRoutes ?? [])
         case .automatic:
             return nil
+        }
+    }
+
+    /// Direct QUIC candidates for authorized Tailscale endpoints. Only
+    /// numeric Tailscale addresses qualify, so a grant can never pin the dial
+    /// to a LAN or public address.
+    nonisolated static func tailscaleDirectQuicCandidates(
+        from routes: [CmxAttachRoute]
+    ) -> [CmxIrohDirectDialCandidate] {
+        var seen = Set<String>()
+        return routes.compactMap { route in
+            guard route.kind == .tailscale, case let .hostPort(host, port) = route.endpoint,
+                  (try? CmxUserTailscalePairingAuthorization(host: host, port: port)) != nil,
+                  let udpPort = UInt16(exactly: port),
+                  seen.insert("\(host):\(port)").inserted else { return nil }
+            return CmxIrohDirectDialCandidate(address: host, port: udpPort)
         }
     }
 
