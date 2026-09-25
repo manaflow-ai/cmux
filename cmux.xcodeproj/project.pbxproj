@@ -812,7 +812,6 @@
 		C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000003 /* CloudRefreshURLProtocol.swift */; };
 		C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */; };
 		C12575000000000000000050 /* CloudRenameOptimismTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000051 /* CloudRenameOptimismTests.swift */; };
-		C12625A00000000000000002 /* CloudRequestClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000001 /* CloudRequestClock.swift */; };
 		EFD5BEC316FCF70B7E4FDFBE /* CloudRestoreReplayFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283DE1F547455A79CD6EC26D /* CloudRestoreReplayFixture.swift */; };
 		9A1E85136C5F9BDC2E66DC08 /* CloudRestoreReplayGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD277217AB02219F074EDADA /* CloudRestoreReplayGridTests.swift */; };
 		46383D21CF46427F36EBEB7B /* CloudSidebarAcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */; };
@@ -4960,7 +4959,6 @@
 		C12625000000000000000003 /* CloudRefreshURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshURLProtocol.swift; sourceTree = "<group>"; };
 		C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRemoteColorOwnershipTests.swift; sourceTree = "<group>"; };
 		C12575000000000000000051 /* CloudRenameOptimismTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRenameOptimismTests.swift; sourceTree = "<group>"; };
-		C12625A00000000000000001 /* CloudRequestClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRequestClock.swift; sourceTree = "<group>"; };
 		283DE1F547455A79CD6EC26D /* CloudRestoreReplayFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRestoreReplayFixture.swift"; sourceTree = "<group>"; };
 		DD277217AB02219F074EDADA /* CloudRestoreReplayGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRestoreReplayGridTests.swift"; sourceTree = "<group>"; };
 		8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAcceptanceTests.swift"; sourceTree = "<group>"; };
@@ -6171,7 +6169,7 @@
 		C0DE1065100000000000001C /* LocalTmuxSessionReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionReconciler.swift; sourceTree = "<group>"; };
 		C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionRegistry.swift; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
-				A11D00000000000000000002 /* MacDevicesComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/App/MacDevicesComposition.swift"; sourceTree = "<group>"; };
+				A11D00000000000000000002 /* MacDevicesComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/MacDevicesComposition.swift"; sourceTree = "<group>"; };
 		A12677000000000000000002 /* MachineCreateCoordinator+Selection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MachineCreateCoordinator+Selection.swift"; sourceTree = "<group>"; };
 		41A4C1F4530CD78EAC321C53 /* MachineCreateCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachineCreateCoordinator.swift; sourceTree = "<group>"; };
 		E56499DF099E405122930472 /* MachineCreateCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachineCreateCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -7224,7 +7222,7 @@
 		EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalog.swift; sourceTree = "<group>"; };
 		D01100800000000000000001 /* SurfaceCatalogQueryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryService.swift; sourceTree = "<group>"; };
 		D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryServiceTests.swift; sourceTree = "<group>"; };
-				3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Sources/Surfaces/SurfaceCatalogSnapshot+DeviceVisibility.swift"; sourceTree = "<group>"; };
+				3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalogSnapshot+DeviceVisibility.swift"; sourceTree = "<group>"; };
 		877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogTests.swift; sourceTree = "<group>"; };
 		E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceDropFeedback.swift; sourceTree = "<group>"; };
 		672C19994B1744318706972D /* SurfaceLayoutTerminalCreating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceLayoutTerminalCreating.swift"; sourceTree = "<group>"; };
@@ -8536,6 +8534,7 @@
 		90813BBC44D79A5D2D0A2F09 /* Surfaces */ = {
 			isa = PBXGroup;
 			children = (
+				3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */,
 				C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */,
 				C11324920000000000000001 /* CloudTuiSurfaceIDResolution.swift */,
 				4D8BE7D3234A1F44E2A1C52B /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift */,
@@ -8846,6 +8845,7 @@
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				A11D00000000000000000002 /* MacDevicesComposition.swift */,
 				BD3A5543C7D058686ECC1ABF /* MobileHostIrxRuntime+DeviceAccess.swift */,
 				15E90CA6CBAF36C5A9B779A2 /* HostSettingsActions+Computers.swift */,
 				986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */,
