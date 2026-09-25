@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSettings
 
 extension CmuxConfigExecutor {
     /// Captures the invoking pane before authorization and shares execution across action surfaces.
