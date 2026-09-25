@@ -224,6 +224,16 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> SurfaceProjection {
+        try await materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: nil)
+    }
+
+    func materialize(
+        _ resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation?
+    ) async throws -> SurfaceProjection {
         guard resource.kind == .terminal else {
             throw SurfaceCatalogError.unsupported(
                 String(localized: "devices.open.browserUnsupported", defaultValue: "Browsers on another Mac can’t be opened here yet.")
@@ -244,12 +254,23 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             guard let workspace = Workspace.liveWorkspace(id: destination.workspaceID) else {
                 throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
             }
-            created = try workspace.performRemoteTmuxMirrorMutation {
-                try SurfacePaneFactory.makeCloudManualMirrorPane(
-                    at: destination, focus: false,
-                    onInput: { input in router.enqueue(input) }, keyNameResolver: nil,
-                    onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
-                )
+            if let reservation,
+               let adopted = workspace.adoptPendingDeviceTerminalPane(
+                   reservation, machine: machine, remoteWorkspaceID: workspaceID
+               ) {
+                // The reservation was created before the Device provider had
+                // a session. Hand its queued/next input to the real device
+                // router before the pane becomes interactive.
+                reservation.inputRelay.attach(session.inputRouter)
+                created = adopted
+            } else {
+                created = try workspace.performRemoteTmuxMirrorMutation {
+                    try SurfacePaneFactory.makeCloudManualMirrorPane(
+                        at: destination, focus: false,
+                        onInput: { input in router.enqueue(input) }, keyNameResolver: nil,
+                        onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
+                    )
+                }
             }
             if focus { SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID) }
         } catch {

@@ -437,10 +437,33 @@ final class DeviceWorkspaceLayoutCoordinator {
                 let wanted = sourceIDs.map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
                 guard wanted.allSatisfy({ catalog.resources[$0] != nil }) else { continue }
                 let present = Set(target.projections.map(\.resource))
+                let locations = DeviceWorkspaceProjection(machine: machine, isLive: true)
+                    .layoutLocations(snapshot.layout)
+                var localPanesByRemotePane: [String: PaneID] = [:]
+                for (panelID, remoteSurfaceID) in target.mapping {
+                    guard let location = locations[remoteSurfaceID],
+                          let pane = native.paneId(forPanelId: panelID) else { continue }
+                    localPanesByRemotePane[location.paneID] = pane
+                }
+                let pendingReservation = native.pendingCloudTerminalReservation(
+                    machine: machine, remoteWorkspaceID: target.remoteID
+                )
+                let pendingPane = native.pendingCloudTerminalPane(
+                    machine: machine, remoteWorkspaceID: target.remoteID
+                )
                 for resourceID in wanted where !present.contains(resourceID) {
                     let view = try catalog.remoteView(for: resourceID, workspaceID: target.remoteID)
-                    _ = try await catalog.project(resourceID, into: .workspace(id: id, placement: .tab),
-                        focus: false, reuseExisting: true, reuseInWorkspace: id, remoteView: view)
+                    let location = locations[resourceID.key]
+                    let pane = location.flatMap { localPanesByRemotePane[$0.paneID] } ?? pendingPane
+                    let destination: SurfaceDestination = pane.map {
+                        .tab(workspaceID: id, paneID: $0.id.uuidString, index: location?.tabIndex)
+                    } ?? .workspace(id: id, placement: .tab)
+                    let adopting = pendingReservation?.remoteTabID == nil
+                        || pendingReservation?.remoteTabID == view.tabID
+                        ? pendingReservation : nil
+                    _ = try await catalog.project(resourceID, into: destination,
+                        focus: false, reuseExisting: true, reuseInWorkspace: id,
+                        remoteView: view, adopting: adopting)
                 }
                 guard !Task.isCancelled, suspended.isEmpty, snapshots[target.remoteID] == snapshot,
                       writers[target.remoteID] == nil, pending[target.remoteID] == nil else { continue }

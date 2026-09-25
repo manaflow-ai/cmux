@@ -15,6 +15,47 @@ import Foundation
 /// is shown inside the pane with Retry, never as a separate "starting" surface.
 @MainActor
 extension Workspace {
+    /// Returns the optimistic pane reserved for a provider's in-flight terminal.
+    /// Device layout reconciliation uses it to adopt the authoritative terminal
+    /// in its final pane instead of projecting it through the focused tab first.
+    func pendingCloudTerminalReservation(
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String
+    ) -> CloudTerminalPaneReservation? {
+        cloudPendingCreations.values.first { reservation in
+            reservation.machine == machine
+                && reservation.remoteWorkspaceID == remoteWorkspaceID
+        }
+    }
+
+    /// The Bonsplit pane currently occupied by an optimistic reservation.
+    func pendingCloudTerminalPane(
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String
+    ) -> PaneID? {
+        guard let reservation = pendingCloudTerminalReservation(
+            machine: machine, remoteWorkspaceID: remoteWorkspaceID
+        ) else { return nil }
+        return paneId(forPanelId: reservation.panelID)
+    }
+
+    /// Hands a device provider the native pane without requiring a Cloud
+    /// attachment object. Device mirrors share the optimistic reservation path,
+    /// but their attachment status has a different type from Cloud VMs.
+    func adoptPendingDeviceTerminalPane(
+        _ reservation: CloudTerminalPaneReservation,
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String
+    ) -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)? {
+        guard reservation.machine == machine,
+              reservation.remoteWorkspaceID == remoteWorkspaceID,
+              cloudPendingCreations[reservation.panelID] === reservation,
+              let panel = panels[reservation.panelID] as? TerminalPanel,
+              panel.surface.ioMode == .manualMirror else { return nil }
+        cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        return (id, panel.id, panel.surface)
+    }
+
     func reserveRestoredCloudTerminalPane(
         snapshot: SessionPanelSnapshot,
         projection: SurfaceProjectionRecord,
