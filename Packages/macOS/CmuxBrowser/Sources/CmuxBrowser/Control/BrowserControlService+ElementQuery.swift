@@ -14,10 +14,23 @@ extension BrowserControlService {
           let start = 0;
           let quote = null;
           let escaped = false;
+          let comment = false;
+          let escapedOutsideQuote = false;
           let brackets = 0;
           let parentheses = 0;
           for (let index = 0; index < source.length; index += 1) {
             const character = source[index];
+            if (comment) {
+              if (character === '*' && source[index + 1] === '/') {
+                comment = false;
+                index += 1;
+              }
+              continue;
+            }
+            if (escapedOutsideQuote) {
+              escapedOutsideQuote = false;
+              continue;
+            }
             if (quote) {
               if (escaped) {
                 escaped = false;
@@ -26,6 +39,15 @@ extension BrowserControlService {
               } else if (character === quote) {
                 quote = null;
               }
+              continue;
+            }
+            if (character === '/' && source[index + 1] === '*') {
+              comment = true;
+              index += 1;
+              continue;
+            }
+            if (character === '\\\\') {
+              escapedOutsideQuote = true;
               continue;
             }
             if (character === '\"' || character === "'") {
