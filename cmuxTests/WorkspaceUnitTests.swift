@@ -506,37 +506,32 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(findInDirectory.control)
     }
 
-    func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
-        let defaults = UserDefaults.standard
-        let feedKey = RightSidebarBetaFeatureSettings.feedEnabledKey
-        let dockKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previousFeed = defaults.object(forKey: feedKey)
-        let previousDock = defaults.object(forKey: dockKey)
-        defer {
-            if let previousFeed { defaults.set(previousFeed, forKey: feedKey) }
-            else { defaults.removeObject(forKey: feedKey) }
-            if let previousDock { defaults.set(previousDock, forKey: dockKey) }
-            else { defaults.removeObject(forKey: dockKey) }
-        }
-        // Positional defaults are intentionally derived from the visible tab
-        // bar. Make the beta-only tabs visible so this test exercises the
-        // complete five-action mapping rather than the disabled-tab fallback.
-        defaults.set(true, forKey: feedKey)
-        defaults.set(true, forKey: dockKey)
-        let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
-            (.switchRightSidebarToFiles, "1"),
-            (.switchRightSidebarToFind, "2"),
-            (.switchRightSidebarToSessions, "3"),
-            (.switchRightSidebarToFeed, "4"),
-            (.switchRightSidebarToDock, "5"),
+    func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() throws {
+        // The digit defaults are positional over the visible tabs. Resolve them
+        // against an isolated defaults suite with Feed and Dock on, so the test
+        // neither depends on nor changes the shared settings other tests read
+        // (tab order, hidden tabs, and feature opt-ins all shift the digits).
+        let suiteName = "cmux.rightSidebarDigitDefaults.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+        let modeSwitchActions: [(KeyboardShortcutSettings.Action, RightSidebarMode, String)] = [
+            (.switchRightSidebarToFiles, .files, "1"),
+            (.switchRightSidebarToFind, .find, "2"),
+            (.switchRightSidebarToSessions, .sessions, "3"),
+            (.switchRightSidebarToFeed, .feed, "4"),
+            (.switchRightSidebarToDock, .dock, "5"),
         ]
 
-        for (action, key) in modeSwitchActions {
-            XCTAssertEqual(action.defaultShortcut.key, key)
-            XCTAssertFalse(action.defaultShortcut.command)
-            XCTAssertFalse(action.defaultShortcut.shift)
-            XCTAssertFalse(action.defaultShortcut.option)
-            XCTAssertTrue(action.defaultShortcut.control)
+        for (action, mode, key) in modeSwitchActions {
+            let shortcut = KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: mode, defaults: defaults)
+            XCTAssertEqual(shortcut.key, key)
+            XCTAssertFalse(shortcut.command)
+            XCTAssertFalse(shortcut.shift)
+            XCTAssertFalse(shortcut.option)
+            XCTAssertTrue(shortcut.control)
             XCTAssertFalse(action.isPublicShortcutAction)
             XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
             XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
