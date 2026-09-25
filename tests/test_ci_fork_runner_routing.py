@@ -489,7 +489,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "  b:\n"
             "    runs-on: ${{ " + FORK_MACOS_BRANCH + " || inputs.runner || 'blacksmith-6vcpu-macos-26' }}\n"
             "    steps:\n"
-            "      - if: ${{ startsWith(" + FORK_MACOS_BRANCH + " || 'blacksmith-6vcpu-macos-26', 'tart-') }}\n"
+            "      - if: ${{ startsWith(" + FORK_MACOS_BRANCH + " || 'blacksmith-6vcpu-macos-26', 'glaeda-') }}\n"
             "        run: ./scripts/blacksmith-bounded-command.sh\n"
             "  c:\n"
             "    " + OWNER_ONLY_JOB_IF + "\n"

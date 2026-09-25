@@ -16,6 +16,17 @@ export interface SocketReservation {
 }
 
 /** Reservations persist across eviction and are never expired while a socket may still exist. */
+/** Drizzle keeps SQLite trigger messages on nested causes. */
+function raisedGuard(error: unknown, guard: string): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current !== undefined && current !== null && depth < 4; depth += 1) {
+    const message = current instanceof Error ? current.message : String(current);
+    if (message.includes(guard)) return true;
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
+}
+
 export class UserSocketStore {
   private readonly db;
   private readonly scopeKey: string;
@@ -37,7 +48,7 @@ export class UserSocketStore {
         this.db.insert(socketReservations).values({ scopeKey: this.scopeKey, ...value }).run();
       });
     } catch (error) {
-      if (String(error).includes("socket_capacity")) throw new OperationError("rate_limited", 429, true, 1000);
+      if (raisedGuard(error, "socket_capacity")) throw new OperationError("rate_limited", 429, true, 1000);
       throw error;
     }
   }
@@ -56,7 +67,7 @@ export class UserSocketStore {
         this.db.run(sql`UPDATE "socket_reservations" SET "output_bytes" = ${bytes}, "output_messages" = ${messages}, "output_revision" = ${revision} WHERE "scope_key" = ${this.scopeKey} AND "user_id" = ${userId} AND "session_id" = ${sessionId}`);
       });
     } catch (error) {
-      if (String(error).includes("socket_output_capacity")) throw new OperationError("slow_consumer", 429, true, 1000);
+      if (raisedGuard(error, "socket_output_capacity")) throw new OperationError("slow_consumer", 429, true, 1000);
       throw error;
     }
   }

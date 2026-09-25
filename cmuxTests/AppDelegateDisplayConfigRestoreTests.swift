@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 /// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 @MainActor
 struct AppDelegateDisplayConfigRestoreTests {
     // MARK: fixtures

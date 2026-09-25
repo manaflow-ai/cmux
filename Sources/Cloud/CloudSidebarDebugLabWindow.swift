@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxCloud
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
