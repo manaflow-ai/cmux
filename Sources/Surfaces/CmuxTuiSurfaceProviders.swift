@@ -78,6 +78,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.portDiscoveryState = portDiscovery.state
         catalog.updateMachine(info, from: self)
     }
+
+    func requestPortDiscovery() {
+        portDiscovery.request()
+        publishPortDiscovery()
+    }
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.
     var materializedPanels: Set<UUID> = []
