@@ -44,7 +44,10 @@ struct TerminalPlainTextPasteStartupTests {
     }
 
     @MainActor
-    @Test("rich paste payloads still require the full preparation worker")
+    // Mixed rich + plain text takes the plain-text helper (#14121). Only a
+    // plain export that lost characters still needs the full worker, which can
+    // recover them from the rich flavor.
+    @Test("rich paste payloads with a lossy plain export still require the full preparation worker")
     func richPasteDoesNotUsePlainTextHelper() async throws {
         let pasteboard = NSPasteboard(name: .init("cmux-tests-rich-startup-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -52,8 +55,8 @@ struct TerminalPlainTextPasteStartupTests {
             pasteboard.clearContents()
             pasteboard.releaseGlobally()
         }
-        #expect(pasteboard.setString("visible text", forType: .string))
-        #expect(pasteboard.setString("<p>visible text</p>", forType: .html))
+        #expect(pasteboard.setString("caf\u{FFFD} text", forType: .string))
+        #expect(pasteboard.setString("<p>caf\u{00E9} text</p>", forType: .html))
         let helperURL = try bundledHelper()
         let client = TerminalPastePreparationWorkerClient(
             executableURL: URL(fileURLWithPath: "/usr/bin/false"),
