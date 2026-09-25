@@ -2812,7 +2812,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var layoutMode: WorkspaceLayoutMode = .splits
 
     /// Whether new splits should be kept evenly sized automatically.
-    @Published private(set) var isTilingModeEnabled = false
+    @Published internal(set) var isTilingModeEnabled = false
 
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
