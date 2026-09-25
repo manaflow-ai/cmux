@@ -208,11 +208,12 @@ names no owned pool.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
-| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}` |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
 
-Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label with a positive
-whole number of machines counts as none. While owned pools are on, the
-`changes` job raises a workflow warning and a summary line for each such entry,
+Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label or class with a
+positive whole number of machines counts as none. A full label wins over its
+class. While owned pools are on, the `changes` job raises a workflow error
+annotation and a summary line for each such entry,
 so a typo shows up on every run instead of quietly leaving a pool unused.
 
 An owned pool is persistent, which needs one more rule because GitHub never
