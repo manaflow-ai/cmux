@@ -12,6 +12,7 @@ private final class FakeControlCommandContext: ControlCommandContext {
     var focusResult = false
     var focusedID: UUID?
     var createResult: UUID?
+    var createdTitle: String?
     var closeResult = false
     var closedID: UUID?
     var displays: [ControlDisplayInfo] = []
@@ -33,6 +34,11 @@ private final class FakeControlCommandContext: ControlCommandContext {
     }
 
     func controlCreateWindowAndActivate() -> UUID? { createResult }
+
+    func controlCreateWindowAndActivate(title: String?) -> UUID? {
+        createdTitle = title
+        return createResult
+    }
 
     func controlCloseWindow(id: UUID) -> Bool {
         closedID = id
@@ -199,6 +205,19 @@ struct ControlCommandCoordinatorWindowTests {
         context.createResult = nil
         #expect(coordinator.handle(request("window.create"))
             == .err(code: "internal_error", message: "Failed to create window", data: nil))
+    }
+
+    @Test(arguments: ["Build server", "日本語のウィンドウ", "quotes \" and \\ paths"])
+    func windowCreatePassesTitleAtCreation(title: String) {
+        let (coordinator, context) = makeCoordinator()
+        let windowID = UUID()
+        context.createResult = windowID
+        #expect(coordinator.handle(request("window.create", ["title": .string(title)]))
+            == .ok(.object([
+                "window_id": .string(windowID.uuidString),
+                "window_ref": .string("window:1")
+            ])))
+        #expect(context.createdTitle == title)
     }
 
     @Test func windowCloseOkAndNotFound() {
