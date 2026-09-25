@@ -2164,29 +2164,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testPerformRootSplitActionUsesTheExplicitTargetManager() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected target manager and workspace")
-            return
-        }
-
-        let panelsBefore = workspace.panels.count
-        XCTAssertTrue(
-            appDelegate.performRootSplitAction(direction: .right, targetManager: manager),
-            "The shared root split action should route to the explicit manager"
-        )
-        XCTAssertEqual(workspace.panels.count, panelsBefore + 1)
-    }
-
     func testOpenDiffViewerShortcutDefaultsToCmdCtrlDAndRoutesToSharedDiffPath() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

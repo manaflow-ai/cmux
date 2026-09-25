@@ -92,20 +92,73 @@ import Testing
         )
     }
 
-    @Test func rootSplitWorkspaceActionRoutesTheEntireTmuxWindow() throws {
-        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
-            connectedTransport: true
-        )
+    @Test(arguments: ["shortcut", "menu", "palette"])
+    func rootSplitActionTargetsTheRequestedWindow(entrypoint: String) throws {
+        let target = try Harness()
+        let other = try Harness()
+        defer {
+            other.tearDown()
+            target.tearDown()
+        }
+        let delegate = target.appDelegate
+        let manager = try #require(delegate.tabManagerFor(windowId: target.windowId))
+        let otherManager = try #require(delegate.tabManagerFor(windowId: other.windowId))
+        let window = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.main.\(target.windowId.uuidString)"
+        })
+        let beforeTarget = target.workspace.panels.count
+        let beforeOther = other.workspace.panels.count
+        if entrypoint == "menu" { window.makeKeyAndOrderFront(nil) }
+        delegate.tabManager = otherManager
+
+        let accepted: Bool
+        switch entrypoint {
+        case "shortcut":
+            accepted = delegate.performRootSplitShortcut(direction: .right, preferredWindow: window)
+        case "menu":
+            accepted = delegate.performRootSplitAction(direction: .right)
+        default:
+            accepted = delegate.performRootSplitAction(direction: .right, targetManager: manager)
+        }
+
+        #expect(accepted)
+        #expect(target.workspace.panels.count == beforeTarget + 1)
+        #expect(other.workspace.panels.count == beforeOther)
+    }
+
+    @Test func rootSplitActionRejectsDisconnectedMirrorWithoutLocalFallback() throws {
+        let harness = try Harness()
         defer { harness.tearDown() }
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        harness.workspace.isRemoteTmuxMirror = true
+        let before = harness.workspace.panels.count
 
-        let outcome = harness.workspace.newTerminalRootSplitOutcome(direction: .right)
-        #expect(outcome.isAccepted)
+        #expect(!harness.appDelegate.performRootSplitAction(direction: .down, targetManager: manager))
+        #expect(harness.workspace.panels.count == before)
+    }
 
-        let writer = try #require(harness.controlWriter)
-        let pipe = try #require(harness.controlPipe)
-        writer.close()
+    @Test func rootSplitWorkspaceActionRoutesTheEntireTmuxWindow() throws {
+        let harness = try RemoteTmuxSessionMirrorLayoutHarness()
+        defer { harness.tearDown() }
+        let appDelegate = try #require(AppDelegate.shared)
+        let controller = appDelegate.remoteTmuxController
+        let key = RemoteTmuxController.connectionKey(
+            host: harness.connection.host, sessionName: harness.connection.sessionName
+        )
+        let previousMirror = controller.sessionMirrors.updateValue(harness.sessionMirror, forKey: key)
+        defer { controller.sessionMirrors[key] = previousMirror }
+        let containerPanelID = try #require(harness.workspace.panels.keys.first {
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: $0) != nil
+        })
+        harness.workspace.focusPanel(containerPanelID)
+        let panelsBefore = harness.workspace.panels.count
+
+        #expect(appDelegate.performRootSplitAction(direction: .right, targetManager: harness.manager))
+        #expect(harness.workspace.panels.count == panelsBefore)
+
+        harness.writer.close()
         let commands = try #require(String(
-            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            bytes: try harness.pipe.fileHandleForReading.readToEnd() ?? Data(),
             encoding: .utf8
         ))
         let splitCommands = commands.split(separator: "\n").filter {
