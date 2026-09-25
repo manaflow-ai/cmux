@@ -46,12 +46,12 @@ struct TmuxWorkspacePaneOverlayView: View {
     }
 
     private func overlayCanvas(timelineDate: Date?, attentionColor: Color) -> some View {
-        Canvas { context, _ in
+        Canvas { context, size in
             if let activePaneBorderRect,
                let activePaneBorderColorHex {
                 drawActivePaneBorder(
                     in: &context,
-                    rect: activePaneBorderRect,
+                    rect: activePaneBorderRect.intersection(CGRect(origin: .zero, size: size)),
                     colorHex: activePaneBorderColorHex
                 )
             }

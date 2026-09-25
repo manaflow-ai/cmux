@@ -1044,12 +1044,15 @@ struct ContentView: View {
         return rectInContent
     }
 
+    /// Uses the visible Bonsplit container while zoomed, never the stale split
+    /// pane frame; otherwise prefers a hosted view that fits the pane.
     static func preferredTmuxWorkspacePaneWindowOverlayRect(
         exactRect: CGRect?,
         paneRect: CGRect?,
-        isSplitZoomed: Bool = false
+        isSplitZoomed: Bool = false,
+        zoomedContainerRect: CGRect? = nil
     ) -> CGRect? {
-        if isSplitZoomed { return exactRect }
+        if isSplitZoomed { return zoomedContainerRect }
         guard let paneRect else { return exactRect }
         guard let exactRect,
               exactRect.width > 1,
@@ -1081,7 +1084,10 @@ struct ContentView: View {
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
             liveSnapshot: workspace.bonsplitController.layoutSnapshot()
         )
-        let contentView = window.contentView
+        let contentView = WindowTmuxWorkspacePaneOverlayController.controller(
+            for: window,
+            createIfNeeded: true
+        )?.coordinateReferenceView ?? window.contentView
 
         let unreadRects: [CGRect]
         if usesWorkspacePaneOverlay {
@@ -1162,13 +1168,16 @@ struct ContentView: View {
                 paneId: workspace.paneId(forPanelId: panelId)
             )
             let exactRect = contentView.flatMap { Self.tmuxWorkspacePaneExactRect(for: panel, in: $0) }
-            // The layout snapshot can still describe the unzoomed split while
-            // Bonsplit moves the hosted view into its zoomed presentation.
-            // In zoom mode, the visible view is the source of truth for the border.
+            let isSplitZoomed = workspace.bonsplitController.isSplitZoomed
+            // Bonsplit's zoomed container covers the visible pane; hosted terminal
+            // views can include a tab-chrome offset during the zoom transition.
             activePaneBorderRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                 exactRect: exactRect,
                 paneRect: paneRect,
-                isSplitZoomed: workspace.bonsplitController.isSplitZoomed
+                isSplitZoomed: isSplitZoomed,
+                zoomedContainerRect: isSplitZoomed
+                    ? WorkspaceContentView.tmuxWorkspaceZoomedPaneWindowOverlayRect(layoutSnapshot: layoutSnapshot)
+                    : nil
             )
         } else {
             activePaneBorderRect = nil

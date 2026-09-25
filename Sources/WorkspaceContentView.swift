@@ -549,6 +549,15 @@ struct WorkspaceContentView: View {
         )
     }
 
+    /// Returns the zoomed split area's window-content rect, excluding tab chrome.
+    static func tmuxWorkspaceZoomedPaneWindowOverlayRect(layoutSnapshot: LayoutSnapshot?) -> CGRect? {
+        guard let frame = layoutSnapshot?.containerFrame.cgRect,
+              frame.width > 1, frame.height > 1 else { return nil }
+        return tmuxPaneOverlayGeometry.contentRect(
+            CGRect(x: frame.minX, y: 0, width: frame.width, height: frame.height)
+        )
+    }
+
     static func effectiveTmuxLayoutSnapshot(
         cachedSnapshot: LayoutSnapshot?,
         liveSnapshot: LayoutSnapshot?

@@ -4349,14 +4349,35 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         )
     }
 
-    func testZoomedBorderUsesVisibleViewInsteadOfStaleSplitSnapshot() {
+    func testPaneExactRectUsesOverlayReferenceCoordinates() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let reference = NSView(frame: NSRect(x: 0, y: 32, width: 640, height: 368))
+        let target = NSView(frame: NSRect(x: 10, y: 50, width: 300, height: 200))
+        window.contentView?.addSubview(reference)
+        window.contentView?.addSubview(target)
+
+        XCTAssertEqual(
+            ContentView.tmuxWorkspacePaneExactRect(for: target, in: reference),
+            CGRect(x: 10, y: 18, width: 300, height: 200)
+        )
+    }
+
+    func testZoomedBorderUsesContainerInsteadOfStaleSplitSnapshot() {
         let splitRect = CGRect(x: 10, y: 20, width: 300, height: 200)
         let zoomedRect = CGRect(x: 10, y: 20, width: 620, height: 360)
+        let containerRect = CGRect(x: 10, y: 20, width: 640, height: 360)
         XCTAssertEqual(
             ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
-                exactRect: zoomedRect, paneRect: splitRect, isSplitZoomed: true
+                exactRect: zoomedRect, paneRect: splitRect, isSplitZoomed: true,
+                zoomedContainerRect: containerRect
             ),
-            zoomedRect
+            containerRect
         )
         XCTAssertEqual(
             ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
@@ -4364,10 +4385,36 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
             ),
             splitRect
         )
+        XCTAssertEqual(
+            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
+                exactRect: nil, paneRect: splitRect, isSplitZoomed: true,
+                zoomedContainerRect: containerRect
+            ),
+            containerRect
+        )
         XCTAssertNil(
             ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
-                exactRect: nil, paneRect: splitRect, isSplitZoomed: true
+                exactRect: zoomedRect, paneRect: splitRect, isSplitZoomed: true
             )
+        )
+    }
+
+    func testZoomedContainerFallbackIgnoresStalePaneGeometry() {
+        let stalePane = PaneGeometry(
+            paneId: UUID().uuidString,
+            frame: PixelRect(x: 50, y: 90, width: 300, height: 200),
+            selectedTabId: nil,
+            tabIds: []
+        )
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 50, y: 90, width: 640, height: 400),
+            panes: [stalePane],
+            focusedPaneId: stalePane.paneId,
+            timestamp: 0
+        )
+        XCTAssertEqual(
+            WorkspaceContentView.tmuxWorkspaceZoomedPaneWindowOverlayRect(layoutSnapshot: snapshot),
+            CGRect(x: 50, y: 28, width: 640, height: 372)
         )
     }
 }
