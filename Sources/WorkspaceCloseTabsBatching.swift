@@ -5,10 +5,12 @@ import Foundation
 struct CloseOtherTabsConfirmationPrompt: Sendable {
     let title: String
     let message: String
+    let details: String
 
     init(titles: [String]) {
         let count = titles.count
         let titleLines = titles.map { "• \($0)" }.joined(separator: "\n")
+        details = titleLines
         title = String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?")
 
         if count == 1 {
@@ -60,7 +62,7 @@ extension Workspace {
             return panelNeedsConfirmClose(panelId: panelId)
         }
 
-        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmClose(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
         ) {
@@ -75,11 +77,25 @@ extension Workspace {
             guard confirmationManager.confirmClose(
                 title: prompt.title,
                 message: prompt.message,
+                scrollableDetails: prompt.details,
                 acceptCmdD: false
             ) else { return }
         }
 
         for candidate in candidates {
+            // Remote tmux mirror tabs: the batch prompt above already covered
+            // them (panelNeedsConfirmClose is mirror-aware), so route the kill
+            // to the remote directly and veto local close. If routing fails
+            // while reconnecting, keep the tab so the mirror can retry later.
+            // A local force-close would bypass the shouldCloseTab kill routing
+            // and leave the remote window alive, resurrecting the tab on the
+            // next rebuild.
+            switch routeRemoteTmuxNonInteractiveTabCloseIfNeeded(candidate.tabId) {
+            case .routed, .rejectedMirrorTab:
+                continue
+            case .notMirrorTab:
+                break
+            }
             _ = requestCloseTabRecordingHistory(candidate.tabId, force: needsConfirmation)
         }
     }

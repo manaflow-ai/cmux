@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
@@ -38,9 +39,29 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             forName: .ghosttyDidSetTitle,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
+            MainActor.assumeIsolated { [weak self] in
+                guard let self,
+                      self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == true else { return }
+                self.scheduleFocusedCommandTextUpdate()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: tabManager,
+            queue: .main
+        ) { [weak self] notification in
+            // Extract Sendable values where the notification is delivered; the
+            // non-Sendable Notification must not cross the Task boundary.
+            let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            let surfaceSourced = notification.userInfo?[GhosttyNotificationKey.surfaceId] != nil
             Task { @MainActor [weak self] in
-                self?.scheduleFocusedCommandTextUpdate()
+                guard let self,
+                      self.tabManager?.shouldRefreshTitleChrome(tabId: tabId, surfaceSourced: surfaceSourced) == true
+                else { return }
+                self.scheduleFocusedCommandTextUpdate()
             }
         })
 
@@ -90,13 +111,19 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             }
         })
 
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.updateToolbarVisibilityIfNeeded()
+            }
+        })
+
         observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
+            forName: GlobalFontMagnification.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.updateToolbarVisibilityIfNeeded()
+                self?.applyCommandLabelFont()
             }
         })
     }
@@ -179,6 +206,13 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         }
     }
 
+    private func applyCommandLabelFont() {
+        let font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
+        for label in commandLabels.values {
+            label.font = font
+        }
+    }
+
     // MARK: - NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -193,7 +227,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         if itemIdentifier == commandItemIdentifier {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             let label = NSTextField(labelWithString: "Cmd: —")
-            label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            label.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingMiddle
             label.setContentHuggingPriority(.defaultHigh, for: .horizontal)

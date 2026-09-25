@@ -16,7 +16,7 @@ or spatial focus keys, instead of nesting ever-smaller splits.
 
 Two layers, enforced by SPM separation:
 
-1. `Packages/CmuxCanvas` — the pure model. Pane frames, gap math, snapping,
+1. `Packages/macOS/CmuxCanvas` — the pure model. Pane frames, gap math, snapping,
    alignment/distribution commands, spatial focus, placement of new panes,
    viewport math (scroll-to-reveal, fit-all). Foundation-only, no
    AppKit/CoreGraphics, deterministic, fully unit tested. Declares macOS and

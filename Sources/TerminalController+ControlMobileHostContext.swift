@@ -18,9 +18,10 @@ import Foundation
 /// `Localizable.xcstrings`: the coordinator never calls `String(localized:)` for
 /// this domain, so no non-English translation is dropped.
 ///
-/// Both the coordinator (`processV2Command`) and the mobile RPC handler
-/// (`mobileHostHandleRPC`) drive the same private bodies, so the wire behavior is
-/// shared across both entrypoints.
+/// These witnesses serve only the v2 control socket (`processV2Command` →
+/// ``ControlCommandCoordinator/handleMobileHost(_:)``). The mobile data-plane RPC
+/// (`mobileHostHandleRPC`) dispatches the same `v2Mobile*` bodies directly, with
+/// no `ControlCallResult` round-trip, so it does not transit this seam.
 extension TerminalController: ControlMobileHostContext {
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult {
         // `processV2Command` called `v2MobileHostStatus(params:)` with the
@@ -56,11 +57,37 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalMouse(params: foundationParams(params)))
     }
 
+    func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult {
+        bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
+    }
+
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult {
+        bridgeMobileResult(
+            v2MobileTaskAttachmentUpload(params: foundationParams(params))
+        )
+    }
+
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(
+            await v2MobileTaskModelsList(params: foundationParams(params))
+        )
+    }
+
+    func controlMobileChatSessionsDump() -> ControlCallResult {
+        bridgeMobileResult(v2ChatSessionsDump())
+    }
+
     /// Reconstructs the legacy `[String: Any]` params from the coordinator's
     /// typed params. This is the exact inverse of the dispatcher's
     /// `request.params.mapValues { $0.foundationObject }`, so the legacy body
     /// receives the identical Foundation dictionary it always did.
-    private func foundationParams(_ params: [String: JSONValue]) -> [String: Any] {
+    private nonisolated func foundationParams(
+        _ params: [String: JSONValue]
+    ) -> [String: Any] {
         params.mapValues(\.foundationObject)
     }
 
@@ -68,7 +95,9 @@ extension TerminalController: ControlMobileHostContext {
     /// `ControlCallResult`. The mobile bodies only build valid-JSON payloads, so
     /// the bridge never fails; the empty-object / `nil` fallbacks keep the
     /// conversion total.
-    private func bridgeMobileResult(_ result: V2CallResult) -> ControlCallResult {
+    private nonisolated func bridgeMobileResult(
+        _ result: V2CallResult
+    ) -> ControlCallResult {
         switch result {
         case let .ok(payload):
             return .ok(JSONValue(foundationObject: payload) ?? .object([:]))

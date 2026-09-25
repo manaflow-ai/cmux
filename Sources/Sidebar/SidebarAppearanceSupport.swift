@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
 import SwiftUI
@@ -13,6 +14,40 @@ enum SidebarTabItemFontScale {
     static func scale(for sidebarFontSize: CGFloat) -> CGFloat {
         GhosttyConfig.clampedSidebarFontSize(sidebarFontSize)
             / GhosttyConfig.defaultSidebarFontSize
+    }
+}
+
+/// Resolves AppKit colors against cmux's concrete terminal light/dark scheme.
+///
+/// AppKit semantic colors otherwise resolve against the window's effective
+/// appearance, which can differ from the active cmux theme. This value type is
+/// shared by the SwiftUI and pure-AppKit sidebar paths so they never ask
+/// AppKit to make an independent appearance decision.
+struct SidebarAppearanceColorResolver {
+    /// Returns the scheme selected by the shared terminal-theme authority.
+    func currentColorScheme() -> ColorScheme {
+        GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+    }
+
+    /// Resolves an AppKit semantic color against a concrete cmux scheme.
+    func resolvedColor(
+        _ color: NSColor,
+        for colorScheme: ColorScheme,
+        opacity: CGFloat? = nil
+    ) -> NSColor {
+        let resolved = WindowAppearanceSnapshot.resolvedColor(color, for: colorScheme)
+        guard let opacity else { return resolved }
+        return resolved.withAlphaComponent(max(0, min(opacity, 1)))
+    }
+
+    /// Returns the active-control foreground for a concrete cmux scheme.
+    func activeForegroundColor(
+        opacity: CGFloat,
+        for colorScheme: ColorScheme
+    ) -> NSColor {
+        let clampedOpacity = max(0, min(opacity, 1))
+        let baseColor: NSColor = colorScheme == .dark ? .white : .black
+        return baseColor.withAlphaComponent(clampedOpacity)
     }
 }
 
@@ -41,18 +76,39 @@ func coloredCircleImage(color: NSColor) -> NSImage {
 
 func sidebarActiveForegroundNSColor(
     opacity: CGFloat,
-    appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    appAppearance: NSAppearance? = nil
 ) -> NSColor {
-    let clampedOpacity = max(0, min(opacity, 1))
-    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
-    let baseColor: NSColor = (bestMatch == .darkAqua) ? .white : .black
-    return baseColor.withAlphaComponent(clampedOpacity)
+    let colorScheme = appAppearance.map {
+        $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? ColorScheme.dark : .light
+    } ?? SidebarAppearanceColorResolver().currentColorScheme()
+    return SidebarAppearanceColorResolver().activeForegroundColor(
+        opacity: opacity,
+        for: colorScheme
+    )
 }
 
-func titlebarControlForegroundNSColor(
-    opacity: CGFloat,
-    appearance: WindowAppearanceSnapshot = .currentFromUserDefaults()
-) -> NSColor {
+@MainActor
+func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+    let app = GhosttyApp.shared
+    let appearance = WindowAppearanceResolver(
+        terminalAppearance: WindowTerminalAppearanceSnapshot(
+            backgroundColor: app.defaultBackgroundColor,
+            backgroundOpacity: app.defaultBackgroundOpacity,
+            backgroundBlur: app.defaultBackgroundBlur,
+            usesHostLayerBackground: app.usesHostLayerBackground,
+            resolvedColorScheme: app.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+        )
+    ).currentFromUserDefaults(
+        defaults: .standard,
+        colorScheme: AppearanceSettings.currentAmbientColorScheme()
+    )
+    return titlebarControlForegroundNSColor(
+        opacity: opacity,
+        appearance: appearance
+    )
+}
+
+func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppearanceSnapshot) -> NSColor {
     cmuxReadableForegroundNSColor(
         on: appearance.compositedTerminalBackgroundColor,
         opacity: opacity
@@ -85,9 +141,7 @@ func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
 }
 
 func cmuxAccentNSColor() -> NSColor {
-    NSColor(name: nil) { appearance in
-        cmuxAccentNSColor(for: appearance)
-    }
+    cmuxAccentNSColor(for: SidebarAppearanceColorResolver().currentColorScheme())
 }
 
 func cmuxAccentColor() -> Color {
@@ -249,7 +303,7 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: clampedOpacity)
 }
 
-struct SidebarWorkspaceRowBackgroundStyle {
+struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     let color: NSColor?
     let opacity: Double
 

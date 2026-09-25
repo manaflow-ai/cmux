@@ -1,6 +1,7 @@
 import CmuxCommandPalette
 import Darwin
 import Foundation
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -161,7 +162,7 @@ func makeLargeWorkspaceSwitcherEntries(count: Int) -> [FixtureEntry] {
         let projectSlug = "project-\(index)-cmd-p-search-performance"
         let worktreeSlug = "feature-\(index)-palette-latency"
         let title = "Workspace \(index) \(projectSlug)"
-        let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+        let keywords = CommandPaletteSwitcherSearchIndexer(
             baseKeywords: [
                 "workspace",
                 "switch",
@@ -187,7 +188,7 @@ func makeLargeWorkspaceSwitcherEntries(count: Int) -> [FixtureEntry] {
                 description: "Palette performance fixture \(index) for \(projectSlug)"
             ),
             detail: .workspace
-        )
+        ).keywords
         return FixtureEntry(
             id: "workspace.large.\(index)",
             rank: index,
@@ -213,9 +214,8 @@ func optimizedResults(
     query: String,
     resultLimit: Int
 ) -> [FixtureResult] {
-    CommandPaletteSearchEngine.search(
-        entries: corpus,
-        query: query,
+    CommandPaletteSearchEngine(entries: corpus).search(
+            query: query,
         resultLimit: resultLimit
     ) { _, _ in 0 }
         .map {
@@ -344,4 +344,33 @@ func percentile(_ values: [Double], percentile: Double) -> Double {
 
 func repeatedQueries(_ baseQueries: [String], repetitions: Int) -> [String] {
     Array(repeating: baseQueries, count: repetitions).flatMap { $0 }
+}
+
+/// Gate for the command-palette search wall-clock benchmarks.
+///
+/// These benchmarks measure pure search-engine code that has no app-host
+/// dependency, and they cost roughly 85s of sharded app-host test time. Their
+/// wall-clock ratios are also load-sensitive on a shared runner, so they belong
+/// in a focused invocation rather than the unit suite. They stay runnable on
+/// demand through the same env-gated skip shape the renderer-memory regression
+/// uses (`CMUX_RENDERER_MEMORY_REGRESSION` in `TerminalAndGhosttyTests`):
+///
+///     CMUX_COMMAND_PALETTE_SEARCH_BENCHMARKS=1 \
+///       scripts/ci/run-app-host-xcodebuild.sh ... \
+///       -only-testing:cmuxTests/CommandPaletteSearchEngineTests/<benchmark>
+///
+/// (`run-app-host-xcodebuild.sh` forwards driver variables to the app host
+/// through the `TEST_RUNNER_` channel, so CI would set
+/// `TEST_RUNNER_CMUX_COMMAND_PALETTE_SEARCH_BENCHMARKS=1`.)
+///
+/// Whatever each benchmark asserted about *results* stays in the unit suite as
+/// a small separate test, so behavior regressions are still caught when the
+/// timing runs are skipped.
+func skipUnlessCommandPaletteSearchBenchmarksAreEnabled() throws {
+    guard ProcessInfo.processInfo.environment["CMUX_COMMAND_PALETTE_SEARCH_BENCHMARKS"] == "1" else {
+        throw XCTSkip(
+            "Runs in the focused command-palette search benchmark invocation "
+                + "(CMUX_COMMAND_PALETTE_SEARCH_BENCHMARKS=1)"
+        )
+    }
 }

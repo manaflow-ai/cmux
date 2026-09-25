@@ -55,15 +55,13 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
-      --diffs-light-bg: var(--cmux-diff-bg);
-      --diffs-dark-bg: var(--cmux-diff-bg);
+      --diffs-light-bg: transparent;
+      --diffs-dark-bg: transparent;
       --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
-      --diffs-bg-context-override: var(--cmux-diff-bg);
-      --diffs-bg-context-gutter-override: var(--cmux-diff-bg);
-      --cmux-diff-surface-bg: light-dark(
-        color-mix(in srgb, var(--cmux-diff-bg) 96%, #f5f5f0),
-        color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)
-      );
+      --diffs-bg-context-override: transparent;
+      --diffs-bg-context-gutter-override: transparent;
+      --cmux-diff-surface-bg: transparent;
+      --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-bg) 42%, transparent);
       --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
@@ -77,13 +75,15 @@ export function codeViewUnsafeCSS(): string {
     :host,
     pre,
     code {
-      background-color: var(--cmux-diff-bg);
+      background-color: transparent;
     }
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
       min-height: 30px;
-      background-color: var(--cmux-diff-surface-bg) !important;
+      background-color: var(--cmux-diff-header-bg) !important;
+      -webkit-backdrop-filter: blur(8px) saturate(1.08);
+      backdrop-filter: blur(8px) saturate(1.08);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
@@ -104,7 +104,7 @@ export function codeViewUnsafeCSS(): string {
       );
     }
     [data-separator='line-info'] {
-      background-color: var(--diffs-bg-separator);
+      background-color: transparent;
     }
     [data-utility-button] {
       display: inline-flex;
@@ -151,6 +151,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
+      --cmux-diff-tree-sticky-bg: var(--cmux-diff-bg);
       background-color: var(--cmux-diff-sidebar-bg);
     }
     [data-file-tree-search-container][data-open='false'] {
@@ -183,7 +184,7 @@ export function fileTreeUnsafeCSS(): string {
       font-weight: 500;
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-sidebar-bg)) !important;
+      background-color: var(--cmux-diff-tree-sticky-bg) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;
@@ -191,17 +192,18 @@ export function fileTreeUnsafeCSS(): string {
 
 export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearance) {
   const palette = theme.palette ?? {};
-  const background = appearanceBackgroundColor(theme.background, appearance);
-  const foreground = readableColor(theme.foreground, background, theme.type === "light" ? "#000000" : "#ffffff");
-  const tokenColor = (value: unknown, fallback = foreground) => readableColor(value, background, fallback);
+  const renderedBackground = appearanceBackgroundColor(theme.background, appearance);
+  const contrastBackground = themeBackgroundForContrast(theme);
+  const foreground = readableColor(theme.foreground, contrastBackground, theme.type === "light" ? "#000000" : "#ffffff");
+  const tokenColor = (value: unknown, fallback = foreground) => readableColor(value, contrastBackground, fallback);
   return {
     name: theme.name,
     displayName: theme.ghosttyName,
     type: theme.type,
     colors: {
-      "editor.background": background,
+      "editor.background": renderedBackground,
       "editor.foreground": foreground,
-      "terminal.background": background,
+      "terminal.background": renderedBackground,
       "terminal.foreground": foreground,
       "terminal.ansiBlack": tokenColor(palette["0"]),
       "terminal.ansiRed": tokenColor(palette["1"]),
@@ -226,7 +228,7 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       "editor.selectionForeground": theme.selectionForeground,
     },
     tokenColors: [
-      { settings: { foreground, background } },
+      { settings: { foreground, background: renderedBackground } },
       { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" } },
       { scope: ["string", "constant.other.symbol"], settings: { foreground: tokenColor(palette["2"]) } },
       { scope: ["constant.numeric", "constant.language", "support.constant"], settings: { foreground: tokenColor(palette["3"]) } },
@@ -265,4 +267,11 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       { scope: ["invalid", "message.error"], settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) } },
     ],
   };
+}
+
+function themeBackgroundForContrast(theme: any): string {
+  if (typeof theme.background === "string" && theme.background.trim() !== "") {
+    return theme.background.trim();
+  }
+  return theme.type === "light" ? "#ffffff" : "#000000";
 }

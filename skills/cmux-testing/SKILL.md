@@ -1,46 +1,77 @@
 ---
 name: cmux-testing
-description: "cmux testing rules for Swift Testing, test target compilation, and package/refactor validation. Use when adding or changing tests, touching package/refactor code, or deciding whether reload.sh is enough validation."
+description: "Choose scoped cmux verification, add behavioral tests, and validate Swift test targets and wiring. Use when adding tests or deciding what local/CI evidence a change needs."
 ---
 
 # cmux Testing
 
-## Regression test commit policy
+## Choose the first check
 
-When adding a regression test for a bug fix, use a two-commit structure so CI proves the test catches the bug:
+Run repository commands only from a [trusted checkout](../../docs/contributor-verification.md#trust-boundary);
+even `verify-local.py --help` and `--list` load repository code.
 
-1. **Commit 1:** Add the failing test only (no fix). CI should go red.
-2. **Commit 2:** Add the fix. CI should go green.
+| Task | Command |
+| --- | --- |
+| Choose checks and parse changed Swift | `python3 scripts/verify-local.py` |
+| Run the full CI static recipe | `python3 scripts/verify-local.py --all` |
+| Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
+| Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |
 
-This makes it visible in the GitHub PR UI that the test genuinely fails without the fix.
+Add a base ref after `--swift-changed` to include committed changes. Use `--list`
+to find other checks and `--help` for options. Parsing checks syntax; it doesn't
+typecheck or run tests.
 
-## Test quality policy
+Read the [command guide](../../docs/verification-receipts.md) for piped paths or
+JSON receipts. Use the [validation guide](references/local-vs-ci-validation.md)
+to choose package, native, web or runtime checks. Docs and portable tooling use
+their scoped checks.
 
-- Do not add tests that only verify source code text, method signatures, AST fragments, or grep-style patterns.
-- Do not add tests that read checked-in metadata or project files such as `Resources/Info.plist`, `project.pbxproj`, `.xcconfig`, or source files only to assert that a key, string, plist entry, or snippet exists.
-- Tests must verify observable runtime behavior through executable paths (unit/integration/e2e/CLI), not implementation shape.
-- For metadata changes, prefer verifying the built app bundle or the runtime behavior that depends on that metadata, not the checked-in source file.
-- If a behavior cannot be exercised end-to-end yet, add a small runtime seam or harness first, then test through that seam.
-- If no meaningful behavioral or artifact-level test is practical, skip the fake regression test and state that explicitly.
+## Reproduce and repair
 
-## Test framework
+Keep a focused command that fails on the reported symptom, then rerun it after
+the repair. Setup failures and zero executed tests don't demonstrate the bug.
+Exercise one behavior at a time so a failure identifies what needs fixing.
 
-Swift Testing is the current Apple-supported primitive for tests on this codebase (shipped with Swift 6 / Xcode 16, supported on the macOS versions we target). Use it for everything that is not a UI test.
+Keep the failing test and repair in separate commits. Record both SHAs and the
+red/green command; push both together when reproduced locally. Follow the root
+[regression policy](../../CLAUDE.md#regression-test-commits) for CI-only failures
+and final-head checks.
 
-- **Default to Swift Testing for all unit and integration tests.** `import Testing`, annotate tests with `@Test`, group with `@Suite`, assert with `#expect(...)` and `try #require(...)`. Do not write new tests with `import XCTest` unless they are UI tests.
-- **UI tests stay on XCTest / XCUITest.** Swift Testing does not support UI testing (no `XCUIApplication` integration). Files under `cmuxUITests/` continue to use `XCTestCase` + `XCUIApplication`. Do not migrate them and do not try to bridge Swift Testing into UI tests.
-- **New test targets start on Swift Testing.** Every new Swift package's `Tests/<Name>Tests/` directory (e.g. `Packages/CmuxSettings/Tests/CmuxSettingsTests/`) should ship with Swift Testing from the first commit. Xcode 16 auto-detects the framework based on the `import Testing` statement; no extra `Package.swift` configuration is required.
-- **Migration guide when touching an existing XCTest test.** Convert in place: `XCTestCase` subclass becomes a `@Suite struct` (or `final class` if you need a reference type); each `func testFoo()` becomes `@Test func foo()`; `XCTAssertEqual(a, b)` becomes `#expect(a == b)`; `XCTAssertTrue(cond)` becomes `#expect(cond)`; `XCTUnwrap(x)` becomes `try #require(x)`; `XCTFail("msg")` becomes `Issue.record("msg")`. `setUp()` becomes `init()` on the suite; `tearDown()` becomes `deinit`. Async setup is `async init()`. Do not bulk-rewrite untouched tests; migrate incrementally as a side effect of editing the file.
-- **Parameterized tests** use `@Test(arguments: [...])`. Prefer this over duplicate test methods.
-- **Parallelization and shared state.** Swift Testing runs tests in parallel by default, including across suites. If a suite genuinely needs ordering or guards shared mutable state, annotate it with `.serialized` instead of adding locks or sleeps.
-- **Tags** with `@Test(.tags(.something))` (or on a `@Suite`) let CI and local runs filter selectively.
+## Test wiring
 
-## Test target validation
+New `cmuxTests/*.swift` files need both PBXFileReference and Sources build-phase
+membership in `cmux.xcodeproj/project.pbxproj`. Add through Xcode or follow a wired
+sibling, then run the wiring check above: an unwired file can otherwise produce
+a misleading zero-test pass.
 
-`reload.sh` does not compile the test target. It builds only the `cmux` scheme, so a green `reload.sh` says nothing about whether `cmuxTests`/`cmuxUITests` still compile. A symbol that is moved or renamed can keep the `cmux` app building while breaking the test target (real case: a `write(to:atomically:)` typo and a removed `TabManager.CommandResult` only surfaced in the `tests` job). Before pushing package/refactor changes, build the `cmux-unit` scheme (with `-derivedDataPath /tmp/cmux-<tag>` and, for `cmuxApp`/`AppDelegate` churn, the GlobalISel workaround flag) or let the `tests` CI job gate it — never treat `reload.sh` alone as proof the tests build.
+After creating, renaming, or deleting a direct `cmuxTests/*.swift` file, run `./scripts/sync-test-wiring`. It deterministically reconciles the `PBXFileReference`, `PBXBuildFile`, `cmuxTests` group child, and `cmuxTests` Sources membership; `--check` performs the same validation without writing. Foreign target membership is rejected with an explicit diagnostic. The `workflow-guard-tests` CI job still runs `./scripts/lint-pbxproj-test-wiring.sh` as a defensive Sources-phase guard.
 
-## Detailed references
+## Test quality
 
-- Read [references/swift-testing-migration.md](references/swift-testing-migration.md) when converting XCTest unit tests to Swift Testing or adding new package tests.
-- Read [references/regression-and-quality.md](references/regression-and-quality.md) when adding a regression test, deciding whether a test is behavioral enough, or checking Xcode project test wiring.
-- Read [references/local-vs-ci-validation.md](references/local-vs-ci-validation.md) when choosing between `reload.sh`, `cmux-unit`, GitHub Actions, E2E/UI tests, and Python socket tests.
+- Exercise observable behavior through unit, integration, CLI or end-to-end paths.
+- Do not assert source snippets, signatures, AST shape or metadata keys solely
+  to mirror implementation. For metadata behavior, inspect the produced artifact
+  or execute the code that consumes it.
+- Add a small runtime harness when needed; skip a fake regression test if there
+  is no meaningful behavioral oracle and explain the limit. See
+  [regression and quality](references/regression-and-quality.md) for the judgment call.
+
+## Swift tests
+
+Swift unit/integration targets use Swift Testing (`import Testing`, `@Test`,
+`@Suite`, `#expect`, `#require`). Portable Python/shell guards retain their existing
+frameworks. UI tests remain XCTest/XCUITest; do not migrate XCUIApplication tests.
+
+New Swift package test targets start on Swift Testing. Prefer parameterized tests
+for repeated cases and tags for selection. Use `.serialized` for suites that
+require ordering, not locks or sleeps. Migrate an existing XCTest file only when
+an edit already crosses it; see [the migration mapping](references/swift-testing-migration.md).
+
+## Native test evidence
+
+An app build does not compile test targets. Package/refactor and public API changes
+need the relevant test target compiled, then the selected tests actually executed.
+Follow [build-for-testing and execution guidance](references/local-vs-ci-validation.md)
+and the current native capacity owner; report skipped/unsupported checks explicitly.
+
+For remote tmux sizing changes, use the [E2E recipe](references/remote-tmux-sizing-e2e.md).

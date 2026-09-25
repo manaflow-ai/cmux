@@ -1,5 +1,7 @@
-import XCTest
-import CMUXWorkstream
+import Foundation
+import Testing
+import CMUXAgentLaunch
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,15 +10,16 @@ import CMUXWorkstream
 #endif
 
 @MainActor
-final class WorkspacePromptSubmitTests: XCTestCase {
-    func testPromptSubmitRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
+@Suite(.serialized)
+struct WorkspacePromptSubmitTests {
+    @Test func testPromptSubmitRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace(select: false, placementOverride: .end)
         let third = manager.addWorkspace(select: false, placementOverride: .end)
         manager.selectWorkspace(second)
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handlePromptSubmit(
                 workspaceId: third.id,
                 message: "  implement this\n\nnow  ",
@@ -24,16 +27,16 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(outcome.messageRecorded)
-        XCTAssertTrue(outcome.reordered)
-        XCTAssertEqual(outcome.index, 0)
-        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id])
-        XCTAssertEqual(manager.selectedTabId, second.id)
-        XCTAssertEqual(third.latestConversationMessage, "implement this now")
-        XCTAssertNotNil(third.latestSubmittedAt)
+        #expect(outcome.messageRecorded)
+        #expect(outcome.reordered)
+        #expect(outcome.index == 0)
+        #expect(manager.tabs.map(\.id) == [third.id, first.id, second.id])
+        #expect(manager.selectedTabId == second.id)
+        #expect(third.latestConversationMessage == "implement this now")
+        #expect(third.latestSubmittedAt != nil)
     }
 
-    func testPromptSubmitReorderPublishesWorkspaceOrderEvent() throws {
+    @Test func testPromptSubmitReorderPublishesWorkspaceOrderEvent() throws {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
 
@@ -43,7 +46,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         let third = manager.addWorkspace(select: false, placementOverride: .end)
         CmuxEventBus.shared.resetForTesting()
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handlePromptSubmit(
                 workspaceId: third.id,
                 message: "ship it",
@@ -51,29 +54,23 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(outcome.reordered)
+        #expect(outcome.reordered)
         let events = CmuxEventBus.shared.retainedSnapshot()
-        XCTAssertEqual(
-            events.compactMap { $0["name"] as? String },
-            ["workspace.prompt.submitted", "workspace.reordered"]
-        )
-        let reorder = try XCTUnwrap(events.last)
-        XCTAssertEqual(reorder["workspace_id"] as? String, third.id.uuidString)
-        let payload = try XCTUnwrap(reorder["payload"] as? [String: Any])
-        XCTAssertEqual(
-            payload["workspace_ids"] as? [String],
-            [third.id.uuidString, first.id.uuidString, second.id.uuidString]
-        )
-        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [third.id.uuidString])
+        #expect(events.compactMap { $0["name"] as? String } == ["workspace.prompt.submitted", "workspace.reordered"])
+        let reorder = try #require(events.last)
+        #expect(reorder["workspace_id"] as? String == third.id.uuidString)
+        let payload = try #require(reorder["payload"] as? [String: Any])
+        #expect(payload["workspace_ids"] as? [String] == [third.id.uuidString, first.id.uuidString, second.id.uuidString])
+        #expect(payload["moved_workspace_ids"] as? [String] == [third.id.uuidString])
     }
 
-    func testPromptSubmitRecordsMessageWithoutReorderingWhenIMessageModeDisabled() throws {
+    @Test func testPromptSubmitRecordsMessageWithoutReorderingWhenIMessageModeDisabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace(select: false, placementOverride: .end)
         let third = manager.addWorkspace(select: false, placementOverride: .end)
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handlePromptSubmit(
                 workspaceId: third.id,
                 message: "do not show",
@@ -81,15 +78,15 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(outcome.messageRecorded)
-        XCTAssertFalse(outcome.reordered)
-        XCTAssertEqual(outcome.index, 2)
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
-        XCTAssertEqual(third.latestConversationMessage, "do not show")
-        XCTAssertNotNil(third.latestSubmittedAt)
+        #expect(outcome.messageRecorded)
+        #expect(!outcome.reordered)
+        #expect(outcome.index == 2)
+        #expect(manager.tabs.map(\.id) == [first.id, second.id, third.id])
+        #expect(third.latestConversationMessage == "do not show")
+        #expect(third.latestSubmittedAt != nil)
     }
 
-    func testAssistantFinalMessageRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
+    @Test func testAssistantFinalMessageRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
         let manager = TabManager()
         let pinned = manager.tabs[0]
         manager.setPinned(pinned, pinned: true)
@@ -97,7 +94,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         let third = manager.addWorkspace(select: false, placementOverride: .end)
         manager.selectWorkspace(second)
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handleAssistantFinalMessage(
                 workspaceId: third.id,
                 message: "  final\n\nresponse  ",
@@ -105,23 +102,23 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(outcome.messageRecorded)
-        XCTAssertTrue(outcome.reordered)
-        XCTAssertEqual(outcome.index, 1)
-        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, third.id, second.id])
-        XCTAssertEqual(manager.selectedTabId, second.id)
-        XCTAssertEqual(third.latestConversationMessage, "final response")
+        #expect(outcome.messageRecorded)
+        #expect(outcome.reordered)
+        #expect(outcome.index == 1)
+        #expect(manager.tabs.map(\.id) == [pinned.id, third.id, second.id])
+        #expect(manager.selectedTabId == second.id)
+        #expect(third.latestConversationMessage == "final response")
     }
 
-    func testAssistantFinalMessageMovesWorkspaceWhenPreviewMatchesExistingMessage() throws {
+    @Test func testAssistantFinalMessageMovesWorkspaceWhenPreviewMatchesExistingMessage() throws {
         let manager = TabManager()
         let pinned = manager.tabs[0]
         manager.setPinned(pinned, pinned: true)
         let second = manager.addWorkspace(select: false, placementOverride: .end)
         let third = manager.addWorkspace(select: false, placementOverride: .end)
-        XCTAssertTrue(third.recordConversationMessage("Done."))
+        #expect(third.recordConversationMessage("Done."))
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handleAssistantFinalMessage(
                 workspaceId: third.id,
                 message: "Done.",
@@ -129,19 +126,19 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(outcome.messageRecorded)
-        XCTAssertTrue(outcome.reordered)
-        XCTAssertEqual(outcome.index, 1)
-        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, third.id, second.id])
-        XCTAssertEqual(third.latestConversationMessage, "Done.")
+        #expect(!outcome.messageRecorded)
+        #expect(outcome.reordered)
+        #expect(outcome.index == 1)
+        #expect(manager.tabs.map(\.id) == [pinned.id, third.id, second.id])
+        #expect(third.latestConversationMessage == "Done.")
     }
 
-    func testBlankAssistantFinalMessageDoesNotMoveWorkspace() throws {
+    @Test func testBlankAssistantFinalMessageDoesNotMoveWorkspace() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace(select: false, placementOverride: .end)
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handleAssistantFinalMessage(
                 workspaceId: second.id,
                 message: " \n ",
@@ -149,19 +146,19 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(outcome.messageRecorded)
-        XCTAssertFalse(outcome.reordered)
-        XCTAssertEqual(outcome.index, 1)
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id])
-        XCTAssertNil(second.latestConversationMessage)
+        #expect(!outcome.messageRecorded)
+        #expect(!outcome.reordered)
+        #expect(outcome.index == 1)
+        #expect(manager.tabs.map(\.id) == [first.id, second.id])
+        #expect(second.latestConversationMessage == nil)
     }
 
-    func testBlankPromptSubmitDoesNotRecordTimestampOrPublishEvent() throws {
+    @Test func testBlankPromptSubmitDoesNotRecordTimestampOrPublishEvent() throws {
         let manager = TabManager()
         let second = manager.addWorkspace(select: false, placementOverride: .end)
         let sequenceBeforeSubmit = CmuxEventBus.shared.latestSequence
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handlePromptSubmit(
                 workspaceId: second.id,
                 message: " \n ",
@@ -169,14 +166,14 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(outcome.messageRecorded)
-        XCTAssertFalse(outcome.reordered)
-        XCTAssertNil(second.latestConversationMessage)
-        XCTAssertNil(second.latestSubmittedAt)
-        XCTAssertEqual(CmuxEventBus.shared.latestSequence, sequenceBeforeSubmit)
+        #expect(!outcome.messageRecorded)
+        #expect(!outcome.reordered)
+        #expect(second.latestConversationMessage == nil)
+        #expect(second.latestSubmittedAt == nil)
+        #expect(CmuxEventBus.shared.latestSequence == sequenceBeforeSubmit)
     }
 
-    func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
+    @Test func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace(select: false, placementOverride: .end)
@@ -190,7 +187,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             context: WorkstreamContext(lastUserMessage: "fallback message")
         )
 
-        let outcome = try XCTUnwrap(
+        let outcome = try #require(
             manager.handlePromptSubmit(
                 workspaceId: second.id,
                 message: event.submittedPromptMessage,
@@ -198,13 +195,93 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(outcome.messageRecorded)
-        XCTAssertTrue(outcome.reordered)
-        XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id])
-        XCTAssertEqual(second.latestConversationMessage, "shipped from feed path")
+        #expect(outcome.messageRecorded)
+        #expect(outcome.reordered)
+        #expect(manager.tabs.map(\.id) == [second.id, first.id])
+        #expect(second.latestConversationMessage == "shipped from feed path")
     }
 
-    func testFeedPromptSubmitEventFallsBackToContextMessage() {
+    @Test func testSubmittedPromptLengthReportsTheWholePromptNotTheCap() {
+        // The CLI caps message keys at 240 characters (239 plus U+2026) and
+        // publishes the submitted length beside the truncated value.
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"\#(truncated)","prompt_length":1000}"#
+        )
+
+        #expect(event.submittedPromptMessage?.count == 240)
+        #expect(event.submittedPromptLength == 1000)
+    }
+
+    @Test func testSubmittedPromptLengthIsNilWhenTheProducerDidNotReportIt() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"short prompt"}"#
+        )
+
+        #expect(event.submittedPromptLength == nil)
+    }
+
+    @Test func testPromptSubmitEventPublishesTheSubmittedLengthOverThePreviewLength() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: truncated,
+                submittedLength: 1000,
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 1000)
+        #expect((payload["message_preview"] as? String)?.count == 240)
+        #expect(payload["message"] is NSNull)
+    }
+
+    @Test func testPromptSubmitWithoutASubmittedLengthStillCountsTheMessage() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "ship it",
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 7)
+    }
+
+    @Test func testFeedPromptSubmitEventFallsBackToContextMessage() {
         let event = WorkstreamEvent(
             sessionId: "agent-session",
             hookEventName: .userPromptSubmit,
@@ -213,10 +290,10 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             context: WorkstreamContext(lastUserMessage: "from context")
         )
 
-        XCTAssertEqual(event.submittedPromptMessage, "from context")
+        #expect(event.submittedPromptMessage == "from context")
     }
 
-    func testFeedPromptSubmitSkipsBlankContextBeforeExtraFields() {
+    @Test func testFeedPromptSubmitSkipsBlankContextBeforeExtraFields() {
         let event = WorkstreamEvent(
             sessionId: "agent-session",
             hookEventName: .userPromptSubmit,
@@ -226,10 +303,10 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             extraFieldsJSON: #"{"message":"from extra fields"}"#
         )
 
-        XCTAssertEqual(event.submittedPromptMessage, "from extra fields")
+        #expect(event.submittedPromptMessage == "from extra fields")
     }
 
-    func testFeedStopEventExtractsAssistantFinalMessageFromContext() {
+    @Test func testFeedStopEventExtractsAssistantFinalMessageFromContext() {
         let event = WorkstreamEvent(
             sessionId: "agent-session",
             hookEventName: .stop,
@@ -238,10 +315,10 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             context: WorkstreamContext(assistantPreamble: "  finished\n\nthis  ")
         )
 
-        XCTAssertEqual(event.assistantFinalMessage, "finished this")
+        #expect(event.assistantFinalMessage == "finished this")
     }
 
-    func testFeedStopEventExtractsAssistantFinalMessageFromExtraFields() {
+    @Test func testFeedStopEventExtractsAssistantFinalMessageFromExtraFields() {
         let event = WorkstreamEvent(
             sessionId: "agent-session",
             hookEventName: .stop,
@@ -250,26 +327,153 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             extraFieldsJSON: #"{"last_assistant_message":"  done\nfrom extra fields  "}"#
         )
 
-        XCTAssertEqual(event.assistantFinalMessage, "done from extra fields")
+        #expect(event.assistantFinalMessage == "done from extra fields")
     }
 
-    func testBlankSubmittedMessageDoesNotClearRecordedPreview() {
+    @Test func testFeedSubagentStopDoesNotExtractParentAssistantFinalMessage() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .subagentStop,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            context: WorkstreamContext(assistantPreamble: "subagent finished")
+        )
+
+        #expect(event.assistantFinalMessage == nil)
+    }
+
+    @Test func testBlankSubmittedMessageDoesNotClearRecordedPreview() {
         let workspace = Workspace()
 
-        XCTAssertTrue(workspace.recordSubmittedMessage("keep this preview"))
-        XCTAssertFalse(workspace.recordSubmittedMessage(" \n "))
-        XCTAssertEqual(workspace.latestConversationMessage, "keep this preview")
-        XCTAssertNotNil(workspace.latestSubmittedAt)
+        #expect(workspace.recordSubmittedMessage("keep this preview"))
+        #expect(!workspace.recordSubmittedMessage(" \n "))
+        #expect(workspace.latestConversationMessage == "keep this preview")
+        #expect(workspace.latestSubmittedAt != nil)
     }
 
-    func testIMessageModeUsesManagedSettingsKey() throws {
+    @Test func testIMessageModeUsesManagedSettingsKey() throws {
         let suiteName = "cmux.iMessageMode.test.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(IMessageModeSettings.key, "app.iMessageMode")
-        XCTAssertFalse(IMessageModeSettings.isEnabled(defaults: defaults))
+        #expect(IMessageModeSettings.key == "app.iMessageMode")
+        #expect(!IMessageModeSettings.isEnabled(defaults: defaults))
         defaults.set(true, forKey: IMessageModeSettings.key)
-        XCTAssertTrue(IMessageModeSettings.isEnabled(defaults: defaults))
+        #expect(IMessageModeSettings.isEnabled(defaults: defaults))
     }
+
+    @Test func testPromptScrollMarkerCapturesLiveBottom() throws {
+        let geometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 37, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let marker = try #require(TerminalPromptScrollMarker(geometry: geometry))
+
+        #expect(marker.topRow == 100)
+        #expect(marker.rowSpaceRevision == 7)
+    }
+
+    @Test func testPromptScrollMarkerTracksItsRowAsOutputAppends() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 220, offset: 200, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let fraction = try #require(marker.trackFraction(in: currentGeometry))
+
+        #expect(abs(fraction - 0.5) < 0.0001)
+    }
+
+    @Test func testPromptScrollMarkerExpiresWhenGhosttyRenumbersRows() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let renumberedGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+            rowSpaceRevision: 8
+        )
+
+        #expect(marker.trackFraction(in: renumberedGeometry) == nil)
+    }
+
+    @Test func testPromptScrollMarkerRecordedBeforeScrollbackAppearsStaysAtStart() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 20, offset: 0, len: 40),
+                rowSpaceRevision: 3
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 80, offset: 60, len: 20),
+            rowSpaceRevision: 3
+        )
+
+        #expect(marker.topRow == 0)
+        #expect(marker.trackFraction(in: currentGeometry) == 0)
+    }
+
+
+    @Test func testPromptScrollMarkerActivationJumpsToCapturedRow() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+
+        hostedView.recordPromptScrollMarker()
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 1
+        )
+
+        #expect(promptScrollView.activatePromptScrollMarker(marker))
+        #expect(surfaceView.performedRows == [80])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [1])
+    }
+
+    @Test func testPromptScrollMarkerActivationRejectsRenumberedScrollback() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+
+        hostedView.recordPromptScrollMarker()
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 2
+        )
+
+        #expect(!promptScrollView.activatePromptScrollMarker(marker))
+        #expect(surfaceView.performedRows.isEmpty)
+    }
+
 }

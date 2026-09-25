@@ -100,7 +100,7 @@ struct WindowInputRoutingContext: Equatable {
     }
 
     var allowsTerminalPortalDragRouting: Bool {
-        eventKind == .pointerDrag
+        eventKind == .pointerDrag || eventKind == .pointerUp
     }
 
     static func allowsTabBarPassThroughHitTesting(eventType: NSEvent.EventType?) -> Bool {

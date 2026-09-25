@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import Combine
 import WebKit
 import XCTest
@@ -11,6 +12,30 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    @MainActor
+    private final class RenderingActionRecorder {
+        typealias Action = MarkdownWebRenderingCoordinator.Action
+
+        let stream: AsyncStream<Action>
+        private let continuation: AsyncStream<Action>.Continuation
+        private(set) var actions: [Action] = []
+
+        init() {
+            let events = AsyncStream<Action>.makeStream()
+            stream = events.stream
+            continuation = events.continuation
+        }
+
+        func record(_ action: Action) {
+            actions.append(action)
+            continuation.yield(action)
+        }
+
+        func reset() {
+            actions.removeAll()
+        }
+    }
+
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
         let theme = MarkdownWebTheme.resolve(
             backgroundColor: NSColor(
@@ -195,6 +220,53 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(panel.fontFamily, "Avenir Next")
     }
 
+    func testMarkdownPanelFindLifecycle() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-find-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# hello needle".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+
+        XCTAssertNil(panel.searchState)
+
+        panel.startFind()
+        let firstState = try XCTUnwrap(panel.searchState)
+        firstState.needle = "needle"
+        let generationAfterStart = panel.searchFocusRequestGeneration
+        XCTAssertTrue(panel.canApplySearchFocusRequest(generationAfterStart))
+
+        // A second Cmd+F refocuses the existing bar instead of replacing it.
+        panel.startFind()
+        XCTAssertTrue(panel.searchState === firstState)
+        XCTAssertFalse(panel.canApplySearchFocusRequest(generationAfterStart))
+
+        // Hiding clears the bar and invalidates pending focus requests.
+        panel.hideFind()
+        XCTAssertNil(panel.searchState)
+        XCTAssertFalse(panel.canApplySearchFocusRequest(panel.searchFocusRequestGeneration))
+
+        // Reopening recovers the last needle so Cmd+F resumes the search.
+        panel.startFind()
+        XCTAssertEqual(panel.searchState?.needle, "needle")
+
+        // The find bar belongs to the preview surface: switching to text
+        // mode closes it, and Cmd+F in text mode is left to the editor's
+        // native find panel.
+        panel.setDisplayMode(.text)
+        XCTAssertNil(panel.searchState)
+        panel.startFind()
+        XCTAssertNil(panel.searchState)
+
+        panel.setDisplayMode(.preview)
+        panel.startFind()
+        XCTAssertNotNil(panel.searchState)
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -315,11 +387,19 @@ final class MarkdownPanelTests: XCTestCase {
 
         let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
         defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
 
         XCTAssertEqual(panel.content, originalContent)
         XCTAssertFalse(panel.isFileUnavailable)
 
         let reloaded = expectation(description: "markdown file change reloaded")
+        // An atomic write is a rename, so the watcher can re-read and republish the
+        // same content more than once. Over-fulfilling a one-shot expectation raises
+        // XCTest's API-violation exception while this test is suspended in
+        // `fulfillment(of:)`, which kills the test host instead of failing the test.
+        reloaded.assertForOverFulfill = false
         let cancellable = panel.$content.dropFirst().sink { content in
             if content == updatedContent {
                 reloaded.fulfill()
@@ -348,6 +428,7 @@ final class MarkdownPanelTests: XCTestCase {
             markdown: "# Existing\n",
             theme: theme,
             backgroundColor: .windowBackgroundColor,
+            isVisibleInUI: true,
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
@@ -363,6 +444,7 @@ final class MarkdownPanelTests: XCTestCase {
             markdown: "# Existing\n",
             theme: theme,
             backgroundColor: .windowBackgroundColor,
+            isVisibleInUI: true,
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
@@ -409,6 +491,159 @@ final class MarkdownPanelTests: XCTestCase {
         discardedWebView.onPointerDown?()
 
         XCTAssertEqual(discardedPointerDownCount, 0)
+    }
+
+    func testMarkdownWebViewReattachDoesNotRefreshInsideHostCallback() async {
+        var isActuallyVisible = true
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        var reentryCount = 0
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { isActuallyVisible },
+            applyAction: recorder.record,
+            onReenterWindow: { reentryCount += 1 }
+        )
+
+        // Establish the attached state, then model Bonsplit's remove/add
+        // transition before the deferred action gets a chance to run.
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        isActuallyVisible = false
+        coordinator.viewDidMoveToWindow(isAttached: false)
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
+
+        XCTAssertTrue(
+            recorder.actions.isEmpty,
+            "A markdown viewer re-entry must not flush WebKit while the host layout callback is active"
+        )
+
+        // The repair still has to happen once the originating callback has
+        // returned. A MainActor yield is the production scheduling boundary;
+        // no wall-clock delay is needed.
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
+        XCTAssertEqual(
+            recorder.actions.first,
+            .refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)
+        )
+        XCTAssertEqual(reentryCount, 2, "The initial attach and reattach each complete once")
+    }
+
+    func testMarkdownWebViewResizeRefreshCoalescesOutsideLayoutCallback() async {
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { true },
+            applyAction: recorder.record
+        )
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        // Both changes are smaller than the old half-point tolerance. Each is
+        // still real divider geometry and must leave a deferred repair queued.
+        coordinator.layoutDidChange(to: CGSize(width: 639.75, height: 359.75))
+        coordinator.layoutDidChange(to: CGSize(width: 639.5, height: 359.5))
+
+        XCTAssertTrue(
+            recorder.actions.isEmpty,
+            "A markdown resize must not flush WebKit synchronously from AppKit layout"
+        )
+
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
+        XCTAssertEqual(
+            recorder.actions.first,
+            .refresh(reason: "boundsChanged", forceLifecycleRefresh: false),
+            "Repeated geometry callbacks should coalesce into one deferred repaint"
+        )
+    }
+
+    func testMarkdownWebViewVisibilityRevealRepairsAfterHiddenTabLifecycle() async {
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        var isActuallyVisible = true
+        let visibilityGateReached = expectation(description: "hidden reveal reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
+            applyAction: recorder.record
+        )
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        coordinator.setVisibleInUI(false)
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions, [.hide(reason: "visibility.hidden")])
+
+        recorder.reset()
+        isActuallyVisible = false
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(recorder.actions.isEmpty, "A visibility reveal must cross the deferred boundary")
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
+        XCTAssertTrue(
+            didObserveHiddenVisibilityGate,
+            "A hidden reveal must wait for the actual AppKit visibility boundary"
+        )
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden reveal must not paint while its ancestor is hidden")
+
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
+        _ = await events.next()
+        XCTAssertEqual(
+            recorder.actions,
+            [.refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)],
+            "A revealed markdown tab must receive a repaint pass"
+        )
+    }
+
+    func testMarkdownRenderingCoordinatorRetriesWhenVisibilitySettles() async {
+        var isActuallyVisible = false
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        let visibilityGateReached = expectation(description: "visibility settle reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
+            applyAction: recorder.record
+        )
+
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        // Await the scheduler's actual visibility gate rather than guessing
+        // how many executor turns its queued task needs.
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden ancestor must defer the first paint")
+
+        // SwiftUI can call updateNSView with the same visible value after the
+        // ancestor becomes visible. That callback must retry pending work.
+        isActuallyVisible = true
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
+        _ = await events.next()
+        XCTAssertEqual(
+            recorder.actions,
+            [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)]
+        )
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {
@@ -480,6 +715,87 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
+    func testMarkdownRendererReentersWindowReloadsShellAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // Document was healthy when the pane was dragged out of its column.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        coordinator.handleViewLeftWindow()
+
+        // While detached, WebKit reclaimed the WebContent process and the
+        // in-place recovery budget was exhausted, leaving the panel blank.
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Re-parenting the pane back into a window must recover the blank
+        // panel: reset the recovery budget and reload the shell.
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowKeepsLoadedShell() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A still-loaded shell (WebContent process alive, just unpainted) must
+        // not be torn down and reloaded when the view re-enters a window.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        // Consume part of the per-payload crash-recovery budget, then finish a
+        // successful reload so the shell is loaded again.
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        // Re-entry on a loaded shell must not reload it, and must preserve the
+        // per-payload crash budget so reparent/layout churn can't grant a
+        // crashing payload extra recovery cycles.
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+    }
+
+    func testMarkdownRendererReentersWindowDoesNotReviveCrashLoopingPayload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A payload that keeps crashing WebContent *while attached* exhausts
+        // the recovery budget and is intentionally left blank by the crash-loop
+        // guard — the shell was never healthy when detached.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Crashy\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Dragging the pane (detach while already blank) then re-entering must
+        // NOT grant the crashing payload a fresh budget or reload it.
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -540,10 +856,7 @@ final class MarkdownPanelTests: XCTestCase {
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
             baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("scroll.md")
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
+        try await awaitMarkdownShellLoad(loaded, delegate: loadDelegate)
 
         try await renderMarkdown(scrollSmokeMarkdown(extraBeforeSection20: false), in: webView)
         let before = try await evaluateScrollSnapshot(
@@ -628,10 +941,7 @@ final class MarkdownPanelTests: XCTestCase {
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
             baseURL: markdownURL
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
+        try await awaitMarkdownShellLoad(loaded, delegate: loadDelegate)
         defer { coordinator.cancelLocalImageLoads() }
 
         try await renderMarkdown(
@@ -725,10 +1035,7 @@ final class MarkdownPanelTests: XCTestCase {
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
             baseURL: markdownURL
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
+        try await awaitMarkdownShellLoad(loaded, delegate: loadDelegate)
 
         try await renderMarkdown("![Inline pixel](\(Self.onePixelPNGDataURI))\n", in: webView)
         let image = try await waitForMarkdownImage(in: webView)
@@ -771,10 +1078,7 @@ final class MarkdownPanelTests: XCTestCase {
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
             baseURL: markdownURL
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
+        try await awaitMarkdownShellLoad(loaded, delegate: loadDelegate)
 
         let expectedBlockedTitle = String(
             localized: "markdown.web.remoteImageBlocked",
@@ -890,7 +1194,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
         XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
         XCTAssertTrue(beforePlaceholders.contains { $0.contains("http://images.example.com/pixel.png") })
-        let copiedHTTPImageURL = try await webView.evaluateJavaScript(
+        let copiedHTTPImageURL = try await evaluateJavaScript(
             """
             (function() {
               window.__copiedRemoteImageURLs = [];
@@ -910,47 +1214,29 @@ final class MarkdownPanelTests: XCTestCase {
               if (button) { button.click(); }
               return window.__copiedRemoteImageURLs;
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "copy the blocked HTTP remote image URL"
         )
         let copiedHTTPImageURLs = try XCTUnwrap(copiedHTTPImageURL as? [String])
         XCTAssertEqual(copiedHTTPImageURLs, ["http://images.example.com/pixel.png"])
-        try await Task.sleep(nanoseconds: 100_000_000)
-        let copiedHTTPButtonState = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="HTTP remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              var button = placeholder && placeholder.querySelectorAll('button')[0];
-              return {
-                text: button ? button.textContent : '',
-                copied: button ? button.getAttribute('data-copied') : ''
-              };
-            })();
-            """
+        // The button flips to "Copied" from the promise `writeText` returns, so
+        // wait on that DOM transition rather than on a fixed delay.
+        let copiedHTTPButton = try await waitForRemoteImageButtonCopied(
+            alt: "HTTP remote",
+            expectedText: expectedCopiedButton,
+            in: webView
         )
-        let copiedHTTPButton = try XCTUnwrap(copiedHTTPButtonState as? [String: Any])
         XCTAssertEqual(copiedHTTPButton["text"] as? String, expectedCopiedButton)
         XCTAssertEqual(copiedHTTPButton["copied"] as? String, "1")
-        try await Task.sleep(nanoseconds: 1_300_000_000)
-        let restoredHTTPButtonState = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="HTTP remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              var button = placeholder && placeholder.querySelectorAll('button')[0];
-              return {
-                text: button ? button.textContent : '',
-                copied: button ? button.getAttribute('data-copied') : ''
-              };
-            })();
-            """
+        let restoredHTTPButton = try await waitForRemoteImageButtonRevert(
+            alt: "HTTP remote",
+            expectedText: expectedCopyURLButton,
+            in: webView
         )
-        let restoredHTTPButton = try XCTUnwrap(restoredHTTPButtonState as? [String: Any])
         XCTAssertEqual(restoredHTTPButton["text"] as? String, expectedCopyURLButton)
         XCTAssertNil(restoredHTTPButton["copied"] as? String)
-        let openedHTTPImageURL = try await webView.evaluateJavaScript(
+        let openedHTTPImageURL = try await evaluateJavaScript(
             """
             (function() {
               var opened = [];
@@ -965,12 +1251,14 @@ final class MarkdownPanelTests: XCTestCase {
               if (button) { button.click(); }
               return opened;
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "open the blocked HTTP remote image URL"
         )
         let openedHTTPImageURLs = try XCTUnwrap(openedHTTPImageURL as? [[String: Any]])
         XCTAssertEqual(openedHTTPImageURLs.first?["url"] as? String, "http://images.example.com/pixel.png")
         XCTAssertEqual(openedHTTPImageURLs.first?["target"] as? String, "_blank")
-        let linkedPlaceholderClickResult = try await webView.evaluateJavaScript(
+        let linkedPlaceholderClickResult = try await evaluateJavaScript(
             """
             (function() {
               var img = document.querySelector('img[alt="Linked remote"]');
@@ -983,11 +1271,13 @@ final class MarkdownPanelTests: XCTestCase {
                 cancelable: true
               }));
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "click the linked remote image placeholder"
         )
         let linkedPlaceholderClickAllowed = try XCTUnwrap(linkedPlaceholderClickResult as? Bool)
         XCTAssertFalse(linkedPlaceholderClickAllowed)
-        let linkedPlaceholderInsideAnchor = try await webView.evaluateJavaScript(
+        let linkedPlaceholderInsideAnchor = try await evaluateJavaScript(
             """
             (function() {
               var img = document.querySelector('img[alt="Linked remote"]');
@@ -995,11 +1285,13 @@ final class MarkdownPanelTests: XCTestCase {
               var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
               return !!(placeholder && placeholder.closest('a'));
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "check whether the linked remote image placeholder sits inside an anchor"
         )
         XCTAssertEqual(linkedPlaceholderInsideAnchor as? Bool, false)
 
-        _ = try await webView.evaluateJavaScript(
+        _ = try await evaluateJavaScript(
             """
             (function() {
               var img = document.querySelector('img[alt="Linked remote"]');
@@ -1008,7 +1300,9 @@ final class MarkdownPanelTests: XCTestCase {
               var button = placeholder && placeholder.querySelector('button');
               if (button) { button.click(); }
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "load the linked remote image"
         )
         let loading = try await remoteImageSnapshot(in: webView)
         let loadingImages = try XCTUnwrap(loading["images"] as? [[String: Any]])
@@ -1037,14 +1331,16 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["text"] as? String == expectedLoadingButton })
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["disabled"] as? Bool == true })
 
-        _ = try await webView.evaluateJavaScript(
+        _ = try await evaluateJavaScript(
             """
             (function() {
               Array.prototype.slice.call(document.querySelectorAll('img[src^="cmux-remote-image://"]')).forEach(function(img) {
                 img.dispatchEvent(new Event('load'));
               });
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "deliver load events to the approved remote images"
         )
         let after = try await remoteImageSnapshot(in: webView)
         let afterImages = try XCTUnwrap(after["images"] as? [[String: Any]])
@@ -1114,13 +1410,15 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedOpenURLButton }.count, 1)
         XCTAssertEqual(autoLoadingButtonStates.filter { $0["loading"] as? String == "1" }.count, 1)
 
-        _ = try await webView.evaluateJavaScript(
+        _ = try await evaluateJavaScript(
             """
             (function() {
               var img = document.querySelector('img[alt="Auto approved remote"]');
               if (img) { img.dispatchEvent(new Event('error')); }
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "deliver an error event to the auto-approved remote image"
         )
         let autoFailed = try await remoteImageSnapshot(in: webView)
         let autoFailedImages = try XCTUnwrap(autoFailed["images"] as? [[String: Any]])
@@ -1142,130 +1440,130 @@ final class MarkdownPanelTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://example.com/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("http://example.com/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://user:pass@example.com/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://example.com:8443/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://localhost/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://127.0.0.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://10.0.0.2/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://172.16.0.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://192.168.1.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://169.254.169.254/latest/meta-data")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[fe80::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[fec0::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[fc00::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[::127.0.0.1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://2130706433/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://0x7f000001/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://127.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://10.1/image.png")
             )
         )
-        let pinnedTargets = MarkdownRemoteImageSecurity.pinnedFetchTargets(
+        let pinnedTargets = MarkdownRemoteImageSecurity().pinnedFetchTargets(
             for: try url("https://1.1.1.1/image.png")
         )
         XCTAssertEqual(pinnedTargets.count, 1)
         XCTAssertEqual(pinnedTargets.first?.serverName, "1.1.1.1")
         let approvedHost = try XCTUnwrap(
-            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+            MarkdownRemoteImageSecurity().remoteImageConsentHost(
                 for: try url("https://images.example.com/pixel.png")
             )
         )
         XCTAssertEqual(
-            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+            MarkdownRemoteImageSecurity().remoteImageConsentHost(
                 for: try url("https://images.example.com/redirected.png")
             ),
             approvedHost
         )
         XCTAssertNotEqual(
-            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+            MarkdownRemoteImageSecurity().remoteImageConsentHost(
                 for: try url("https://cdn.example.com/redirected.png")
             ),
             approvedHost
         )
-        XCTAssertEqual(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/png"), "image/png")
-        XCTAssertEqual(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml"), "image/svg+xml")
+        XCTAssertEqual(MarkdownRemoteImageSecurity().canonicalImageMIMEType("image/png"), "image/png")
+        XCTAssertEqual(MarkdownRemoteImageSecurity().canonicalImageMIMEType("image/svg+xml"), "image/svg+xml")
         XCTAssertEqual(
-            MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml;charset=utf-8"),
+            MarkdownRemoteImageSecurity().canonicalImageMIMEType("image/svg+xml;charset=utf-8"),
             "image/svg+xml"
         )
         let ipv6RequestBytes = try XCTUnwrap(
-            MarkdownRemoteImageSecurity.requestBytes(
+            MarkdownRemoteImageSecurity().requestBytes(
                 for: try url("https://[2606:4700:4700::1111]/image.png"),
                 host: "2606:4700:4700::1111"
             )
@@ -1283,34 +1581,155 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownRemoteImageChunkedDecoderRejectsOversizedChunks() {
         XCTAssertEqual(
-            MarkdownHTTPChunkedBodyDecoder.decode(
+            MarkdownHTTPChunkedBodyDecoder().decode(
                 Data("3\r\nabc\r\n0\r\n\r\n".utf8),
                 maximumBytes: 8
             ),
             Data("abc".utf8)
         )
         XCTAssertNil(
-            MarkdownHTTPChunkedBodyDecoder.decode(
+            MarkdownHTTPChunkedBodyDecoder().decode(
                 Data("9\r\nabcdefghi\r\n0\r\n\r\n".utf8),
                 maximumBytes: 8
             )
         )
         XCTAssertNil(
-            MarkdownHTTPChunkedBodyDecoder.decode(
+            MarkdownHTTPChunkedBodyDecoder().decode(
                 Data("7fffffffffffffff\r\n".utf8),
                 maximumBytes: 8
             )
         )
     }
 
+    /// Waits for the markdown shell's first navigation to reach a terminal
+    /// outcome, reported by `WKNavigationDelegate` — the real signal, not a
+    /// poll of `isLoading`.
+    ///
+    /// If no terminal callback arrives the shell is not usable, and every
+    /// WebKit call the test makes next would wait on a reply that cannot come.
+    /// Fail here, with the reason, rather than letting the test walk into a
+    /// hang that costs the whole app host.
+    private func awaitMarkdownShellLoad(
+        _ loaded: XCTestExpectation,
+        delegate: MarkdownShellLoadDelegate,
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        await fulfillment(of: [loaded], timeout: timeout)
+        guard delegate.didSettle else {
+            let failure = MarkdownShellNeverLoaded(timeout: timeout)
+            XCTFail(failure.failureMessage, file: file, line: line)
+            throw failure
+        }
+        if let error = delegate.error {
+            throw error
+        }
+    }
+
+    /// Runs a WebKit call with a deadline that only bounds the failure path.
+    ///
+    /// `evaluateJavaScript` and `callAsyncJavaScript` resume their continuation
+    /// from a reply message posted by the web content process. If that reply
+    /// never comes — the web content process is gone, or the script awaits
+    /// something this host never produces — the continuation is never resumed
+    /// and there is nothing to cancel: the task is parked forever. XCTest then
+    /// kills the whole app host at its five minute execution allowance, which
+    /// restarts the shard and abandons every test that had not run yet, so one
+    /// stuck await destroys the run (cmux#13178, cmux#13421).
+    ///
+    /// The awaited value is still the real completion signal and returns the
+    /// instant the reply arrives; the deadline only decides how a missing reply
+    /// is reported. A loud, immediate failure costs one test, a hung host costs
+    /// the shard.
+    private func awaitingWebKitReply(
+        _ description: String,
+        timeout: TimeInterval = 20,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        operation: @escaping @MainActor () async throws -> Any?
+    ) async throws -> Any? {
+        let reply = MarkdownWebKitReply()
+
+        Task { @MainActor in
+            do {
+                let value = try await operation()
+                reply.settle(.success(value))
+            } catch {
+                reply.settle(.failure(error))
+            }
+        }
+        let watchdog = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            reply.settle(.failure(MarkdownWebKitReplyMissing(what: description, timeout: timeout)))
+        }
+
+        await reply.wait()
+        watchdog.cancel()
+
+        // The operation task is deliberately not awaited here. A WebKit reply
+        // that never arrives cannot be cancelled, so waiting for that task to
+        // unwind would reproduce exactly the hang this guard exists to prevent.
+        guard let result = reply.result else {
+            let failure = MarkdownWebKitReplyMissing(what: description, timeout: timeout)
+            XCTFail(failure.failureMessage, file: file, line: line)
+            throw failure
+        }
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            if let missing = error as? MarkdownWebKitReplyMissing {
+                XCTFail(missing.failureMessage, file: file, line: line)
+            }
+            throw error
+        }
+    }
+
+    private func evaluateJavaScript(
+        _ script: String,
+        in webView: WKWebView,
+        describedAs description: String,
+        timeout: TimeInterval = 20,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> Any? {
+        try await awaitingWebKitReply(description, timeout: timeout, file: file, line: line) {
+            try await webView.evaluateJavaScript(script)
+        }
+    }
+
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
-        let data = try JSONSerialization.data(withJSONObject: [markdown])
-        let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
-        _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+        // `window.__cmuxRenderMarkdown` is the viewer's own render contract: it
+        // parses the markdown, replaces `#content`, rewrites local and remote
+        // image sources, post-processes special blocks and applies the
+        // scroll-anchor restore, all before it returns. That synchronous return
+        // is what `MarkdownWebRenderer.Coordinator.pushMarkdown` waits for
+        // before it reports `onMarkdownRendered`, so it is the product's real
+        // readiness signal and the right one for a test to wait on.
+        //
+        // Do not wait on `requestAnimationFrame` here. App-host tests run behind
+        // XCTest's shielding window, where WebKit suspends the rendering update
+        // and animation-frame callbacks never fire at all, so an awaited frame
+        // is a gate this host can never open. The viewer's trailing restore
+        // passes are refinements that now abandon themselves once the viewer has
+        // moved (see `restoreMarkdownScrollState` in shell.html), so a later
+        // scroll by this test can no longer be clobbered by a queued frame.
+        _ = try await awaitingWebKitReply("render markdown into the viewer shell") {
+            try await webView.callAsyncJavaScript(
+                """
+                window.__cmuxRenderMarkdown(markdown);
+                return true;
+                """,
+                arguments: ["markdown": markdown],
+                in: nil,
+                contentWorld: .page
+            )
+        }
     }
 
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {
-        let result = try await webView.evaluateJavaScript(script)
+        let result = try await evaluateJavaScript(script, in: webView, describedAs: "read the viewer scroll snapshot")
         let raw = try XCTUnwrap(result as? [String: Any])
         var snapshot: [String: Double] = [:]
         for (key, value) in raw {
@@ -1331,7 +1750,7 @@ final class MarkdownPanelTests: XCTestCase {
         var lastSnapshot: [[String: Any]] = []
 
         while Date() < deadline {
-            let result = try await webView.evaluateJavaScript(
+            let result = try await evaluateJavaScript(
                 """
                 (function() {
                   return Array.prototype.slice.call(document.querySelectorAll('img')).map(function(img) {
@@ -1348,7 +1767,9 @@ final class MarkdownPanelTests: XCTestCase {
                     };
                   });
                 })();
-                """
+                """,
+                in: webView,
+                describedAs: "read the rendered markdown images"
             )
             lastSnapshot = try XCTUnwrap(result as? [[String: Any]])
             if lastSnapshot.count == expectedCount,
@@ -1367,8 +1788,90 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    /// Waits for a remote-image placeholder button to reach a state.
+    ///
+    /// Both states this drives are produced asynchronously inside the viewer
+    /// shell, in a separate WebKit process: "Copied" is set from the promise
+    /// `navigator.clipboard.writeText` returns, and the revert back to "Copy
+    /// image URL" comes from a JS `setTimeout`. Poll the real DOM transition
+    /// rather than racing a fixed sleep against either. The deadline bounds only
+    /// the failure path, so the wait returns the instant the state holds.
+    private func waitForRemoteImageButtonState(
+        alt: String,
+        description: String,
+        timeout: TimeInterval,
+        in webView: WKWebView,
+        until isSatisfied: ([String: Any]) -> Bool
+    ) async throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastSnapshot: [String: Any] = [:]
+
+        while Date() < deadline {
+            let result = try await evaluateJavaScript(
+                """
+                (function() {
+                  var img = document.querySelector('img[alt="\(alt)"]');
+                  var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+                  var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+                  var button = placeholder && placeholder.querySelectorAll('button')[0];
+                  return {
+                    text: button ? button.textContent : '',
+                    copied: button ? button.getAttribute('data-copied') : ''
+                  };
+                })();
+                """,
+                in: webView,
+                describedAs: "read the remote image button label"
+            )
+            lastSnapshot = try XCTUnwrap(result as? [String: Any])
+            if isSatisfied(lastSnapshot) {
+                return lastSnapshot
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for the \(alt) remote image button to \(description). Last snapshot: \(lastSnapshot)"
+            ]
+        )
+    }
+
+    private func waitForRemoteImageButtonCopied(
+        alt: String,
+        expectedText: String,
+        in webView: WKWebView
+    ) async throws -> [String: Any] {
+        try await waitForRemoteImageButtonState(
+            alt: alt,
+            description: "show \(expectedText)",
+            timeout: 8,
+            in: webView
+        ) { snapshot in
+            snapshot["text"] as? String == expectedText && snapshot["copied"] as? String == "1"
+        }
+    }
+
+    private func waitForRemoteImageButtonRevert(
+        alt: String,
+        expectedText: String,
+        in webView: WKWebView
+    ) async throws -> [String: Any] {
+        try await waitForRemoteImageButtonState(
+            alt: alt,
+            description: "revert to \(expectedText)",
+            timeout: 8,
+            in: webView
+        ) { snapshot in
+            snapshot["text"] as? String == expectedText
+                && (snapshot["copied"] == nil || snapshot["copied"] is NSNull)
+        }
+    }
+
     private func remoteImageSnapshot(in webView: WKWebView) async throws -> [String: Any] {
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluateJavaScript(
             """
             (function() {
               return {
@@ -1405,7 +1908,9 @@ final class MarkdownPanelTests: XCTestCase {
                 renderedText: window.__cmuxRenderedText ? window.__cmuxRenderedText() : ''
               };
             })();
-            """
+            """,
+            in: webView,
+            describedAs: "read the remote image snapshot"
         )
         return try XCTUnwrap(result as? [String: Any])
     }
@@ -1470,26 +1975,101 @@ final class MarkdownPanelTests: XCTestCase {
     private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
 }
 
+/// The markdown shell's first navigation never reached a terminal outcome.
+private struct MarkdownShellNeverLoaded: LocalizedError {
+    let timeout: TimeInterval
+
+    var failureMessage: String {
+        """
+        The markdown viewer shell never became ready: WKNavigationDelegate \
+        reported neither didFinish nor a navigation failure within \
+        \(Int(timeout))s, so the web content process never loaded the shell. \
+        Every WebKit call after this point would wait forever on a reply that \
+        cannot arrive, so the test stops here instead of hanging the app host.
+        """
+    }
+
+    var errorDescription: String? { failureMessage }
+}
+
+/// A WebKit reply that never arrived within the test's deadline.
+private struct MarkdownWebKitReplyMissing: LocalizedError {
+    let what: String
+    let timeout: TimeInterval
+
+    var failureMessage: String {
+        """
+        WebKit never replied to: \(what) (waited \(Int(timeout))s).
+        The markdown shell never became ready: either the web content process is \
+        gone, or the script is waiting for something this test host never \
+        produces (app-host tests run behind XCTest's shielding window, where \
+        WebKit suspends the rendering update, so requestAnimationFrame and \
+        anything chained off it never fire). evaluateJavaScript and \
+        callAsyncJavaScript resume only from a reply message, so this await \
+        would otherwise never return and XCTest would kill the whole app host at \
+        its 5 minute allowance, taking the rest of the shard with it.
+        """
+    }
+
+    var errorDescription: String? { failureMessage }
+}
+
+/// One-shot gate that resumes on the first of a WebKit reply or a deadline.
+@MainActor
+private final class MarkdownWebKitReply {
+    private(set) var result: Result<Any?, Error>?
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func settle(_ result: Result<Any?, Error>) {
+        guard self.result == nil else { return }
+        self.result = result
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func wait() async {
+        guard result == nil else { return }
+        await withCheckedContinuation { continuation in
+            if result == nil {
+                self.continuation = continuation
+            } else {
+                continuation.resume()
+            }
+        }
+    }
+}
+
 private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     let expectation: XCTestExpectation
     var error: Error?
+    private(set) var didSettle = false
 
     init(expectation: XCTestExpectation) {
         self.expectation = expectation
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    /// WebKit can report more than one terminal outcome for a single load (a
+    /// provisional failure followed by a finish, for instance), so only the first
+    /// one counts. Fulfilling the same one-shot expectation twice raises XCTest's
+    /// API-violation exception from inside the callback, which takes the test host
+    /// down instead of failing the test.
+    private func settle(_ error: Error?) {
+        guard !didSettle else { return }
+        didSettle = true
+        self.error = error
         expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        settle(nil)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        settle(error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        settle(error)
     }
 }
 

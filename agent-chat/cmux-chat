@@ -1,0 +1,87 @@
+#!/bin/bash
+# cmux-chat: open a cmux agent chat (browser-surface UI) from the terminal.
+#
+#   cmux-chat                          new composer as a workspace tab (sidebar entry)
+#   cmux-chat fix the failing test     start a chat with that prompt
+#   cmux-chat -p codex refactor foo    pick provider (claude/codex/opencode/pi/gemini)
+#   cmux-chat --split                  open as a split in the current workspace instead
+#   cmux-chat --no-open ...            print the URL only
+#
+# Starts the sidecar server (bun server.ts) if it isn't running.
+set -euo pipefail
+
+SELF="$0"
+[ -L "$SELF" ] && SELF="$(readlink "$SELF")"
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
+PORT="${CMUX_AGENT_UI_PORT:-7739}"
+BASE="http://127.0.0.1:${PORT}"
+BUN="${BUN_BIN:-$HOME/.bun/bin/bun}"
+
+if [ -n "${CMUX_AGENT_CHAT_STATE_FILE:-}" ]; then
+  cd "$HERE"
+  exec "$BUN" server.ts
+fi
+
+provider="claude" cwd="" open_mode="tab" auto_approve=true no_open=false
+prompt=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|--provider) provider="$2"; shift 2 ;;
+    -C|--cwd) cwd="$2"; shift 2 ;;
+    --split) open_mode="split"; shift ;;
+    --tab) open_mode="tab"; shift ;;
+    --no-open) no_open=true; shift ;;
+    --no-auto-approve) auto_approve=false; shift ;;
+    -h|--help) sed -n '2,10p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) prompt+=("$1"); shift ;;
+  esac
+done
+
+if ! curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then
+  echo "starting cmux-agent-ui server on :$PORT" >&2
+  (cd "$HERE" && "$BUN" server.ts >> /tmp/cmux-agent-ui.log 2>&1 &)
+  ok=false
+  for _ in $(seq 1 50); do
+    if curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then ok=true; break; fi
+    sleep 0.2
+  done
+  $ok || { echo "server failed to start; see /tmp/cmux-agent-ui.log" >&2; exit 1; }
+fi
+
+url="$BASE/"
+if [ ${#prompt[@]} -gt 0 ]; then
+  body=$(printf '%s' "${prompt[*]}" | \
+    CC_PROVIDER="$provider" CC_CWD="${cwd:-$PWD}" CC_AUTO="$auto_approve" python3 -c '
+import json, sys, os
+print(json.dumps({
+    "prompt": sys.stdin.read(),
+    "provider": os.environ["CC_PROVIDER"],
+    "cwd": os.environ["CC_CWD"],
+    "autoApprove": os.environ["CC_AUTO"] == "true",
+}))')
+  resp=$(curl -fsS -X POST "$BASE/api/sessions" -H 'content-type: application/json' -d "$body")
+  url=$(printf '%s' "$resp" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')
+fi
+
+if $no_open; then
+  echo "$url"
+  exit 0
+fi
+
+if [ "$open_mode" = "tab" ]; then
+  layout=$(CC_URL="$url" python3 -c '
+import json, os
+print(json.dumps({"pane": {"surfaces": [{"type": "browser", "url": os.environ["CC_URL"], "focus": True}]}}))')
+  cmux new-workspace --name "agent chat" --layout "$layout" >/dev/null
+else
+  # Splits get a transparent webview so Ghostty background-opacity/blur show
+  # through; the page matches with an alpha body when ?transparent=1 is set.
+  params=$(CC_URL="${url}?transparent=1" python3 -c '
+import json, os
+p = {"url": os.environ["CC_URL"], "transparent_background": True}
+ws = os.environ.get("CMUX_WORKSPACE_ID")
+if ws: p["workspace_id"] = ws
+print(json.dumps(p))')
+  cmux rpc browser.open_split "$params" >/dev/null
+fi
+echo "$url"

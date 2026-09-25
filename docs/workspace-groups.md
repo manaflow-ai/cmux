@@ -8,13 +8,15 @@ Workspace groups let you nest workspaces into collapsible named sections in the 
 
 Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels. Clicking the chevron toggles collapse.
 
-Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
+A group's anchor is always a brand new workspace at creation time; grouping a selection or `create` never promotes one of your existing workspaces into the anchor. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
 
-Closing the anchor workspace **dissolves the group**: every other member loses its `groupId` and stays in the tabs list as an ungrouped workspace. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a "Don't ask again" toggle before this happens.
+Closing the anchor workspace closes only that workspace and **promotes the group's next member to be the new anchor**, so the group and its other members stay intact (the promoted member then shows the group name as the header). When the anchor is the group's only workspace, the group is removed. To flatten a group back into ungrouped workspaces, use **Ungroup**; to close every workspace in a group, use **Delete Group**.
 
 ### Group identity
 
-A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an optional `customColor` (hex string). Both are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.
+A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an optional `customColor` (hex string). Automation can also provide an `external_id` (or `idempotency_key`) as a caller-owned identity scoped to the window. Repeating `workspace.group.create` with that identity returns the existing group instead of creating another anchor. Names are not identities: users may have multiple groups with the same name.
+
+The current anchor carries explicit provenance. Only an anchor created by cmux can be removed through the guarded anchor-cleanup option; a user-selected or promoted anchor is never inferred to be disposable.
 
 ### Pinning
 
@@ -26,7 +28,9 @@ The sidebar layout, top to bottom:
 
 ## Creating a group
 
-### From the keyboard (`⌘⇧G`)
+### From the keyboard (`⌃⌘G` or `⌘⇧G`)
+
+Press `⌃⌘G` to create a new empty workspace group. cmux inserts a fresh anchor workspace as the group header and auto-names it `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
 Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
 
@@ -34,11 +38,11 @@ Single-tab groups are not created from the shortcut. Use the workspace context m
 
 ### From a workspace context menu
 
-Right-click any workspace in the sidebar, choose **New Group from Workspace** (or **New Group from Selection** when multiple workspaces are selected). Same auto-naming behavior as the shortcut.
+Right-click any workspace in the sidebar, choose **New Empty Workspace Group** for an anchor-only group, **New Group from Workspace** for a group containing that workspace, or **New Group from Selection** when multiple workspaces are selected. The blank area below the sidebar list also offers **New Empty Workspace Group**. Same auto-naming behavior as the shortcuts.
 
 ### From the group header context menu
 
-Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**, **Delete Group (Close Workspaces)**. Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.
+Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup Workspaces**, **Delete Group**. Ungroup Workspaces keeps the workspaces and removes only the group container. Delete Group closes the group header workspace and every workspace inside the group; if the group contains child workspaces, it prompts for confirmation first.
 
 ### From the `+` button on a group header
 
@@ -54,9 +58,10 @@ All group operations are scriptable via `cmux workspace-group <subcommand>`. The
 
 ```bash
 cmux workspace-group list [--json]
-cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
-cmux workspace-group ungroup <group-id>
-cmux workspace-group delete  <group-id>   # destructive: closes every member workspace
+cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>] [--idempotency-key <key>]
+cmux workspace-group ungroup <group-id> [--remove-generated-anchor]
+cmux workspace-group delete <group-id>                         # dissolve; keep workspaces
+cmux workspace-group delete <group-id> --close-workspaces      # explicitly destructive
 cmux workspace-group rename <group-id> --name "new name"
 cmux workspace-group collapse <group-id>
 cmux workspace-group expand <group-id>
@@ -68,14 +73,18 @@ cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 ```
 
-`create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
+`create` returns a group handle (`workspace_group:N` by default). Omitting `--from` creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass `--json` for the full structured payload.
+
+Use a stable `--idempotency-key` (or `--external-id`) when more than one controller can reconcile the same logical group. The key is atomic within the target window and is persisted with the group. `--remove-generated-anchor` is an explicit cleanup path for an anchor-only group whose current anchor still has cmux-generated provenance; it refuses groups with child workspaces or user-selected anchors.
+
+`delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
 
 ### Examples
 
-Group the three currently selected workspaces under a name:
+Group two explicitly chosen workspaces under a name:
 
 ```bash
-cmux workspace-group create --name manaflow
+cmux workspace-group create --name manaflow --from workspace:1,workspace:2
 ```
 
 Spin up a new workspace inside an existing group (e.g. wired to a worktree script):
@@ -145,4 +154,4 @@ Neither knob is wired up yet. The current build keeps the sidebar's existing iMe
 
 ## Persistence
 
-Groups (name, anchor, pin state, collapse state, color, icon) round-trip through `~/Library/Application Support/cmux/session-<bundle-id>.json` alongside workspaces. Membership lives on `Workspace.groupId`. Writes are atomic via the existing `SessionPersistenceStore` rename-into-place pattern.
+Groups (name, anchor, pin state, collapse state, color, icon, external identity, and anchor provenance) round-trip through `~/Library/Application Support/cmux/session-<bundle-id>.json` alongside workspaces. Membership lives on `Workspace.groupId`. Writes are atomic via the existing `SessionPersistenceStore` rename-into-place pattern.

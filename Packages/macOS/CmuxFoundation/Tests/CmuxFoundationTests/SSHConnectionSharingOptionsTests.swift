@@ -1,0 +1,438 @@
+import Foundation
+import Testing
+@testable import CmuxFoundation
+
+@Suite("SSH connection-sharing options")
+struct SSHConnectionSharingOptionsTests {
+    private let lockDirectory = URL(fileURLWithPath: "/private/var/folders/cmux-tests", isDirectory: true)
+    private var options: SSHConnectionSharingOptions {
+        SSHConnectionSharingOptions(userID: 501, authenticationLockDirectoryPath: lockDirectory.path)
+    }
+
+    @Test("Default control path is stable across workspace relay identities")
+    func stableDefaultControlPath() {
+        let first = options.mergingDefaults(into: ["StrictHostKeyChecking=accept-new"])
+        let second = options.mergingDefaults(into: ["StrictHostKeyChecking=accept-new"])
+
+        #expect(first == second)
+        #expect(first.contains("ControlMaster=auto"))
+        #expect(first.contains("ControlPersist=600"))
+        #expect(first.contains("ControlPath=/tmp/cmux-ssh-501-%C"))
+        #expect(!first.contains { $0.contains("64001-%C") })
+    }
+
+    @Test("Legacy relay-scoped cmux paths migrate to the host-stable path")
+    func migratesLegacyRelayPath() {
+        let merged = options.mergingDefaults(into: [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-64001-%C",
+            "ControlPersist=45",
+        ])
+
+        #expect(merged == [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+            "ControlPersist=45",
+        ])
+    }
+
+    @Test("Resolved legacy relay-scoped paths remain cmux-owned and migrate")
+    func migratesResolvedLegacyRelayPath() {
+        let legacyPath = "/tmp/cmux-ssh-501-64001-0123456789abcdef0123456789abcdef01234567"
+        let supplied = [
+            "ControlMaster=auto",
+            "ControlPath=\(legacyPath)",
+            "ControlPersist=45",
+        ]
+
+        #expect(options.cmuxOwnedControlPath(in: supplied) == legacyPath)
+        #expect(options.mergingDefaults(into: supplied) == [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+            "ControlPersist=45",
+        ])
+    }
+
+    @Test("Caller-provided control settings remain authoritative")
+    func preservesCustomControlSettings() {
+        let supplied = [
+            "ControlMaster=autoask",
+            "ControlPath=~/.ssh/cmux-custom-%C",
+            "ControlPersist=23",
+        ]
+
+        #expect(options.mergingDefaults(into: supplied) == supplied)
+        #expect(options.cmuxOwnedControlPath(in: supplied) == nil)
+    }
+
+    @Test("Ownership follows OpenSSH's first repeated ControlPath")
+    func ownershipUsesFirstControlPath() {
+        let customFirst = [
+            "ControlMaster=auto",
+            "ControlPath=~/.ssh/custom-%C",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ]
+        let ownedFirst = [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+            "ControlPath=~/.ssh/custom-%C",
+        ]
+
+        #expect(options.cmuxOwnedControlPath(in: customFirst) == nil)
+        #expect(
+            options.cmuxOwnedControlPath(in: ownedFirst)
+                == "/tmp/cmux-ssh-501-%C"
+        )
+    }
+
+    @Test("Shared option parsing follows OpenSSH's first-value rule")
+    func optionResolverUsesFirstValue() {
+        let resolver = SSHAgentSocketResolver()
+
+        #expect(resolver.optionValue(
+            named: "ControlMaster",
+            in: [
+                "ControlMaster=no",
+                "ControlMaster=auto",
+            ]
+        ) == "no")
+        #expect(resolver.optionValue(
+            named: "ControlPersist",
+            in: [
+                "ControlPersist=600",
+                "ControlPersist=no",
+            ]
+        ) == "600")
+    }
+
+    @Test("Effective custom ssh_config control settings replace cmux defaults")
+    func preservesResolvedSSHConfigSettings() {
+        let output = """
+        user alice
+        hostname example.test
+        port 22
+        controlmaster auto
+        controlpath /Users/alice/.ssh/control-a1b2
+        controlpersist 90
+        """
+        let configured = options.userConfiguredControlOptions(fromSSHConfigOutput: output)
+        let merged = options.mergingDefaults(
+            into: ["StrictHostKeyChecking=accept-new"],
+            userConfiguredControlOptions: configured
+        )
+
+        #expect(merged == [
+            "StrictHostKeyChecking=accept-new",
+            "ControlMaster=auto",
+            "ControlPath=/Users/alice/.ssh/control-a1b2",
+            "ControlPersist=90",
+        ])
+        #expect(options.cmuxOwnedControlPath(in: merged) == nil)
+    }
+
+    @Test("OpenSSH's default ssh_config output still enables cmux sharing")
+    func ignoresResolvedOpenSSHDefaults() {
+        let output = """
+        user alice
+        hostname example.test
+        port 22
+        controlmaster false
+        controlpersist no
+        """
+        let configured = options.userConfiguredControlOptions(fromSSHConfigOutput: output)
+
+        #expect(configured == nil)
+        #expect(options.mergingDefaults(
+            into: [],
+            userConfiguredControlOptions: configured
+        ).contains("ControlPath=/tmp/cmux-ssh-501-%C"))
+    }
+
+    @Test("Supported OpenSSH normalization drives host opt-out detection")
+    func detectsHostOptOutUsingRealOpenSSHNormalization() throws {
+        let host = "cmux-normalization.invalid"
+        let baseline = try resolvedSSHConfiguration(
+            host: host,
+            configurationFile: "/dev/null"
+        )
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-normalization-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: configURL) }
+        try """
+        Host cmux-normalization.invalid
+          ControlMaster no
+          ControlPath none
+          ControlPersist no
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let configured = try resolvedSSHConfiguration(
+            host: host,
+            configurationFile: configURL.path
+        )
+
+        // The supported macOS OpenSSH currently normalizes ControlMaster=no
+        // to the same controlmaster=false value as its built-in default.
+        // The product compares these exact ssh -G outputs, so this test owns
+        // that resolver boundary instead of inventing distinct text.
+        #expect(controlSettings(in: configured) == controlSettings(in: baseline))
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: configured,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == nil)
+    }
+
+    @Test("A baseline that omits unset keys still reads as OpenSSH defaults")
+    func baselineOmittingUnsetKeysMatchesDefaults() {
+        let baseline = """
+        controlmaster false
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: baseline,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == nil)
+        let configured = """
+        controlmaster false
+        controlpath /Users/alice/.ssh/control-a1b2
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: configured,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == [
+            "ControlMaster=false",
+            "ControlPath=/Users/alice/.ssh/control-a1b2",
+            "ControlPersist=no",
+        ])
+    }
+
+    @Test("An explicit persistence flag does not import OpenSSH's disabled sharing defaults", arguments: [
+        ("ControlPersist=0", "yes"),
+        ("ControlPersist=10", "10"),
+    ])
+    func explicitPersistenceKeepsMissingSharingDefaults(option: String, resolvedValue: String) {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster false
+            controlpath none
+            controlpersist \(resolvedValue)
+            """,
+            explicitOptions: [option]
+        )
+        let merged = options.mergingDefaults(into: [option], userConfiguredControlOptions: configured)
+
+        #expect(configured == nil)
+        #expect(merged == [option, "ControlMaster=auto", "ControlPath=/tmp/cmux-ssh-501-%C"])
+        #expect(options.cmuxOwnedControlPath(in: merged) == "/tmp/cmux-ssh-501-%C")
+    }
+
+    @Test("An explicit master flag does not import OpenSSH's absent control path")
+    func explicitMasterKeepsMissingSharingDefaults() {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster auto
+            controlpath none
+            controlpersist no
+            """,
+            explicitOptions: ["ControlMaster=auto"]
+        )
+        let merged = options.mergingDefaults(
+            into: ["ControlMaster=auto"],
+            userConfiguredControlOptions: configured
+        )
+
+        #expect(configured == nil)
+        #expect(merged == [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ])
+    }
+
+    @Test("Explicit persistence preserves independently configured host control settings", arguments: ["auto", "false"])
+    func explicitPersistencePreservesCustomHostPath(controlMaster: String) {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster \(controlMaster)
+            controlpath /Users/alice/.ssh/configured-%C
+            controlpersist yes
+            """,
+            explicitOptions: ["ControlPersist=0"]
+        )
+        let merged = options.mergingDefaults(
+            into: ["ControlPersist=0"],
+            userConfiguredControlOptions: configured
+        )
+
+        #expect(merged == [
+            "ControlPersist=0",
+            "ControlMaster=\(controlMaster)",
+            "ControlPath=/Users/alice/.ssh/configured-%C",
+        ])
+        #expect(options.cmuxOwnedControlPath(in: merged) == nil)
+    }
+
+    @Test("Explicit CLI control options win per key over resolved ssh_config settings")
+    func explicitOptionsWinOverResolvedConfiguration() {
+        let configured = [
+            "ControlMaster=auto",
+            "ControlPath=/Users/alice/.ssh/configured-%C",
+            "ControlPersist=90",
+        ]
+
+        #expect(options.mergingDefaults(
+            into: ["ControlMaster=no"],
+            userConfiguredControlOptions: configured
+        ) == [
+            "ControlMaster=no",
+            "ControlPath=/Users/alice/.ssh/configured-%C",
+            "ControlPersist=90",
+        ])
+    }
+
+    @Test("Partial CLI control options preserve remaining ssh_config settings")
+    func partialOptionsPreserveResolvedConfiguration() {
+        let configured = [
+            "ControlMaster=no",
+            "ControlPath=none",
+            "ControlPersist=10",
+        ]
+
+        #expect(options.mergingDefaults(
+            into: ["ControlPersist=10"],
+            userConfiguredControlOptions: configured
+        ) == [
+            "ControlPersist=10",
+            "ControlMaster=no",
+            "ControlPath=none",
+        ])
+    }
+
+    @Test("An explicitly disabled master gets no sharing defaults")
+    func preservesDisabledControlMaster() {
+        let supplied = ["ControlMaster=no", "ForwardAgent=yes"]
+
+        #expect(options.mergingDefaults(into: supplied) == supplied)
+        #expect(options.cmuxOwnedControlPath(in: [
+            "ControlMaster=no",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ]) == nil)
+    }
+
+    private func resolvedSSHConfiguration(
+        host: String,
+        configurationFile: String
+    ) throws -> String {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-G", "-F", configurationFile, host]
+        process.standardOutput = output
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        return String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+    }
+
+    private func controlSettings(in output: String) -> [String: String] {
+        var values: [String: String] = [:]
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            if ["controlmaster", "controlpath", "controlpersist"].contains(key) {
+                values[key] = String(parts[1])
+            }
+        }
+        return values
+    }
+
+    @Test("Only enabled cmux-owned paths create an authentication lock")
+    func authenticationLockRequiresOwnedPath() {
+        let owned = options.mergingDefaults(into: [])
+        let resolvedOwned = [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
+            "ControlPersist=600",
+        ]
+        let custom = [
+            "ControlMaster=auto",
+            "ControlPath=~/.ssh/custom-%C",
+            "ControlPersist=600",
+        ]
+
+        let first = options.foregroundAuthenticationLockPath(
+            destination: "alice@example.test",
+            port: 2222,
+            options: owned
+        )
+        let second = options.foregroundAuthenticationLockPath(
+            destination: "alice@example.test",
+            port: 2222,
+            options: owned
+        )
+        #expect(first == second)
+        #expect(first.map { URL(fileURLWithPath: $0).deletingLastPathComponent() } == lockDirectory)
+        #expect(first.map { URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("cmux-ssh-501-auth-") } == true)
+        let resolvedLock = options.foregroundAuthenticationLockPath(
+            destination: "ssh-alias",
+            port: nil,
+            options: resolvedOwned
+        )
+        #expect(resolvedLock.map { URL(fileURLWithPath: $0).deletingLastPathComponent() } == lockDirectory)
+        #expect(resolvedLock.map { URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("cmux-ssh-501-auth-") } == true)
+        #expect(resolvedLock != first)
+        let resolvedControlPath = String(
+            resolvedOwned[1].dropFirst("ControlPath=".count)
+        )
+        #expect(options.cmuxOwnedControlPath(in: resolvedOwned) == resolvedControlPath)
+        let aliasIndependentLock =
+            options.resolvedControlMasterAuthenticationLockPath(
+                controlPath: resolvedControlPath
+            )
+        #expect(aliasIndependentLock.map {
+            URL(fileURLWithPath: $0).deletingLastPathComponent()
+        } == lockDirectory)
+        #expect(aliasIndependentLock?.contains("resolved-auth") == true)
+        #expect(options.resolvedControlMasterOwnershipLockPath(
+            controlPath: resolvedControlPath
+        )?.contains("-owner-") == true)
+        #expect(options.resolvedControlMasterAuthenticationLockPath(
+            controlPath: options.defaultControlPath
+        ) == nil)
+        #expect(options.resolvedControlMasterOwnershipLockPath(
+            controlPath: "~/.ssh/custom-control"
+        ) == nil)
+        #expect(options.foregroundAuthenticationLockPath(
+            destination: "alice@example.test",
+            port: 2222,
+            options: custom
+        ) == nil)
+    }
+
+    @Test("Stale-socket preflight is scoped to the cmux-owned path")
+    func preflightRequiresOwnedPath() {
+        let owned = options.mergingDefaults(into: [])
+        let function = options.controlPathPreflightShellFunction(
+            sshArguments: ["ssh", "-p", "2222"],
+            destination: "alice@example.test",
+            options: owned
+        )
+
+        #expect(function?.contains("ssh -p 2222 -G alice@example.test") == true)
+        #expect(function?.contains("/tmp/cmux-ssh-501-*") == true)
+        #expect(function?.contains("-O check alice@example.test") == true)
+        #expect(options.controlPathPreflightShellFunction(
+            sshArguments: ["ssh"],
+            destination: "alice@example.test",
+            options: ["ControlMaster=auto", "ControlPath=~/.ssh/custom-%C"]
+        ) == nil)
+    }
+}
