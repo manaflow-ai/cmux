@@ -35,15 +35,31 @@ def check_review_runner_contract(cli_path: str) -> list[str]:
         git("init", "-q")
         git("config", "user.email", "review-fixture@example.invalid")
         git("config", "user.name", "Review fixture")
+        nested = repository / "ios"
+        nested.mkdir()
+        (nested / "AGENTS.md").write_text("nested-rule\n")
+        (nested / "value.txt").write_text("nested-original\n")
         (repository / "value.txt").write_text("original\n")
         (repository / ".gitattributes").write_text("value.txt export-ignore\n")
-        git("add", "value.txt", ".gitattributes")
+        git("add", "value.txt", ".gitattributes", "ios/AGENTS.md", "ios/value.txt")
         git("commit", "-qm", "fixture")
         head = git("rev-parse", "HEAD")
         (repository / "value.txt").write_text("staged\n")
         git("add", "value.txt")
         (repository / "value.txt").write_text("working\n")
         (repository / "new.txt").write_text("untracked\n")
+        (nested / "value.txt").write_text("nested-working\n")
+        filter_marker = root / "filter-ran"
+        filter_script = root / "clean-filter.py"
+        filter_script.write_text(
+            "import pathlib, sys\n"
+            f"pathlib.Path({str(filter_marker)!r}).write_text('executed')\n"
+            "sys.stdout.write(sys.stdin.read())\n"
+        )
+        filter_script.chmod(0o755)
+        git("config", "filter.review.clean", f"python3 {filter_script}")
+        git("config", "filter.review.smudge", "cat")
+        (repository / ".gitattributes").write_text("value.txt filter=review\n")
         index_before = git("diff", "--cached")
         status_before = git("status", "--porcelain=v1")
 
@@ -61,6 +77,7 @@ candidate = pathlib.Path(arguments[arguments.index("--cd") + 1])
 prompt = sys.stdin.read()
 assert "+working" in prompt
 assert "+untracked" in prompt
+assert "nested-rule" in prompt
 assert "default_tools_enabled=false" in arguments
 assert "mcp_servers={}" in arguments
 role = output.stem
@@ -101,6 +118,7 @@ output.write_text(json.dumps(result))
             tree = receipt["source"]["tree_sha"]
             assert git("show", f"{tree}:value.txt") == "working"
             assert git("show", f"{tree}:new.txt") == "untracked"
+            assert not filter_marker.exists(), "repository clean filter executed during read-only capture"
             assert receipt["summary"]["verified"] == 0, "model agreement is not verification"
             assert receipt["summary"]["suppressed"] == 1
             assert len(receipt["findings"]) == 2, "duplicate discoveries must be merged"
