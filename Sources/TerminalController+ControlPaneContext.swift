@@ -358,12 +358,21 @@ extension TerminalController: ControlPaneContext {
             case .created(let panel):
                 newPanelId = panel.id
             case .routedToRemote:
+                if ws.usesEmbeddedTmuxSplits, let requestID = ws.embeddedTmuxSplits.requestID {
+                    return .embeddedTmuxSplit(
+                        windowID: v2ResolveWindowId(tabManager: tabManager),
+                        workspaceID: ws.id, surfaceID: sourcePanelId, requestID: requestID
+                    )
+                }
                 return .routedToRemote(
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
             case .failed:
+                if let message = ws.embeddedTmuxSplitError {
+                    return .embeddedTmuxSplitRejected(message: message)
+                }
                 newPanelId = nil
             }
         }

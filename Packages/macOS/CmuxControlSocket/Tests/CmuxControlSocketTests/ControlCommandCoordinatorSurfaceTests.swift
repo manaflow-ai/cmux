@@ -5,6 +5,45 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator surface domain")
 struct ControlCommandCoordinatorSurfaceTests {
+    @Test(arguments: ["surface.split", "pane.create"])
+    func embeddedTmuxSplitReportsItsExistingSurfaceAndRequest(method: String) throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let requestID = UUID()
+        let context = FakeSurfaceControlCommandContext()
+        context.splitResolution = .embeddedTmuxSplit(
+            windowID: nil, workspaceID: workspaceID, surfaceID: surfaceID, requestID: requestID
+        )
+        context.paneCreateResolution = .embeddedTmuxSplit(
+            windowID: nil, workspaceID: workspaceID, surfaceID: surfaceID, requestID: requestID
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1), method: method, params: ["direction": .string("right")]
+        ))
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("Expected acceptance of an embedded remote split")
+            return
+        }
+        #expect(payload["accepted"] == .bool(true))
+        #expect(payload["rendering"] == .string("embedded"))
+        #expect(payload["source_surface_id"] == .string(surfaceID.uuidString))
+        #expect(payload["request_id"] == .string(requestID.uuidString))
+        #expect(payload["surface_id"] == .null)
+        #expect(payload["pane_id"] == .null)
+    }
+
+    @Test(arguments: ["surface.split", "pane.create"])
+    func rejectedEmbeddedTmuxSplitIsAnError(method: String) {
+        let context = FakeSurfaceControlCommandContext()
+        context.splitResolution = .embeddedTmuxSplitRejected(message: "disconnected")
+        context.paneCreateResolution = .embeddedTmuxSplitRejected(message: "disconnected")
+        let coordinator = ControlCommandCoordinator(context: context)
+        #expect(coordinator.handle(ControlRequest(
+            id: .int(1), method: method, params: ["direction": .string("right")]
+        )) == .err(code: "remote_tmux_split_unavailable", message: "disconnected", data: nil))
+    }
+
     private func coordinator(
         createResolution: ControlSurfaceCreateResolution
     ) -> (ControlCommandCoordinator, FakeSurfaceControlCommandContext) {

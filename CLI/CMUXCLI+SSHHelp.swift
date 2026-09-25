@@ -67,7 +67,7 @@ extension CMUXCLI {
     }
 
     static var moshTmuxCommandUsage: String {
-        String(localized: "cli.help.mosh-tmux", defaultValue: """
+        let usage = String(localized: "cli.help.mosh-tmux", defaultValue: """
         Usage: cmux mosh-tmux <destination> [--session <name>] [flags]
 
         Create a first-class remote workspace whose Mosh terminal creates or attaches
@@ -86,5 +86,9 @@ extension CMUXCLI {
           cmux mosh-tmux dev@my-host
           cmux mosh-tmux dev@my-host --session agent-main
         """)
+        return usage + "\n\n" + String(
+            localized: "cli.help.mosh-tmux.splits",
+            defaultValue: "Split actions create panes inside the remote tmux session over the SSH management connection. They do not create native cmux panes. Use `cmux new-split right --local` to explicitly create a local shell."
+        )
     }
 }

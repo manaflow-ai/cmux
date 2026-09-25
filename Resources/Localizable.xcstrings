@@ -556715,6 +556715,478 @@
                 }
             }
         }
+    },
+    "cli.help.mosh-tmux.splits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split actions create panes inside the remote tmux session over the SSH management connection. They do not create native cmux panes. Use `cmux new-split right --local` to explicitly create a local shell."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنشئ إجراءات التقسيم أجزاء داخل جلسة tmux البعيدة عبر اتصال إدارة SSH. ولا تنشئ أجزاء cmux أصلية. استخدم `cmux new-split right --local` لإنشاء صدفة محلية صراحةً."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilungsaktionen erstellen Bereiche innerhalb der entfernten tmux-Sitzung über die SSH-Verwaltungsverbindung. Sie erstellen keine nativen cmux-Bereiche. Mit `cmux new-split right --local` erstellen Sie ausdrücklich eine lokale Shell."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las acciones de división crean paneles dentro de la sesión tmux remota mediante la conexión de gestión SSH. No crean paneles nativos de cmux. Usa `cmux new-split right --local` para crear explícitamente una shell local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les actions de division créent des volets dans la session tmux distante via la connexion de gestion SSH. Elles ne créent pas de volets cmux natifs. Utilisez `cmux new-split right --local` pour créer explicitement un shell local."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割操作は SSH 管理接続を通じてリモート tmux セッション内にペインを作成します。cmux のネイティブペインは作成しません。ローカルシェルを明示的に作成するには `cmux new-split right --local` を使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 동작은 SSH 관리 연결을 통해 원격 tmux 세션 내부에 창을 만듭니다. 네이티브 cmux 창은 만들지 않습니다. 로컬 셸을 명시적으로 만들려면 `cmux new-split right --local`을 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拆分操作通过 SSH 管理连接在远程 tmux 会话内创建窗格，不会创建原生 cmux 窗格。使用 `cmux new-split right --local` 可明确创建本地 Shell。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割動作會透過 SSH 管理連線在遠端 tmux 工作階段內建立窗格，不會建立原生 cmux 窗格。使用 `cmux new-split right --local` 可明確建立本機 Shell。"
+          }
+        }
+      }
+    },
+    "cli.creation.remoteTmux.embedded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(split requested inside the existing remote tmux terminal)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(طُلب التقسيم داخل طرفية tmux البعيدة الحالية)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(Teilung im bestehenden entfernten tmux-Terminal angefordert)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(división solicitada dentro del terminal tmux remoto existente)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(division demandée dans le terminal tmux distant existant)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（既存のリモート tmux ターミナル内での分割を要求しました）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(기존 원격 tmux 터미널 내부 분할 요청됨)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（已请求在现有远程 tmux 终端内拆分）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（已要求在現有遠端 tmux 終端機內分割）"
+          }
+        }
+      }
+    },
+    "cli.newSplit.localHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a local shell, including in a remote workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنشاء صدفة محلية، حتى في مساحة عمل بعيدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine lokale Shell erstellen, auch in einem entfernten Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear una shell local, incluso en un espacio de trabajo remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer un shell local, même dans un espace de travail distant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートワークスペース内でもローカルシェルを作成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 워크스페이스에서도 로컬 셸 생성"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建本地 Shell，包括在远程工作区中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立本機 Shell，包括在遠端工作區中"
+          }
+        }
+      }
+    },
+    "remoteTmux.embeddedSplit.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH management connection is unavailable. Reconnect before splitting the remote tmux session."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال إدارة SSH غير متاح. أعد الاتصال قبل تقسيم جلسة tmux البعيدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Verwaltungsverbindung ist nicht verfügbar. Stellen Sie die Verbindung wieder her, bevor Sie die entfernte tmux-Sitzung teilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión de gestión SSH no está disponible. Vuelve a conectarte antes de dividir la sesión tmux remota."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion de gestion SSH est indisponible. Reconnectez-vous avant de diviser la session tmux distante."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 管理接続を利用できません。リモート tmux セッションを分割する前に再接続してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 관리 연결을 사용할 수 없습니다. 원격 tmux 세션을 분할하기 전에 다시 연결하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 管理连接不可用。请重新连接后再拆分远程 tmux 会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 管理連線無法使用。請重新連線後再分割遠端 tmux 工作階段。"
+          }
+        }
+      }
+    },
+    "remoteTmux.embeddedSplit.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote tmux split could not be confirmed. Check the remote session before trying again; no local pane was created."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تأكيد تقسيم tmux البعيد. تحقّق من الجلسة البعيدة قبل المحاولة مجدداً؛ لم يُنشأ أي جزء محلي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die entfernte tmux-Teilung konnte nicht bestätigt werden. Prüfen Sie die entfernte Sitzung, bevor Sie es erneut versuchen. Es wurde kein lokaler Bereich erstellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo confirmar la división de tmux remota. Revisa la sesión remota antes de volver a intentarlo; no se creó ningún panel local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La division tmux distante n’a pas pu être confirmée. Vérifiez la session distante avant de réessayer ; aucun volet local n’a été créé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux の分割を確認できませんでした。再試行する前にリモートセッションを確認してください。ローカルペインは作成されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 분할을 확인할 수 없습니다. 다시 시도하기 전에 원격 세션을 확인하세요. 로컬 창은 생성되지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认远程 tmux 拆分。请先检查远程会话再重试；未创建本地窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法確認遠端 tmux 分割。請先檢查遠端工作階段再重試；並未建立本機窗格。"
+          }
+        }
+      }
+    },
+    "remoteTmux.embeddedSplit.options": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tmux split cannot apply terminal launch overrides. Use an explicit local split for a local command."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لتقسيم tmux هذا تطبيق خيارات تشغيل الطرفية المخصصة. استخدم تقسيماً محلياً صريحاً لتشغيل أمر محلي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese tmux-Teilung kann keine Terminal-Startoptionen übernehmen. Verwenden Sie für einen lokalen Befehl eine ausdrücklich lokale Teilung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta división de tmux no puede aplicar opciones personalizadas de inicio del terminal. Usa una división explícitamente local para un comando local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette division tmux ne peut pas appliquer les options de lancement du terminal. Utilisez une division explicitement locale pour une commande locale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この tmux 分割ではターミナル起動オプションを上書きできません。ローカルコマンドには明示的なローカル分割を使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 tmux 분할에는 터미널 시작 재정의 옵션을 적용할 수 없습니다. 로컬 명령에는 명시적 로컬 분할을 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 tmux 拆分无法应用终端启动覆盖选项。要执行本地命令，请明确使用本地拆分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 tmux 分割無法套用終端機啟動覆寫選項。若要執行本機指令，請明確使用本機分割。"
+          }
+        }
+      }
+    },
+    "remoteTmux.embeddedSplit.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A remote tmux split is already pending. Wait for it to finish before creating another."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هناك تقسيم tmux بعيد قيد التنفيذ بالفعل. انتظر اكتماله قبل إنشاء تقسيم آخر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine entfernte tmux-Teilung läuft bereits. Warten Sie auf deren Abschluss, bevor Sie eine weitere erstellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya hay una división de tmux remota en curso. Espera a que termine antes de crear otra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une division tmux distante est déjà en cours. Attendez sa fin avant d’en créer une autre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux の分割がすでに処理中です。完了してから次の分割を作成してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 분할이 이미 진행 중입니다. 완료된 후에 다른 분할을 만드세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有远程 tmux 拆分正在处理中。请等待完成后再创建另一个拆分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有遠端 tmux 分割正在處理中。請等待完成後再建立另一個分割。"
+          }
+        }
+      }
+    },
+    "remoteTmux.embeddedSplit.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t split the remote tmux session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تقسيم جلسة tmux البعيدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die entfernte tmux-Sitzung konnte nicht geteilt werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo dividir la sesión tmux remota"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de diviser la session tmux distante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux セッションを分割できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 세션을 분할할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法拆分远程 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法分割遠端 tmux 工作階段"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -6897,11 +6897,14 @@ struct CMUXCLI {
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let direction = try validatedSplitDirection(rem5.first, commandName: "new-split")
-            if let unknown = rem5.dropFirst().first(where: { $0.hasPrefix("--") }) {
+            let localSplit = rem5.contains("--local")
+            let splitArguments = rem5.filter { $0 != "--local" }
+            let direction = try validatedSplitDirection(splitArguments.first, commandName: "new-split")
+            if let unknown = splitArguments.dropFirst().first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-split: unknown flag '\(unknown)'")
             }
             var params: [String: Any] = ["direction": direction]
+            if localSplit { params["remote_context"] = "local" }
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
@@ -19245,6 +19248,7 @@ struct CMUXCLI {
                                       Window context for workspace/surface refs and indexes
               --command <text>     \(initialCommandDescription)
               --focus <true|false>   Focus the new split (default: false)
+              --local               \(String(localized: "cli.newSplit.localHelp", defaultValue: "Create a local shell, including in a remote workspace"))
 
             Example:
               cmux new-split right
@@ -21114,6 +21118,10 @@ struct CMUXCLI {
         var parts = ["OK", "accepted"]
         if let handle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
             parts.append(handle)
+        }
+        if (payload["rendering"] as? String) == "embedded" {
+            parts.append(String(localized: "cli.creation.remoteTmux.embedded", defaultValue: "(split requested inside the existing remote tmux terminal)"))
+            return parts.joined(separator: " ")
         }
         parts.append((payload["remote_tmux_operation"] as? String) == "new-window"
             ? String(localized: "cli.creation.remoteTmux.newWindow", defaultValue: "(routed to remote tmux; the new window arrives asynchronously)")

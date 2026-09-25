@@ -184,12 +184,21 @@ extension TerminalController {
             case .created(let panel):
                 newId = panel.id
             case .routedToRemote:
+                if ws.usesEmbeddedTmuxSplits, let requestID = ws.embeddedTmuxSplits.requestID {
+                    return .embeddedTmuxSplit(
+                        windowID: v2ResolveWindowId(tabManager: tabManager),
+                        workspaceID: ws.id, surfaceID: targetSurfaceId, requestID: requestID
+                    )
+                }
                 return .routedToRemote(
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
             case .failed:
+                if let message = ws.embeddedTmuxSplitError {
+                    return .embeddedTmuxSplitRejected(message: message)
+                }
                 newId = nil
             }
         }

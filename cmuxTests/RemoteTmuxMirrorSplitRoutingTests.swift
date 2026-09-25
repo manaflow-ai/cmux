@@ -1,4 +1,6 @@
 import CmuxRemoteSession
+import CmuxCore
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import CmuxControlSocket
@@ -20,6 +22,74 @@ import Testing
 /// remote panes.
 @MainActor
 @Suite(.serialized) struct RemoteTmuxMirrorSplitRoutingTests {
+    @Test func disconnectedMoshTmuxSplitNeverCreatesLocalPanel() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.workspace.remoteConfiguration = embeddedMoshConfiguration(profile: .defaultTmux)
+        let panelsBefore = harness.workspace.panels.count
+
+        let outcome = harness.workspace.newTerminalSplitOutcome(
+            from: harness.sourcePanelId,
+            orientation: .horizontal,
+            focus: false
+        )
+
+        #expect(!outcome.isAccepted)
+        #expect(harness.workspace.panels.count == panelsBefore)
+    }
+
+    @Test func explicitLocalSplitInMoshTmuxWorkspaceRemainsLocal() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.workspace.remoteConfiguration = embeddedMoshConfiguration(profile: .defaultTmux)
+        let panelsBefore = harness.workspace.panels.count
+
+        let panel = harness.workspace.newTerminalSplit(
+            from: harness.sourcePanelId,
+            orientation: .horizontal,
+            focus: false,
+            suppressWorkspaceRemoteStartupCommand: true
+        )
+
+        #expect(panel != nil)
+        #expect(harness.workspace.panels.count == panelsBefore + 1)
+    }
+
+    @Test func genericMoshShellRetainsNormalSplitBehavior() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.workspace.remoteConfiguration = embeddedMoshConfiguration(profile: .shell)
+        let panelsBefore = harness.workspace.panels.count
+
+        let panel = harness.workspace.newTerminalSplit(
+            from: harness.sourcePanelId,
+            orientation: .horizontal,
+            focus: false
+        )
+
+        #expect(panel != nil)
+        #expect(harness.workspace.panels.count == panelsBefore + 1)
+    }
+
+    private func embeddedMoshConfiguration(
+        profile: WorkspaceRemoteTerminalProfile
+    ) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            terminalTransport: .mosh,
+            terminalProfile: profile,
+            destination: "issue-11517.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+    }
+
     @Test func mirrorWorkspaceSplitNeverCreatesLocalPanel() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
@@ -207,6 +277,7 @@ import Testing
 
         func tearDown() {
             workspace.isRemoteTmuxMirror = false
+            workspace.remoteConfiguration = nil
             let identifier = "cmux.main.\(windowId.uuidString)"
             if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
                 window.performClose(nil)

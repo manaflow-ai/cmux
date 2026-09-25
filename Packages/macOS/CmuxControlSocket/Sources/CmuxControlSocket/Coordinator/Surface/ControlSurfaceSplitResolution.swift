@@ -29,6 +29,10 @@ public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// The split creation failed (legacy `internal_error` / "Failed to create
     /// split").
     case createFailed
+    /// A terminal-attached tmux split was rejected before any remote mutation.
+    case embeddedTmuxSplitRejected(message: String)
+    /// The remote pane will render inside the existing terminal, without a new native surface.
+    case embeddedTmuxSplit(windowID: UUID?, workspaceID: UUID, surfaceID: UUID, requestID: UUID)
     /// The request carried options the routed remote tmux `split-window`
     /// cannot honor; rejected BEFORE the remote session was mutated (an error
     /// after the mutation invites retries that duplicate remote panes).
