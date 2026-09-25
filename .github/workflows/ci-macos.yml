@@ -2878,6 +2878,27 @@ jobs:
             CmuxAgentJournal
             CmuxFilePreviewCore
             CmuxSyntaxHighlighting
+            CmuxAppKitSupportUI
+            CmuxCanvas
+            CmuxCloudBannerCore
+            CmuxCloudImagePaste
+            CmuxCloudTunnelCore
+            CMUXDebugLog
+            CmuxExtensionKit
+            CmuxFeedback
+            CmuxLiveEval
+            CmuxPanes
+            CmuxPhonePush
+            CMUXProjectModel
+            CmuxSidebar
+            CmuxSidebarGit
+            CmuxSidebarInterpreterService
+            CmuxSimulator
+            CmuxSwiftRender
+            CmuxSwiftRenderUI
+            CmuxTestSupport
+            CmuxUpdaterUI
+            CmuxWindowing
           )
 
           changed="$RUNNER_TEMP/changed-files.txt"
