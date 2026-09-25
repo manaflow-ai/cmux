@@ -35,6 +35,13 @@ extension TerminalSurface {
     /// The managed `COLORTERM` value exported to spawned shells.
     public static let managedColorTerm = "truecolor"
 
+    /// The managed `__CFBundleIdentifier` value exported to spawned shells.
+    /// macOS sets this to the app's own bundle ID, and some CLIs (Kiro, see
+    /// #1317) use it to recognize the terminal. It matches `TERM_PROGRAM`, so
+    /// shells see one consistent Ghostty identity. Tools that need cmux
+    /// itself read `CMUX_BUNDLE_ID`.
+    public static let managedTerminalBundleIdentifier = "com.mitchellh.ghostty"
+
     /// Spawn-time fallback for the app-managed Computer Use setting.
     public static let computerUseAppEnabledEnvironmentKey = "CMUX_COMPUTER_USE_APP_ENABLED"
 
@@ -57,7 +64,7 @@ extension TerminalSurface {
     ]
 
     /// Applies the managed terminal identity (`TERM`, `COLORTERM`,
-    /// `TERM_PROGRAM`) and protects those keys.
+    /// `TERM_PROGRAM`, `__CFBundleIdentifier`) and protects those keys.
     public static func applyManagedTerminalIdentityEnvironment(
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
@@ -68,6 +75,8 @@ extension TerminalSurface {
         protectedKeys.insert("COLORTERM")
         environment["TERM_PROGRAM"] = managedTerminalProgram
         protectedKeys.insert("TERM_PROGRAM")
+        environment["__CFBundleIdentifier"] = managedTerminalBundleIdentifier
+        protectedKeys.insert("__CFBundleIdentifier")
     }
 
     /// Applies the managed cmux context identity keys and protects them.

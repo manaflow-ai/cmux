@@ -95,6 +95,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             "TERM": "xterm-ghostty",
             "COLORTERM": "24bit",
             "TERM_PROGRAM": "Apple_Terminal",
+            "__CFBundleIdentifier": "com.cmuxterm.app",
             "CUSTOM_FLAG": "1",
         ]
         var protectedKeys: Set<String> = []
@@ -107,10 +108,12 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectEqual(environment["TERM"], TerminalSurface.managedTerminalType)
         expectEqual(environment["COLORTERM"], TerminalSurface.managedColorTerm)
         expectEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        expectEqual(environment["__CFBundleIdentifier"], "com.mitchellh.ghostty")
         expectEqual(environment["CUSTOM_FLAG"], "1")
         expectTrue(protectedKeys.contains("TERM"))
         expectTrue(protectedKeys.contains("COLORTERM"))
         expectTrue(protectedKeys.contains("TERM_PROGRAM"))
+        expectTrue(protectedKeys.contains("__CFBundleIdentifier"))
     }
 
     @Test
