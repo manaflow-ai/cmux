@@ -587,6 +587,32 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
 }
 
 
+/// `AppDelegate.init` installs the new delegate as `AppDelegate.shared`, and
+/// many tests build a throwaway one without putting the host's back. The next
+/// test in the same host then ran against the leftover: detached-inspector
+/// Cmd-W tests failed on main whenever the shard layout placed them after
+/// AppDelegateWindowContextRoutingTests. XCTest runs these two in name order.
+@MainActor
+final class AppDelegateSharedIsolationTests: XCTestCase {
+    private static var sharedBeforeLeak: AppDelegate??
+
+    func test1ConstructingAnAppDelegateReplacesShared() {
+        Self.sharedBeforeLeak = .some(AppDelegate.shared)
+        let leaked = AppDelegate()
+        XCTAssertTrue(AppDelegate.shared === leaked)
+    }
+
+    func test2NextTestStartsWithTheHostSharedDelegate() throws {
+        guard let expected = Self.sharedBeforeLeak else {
+            throw XCTSkip("Runs after test1ConstructingAnAppDelegateReplacesShared in the same host")
+        }
+        XCTAssertTrue(
+            AppDelegate.shared === expected,
+            "A delegate a previous test constructed must not stay installed as AppDelegate.shared"
+        )
+    }
+}
+
 @MainActor
 final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
     func testDefaultTerminalRegistrationKeepsAllAdvertisedTargets() {
@@ -1271,6 +1297,41 @@ final class WindowDragHandleHitTests: XCTestCase {
                 trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
             )
         )
+    }
+
+    func testTitlebarChromeSettingsMigrateDottedKeysFromBeforeIssue13930() {
+        let suiteName = "WindowDragHandleHitTests.titlebarChromeDottedKeys.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // The on-disk keys builds before #13930 wrote.
+        let legacyKeys = [
+            "titlebarDebug.leftControlsLeadingInset",
+            "titlebarDebug.leftControlsTopInset",
+            "titlebarDebug.trafficLightTabBarInset",
+            "titlebarDebug.trafficLightTitlebarLeadingInset",
+        ]
+        defaults.set(44.5, forKey: legacyKeys[0])
+        defaults.set(6.5, forKey: legacyKeys[1])
+        defaults.set(88.0, forKey: legacyKeys[2])
+        defaults.set(92.0, forKey: legacyKeys[3])
+        // A value already stored under the flat key wins over the legacy one.
+        defaults.set(10.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+
+        MinimalModeTitlebarDebugSettings.migrateLegacyKeysIfNeeded(defaults: defaults)
+
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults),
+            MinimalModeTitlebarDebugSnapshot(
+                leftControlsLeadingInset: 44.5,
+                leftControlsTopInset: 10.0,
+                trafficLightTabBarLeadingInset: 88.0,
+                trafficLightTitlebarLeadingInset: 92.0
+            )
+        )
+        for legacyKey in legacyKeys {
+            XCTAssertNil(defaults.object(forKey: legacyKey), legacyKey)
+        }
     }
 
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {

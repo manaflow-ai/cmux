@@ -44,6 +44,17 @@ extension SessionRemoteWorkspaceSnapshot {
         }
 
         if let configuration = tuiSSHConfiguration(agentSocketPath: overrideAgentSocketPath) { return configuration }
+        if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,
+           preserveAfterTerminalExit == true {
+            // Preserve the old descriptor for recovery, but never resume its daemon
+            // or start a replacement workload under a different session owner.
+            var configuration = WorkspaceRemoteConfiguration(destination: normalizedDestination,
+                port: normalizedPort, identityFile: identityFile, sshOptions: sshOptions,
+                localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+                localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true)
+            configuration.restoredSSHSession = self
+            return configuration
+        }
 
         let normalizedPersistentDaemonSlot = WorkspaceRemoteConfiguration.normalizedPersistentDaemonSlot(persistentDaemonSlot)
         let normalizedLocalSocketPath = WorkspaceRemoteConfiguration.normalizedOptionalValue(localSocketPath)

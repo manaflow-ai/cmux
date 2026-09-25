@@ -1,12 +1,17 @@
+import CmuxAuthRuntime
+import CmuxCloud
+import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
 /// session, so a local pane closing never touches them (only local browser preparation is cancelled).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
+    let fileAccessTeamScope: AuthenticatedTeamScope?
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
@@ -114,6 +119,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: RemoteTuiMachine,
+        fileAccessTeamScope: AuthenticatedTeamScope? = nil,
         links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
@@ -122,6 +128,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         displayCoordinator: CloudDisplayCoordinator? = nil,
         browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
     ) {
+        self.fileAccessTeamScope = fileAccessTeamScope
         machineID = summary.id
         self.attachmentClock = attachmentClock
         self.summary = summary
@@ -136,14 +143,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.browserPolicy = browserPolicy
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
-    }
-    var isAwake: Bool { summary.status == "running" }
-    var providerID: String { summary.provider }
-    /// Port rows are openable only when the machine advertises a preview
-    /// capability or has the private route used by Freestyle.
-    var capabilities: VMCapabilities { summary.capabilities }
-    var supportsPortPreviews: Bool {
-        capabilities.ports || summary.preferredPrivateAddress != nil
     }
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
@@ -215,7 +214,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         remoteTerminalProjectionTasks.removeAll()
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
-        acceptedCloudGenerations.removeAll()
+        acceptedCloudGenerations.removeAll(); catalog.notifyChange(for: machine)
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
@@ -1527,6 +1526,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             await self.refreshCurrentGraph(force: false)
         }
     }
+    func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
     private func reprojectRestoredPanes(generation: UInt64) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         reprojectRestoredBrowserPanes(generation: generation)

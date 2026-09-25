@@ -424,6 +424,22 @@
       "savingRelaySettings": "กำลังบันทึก…"
     },
     "coderouterAccounts": {
+      "transferAction": "โอนย้าย",
+      "transferringAction": "กำลังโอนย้าย…",
+      "transferDialogTitle": "โอนย้ายบัญชีไปยังทีมอื่น",
+      "transferChooseBody": "เลือกทีมที่จะรับ {account} ปัจจุบันบัญชีนี้อยู่ใน {source}",
+      "transferDestinationLabel": "ทีมปลายทาง",
+      "continueAction": "ดำเนินการต่อ",
+      "backAction": "ย้อนกลับ",
+      "transferConfirmTitle": "โอนย้าย {account} หรือไม่",
+      "transferConfirmBody": "{account} จะย้ายจาก {source} ไปยัง {destination} เครื่อง Cloud และสมาชิกของ {source} จะหยุดใช้บัญชีนี้ทันที บัญชีจะคงการตั้งค่าการแชร์ปัจจุบันไว้ใน {destination}",
+      "transferConfirmAction": "โอนย้ายบัญชี",
+      "transferSuccess": "ย้าย {account} ไปยัง {destination} แล้ว",
+      "transferError": "โอนย้ายบัญชีนี้ไม่ได้ โปรดลองอีกครั้ง",
+      "transferForbiddenError": "คุณไม่สามารถย้ายบัญชีไปยังทีมนั้นได้อีกต่อไป",
+      "transferNotFoundError": "บัญชีนี้ไม่อยู่ในทีมนี้แล้ว รีเฟรชเพื่อดูว่าอยู่ที่ใด",
+      "transferConflictError": "บัญชีมีการเปลี่ยนแปลงระหว่างการย้าย รีเฟรชแล้วลองอีกครั้ง",
+      "transferUnavailableError": "การโอนย้ายใช้งานไม่ได้ชั่วคราว หรือบัญชีกำลังรีเฟรช โปรดลองอีกครั้งในอีกสักครู่",
       "shareWithTeam": "แชร์กับทีม",
       "makePrivate": "ตั้งเป็นส่วนตัว",
       "privateImportHint": "บัญชีใหม่เป็นส่วนตัว แชร์บัญชีเพื่อให้ Cloud VM ของทีมนี้ใช้งานได้",
@@ -1274,6 +1290,10 @@
       "schemaDescriptions": {
         "root": "การกำหนดค่า cmux ไฟล์ cmux.json ส่วนกลางรองรับการตั้งค่าแอป ทางลัด การดำเนินการ คำสั่งแบบกำหนดเอง ฮุกการแจ้งเตือน และเลย์เอาต์พื้นที่ทำงาน ส่วน .cmux/cmux.json หรือ cmux.json ภายในโปรเจ็กต์รองรับการดำเนินการ คำสั่ง ฮุกการแจ้งเตือน การเชื่อมโยงการดำเนินการของ UI การแทนค่าของ Agent Chat เอเจนต์ vault การแทนค่ากลุ่มพื้นที่ทำงาน และการกำหนดค่าการเปิดและปุ่มของพื้นที่ทำงาน",
         "rightSidebar": "การกำหนดค่าแถบด้านขวาแบบเดิมและที่ส่วนขยายเป็นเจ้าของ ซึ่งเก็บรักษาไว้ใน cmux.json",
+        "packs": {
+          "description": "ไฟล์หรือไดเรกทอรีแพ็ก cmux ในเครื่องที่โหลดก่อนการกำหนดค่านี้ ไดเรกทอรีจะอ้างถึง cmux.pack.json ใช้สตริงพาธหรือออบเจ็กต์ที่มีฟิลด์ path",
+          "path": "พาธไฟล์หรือไดเรกทอรีในเครื่อง ซึ่งสัมพันธ์กับไฟล์การกำหนดค่านี้ เว้นแต่เป็นพาธแบบสัมบูรณ์"
+        },
         "paneBorderColor": "แทนที่สีตัวแบ่งพาเนลของ cmux ในเวิร์กสเปซที่แบ่งอยู่ การตั้งค่านี้มีผลกับขอบพาเนลของ cmux ไม่ใช่การแบ่งภายในของ Ghostty",
         "activePaneBorderColor": "สีเส้นขอบเสริมที่วาดรอบพาเนล cmux ที่โฟกัสอยู่ในเวิร์กสเปซที่แบ่งอยู่",
         "automation": {
@@ -4058,5 +4078,15 @@
     "organization": "องค์กร",
     "personalAccount": "บัญชีส่วนตัว",
     "switchAccountButton": "ใช้บัญชีอื่น"
+  },
+  "MobileRelease106": {
+    "title": "มีอะไรใหม่ใน 1.0.6",
+    "releaseLabel": "1.0.6 · กันยายน 2026",
+    "connectionTitle": "อัปเดตการเชื่อมต่อ Mac",
+    "connectionDetail": "การอัปเดตนี้ใช้บริการเชื่อมต่อใหม่และการรับส่งข้อมูล Iroh บิลด์ Mac รุ่นเก่าต้องอัปเดตจึงจะเชื่อมต่อได้",
+    "updateTitle": "อัปเดต cmux บน Mac",
+    "updateDetail": "ต้องใช้ cmux {stableVersion} ขึ้นไป หรือ NIGHTLY {nightlyVersion} ขึ้นไป เปิดใช้การจับคู่ iOS ในการตั้งค่า > มือถือบน Mac แต่ละเครื่อง",
+    "rollbackTitle": "ต้องการใช้บิลด์ Mac รุ่นเก่าต่อไปหรือไม่",
+    "rollbackDetail": "ใช้ cmux BETA 1.0.5 ({rollbackBuild}) จาก TestFlight > บิลด์ก่อนหน้าในขณะที่ยังมีให้ใช้ เลือกบิลด์นี้โดยตรง เพราะบิลด์ที่ใหม่กว่าจะใช้บริการเชื่อมต่อที่ใหม่กว่า"
   }
 }

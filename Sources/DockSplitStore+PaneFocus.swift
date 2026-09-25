@@ -359,7 +359,7 @@ extension DockSplitStore {
     }
 
     private func terminalResizeInteractionWindow() -> NSWindow? {
-        if let eventWindow = NSApp.currentEvent?.window { return eventWindow }
+        if let eventWindow = TerminalWindowPortalRegistry.pointerEventWindow() { return eventWindow }
         if let hostedWindow = panels.values.lazy.compactMap({ panel in
             (panel as? TerminalPanel)?.hostedView.window
         }).first {

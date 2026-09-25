@@ -5,9 +5,23 @@ set -euo pipefail
 # scope probes catch a Worker whose production secrets were populated from dev.
 readonly account_id="${CLOUDFLARE_ACCOUNT_ID:-}"
 readonly expected_account="0c1675e0def6de1ab3a50a4e17dc5656"
-readonly expected_project="9790718f-14cd-4f7e-824d-eaf527a82b82"
-readonly worker_name="cmux-iroh-v2"
-readonly worker_url="https://cmux-iroh-v2.debussy.workers.dev"
+readonly environment="${1:-production}"
+case "$environment" in
+  production)
+    expected_project="9790718f-14cd-4f7e-824d-eaf527a82b82"
+    worker_name="cmux-v2"
+    foreign_environment="development"
+    foreign_project="454ecd03-1db2-4050-845e-4ce5b0cd9895"
+    ;;
+  staging)
+    expected_project="454ecd03-1db2-4050-845e-4ce5b0cd9895"
+    worker_name="cmux-v2-staging"
+    foreign_environment="production"
+    foreign_project="9790718f-14cd-4f7e-824d-eaf527a82b82"
+    ;;
+  *) echo "refusing deployment: unsupported environment" >&2; exit 2 ;;
+esac
+readonly worker_url="https://${worker_name}.debussy.workers.dev"
 
 if [[ "$account_id" != "$expected_account" ]]; then
   echo "refusing production deploy: invalid production account configuration" >&2
@@ -21,6 +35,16 @@ for command in python3 curl; do
   fi
 done
 
+bun scripts/rollout-policy.ts target "$environment"
+source_revision_vars="$(bash scripts/source-revision-vars.sh)"
+if [[ "$source_revision_vars" == *:unknown ]]; then
+  echo "refusing deployment: the Worker source must be clean and committed" >&2
+  exit 1
+fi
+if [[ "$environment" == "production" ]] && ! git merge-base --is-ancestor "${source_revision_vars##*:}" origin/main; then
+  echo "refusing production deploy: source revision is not on fetched origin/main" >&2
+  exit 1
+fi
 bun run check
 bun run test:runtime
 
@@ -29,7 +53,7 @@ trap 'rm -rf "$probe_dir"' EXIT
 
 capture_deployment() {
   local deployment_path="$1" version_path="$2" identity_path="$3"
-  if ! wrangler deployments status --env production --name "$worker_name" --json >"$deployment_path"; then
+  if ! wrangler deployments status --env "$environment" --name "$worker_name" --json >"$deployment_path"; then
     return 1
   fi
   python3 - "$deployment_path" "$version_path" "$identity_path" <<'PY_DEPLOYMENT'
@@ -88,7 +112,7 @@ sys.exit(0)
 PY_MIGRATION
 }
 
-python3 - "$probe_dir" "$expected_project" <<'PY_PAYLOADS'
+python3 - "$probe_dir" "$expected_project" "$environment" "$foreign_environment" "$foreign_project" <<'PY_PAYLOADS'
 import json, pathlib, sys, uuid
 out = pathlib.Path(sys.argv[1])
 project = sys.argv[2]
@@ -97,7 +121,7 @@ base = {
   "requestId": str(uuid.uuid4()),
   "device": {
     "identity": {
-      "environment": "production", "projectId": project,
+      "environment": sys.argv[3], "projectId": project,
       "teamId": "production-config-probe", "userId": "production-config-probe",
       "deviceId": "production-config-probe", "appNamespace": "com.cmux.config.probe", "buildTag": "probe"
     },
@@ -106,8 +130,8 @@ base = {
   }
 }
 out.joinpath("production.json").write_text(json.dumps(base))
-base["device"]["identity"]["environment"] = "development"
-base["device"]["identity"]["projectId"] = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+base["device"]["identity"]["environment"] = sys.argv[4]
+base["device"]["identity"]["projectId"] = sys.argv[5]
 out.joinpath("development.json").write_text(json.dumps(base))
 PY_PAYLOADS
 
@@ -173,7 +197,7 @@ if (( pre_result )); then
 fi
 
 previous_version=$(<"$probe_dir/pre-before.version")
-if ! wrangler versions view "$previous_version" --env production --name "$worker_name" --json >"$probe_dir/previous-version.json"; then
+if ! wrangler versions view "$previous_version" --env "$environment" --name "$worker_name" --json >"$probe_dir/previous-version.json"; then
   echo "refusing production deploy: could not read the active Worker version" >&2
   exit 1
 fi
@@ -182,11 +206,66 @@ if ! check_pending_migration "$probe_dir/previous-version.json"; then
   exit 1
 fi
 
+read_health() {
+  curl -sS --connect-timeout 10 --max-time 30 --max-filesize 65536 \
+    -o "$1" -w '%{http_code}' "$worker_url/v2/health"
+}
+health_status="$(read_health "$probe_dir/pre-health.json")"
+bun scripts/rollout-policy.ts pre "$environment" "$probe_dir/previous-version.json" "$probe_dir/pre-health.json" "$health_status"
+
+# Production promotes the same clean revision already verified in staging.
+if [[ "$environment" == "production" ]]; then
+  wrangler deployments status --env staging --name cmux-v2-staging --json >"$probe_dir/staging-deployment.json"
+  staging_version="$(python3 - "$probe_dir/staging-deployment.json" <<'PY_STAGING'
+import json,sys
+value=json.load(open(sys.argv[1]))
+versions=value["versions"]
+if len(versions)!=1 or versions[0]["percentage"]!=100: raise SystemExit("staging must have one active version")
+print(versions[0]["version_id"])
+PY_STAGING
+)"
+  wrangler versions view "$staging_version" --env staging --name cmux-v2-staging --json >"$probe_dir/staging-version.json"
+  staging_status="$(curl -sS --connect-timeout 10 --max-time 30 --max-filesize 65536 \
+    -o "$probe_dir/staging-health.json" -w '%{http_code}' https://cmux-v2-staging.debussy.workers.dev/v2/health)"
+  bun scripts/rollout-policy.ts post staging "$probe_dir/staging-version.json" "$probe_dir/staging-health.json" "$staging_status" "$probe_dir/staging-version.json" "${source_revision_vars##*:}"
+  wrangler deployments status --env staging --name cmux-v2-staging --json >"$probe_dir/staging-after.json"
+  python3 - "$probe_dir/staging-deployment.json" "$probe_dir/staging-after.json" <<'PY_STABLE'
+import json,sys
+before,after=(json.load(open(path)) for path in sys.argv[1:])
+if any(before.get(key)!=after.get(key) for key in ("id","created_on","versions")): raise SystemExit("staging changed during verification")
+PY_STABLE
+fi
+# A deployment while the additional checks ran invalidates the rollback proof.
+capture_deployment "$probe_dir/final-pre.json" "$probe_dir/final-pre.version" "$probe_dir/final-pre.identity"
+same_deployment "$probe_dir/pre-after.identity" "$probe_dir/final-pre.identity" || {
+  echo "refusing deployment: active version changed during rollout checks" >&2; exit 1;
+}
+
 deployment_marker="cmux-prod-guard-$(python3 -c 'import uuid; print(uuid.uuid4())')"
-wrangler deploy --env production --strict --message "$deployment_marker" --tag "$deployment_marker"
+# The published revision is what GET /v2/health reports and what
+# scripts/check-production-drift.ts compares against main.
+# shellcheck disable=SC2086
+wrangler deploy --env "$environment" --keep-vars --strict --message "$deployment_marker" --tag "$deployment_marker" $source_revision_vars
 
 post_result=0
 run_scope_pair post || post_result=$?
+if (( post_result == 0 )); then
+  current_version="$(<"$probe_dir/post-after.version")"
+  if ! wrangler versions view "$current_version" --env "$environment" --name "$worker_name" --json >"$probe_dir/current-version.json"; then
+    post_result=3
+  elif ! health_status="$(read_health "$probe_dir/post-health.json")"; then
+    post_result=1
+  elif ! bun scripts/rollout-policy.ts post "$environment" "$probe_dir/previous-version.json" "$probe_dir/post-health.json" "$health_status" "$probe_dir/current-version.json" "${source_revision_vars##*:}"; then
+    post_result=1
+  fi
+fi
+if (( post_result == 0 )); then
+  if ! capture_deployment "$probe_dir/final-post.json" "$probe_dir/final-post.version" "$probe_dir/final-post.identity"; then
+    post_result=3
+  elif ! same_deployment "$probe_dir/post-after.identity" "$probe_dir/final-post.identity"; then
+    post_result=2
+  fi
+fi
 if (( post_result )); then
   rollback_safe=0
   if (( post_result == 1 )); then
@@ -212,7 +291,7 @@ PY_MARKER
   fi
 
   if (( rollback_safe )); then
-    if wrangler rollback "$previous_version" --env production --name "$worker_name" \
+    if wrangler rollback "$previous_version" --env "$environment" --name "$worker_name" \
       --message "restore pre-deploy verified version after scope probe failure" --yes; then
       echo "production scope verification failed; restored the previously verified Worker version" >&2
     else
@@ -225,3 +304,4 @@ PY_MARKER
 fi
 
 echo "production deployment scope verification passed"
+echo "published $source_revision_vars; confirm with: curl -sS $worker_url/v2/health"

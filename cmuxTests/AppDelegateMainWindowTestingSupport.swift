@@ -1,5 +1,8 @@
 import AppKit
+import CmuxTerminal
 import Foundation
+import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -234,6 +237,51 @@ extension AppDelegate {
     }
 }
 
+/// The tab id a portal-rendering fixture must build its surface with, and the
+/// teardown for the context registered to authorize it.
+///
+/// `Workspace.portalRenderingEnabled(for:)` decides whether a surface is ever
+/// really shown, and it resolves two ways that look alike at a call site but
+/// are opposites:
+///
+/// - **No app delegate.** `Workspace+PortalRenderingAuthority.swift:14`
+///   returns `true` before consulting anything, so any id is authorized and a
+///   synthetic one is sound.
+/// - **An app delegate with no selected workspace to borrow.** The authority
+///   is live, `:15-17` returns `false` for an id no manager has selected, and
+///   the surface is never made visible or active. The test then fails on
+///   whatever it was waiting for, several seconds later, with no mention of
+///   the fixture — the timeout the #12414 gate (`a81d39e61f`) taught these
+///   tests to produce.
+///
+/// Collapsing both into one optional is what let the second pass unnoticed, so
+/// this reports the fixture failure where it happens instead of leaving a
+/// symptom for someone to chase.
+///
+/// This throws rather than recording a failure and returning a synthetic id:
+/// a denied fixture cannot show its surface, so letting the caller continue
+/// would add the very timeout this exists to remove on top of the real
+/// message. Every caller is already `throws`.
+@MainActor
+func makeAuthorizedPortalTabId() throws -> (id: UUID, tearDown: @MainActor () -> Void) {
+    guard let appDelegate = AppDelegate.shared else {
+        return (UUID(), {})
+    }
+    guard let registration = appDelegate.registerLivePortalWorkspaceForTesting() else {
+        throw PortalRenderingAuthorityUnavailable()
+    }
+    return registration
+}
+
+/// A live portal-rendering authority with nothing for a fixture to borrow.
+struct PortalRenderingAuthorityUnavailable: Error, CustomStringConvertible {
+    var description: String {
+        "Portal rendering authority is live (an app delegate is installed) but this "
+        + "fixture has no selected workspace to borrow, so every tab id it can supply "
+        + "is denied and the surface under test would never be shown."
+    }
+}
+
 /// A window that reports key status the way the focused main window does in
 /// the running app. The app-host test process runs headless under
 /// `xcodebuild test` and is usually not the active app, so
@@ -244,4 +292,77 @@ extension AppDelegate {
 /// pin key status pass or fail by test order instead of by behavior.
 final class KeyStatusTestWindow: NSWindow {
     override var isKeyWindow: Bool { true }
+}
+
+/// The cmuxTests bundle's NSPrincipalClass. XCTest creates it when the bundle
+/// loads, before the first test, and it restores `AppDelegate.shared` after
+/// every XCTest case.
+///
+/// `AppDelegate.init` installs the new delegate as `shared`, and hundreds of
+/// tests build a throwaway delegate without restoring the host's. Whichever
+/// test ran next in the same host inherited the leftover, and which tests
+/// share a host depends on the timing-based shard layout, so the resulting
+/// failures moved from run to run. `AppDelegate.init` also points the surface
+/// registry's weak route retirer at itself, so that is put back too. Swift
+/// Testing tests are not observed here; a Swift Testing suite that constructs
+/// `AppDelegate()` or reads `shared` across a suspension point takes
+/// `.exclusiveAppContext`, which serializes it with the other app-context tests
+/// and restores `shared` the same way.
+@objc(CmuxTestsPrincipal)
+final class CmuxTestsPrincipal: NSObject, XCTestObservation {
+    private var sharedAtStart: AppDelegate?
+
+    override init() {
+        super.init()
+        XCTestObservationCenter.shared.addTestObserver(self)
+    }
+
+    func testCaseWillStart(_ testCase: XCTestCase) {
+        sharedAtStart = AppDelegate.shared
+    }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        if AppDelegate.shared !== sharedAtStart {
+            AppDelegate.shared = sharedAtStart
+            if let sharedAtStart {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(sharedAtStart)
+            }
+        }
+        sharedAtStart = nil
+    }
+}
+
+/// Swift Testing counterpart of `CmuxTestsPrincipal`: runs each test in the
+/// suite inside `AppContextSerialGate`, so suites in parallel cannot swap
+/// `AppDelegate.shared` under each other at a suspension point, and then puts
+/// `shared` and the surface registry's route retirer back.
+struct ExclusiveAppContextTrait: SuiteTrait, TestTrait, TestScoping {
+    var isRecursive: Bool { true }
+
+    func scopeProvider(for test: Test, testCase: Test.Case?) -> Self? {
+        testCase == nil ? nil : self
+    }
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let sharedAtStart = AppDelegate.shared
+            defer {
+                if AppDelegate.shared !== sharedAtStart {
+                    AppDelegate.shared = sharedAtStart
+                    if let sharedAtStart {
+                        GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(sharedAtStart)
+                    }
+                }
+            }
+            try await function()
+        }
+    }
+}
+
+extension Trait where Self == ExclusiveAppContextTrait {
+    static var exclusiveAppContext: Self { Self() }
 }

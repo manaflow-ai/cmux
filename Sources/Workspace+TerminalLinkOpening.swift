@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxCore
 import CmuxPanes
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension Workspace: TerminalLinkOpenContainer {

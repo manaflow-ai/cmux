@@ -1,7 +1,9 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxGit
 import CmuxIrohTransport
+import CmuxMobileHost
 import CmuxMobileTransport
 import CmuxSettings
 import CmuxTerminalCore
@@ -698,7 +700,7 @@ final class MobileHostService {
         let iOSPairingEnabled = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool
             ?? defaults.object(forKey: "cmuxMobilePairingHostEnabled") as? Bool
             ?? false
-        return iOSPairingEnabled || MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
+        return iOSPairingEnabled
     }
 
     /// User-default key for the preferred iOS pairing listener port.

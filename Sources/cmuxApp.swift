@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxComputerUse
 import AppKit
 import CmuxAppKitSupportUI
@@ -296,6 +297,8 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
+        MinimalModeTitlebarDebugSettings.migrateLegacyKeysIfNeeded(defaults: defaults)
+        CmuxExtensionSidebarSelection.migrateLegacyDefaultsKeyIfNeeded(defaults: defaults)
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")
 
         // UI tests need AppDelegate wiring even if SwiftUI appearance callbacks are skipped.
@@ -5097,58 +5100,6 @@ final class AppIconAppearanceObserver: NSObject {
               let icon = environment.imageForName(imageName) else { return }
         environment.setApplicationIconImage(icon)
         lastAppliedImageName = imageName
-    }
-}
-
-enum BuildFlavor: String, Sendable {
-    case dev
-    case nightly
-    case rc
-    case stable
-
-    static var current: BuildFlavor {
-        let bundle = Bundle.main
-        return detect(
-            bundleNames: [
-                bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
-                bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
-                ProcessInfo.processInfo.processName,
-            ].compactMap { $0 },
-            bundleIdentifier: bundle.bundleIdentifier
-        )
-    }
-
-    static func detect(bundleName: String?, bundleIdentifier: String?) -> BuildFlavor {
-        detect(bundleNames: [bundleName].compactMap { $0 }, bundleIdentifier: bundleIdentifier)
-    }
-
-    static func detect(bundleNames: [String], bundleIdentifier: String?) -> BuildFlavor {
-        if bundleNames.contains(where: containsDevToken) {
-            return .dev
-        }
-
-        let normalizedBundleIdentifier = bundleIdentifier?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        if SocketControlSettings.isDebugLikeBundleIdentifier(normalizedBundleIdentifier) {
-            return .dev
-        }
-        if let channel = releaseChannel(normalizedBundleIdentifier: normalizedBundleIdentifier, bundleNames: bundleNames) {
-            return channel
-        }
-        return .stable
-    }
-
-    private static func containsDevToken(_ name: String) -> Bool {
-        containsToken("DEV", in: name)
-    }
-
-    static func containsToken(_ token: String, in name: String) -> Bool {
-        name
-            .uppercased()
-            .split { !$0.isLetter && !$0.isNumber }
-            .contains { String($0) == token }
     }
 }
 

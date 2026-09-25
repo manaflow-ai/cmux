@@ -27,6 +27,11 @@ from typing import Callable, Iterable
 TEST_ROOT = "cmuxTests/"
 PRODUCTS_PREFIX = "app-host-products-v1-"
 TEST_TARGET = "cmuxTests"
+# Paths no target of the app host reads: cmux.xcodeproj references none of
+# them. Narrower than e2e_warm_derived_data.py's list, which may skip bundled
+# resources (skills/cmux-cua, Resources/*.md) because it rebuilds the app;
+# a rerun keeps CI's app as it is.
+OUTSIDE_THE_APP = (TEST_ROOT, "cmuxUITests/", ".github/", "docs/", "scripts/ci/", "tests/", "web/")
 SELECTOR = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*(\(\))?)?)?$")
 
 
@@ -35,9 +40,9 @@ def git(*args: str, cwd: str | None = None) -> str:
 
 
 def non_test_changes(base: str, head: str, cwd: str | None = None) -> list[str]:
-    """Paths that differ between two revisions outside the test bundle's sources."""
+    """Paths that differ between two revisions and can change the app-host products."""
     changed = git("diff", "--name-only", "--no-renames", base, head, cwd=cwd).splitlines()
-    return [path for path in changed if path and not path.startswith(TEST_ROOT)]
+    return [path for path in changed if path and not path.startswith(OUTSIDE_THE_APP)]
 
 
 def eligible_revisions(head: str, limit: int, cwd: str | None = None) -> tuple[list[str], dict | None]:
@@ -68,14 +73,93 @@ def products_artifact(repository: str, run_id: str, api: Callable[[str], dict]) 
     return None
 
 
-def find_products(repository: str, revisions: Iterable[str], api: Callable[[str], dict]) -> dict | None:
-    """Newest product-bearing run for the nearest eligible revision."""
+MERGE_REF = re.compile(r"refs/pull/\d+/merge")
+E2E_WORKFLOW = ".github/workflows/test-e2e.yml"
+# test-e2e.yml's run title ends "@ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
+DISPATCHED_REVISION = re.compile(r" @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
+
+
+def commit_parents(revision: str, cwd: str | None = None) -> list[str]:
+    """A commit's parents, read from the commit object so a shallow boundary still names them."""
+    header = git("cat-file", "commit", revision, cwd=cwd).split("\n\n", 1)[0]
+    return [line.split(" ", 1)[1] for line in header.splitlines() if line.startswith("parent ")]
+
+
+def fetch_commit(revision: str, cwd: str | None = None) -> None:
+    """Fetch a commit outside the checkout's history, such as a pull request merge.
+
+    GitHub serves any commit in the fork network by SHA, so this also reaches
+    a merge that `refs/pull/N/merge` has since moved past.
+    """
+    present = subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"], cwd=cwd, capture_output=True)
+    if present.returncode != 0:
+        git("fetch", "--no-tags", "--quiet", "origin", revision, cwd=cwd)
+
+
+def built_revision(run: dict, cwd: str | None = None, fetch: Callable[[str], None] | None = None) -> str:
+    """The revision a CI run checked out, and so the one its products were built from.
+
+    A pull_request run builds `refs/pull/N/merge`, GitHub's merge of the head
+    into the base, while the run's `head_sha` is the head. The receipt in its
+    products names the merge. GitHub still records that merge on the run: ci.yml
+    loads its reusable workflows from the same ref, and `referenced_workflows`
+    names the commit each came from. The merge must name `head_sha` as its
+    second parent, which ties it to this run's head rather than any commit.
+    A dispatched test-e2e.yml run's `head_sha` is its workflow's branch, so
+    its title says what it built instead.
+    """
+    head = run["head_sha"]
+    fetch = fetch or (lambda revision: fetch_commit(revision, cwd=cwd))
+    if run.get("event") == "workflow_dispatch" and run.get("path") == E2E_WORKFLOW:
+        # A dispatched test-e2e.yml run lists under the branch its workflow came
+        # from, usually main, but compiles the `ref` input its title names.
+        # Other dispatches, such as main's ci.yml, build their head.
+        match = DISPATCHED_REVISION.search(str(run.get("display_title", "")))
+        if not match:
+            raise ValueError(f"dispatched run {run.get('id')} names no full revision in its title")
+        fetch(match.group(1))
+        return match.group(1)
+    if run.get("event") != "pull_request":
+        return head
+    merges = {
+        item.get("sha")
+        for item in run.get("referenced_workflows") or []
+        if isinstance(item, dict) and MERGE_REF.fullmatch(str(item.get("ref", ""))) and item.get("sha")
+    }
+    if len(merges) != 1:
+        raise ValueError(
+            f"pull_request run {run.get('id')} built the merge of {head} into its base, "
+            "but GitHub recorded no single merge commit for it"
+        )
+    merge = merges.pop()
+    fetch(merge)
+    parents = commit_parents(merge, cwd=cwd)
+    if len(parents) != 2 or parents[1] != head:
+        raise ValueError(f"run {run.get('id')} recorded {merge}, which is not a merge of its head {head}")
+    return merge
+
+
+def find_products(
+    repository: str,
+    revisions: Iterable[str],
+    api: Callable[[str], dict],
+    resolve: Callable[[dict, str], str | None] = lambda run, revision: revision,
+) -> dict | None:
+    """Newest product-bearing run for the nearest eligible revision.
+
+    Runs are listed by `head_sha`, which is not what a pull_request run built.
+    `resolve` maps a run to the revision its products were built from, or to
+    None when that revision is not eligible.
+    """
     for revision in revisions:
         runs = api(f"repos/{repository}/actions/runs?head_sha={revision}&status=completed&per_page=50")
         for run in sorted(runs.get("workflow_runs", []), key=lambda item: item.get("created_at", ""), reverse=True):
             artifact = products_artifact(repository, str(run["id"]), api)
-            if artifact:
-                return {"revision": revision, "run_id": str(run["id"]), "artifact": artifact}
+            if not artifact:
+                continue
+            built = resolve(run, revision)
+            if built:
+                return {"revision": built, "run_id": str(run["id"]), "artifact": artifact}
     return None
 
 
@@ -88,15 +172,21 @@ def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pag
 
     The rerun rebuilds cmuxTests with the products' own Xcode, and each macOS
     image carries one pinned Xcode (26.3 on 15, 26.6 on 26). Compile admission
-    follows MACOS_RUNNER_PR, so read the pool it actually ran on. A run
-    without that job keeps the macOS 15 default.
+    follows MACOS_RUNNER_PR, so read the pool it actually ran on; a test-e2e.yml
+    run compiles in its `build` job. A run without either keeps the macOS 15
+    default.
     """
     for page in range(1, pages + 1):
         listing = api(f"repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page={page}")
         jobs = listing.get("jobs", [])
         for job in jobs:
-            if job.get("name", "").endswith(ADMISSION_JOB):
+            # test-e2e.yml compiles in its `build` job.
+            if job.get("name", "").endswith(ADMISSION_JOB) or job.get("name") == "build":
                 for label in job.get("labels", []):
+                    # An owned Mac pool carries the pull-request lane's Xcode,
+                    # which is the macOS 26 pools' pin (pr_runner_pool.py).
+                    if re.fullmatch(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9.]+", label):
+                        return PRODUCT_RUNNERS["26"]
                     match = re.search(r"macos-(\d+)", label)
                     if match and match.group(1) in PRODUCT_RUNNERS:
                         return PRODUCT_RUNNERS[match.group(1)]
@@ -128,7 +218,12 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
     selectors = parse_selectors(args.only_testing)
     if args.source_run_id:
         run = api(f"repos/{args.repository}/actions/runs/{args.source_run_id}")
-        revision = run["head_sha"]
+        try:
+            revision = built_revision(run)
+        except ValueError as error:
+            raise SystemExit(str(error))
+        except subprocess.CalledProcessError:
+            raise SystemExit(f"run {args.source_run_id} built a revision other than {run['head_sha']} that could not be fetched")
         try:
             blocking = non_test_changes(revision, head)
         except subprocess.CalledProcessError:
@@ -144,7 +239,15 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
         found = {"revision": revision, "run_id": args.source_run_id, "artifact": artifact}
     else:
         revisions, blocker = eligible_revisions(head, args.max_commits)
-        found = find_products(args.repository, revisions, api)
+
+        def resolve(run: dict, revision: str) -> str | None:
+            try:
+                built = built_revision(run)
+                return built if built == revision or not non_test_changes(built, head) else None
+            except (KeyError, ValueError, subprocess.CalledProcessError):
+                return None
+
+        found = find_products(args.repository, revisions, api, resolve)
         if not found:
             detail = ""
             if blocker:
@@ -376,6 +479,116 @@ def detach(args: argparse.Namespace, dump: Callable[[Path], dict] = dump_package
         print(f"  {key} = {' '.join(values)}")
 
 
+# --- source pruning -----------------------------------------------------------------
+#
+# cmuxTests is one bundle of about 1,100 files, and a rerun of one suite used to
+# compile all of them. `prune` keeps the files the selected suites can reach:
+# the files that declare or extend a selected suite, then every file declaring
+# a non-private top-level name those files mention, or an extension member
+# they mention on a type they mention, to a fixed point. Missing a file makes
+# the pruned compile fail, and the workflow then compiles the whole bundle, so
+# the approximation only costs time. Sources outside the test root, and
+# non-Swift sources such as the Objective-C window release guard, always stay.
+
+MODIFIERS = (
+    r"(?:(?:@\w+(?:\([^)]*\))?|public|internal|package|final|static|open|nonisolated|override|indirect"
+    r"|mutating|convenience|required|lazy|weak|unowned|class|dynamic)\s+)*"
+)
+TOP_DECLARATION = re.compile(r"^" + MODIFIERS + r"(?:class|struct|enum|actor|protocol|typealias|func|var|let)\s+`?([A-Za-z_]\w*)", re.M)
+EXTENSION_BLOCK = re.compile(r"^" + MODIFIERS + r"extension\s+([A-Za-z_][\w.]*)([^\n{]*)\{(\}|.*?^\})", re.M | re.S)
+EXTENSION_MEMBER = re.compile(r"^    " + MODIFIERS + r"(?:class|struct|enum|actor|typealias|func|var|let|case)\s+`?([A-Za-z_]\w*)", re.M)
+EXTENSION_INIT = re.compile(r"^    " + MODIFIERS + r"init\b", re.M)
+IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+
+
+def selected_suites(selectors: Iterable[str]) -> set[str]:
+    return {selector.removeprefix(TEST_ROOT).split("/")[0] for selector in selectors}
+
+
+def source_closure(sources: dict[str, str], suites: set[str]) -> set[str] | None:
+    """The test sources the selected suites need, or None when a suite's file is not found.
+
+    Inherited tests are never referenced by name: an extension of a base test
+    class in a third file would be dropped without a compile error. No
+    cmuxTests class inherits from another today.
+    """
+    top = {name: set(TOP_DECLARATION.findall(text)) for name, text in sources.items()}
+    extensions: dict[str, list[tuple[str, set[str]]]] = {}
+    for name, text in sources.items():
+        blocks = []
+        for match in EXTENSION_BLOCK.finditer(text):
+            base = match.group(1).split(".")[0]
+            # A conformance is used through its protocol, an init through its type.
+            members = set(EXTENSION_MEMBER.findall(match.group(3))) | set(IDENTIFIER.findall(match.group(2)))
+            if EXTENSION_INIT.search(match.group(3)):
+                members.add(base)
+            blocks.append((base, members))
+        extensions[name] = blocks
+    if any(not any(suite in names for names in top.values()) for suite in suites):
+        return None
+    # An extension of a suite adds tests that nothing references.
+    included = {
+        name for name in sources
+        if top[name] & suites or any(base in suites for base, _ in extensions[name])
+    }
+    tokens = {name: set(IDENTIFIER.findall(text)) for name, text in sources.items()}
+    # Every name the kept files mention so far: an extension's type can be
+    # named in one kept file and its member used, through inference, in another.
+    used: set[str] = set()
+    frontier = set(included)
+    while frontier:
+        used |= set().union(*(tokens[name] for name in frontier))
+        frontier = {
+            name for name in sources
+            if name not in included
+            and (top[name] & used or any(base in used and members & used for base, members in extensions[name]))
+        }
+        included |= frontier
+    return included
+
+
+def prune_project(text: str, keep: set[str], prunable: set[str], target: str = TEST_TARGET) -> tuple[str, int]:
+    """Drop the target's `prunable` sources outside `keep`; returns the project and how many went.
+
+    The bundle also compiles some app and CLI sources directly; only files
+    under the test root are candidates.
+    """
+    match = re.search(
+        r"\n\t\t(\w+) /\* " + re.escape(target) + r" \*/ = \{\n\t\t\tisa = PBXNativeTarget;\n(.*?)\n\t\t\};", text, re.S
+    )
+    if not match:
+        raise ValueError(f"native target {target} not found")
+    phases = [phase_id for phase_id, name in _list(match.group(2), "buildPhases") if name == "Sources"]
+    if len(phases) != 1:
+        raise ValueError(f"{target} has {len(phases)} Sources phases")
+    phase = _object(text, phases[0])
+    kept, dropped = [], 0
+    for build_file, comment in _list(phase.group(1), "files"):
+        source = comment.removesuffix(" in Sources")
+        if source in prunable and source not in keep:
+            dropped += 1
+            continue
+        kept.append(f"{build_file} /* {comment} */" if comment else build_file)
+    new_phase = _replace_list(phase.group(1), "files", kept)
+    return text[: phase.start(1)] + new_phase + text[phase.end(1) :], dropped
+
+
+def prune(args: argparse.Namespace) -> int:
+    root = Path(args.test_root)
+    sources = {path.name: path.read_text(errors="replace") for path in root.rglob("*.swift")}
+    keep = source_closure(sources, selected_suites(parse_selectors(args.only_testing)))
+    if keep is None:
+        print("A selected suite is not declared at the top level of a test source; compiling every source")
+        return 1
+    project = Path(args.project)
+    text, dropped = prune_project(project.read_text(), keep, set(sources), args.target)
+    project.write_text(text)
+    print(f"Compiling {len(keep)} of {len(sources)} test sources ({dropped} dropped):")
+    for name in sorted(keep):
+        print(f"  {name}")
+    return 0
+
+
 def download(args: argparse.Namespace) -> None:
     """Fetch the product tarball over parallel ranges, or one stream if that misses."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -417,6 +630,11 @@ def main(argv: list[str] | None = None) -> int:
     detach_parser.add_argument("--xcconfig", required=True)
     detach_parser.add_argument("--target", default=TEST_TARGET)
     detach_parser.add_argument("--package-root", action="append", default=[])
+    prune_parser = commands.add_parser("prune")
+    prune_parser.add_argument("--project", required=True)
+    prune_parser.add_argument("--test-root", required=True)
+    prune_parser.add_argument("--only-testing", required=True)
+    prune_parser.add_argument("--target", default=TEST_TARGET)
     download_parser = commands.add_parser("download")
     download_parser.add_argument("--repository", required=True)
     download_parser.add_argument("--run-id", required=True)
@@ -437,6 +655,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
     elif args.command == "download":
         download(args)
+    elif args.command == "prune":
+        return prune(args)
     else:
         detach(args)
     return 0
