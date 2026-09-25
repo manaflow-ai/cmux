@@ -91,6 +91,7 @@ jobs:
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            CI_SEED_KEEP_LOCAL_RUNNERS=${{ vars.CI_SEED_KEEP_LOCAL_RUNNERS }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
