@@ -162,8 +162,10 @@ DEFAULT_MAX_QUEUED = 3
 # (1,034 s and 1,537 s against a 321 s median on 2026-09-24). A queued job on
 # a 10-machine pool of about 10-minute admissions waits about a minute, so
 # the cold pool counts this many extra queued jobs: it is taken only when
-# every seeded pool is queued that much deeper.
-COLD_QUEUE_PENALTY = 12
+# every seeded pool is queued that much deeper. At 12 it sat idle while both
+# macOS 26 pools held 7 to 8 queued jobs waiting 17 to 21 minutes
+# (2026-09-24 23:33Z), longer than the cold compile costs, so it is 4.
+COLD_QUEUE_PENALTY = 4
 # Concurrent jobs one Blacksmith macOS pool ran at most, measured 2026-09-24:
 # 10 or 11 on each 6vcpu pool while jobs queued behind them.
 POOL_CAPACITY = 10
