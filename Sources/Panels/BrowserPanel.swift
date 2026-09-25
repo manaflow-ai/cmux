@@ -1026,6 +1026,9 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
     "blob",
+    // Extension pages (options, popouts). WebKit only serves them to views
+    // built with the extension controller and enforces web_accessible_resources.
+    "chrome-extension",
     "cmux-diff-viewer",
     "data",
     "file",

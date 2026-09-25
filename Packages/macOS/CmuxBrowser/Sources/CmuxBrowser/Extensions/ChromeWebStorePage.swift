@@ -37,11 +37,21 @@ public enum ChromeWebStorePage {
     }
 
     /// The extension id of a store detail page, taken from the URL path only.
+    ///
+    /// The id is the segment right after `detail`, or the one after that when
+    /// a slug comes first (`/detail/<slug>/<id>`). The page script uses the
+    /// same rule, so the button it labels and the extension the app installs
+    /// cannot disagree.
     public static func extensionID(onStorePage url: URL) -> String? {
         guard isStorePage(url) else { return nil }
-        let components = url.path.split(separator: "/").map(String.init)
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard let detail = components.firstIndex(of: "detail") else { return nil }
-        return components[(detail + 1)...].first { ChromeExtensionPackage.isExtensionID($0) }
+        for offset in 1...2 where components.indices.contains(detail + offset) {
+            if ChromeExtensionPackage.isExtensionID(components[detail + offset]) {
+                return components[detail + offset]
+            }
+        }
+        return nil
     }
 
     /// Localized labels for the injected button.
@@ -95,8 +105,14 @@ public enum ChromeWebStorePage {
           if (!handler) return;
 
           function pageID() {
-            var m = location.pathname.match(/\\/detail\\/(?:[^\\/]+\\/)?([a-p]{32})(?:[\\/?#]|$)/);
-            return m ? m[1] : null;
+            // Same rule as the app: the segment after "detail", else the next.
+            var parts = location.pathname.split('/').filter(function (p) { return p.length; });
+            var d = parts.indexOf('detail');
+            if (d < 0) return null;
+            for (var i = 1; i <= 2; i++) {
+              if (/^[a-p]{32}$/.test(parts[d + i] || '')) return parts[d + i];
+            }
+            return null;
           }
 
           function storeButton() {

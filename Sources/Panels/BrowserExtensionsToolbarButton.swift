@@ -123,7 +123,7 @@ private struct BrowserToolbarExtensionAwareItems: View {
     var body: some View {
         let actions = extensions.actionItems(for: panel)
         let actionsByID = Dictionary(actions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let installedIDs = Set(extensions.installed.map(\.id))
+        let installedIDs = Set(extensions.installations(for: panel).map(\.extensionID))
         let items = BrowserToolbarCustomizableItems.visibleItems(layout.items, compact: compact, installedExtensionIDs: installedIDs)
         let menuModel = BrowserExtensionsMenuModel(
             actions: actions,
@@ -149,7 +149,12 @@ private struct BrowserToolbarExtensionAwareItems: View {
                                 layout.setVisible(pinned, !layout.contains(pinned))
                             }
                         },
-                        install: { BrowserExtensions.shared.installStoreExtension(from: $0) },
+                        install: { id in
+                            BrowserExtensions.shared.installStoreExtension(
+                                from: id,
+                                profile: BrowserExtensions.profileKey(for: panel.websiteDataStore)
+                            )
+                        },
                         manage: { BrowserExtensions.shared.openManagerPage(from: panel) },
                         openStore: { BrowserExtensions.shared.openStore(from: panel) }
                     )

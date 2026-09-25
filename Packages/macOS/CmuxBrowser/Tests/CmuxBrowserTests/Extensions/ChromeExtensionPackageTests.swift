@@ -52,6 +52,38 @@ import Testing
         }
     }
 
+    /// A header whose field length is near `Int.max` must be refused, not
+    /// crash on `index + length` overflow.
+    @Test func refusesOverflowingProtobufLength() {
+        var header: [UInt8] = [0x12] // field 2, length-delimited
+        header += Self.varint(Int.max - 3)
+        var crx = Data("Cr24".utf8)
+        for value in [UInt32(3), UInt32(header.count)] {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { crx.append(contentsOf: $0) }
+        }
+        crx.append(contentsOf: header)
+        crx.append(contentsOf: [0x50, 0x4b])
+        #expect(throws: ChromeExtensionPackage.Failure.self) {
+            try ChromeExtensionPackage.verifiedZip(crx, extensionID: Self.fixtureID)
+        }
+    }
+
+    @Test func comparesChromeVersionsStrictly() {
+        #expect(ChromeExtensionPackage.isVersion("2026.9.0", newerThan: "2026.8.0"))
+        #expect(ChromeExtensionPackage.isVersion("1.10", newerThan: "1.9.9"))
+        #expect(!ChromeExtensionPackage.isVersion("1.0", newerThan: "1.0.0"))
+        #expect(!ChromeExtensionPackage.isVersion("0.9", newerThan: "1.0"))
+        #expect(!ChromeExtensionPackage.isVersion("1.0.0.0.1", newerThan: "1.0"))
+        #expect(!ChromeExtensionPackage.isVersion("1.x", newerThan: "1.0"))
+    }
+
+    @Test func readsDeclaredUncompressedTotal() {
+        let totals = "12 files, 34567 bytes uncompressed, 8901 bytes compressed:  74.2%"
+        #expect(ChromeExtensionPackage.declaredUncompressedBytes(inZipInfoTotals: totals) == 34567)
+        #expect(ChromeExtensionPackage.declaredUncompressedBytes(inZipInfoTotals: "garbage") == nil)
+    }
+
     @Test func unpacksVerifiedPayload() throws {
         let zip = try ChromeExtensionPackage.verifiedZip(Self.fixture(), extensionID: Self.fixtureID)
         let destination = FileManager.default.temporaryDirectory

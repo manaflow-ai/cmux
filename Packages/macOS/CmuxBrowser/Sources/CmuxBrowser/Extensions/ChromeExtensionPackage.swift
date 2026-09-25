@@ -22,6 +22,7 @@ public enum ChromeExtensionPackage {
         case notCRX3
         case signatureInvalid
         case publisherSignatureMissing
+        case tooLarge
         case unpack(String)
     }
 
@@ -89,6 +90,21 @@ public enum ChromeExtensionPackage {
         return components?.url
     }
 
+    /// Whether Chrome version `candidate` is strictly newer than `current`.
+    /// Chrome versions are one to four dot-separated integers; anything else
+    /// is never newer, so a malformed update cannot replace an installed one.
+    public static func isVersion(_ candidate: String, newerThan current: String) -> Bool {
+        func parts(_ text: String) -> [Int]? {
+            let pieces = text.split(separator: ".", omittingEmptySubsequences: false)
+            guard (1...4).contains(pieces.count) else { return nil }
+            let numbers = pieces.compactMap { Int($0) }
+            guard numbers.count == pieces.count, numbers.allSatisfy({ $0 >= 0 }) else { return nil }
+            return numbers + Array(repeating: 0, count: 4 - numbers.count)
+        }
+        guard let new = parts(candidate), let old = parts(current) else { return false }
+        return new.lexicographicallyPrecedes(old) == false && new != old
+    }
+
     /// Reads the version offered by an update-check response, or `nil` when
     /// the response says there is no update. Only the `<updatecheck>` element
     /// is inspected: the XML declaration also carries a `version` attribute.
@@ -104,14 +120,26 @@ public enum ChromeExtensionPackage {
     /// Downloads the CRX for `id`.
     public static func download(extensionID id: String, session: URLSession = .shared) async throws -> Data {
         guard let url = downloadURL(forExtensionID: id) else { throw Failure.notAnExtensionID }
+        return try await boundedData(from: url, session: session, limit: maximumPackageBytes)
+    }
+
+    /// Fetches `url`, refusing responses over `limit` bytes as they stream in
+    /// rather than after buffering them whole.
+    public static func boundedData(from url: URL, session: URLSession = .shared, limit: Int) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw Failure.download(statusCode: http.statusCode)
         }
+        if response.expectedContentLength > Int64(limit) { throw Failure.tooLarge }
+        var data = Data()
+        if response.expectedContentLength > 0 { data.reserveCapacity(Int(response.expectedContentLength)) }
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count > limit { throw Failure.tooLarge }
+        }
         guard !data.isEmpty else { throw Failure.empty }
-        guard data.count <= maximumPackageBytes else { throw Failure.notCRX3 }
         return data
     }
 
@@ -193,6 +221,14 @@ public enum ChromeExtensionPackage {
 
         let listing = try runCapturingOutput("/usr/bin/unzip", ["-Z1", archive.path])
         try validateArchiveEntryNames(listing.split(whereSeparator: \.isNewline).map(String.init))
+        // Refuse archives whose central directory declares more than the
+        // expansion budget before writing anything. The tree is measured again
+        // after extraction, since a hostile archive can understate sizes.
+        let totals = try runCapturingOutput("/usr/bin/unzip", ["-Zt", archive.path])
+        guard let declared = declaredUncompressedBytes(inZipInfoTotals: totals),
+              declared <= Int64(maximumExpandedBytes) else {
+            throw Failure.unpack("the extension is too large")
+        }
 
         try runCapturingOutput(
             "/usr/bin/ditto",
@@ -213,6 +249,13 @@ public enum ChromeExtensionPackage {
         try fileManager.copyItem(at: source, to: scratch)
         try validateUnpackedTree(at: scratch, fileManager: fileManager)
         try replace(destination, with: scratch, fileManager: fileManager)
+    }
+
+    /// Reads the uncompressed total from `zipinfo -t` output, for example
+    /// `12 files, 34567 bytes uncompressed, 8901 bytes compressed:  74.2%`.
+    public static func declaredUncompressedBytes(inZipInfoTotals text: String) -> Int64? {
+        guard let range = text.range(of: #"([0-9]+) bytes uncompressed"#, options: .regularExpression) else { return nil }
+        return Int64(text[range].split(separator: " ").first ?? "")
     }
 
     /// Refuses archive entry names that could escape the extraction root.
@@ -331,14 +374,18 @@ public enum ChromeExtensionPackage {
             guard let key = readVarint() else { break }
             switch key & 7 {
             case 2:
-                guard let length = readVarint(), length >= 0, index + length <= bytes.count else { return fields }
+                // Compare against the remaining length so a huge declared
+                // length cannot overflow `index + length`.
+                guard let length = readVarint(), length >= 0, length <= bytes.count - index else { return fields }
                 fields.append((key >> 3, Array(bytes[index..<(index + length)])))
                 index += length
             case 0:
                 _ = readVarint()
             case 1:
+                guard bytes.count - index >= 8 else { return fields }
                 index += 8
             case 5:
+                guard bytes.count - index >= 4 else { return fields }
                 index += 4
             default:
                 return fields

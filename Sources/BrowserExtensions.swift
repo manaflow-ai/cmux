@@ -7,13 +7,18 @@ import CmuxBrowser
 import Combine
 import WebKit
 
-/// One installed extension, persisted in `installed.json`.
+/// One installed extension in one browser profile, persisted in
+/// `installed.json`.
 ///
 /// `grantedPermissions` and `grantedMatchPatterns` record exactly what the
 /// user accepted. Loading grants only those, so an update or a reload of an
 /// unpacked folder that asks for more cannot widen its access silently.
+/// Installations belong to the profile they were added in: approving an
+/// extension in one profile never loads it into another.
 struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
-    let id: String
+    /// Profile key: the data store identifier, or `"default"`.
+    let profileKey: String
+    let extensionID: String
     var name: String
     var version: String
     var enabled: Bool
@@ -24,8 +29,11 @@ struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
     /// can copy the developer's latest edits in again.
     var sourcePath: String?
 
+    var id: String { profileKey + "/" + extensionID }
+
     init(
-        id: String,
+        profileKey: String,
+        extensionID: String,
         name: String,
         version: String,
         enabled: Bool,
@@ -34,7 +42,8 @@ struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
         grantedMatchPatterns: [String],
         sourcePath: String?
     ) {
-        self.id = id
+        self.profileKey = profileKey
+        self.extensionID = extensionID
         self.name = name
         self.version = version
         self.enabled = enabled
@@ -44,9 +53,16 @@ struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
         self.sourcePath = sourcePath
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case profileKey
+        case extensionID = "id"
+        case name, version, enabled, fromStore, grantedPermissions, grantedMatchPatterns, sourcePath
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
+        profileKey = try container.decodeIfPresent(String.self, forKey: .profileKey) ?? BrowserExtensions.defaultProfileKey
+        extensionID = try container.decode(String.self, forKey: .extensionID)
         name = try container.decode(String.self, forKey: .name)
         version = try container.decode(String.self, forKey: .version)
         enabled = try container.decode(Bool.self, forKey: .enabled)
@@ -60,27 +76,37 @@ struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
 /// Hosts Chrome extensions on WebKit's `WKWebExtensionController`.
 ///
 /// One controller exists per persistent website data store, so each browser
-/// profile keeps its own extension storage and cookies. Private (non-
-/// persistent) browsing gets no controller: as in Chrome, extensions do not
-/// run there.
+/// profile keeps its own extensions, extension storage, and cookies. Private
+/// (non-persistent) browsing gets no controller: as in Chrome, extensions do
+/// not run there.
 ///
 /// Deliberately not supported, for security: Chrome native messaging hosts,
 /// API shims for Chrome APIs WebKit does not implement, and user-agent
-/// spoofing inside extension contexts.
+/// spoofing inside extension contexts. Extensions can never navigate a tab to
+/// privileged URLs (see ``ChromeExtensionNavigationPolicy``) or touch the
+/// Chrome Web Store, matching Chrome.
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserExtensions: NSObject, ObservableObject {
     static let shared = BrowserExtensions()
+    static let defaultProfileKey = "default"
 
     /// Custom scheme extension pages are served from, matching Chrome so
     /// servers that allow-list an extension origin recognize it.
-    static let extensionScheme = "chrome-extension"
+    static let extensionScheme = ChromeExtensionNavigationPolicy.extensionScheme
+
+    /// Pages no extension may read or script, as in Chrome.
+    private static let protectedMatchPatterns = [
+        "*://chromewebstore.google.com/*",
+        "*://chrome.google.com/webstore/*",
+    ]
 
     @Published private(set) var installed: [BrowserExtensionInstallation] = []
     @Published private(set) var busyID: String?
     @Published private(set) var lastError: String?
     /// Bumped when an extension's toolbar action changes (icon, badge, title).
     @Published private(set) var actionRevision = 0
+    /// Errors per installation id (`profile/extension`).
     private(set) var errors: [String: [String]] = [:]
 
     private let fileManager = FileManager.default
@@ -101,6 +127,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
     private var question: Task<Bool, Never>?
     private var popover: NSPopover?
     private var stateObservation: AnyCancellable?
+    private var errorObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
+    private var lastRevival: [String: Date] = [:]
 
     private override init() {
         WKWebExtension.MatchPattern.registerCustomURLScheme(Self.extensionScheme)
@@ -115,6 +143,30 @@ final class BrowserExtensions: NSObject, ObservableObject {
         stateObservation = objectWillChange
             .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
             .sink { [weak self] in self?.pushStateToPages() }
+    }
+
+    // MARK: - Profiles
+
+    static func profileKey(for store: WKWebsiteDataStore) -> String {
+        store.identifier?.uuidString ?? defaultProfileKey
+    }
+
+    /// Installations in `panel`'s profile.
+    func installations(for panel: BrowserPanel) -> [BrowserExtensionInstallation] {
+        installations(inProfile: Self.profileKey(for: panel.websiteDataStore))
+    }
+
+    func installations(inProfile profile: String) -> [BrowserExtensionInstallation] {
+        installed.filter { $0.profileKey == profile }
+    }
+
+    private func installation(_ extensionID: String, in profile: String) -> BrowserExtensionInstallation? {
+        installed.first { $0.profileKey == profile && $0.extensionID == extensionID }
+    }
+
+    private func updateInstallation(_ extensionID: String, in profile: String, _ change: (inout BrowserExtensionInstallation) -> Void) {
+        guard let index = installed.firstIndex(where: { $0.profileKey == profile && $0.extensionID == extensionID }) else { return }
+        change(&installed[index])
     }
 
     // MARK: - Web view configuration
@@ -134,7 +186,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// Called whenever the panel binds a web view, including after a profile
     /// switch, so a panel is only ever a tab of one controller.
     func register(_ panel: BrowserPanel) {
-        let key = storeKey(for: panel.websiteDataStore)
+        let key = Self.profileKey(for: panel.websiteDataStore)
         for (otherKey, other) in controllers where otherKey != key { other.unregister(panelID: panel.id) }
         guard panel.websiteDataStore.isPersistent else {
             controllers[key]?.unregister(panelID: panel.id)
@@ -190,14 +242,15 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     /// Toolbar actions for the extensions loaded in `panel`'s profile.
     func actionItems(for panel: BrowserPanel) -> [ActionItem] {
-        guard let controller = controllers[storeKey(for: panel.websiteDataStore)] else { return [] }
+        let profile = Self.profileKey(for: panel.websiteDataStore)
+        guard let controller = controllers[profile] else { return [] }
         let tab = controller.adapters[panel.id]
-        return installed.compactMap { item in
-            guard item.enabled, let context = controller.contexts[item.id] else { return nil }
+        return installations(inProfile: profile).compactMap { item in
+            guard item.enabled, let context = controller.contexts[item.extensionID] else { return nil }
             let action = context.action(for: tab)
             let label = action?.label ?? ""
             return ActionItem(
-                id: item.id,
+                id: item.extensionID,
                 name: label.isEmpty ? item.name : label,
                 icon: action?.icon(for: CGSize(width: 16, height: 16)) ?? context.webExtension.icon(for: CGSize(width: 16, height: 16)),
                 badge: action?.badgeText ?? "",
@@ -209,7 +262,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// Runs an extension's toolbar action for `panel`, the way clicking its
     /// button in Chrome does. A popup is shown by the controller delegate.
     func performAction(_ id: String, in panel: BrowserPanel) {
-        guard let controller = controllers[storeKey(for: panel.websiteDataStore)],
+        guard let controller = controllers[Self.profileKey(for: panel.websiteDataStore)],
               let context = controller.contexts[id] else { return }
         let tab = controller.adapters[panel.id]
         if let tab { context.userGesturePerformed(in: tab) }
@@ -255,13 +308,18 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     // MARK: - Installing
 
-    /// Installs a Chrome Web Store extension from a store link or bare id.
-    func installStoreExtension(from text: String) {
+    /// Installs a Chrome Web Store extension, from a store link or bare id,
+    /// into the profile whose tab asked.
+    func installStoreExtension(from text: String, profile: String) {
         guard let id = ChromeExtensionPackage.extensionID(in: text) else {
             lastError = Self.describe(ChromeExtensionPackage.Failure.notAnExtensionID)
             return
         }
-        guard !installed.contains(where: { $0.id == id }) else {
+        guard controllers[profile] != nil else {
+            lastError = String(localized: "browser.extensions.error.privateBrowsing", defaultValue: "Extensions are not available in private browsing.")
+            return
+        }
+        guard installation(id, in: profile) == nil else {
             lastError = String(localized: "browser.extensions.error.alreadyInstalled", defaultValue: "That extension is already installed.")
             return
         }
@@ -271,13 +329,13 @@ final class BrowserExtensions: NSObject, ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { busyID = nil }
-            let stage = root.appendingPathComponent(".staging-\(id)", isDirectory: true)
+            let stage = stagingFolder(for: id)
             do {
                 let crx = try await ChromeExtensionPackage.download(extensionID: id)
                 let zip = try ChromeExtensionPackage.verifiedZip(crx, extensionID: id)
                 try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
                 try await Self.detached { try ChromeExtensionPackage.unpack(zip, into: stage) }
-                try await admit(stage: stage, id: id, fromStore: true, sourcePath: nil)
+                try await admit(stage: stage, id: id, profile: profile, fromStore: true, sourcePath: nil)
             } catch {
                 try? fileManager.removeItem(at: stage)
                 lastError = Self.describe(error)
@@ -286,7 +344,11 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     /// Loads an unpacked extension folder chosen by the user.
-    func installUnpacked() {
+    func installUnpacked(profile: String) {
+        guard controllers[profile] != nil else {
+            lastError = String(localized: "browser.extensions.error.privateBrowsing", defaultValue: "Extensions are not available in private browsing.")
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -294,7 +356,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         panel.message = String(localized: "browser.extensions.loadUnpacked.message", defaultValue: "Choose the folder that contains the extension's manifest.json.")
         guard panel.runModal() == .OK, let source = panel.url, busyID == nil else { return }
         let id = "local-\(UUID().uuidString.lowercased())"
-        let stage = root.appendingPathComponent(".staging-\(id)", isDirectory: true)
+        let stage = stagingFolder(for: id)
         busyID = id
         lastError = nil
         Task { @MainActor [weak self] in
@@ -303,7 +365,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
             do {
                 try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
                 try await Self.detached { try ChromeExtensionPackage.copyUnpacked(from: source, into: stage) }
-                try await admit(stage: stage, id: id, fromStore: false, sourcePath: source.path)
+                try await admit(stage: stage, id: id, profile: profile, fromStore: false, sourcePath: source.path)
             } catch {
                 try? fileManager.removeItem(at: stage)
                 lastError = Self.describe(error)
@@ -313,7 +375,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     /// Reads a staged extension, asks the user, and on consent moves it into
     /// place and loads it. On refusal nothing is left behind.
-    private func admit(stage: URL, id: String, fromStore: Bool, sourcePath: String?) async throws {
+    private func admit(stage: URL, id: String, profile: String, fromStore: Bool, sourcePath: String?) async throws {
         let found = try await WKWebExtension(resourceBaseURL: stage)
         let name = found.displayName ?? id
         guard await ask(
@@ -328,37 +390,38 @@ final class BrowserExtensions: NSObject, ObservableObject {
             try? fileManager.removeItem(at: stage)
             return
         }
-        let destination = folder(for: id)
+        let destination = folder(for: id, profile: profile)
         try? fileManager.removeItem(at: destination)
+        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.moveItem(at: stage, to: destination)
-        installed.removeAll { $0.id == id }
+        installed.removeAll { $0.profileKey == profile && $0.extensionID == id }
         installed.append(BrowserExtensionInstallation(
-            id: id,
+            profileKey: profile,
+            extensionID: id,
             name: name,
             version: found.version ?? "?",
             enabled: true,
             fromStore: fromStore,
-            grantedPermissions: found.requestedPermissions.map(\.rawValue).sorted(),
-            grantedMatchPatterns: found.requestedPermissionMatchPatterns.map(\.string).sorted(),
+            grantedPermissions: Self.requestedPermissions(of: found),
+            grantedMatchPatterns: Self.requestedMatchPatterns(of: found),
             sourcePath: sourcePath
         ))
         save()
-        for controller in controllers.values { load(id: id, in: controller) }
+        if let controller = controllers[profile] { load(id: id, in: controller) }
     }
 
     // MARK: - Managing
 
-    func setEnabled(_ id: String, _ enabled: Bool) {
-        guard let index = installed.firstIndex(where: { $0.id == id }) else { return }
-        installed[index].enabled = enabled
+    func setEnabled(_ id: String, _ enabled: Bool, profile: String) {
+        guard installation(id, in: profile) != nil else { return }
+        updateInstallation(id, in: profile) { $0.enabled = enabled }
         save()
-        for controller in controllers.values {
-            if enabled { load(id: id, in: controller) } else { controller.unload(id: id) }
-        }
+        guard let controller = controllers[profile] else { return }
+        if enabled { load(id: id, in: controller) } else { controller.unload(id: id) }
     }
 
-    func remove(_ id: String) {
-        guard let item = installed.first(where: { $0.id == id }) else { return }
+    func remove(_ id: String, profile: String) {
+        guard let item = installation(id, in: profile) else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard await ask(
@@ -370,30 +433,35 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 icon: nil,
                 confirm: String(localized: "browser.extensions.remove.confirm", defaultValue: "Remove")
             ) else { return }
-            installed.removeAll { $0.id == id }
-            errors[id] = nil
+            installed.removeAll { $0.profileKey == profile && $0.extensionID == id }
+            errors[item.id] = nil
             save()
-            var layout = BrowserToolbarLayout.load()
-            layout.hide(.pinnedExtension(id))
-            layout.save()
-            for controller in controllers.values { controller.unload(id: id) }
-            try? fileManager.removeItem(at: folder(for: id))
+            if let controller = controllers[profile] {
+                controller.unload(id: id)
+                await controller.removeStoredData(forExtensionID: id)
+            }
+            try? fileManager.removeItem(at: folder(for: id, profile: profile))
+            if installed.allSatisfy({ $0.extensionID != id }) {
+                var layout = BrowserToolbarLayout.load()
+                layout.hide(.pinnedExtension(id))
+                layout.save()
+            }
         }
     }
 
     /// Copies an unpacked extension in again from its source folder, as
     /// Chrome's developer-mode Reload does. New access is asked for again.
-    func reload(_ id: String) {
-        guard let item = installed.first(where: { $0.id == id }), let sourcePath = item.sourcePath, busyID == nil else { return }
+    func reload(_ id: String, profile: String) {
+        guard let item = installation(id, in: profile), let sourcePath = item.sourcePath, busyID == nil else { return }
         let source = URL(fileURLWithPath: sourcePath, isDirectory: true)
-        let stage = root.appendingPathComponent(".staging-\(id)", isDirectory: true)
+        let stage = stagingFolder(for: id)
         busyID = id
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { busyID = nil }
             do {
                 try await Self.detached { try ChromeExtensionPackage.copyUnpacked(from: source, into: stage) }
-                try await replaceInstalled(item, with: stage)
+                try await replaceInstalled(item, with: stage, expectedVersion: nil)
             } catch {
                 try? fileManager.removeItem(at: stage)
                 lastError = Self.describe(error)
@@ -402,9 +470,19 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     /// Swaps a staged new version in for `item`. When the new version asks
-    /// for access beyond what was granted, the user is asked first.
-    private func replaceInstalled(_ item: BrowserExtensionInstallation, with stage: URL) async throws {
+    /// for access beyond what was granted, the user is asked first. For store
+    /// updates, the staged manifest must carry exactly the offered version and
+    /// be strictly newer than the installed one, so an old signed package
+    /// cannot roll an extension back.
+    private func replaceInstalled(_ item: BrowserExtensionInstallation, with stage: URL, expectedVersion: String?) async throws {
         let found = try await WKWebExtension(resourceBaseURL: stage)
+        if let expectedVersion {
+            guard found.version == expectedVersion,
+                  ChromeExtensionPackage.isVersion(expectedVersion, newerThan: item.version) else {
+                try? fileManager.removeItem(at: stage)
+                return
+            }
+        }
         if !Self.accessIsSubset(found, of: item) {
             guard await ask(
                 title: String(
@@ -419,27 +497,24 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 return
             }
         }
-        for controller in controllers.values { controller.unload(id: item.id) }
-        try? fileManager.removeItem(at: folder(for: item.id))
-        try fileManager.moveItem(at: stage, to: folder(for: item.id))
-        if let index = installed.firstIndex(where: { $0.id == item.id }) {
-            installed[index].name = found.displayName ?? item.name
-            installed[index].version = found.version ?? item.version
-            installed[index].grantedPermissions = found.requestedPermissions.map(\.rawValue).sorted()
-            installed[index].grantedMatchPatterns = found.requestedPermissionMatchPatterns.map(\.string).sorted()
+        let destination = folder(for: item.extensionID, profile: item.profileKey)
+        controllers[item.profileKey]?.unload(id: item.extensionID)
+        try? fileManager.removeItem(at: destination)
+        try fileManager.moveItem(at: stage, to: destination)
+        updateInstallation(item.extensionID, in: item.profileKey) { record in
+            record.name = found.displayName ?? item.name
+            record.version = found.version ?? item.version
+            record.grantedPermissions = Self.requestedPermissions(of: found)
+            record.grantedMatchPatterns = Self.requestedMatchPatterns(of: found)
         }
         errors[item.id] = nil
         save()
-        for controller in controllers.values { load(id: item.id, in: controller) }
+        if let controller = controllers[item.profileKey] { load(id: item.extensionID, in: controller) }
     }
 
-    func openOptions(_ id: String) {
-        for controller in controllers.values {
-            if let url = controller.contexts[id]?.optionsPageURL {
-                _ = controller.openTab(url: url, focus: true)
-                return
-            }
-        }
+    func openOptions(_ id: String, profile: String) {
+        guard let controller = controllers[profile], let url = controller.contexts[id]?.optionsPageURL else { return }
+        _ = controller.openTab(url: url, focus: true, extensionID: id)
     }
 
     /// Opens `cmux://extensions` in a new tab beside `panel`.
@@ -454,14 +529,17 @@ final class BrowserExtensions: NSObject, ObservableObject {
     // MARK: - Loading
 
     private func loadInstalled(in controller: Controller) {
-        for item in installed where item.enabled { load(id: item.id, in: controller) }
+        for item in installations(inProfile: controller.profileKey) where item.enabled {
+            load(id: item.extensionID, in: controller)
+        }
     }
 
     private func load(id: String, in controller: Controller) {
+        let profile = controller.profileKey
         guard controller.contexts[id] == nil, !controller.loading.contains(id),
-              let item = installed.first(where: { $0.id == id }), item.enabled else { return }
+              let item = installation(id, in: profile), item.enabled else { return }
         controller.loading.insert(id)
-        let folder = folder(for: id)
+        let folder = folder(for: id, profile: profile)
         Task { @MainActor [weak self, weak controller] in
             guard let self, let controller else { return }
             defer { controller.loading.remove(id) }
@@ -479,22 +557,26 @@ final class BrowserExtensions: NSObject, ObservableObject {
                     context.setPermissionStatus(.grantedExplicitly, for: permission)
                 }
                 let patterns = Set(item.grantedMatchPatterns)
-                for pattern in found.requestedPermissionMatchPatterns where patterns.contains(pattern.string) {
+                for pattern in found.allRequestedMatchPatterns where patterns.contains(pattern.string) {
                     context.setPermissionStatus(.grantedExplicitly, for: pattern)
                 }
-                guard installed.first(where: { $0.id == id })?.enabled == true, controller.contexts[id] == nil else { return }
+                // Like Chrome, no extension may read or script the Web Store,
+                // whatever hosts it was granted.
+                for raw in Self.protectedMatchPatterns {
+                    if let pattern = try? WKWebExtension.MatchPattern(string: raw) {
+                        context.setPermissionStatus(.deniedExplicitly, for: pattern)
+                    }
+                }
+                guard self.installation(id, in: profile)?.enabled == true, controller.contexts[id] == nil else { return }
                 try controller.controller.load(context)
                 controller.contexts[id] = context
                 observeErrors(of: context, in: controller)
                 actionRevision &+= 1
             } catch {
-                noteError(Self.describe(error), for: id)
+                noteError(Self.describe(error), for: item.id)
             }
         }
     }
-
-    private var errorObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
-    private var lastRevival: [String: Date] = [:]
 
     /// Surfaces WebKit's own context errors on `cmux://extensions`, and
     /// restarts an extension whose background worker failed to start. WebKit
@@ -512,8 +594,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 guard let self, let context, let controller else { return }
                 let id = context.uniqueIdentifier
                 guard controller.contexts[id] === context else { return }
-                let messages = context.errors.map { $0.localizedDescription }
-                self.errors[id] = Array(messages.suffix(20))
+                let recordID = controller.profileKey + "/" + id
+                self.errors[recordID] = Array(context.errors.map(\.localizedDescription).suffix(20))
                 self.objectWillChange.send()
                 let workerFailed = context.errors.contains { error in
                     let nsError = error as NSError
@@ -521,8 +603,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
                         && nsError.code == WKWebExtensionContext.Error.backgroundContentFailedToLoad.rawValue
                 }
                 guard workerFailed,
-                      Date().timeIntervalSince(self.lastRevival[id] ?? .distantPast) > 60 else { return }
-                self.lastRevival[id] = Date()
+                      Date().timeIntervalSince(self.lastRevival[recordID] ?? .distantPast) > 60 else { return }
+                self.lastRevival[recordID] = Date()
                 controller.unload(id: id)
                 self.load(id: id, in: controller)
             }
@@ -535,8 +617,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
         }
     }
 
-    private func noteError(_ text: String, for id: String) {
-        errors[id] = Array((errors[id, default: []] + [text]).suffix(20))
+    private func noteError(_ text: String, for recordID: String) {
+        errors[recordID] = Array((errors[recordID, default: []] + [text]).suffix(20))
         objectWillChange.send()
     }
 
@@ -555,19 +637,19 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     private func update(_ item: BrowserExtensionInstallation) async {
-        guard let url = ChromeExtensionPackage.updateCheckURL(forExtensionID: item.id, version: item.version),
-              let (data, _) = try? await URLSession.shared.data(from: url),
+        guard let url = ChromeExtensionPackage.updateCheckURL(forExtensionID: item.extensionID, version: item.version),
+              let data = try? await ChromeExtensionPackage.boundedData(from: url, limit: 256 * 1024),
               let xml = String(data: data, encoding: .utf8),
               let offered = ChromeExtensionPackage.offeredVersion(inUpdateCheckResponse: xml),
-              offered != item.version else { return }
-        let stage = root.appendingPathComponent(".staging-\(item.id)", isDirectory: true)
+              ChromeExtensionPackage.isVersion(offered, newerThan: item.version) else { return }
+        let stage = stagingFolder(for: item.extensionID)
         do {
             let zip = try ChromeExtensionPackage.verifiedZip(
-                try await ChromeExtensionPackage.download(extensionID: item.id),
-                extensionID: item.id
+                try await ChromeExtensionPackage.download(extensionID: item.extensionID),
+                extensionID: item.extensionID
             )
             try await Self.detached { try ChromeExtensionPackage.unpack(zip, into: stage) }
-            try await replaceInstalled(item, with: stage)
+            try await replaceInstalled(item, with: stage, expectedVersion: offered)
         } catch {
             try? fileManager.removeItem(at: stage)
             noteError(Self.describe(error), for: item.id)
@@ -588,7 +670,10 @@ final class BrowserExtensions: NSObject, ObservableObject {
             if let icon { alert.icon = icon }
             alert.addButton(withTitle: confirm)
             alert.addButton(withTitle: String(localized: "browser.extensions.cancel", defaultValue: "Cancel"))
-            guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+            let focusedWindow = lastFocusedPanelID
+                .flatMap { id in AppDelegate.shared?.allBrowserPanelsForInspectorWindowClose().first { $0.id == id } }?
+                .webView.window
+            guard let window = NSApp.keyWindow ?? focusedWindow ?? NSApp.mainWindow else {
                 return alert.runModal() == .alertFirstButtonReturn
             }
             return await withCheckedContinuation { continuation in
@@ -611,10 +696,21 @@ final class BrowserExtensions: NSObject, ObservableObject {
         )
     }
 
+    /// Every permission the manifest asks for.
+    static func requestedPermissions(of found: WKWebExtension) -> [String] {
+        found.requestedPermissions.map(\.rawValue).sorted()
+    }
+
+    /// Every host the extension can reach, including content-script matches,
+    /// so consent and update checks see content-script-only hosts too.
+    static func requestedMatchPatterns(of found: WKWebExtension) -> [String] {
+        Set(found.allRequestedMatchPatterns.map(\.string)).sorted()
+    }
+
     /// A readable summary of the access an extension asks for.
     static func describeAccess(_ found: WKWebExtension) -> String {
         var lines: [String] = []
-        let patterns = found.requestedPermissionMatchPatterns
+        let patterns = found.allRequestedMatchPatterns
         if patterns.contains(where: { $0.matchesAllHosts || $0.matchesAllURLs }) {
             lines.append(String(localized: "browser.extensions.access.allSites", defaultValue: "Read and change all your data on all websites"))
         } else if !patterns.isEmpty {
@@ -624,7 +720,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 hosts.joined(separator: ", ")
             ))
         }
-        let permissions = found.requestedPermissions.map(\.rawValue).sorted()
+        let permissions = requestedPermissions(of: found)
         if !permissions.isEmpty {
             lines.append(String(
                 format: String(localized: "browser.extensions.access.permissions", defaultValue: "Permissions: %@"),
@@ -638,8 +734,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     private static func accessIsSubset(_ found: WKWebExtension, of item: BrowserExtensionInstallation) -> Bool {
-        Set(found.requestedPermissions.map(\.rawValue)).isSubset(of: Set(item.grantedPermissions))
-            && Set(found.requestedPermissionMatchPatterns.map(\.string)).isSubset(of: Set(item.grantedMatchPatterns))
+        Set(requestedPermissions(of: found)).isSubset(of: Set(item.grantedPermissions))
+            && Set(requestedMatchPatterns(of: found)).isSubset(of: Set(item.grantedMatchPatterns))
     }
 
     static func describe(_ error: Error) -> String {
@@ -654,7 +750,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
             )
         case .empty:
             return String(localized: "browser.extensions.error.empty", defaultValue: "The Chrome Web Store has no download for that extension.")
-        case .notCRX3, .unpack:
+        case .notCRX3, .unpack, .tooLarge:
             return String(localized: "browser.extensions.error.invalidPackage", defaultValue: "The extension package is invalid or unsafe.")
         case .signatureInvalid, .publisherSignatureMissing:
             return String(localized: "browser.extensions.error.signature", defaultValue: "The extension's signature could not be verified.")
@@ -663,56 +759,54 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     // MARK: - Pages
 
-    /// State for `cmux://extensions`.
-    func managerSnapshot() -> ChromeExtensionsManagerPage.Snapshot {
-        let running = Set(controllers.values.flatMap { $0.contexts.keys })
-        let rows = installed.map { item in
-            ChromeExtensionsManagerPage.Row(
-                id: item.id,
+    /// State for `cmux://extensions` in `profile`.
+    func managerSnapshot(profile: String) -> ChromeExtensionsManagerPage.Snapshot {
+        let controller = controllers[profile]
+        let rows = installations(inProfile: profile).map { item in
+            let context = controller?.contexts[item.extensionID]
+            return ChromeExtensionsManagerPage.Row(
+                id: item.extensionID,
                 name: item.name,
                 version: item.version,
                 enabled: item.enabled,
-                running: running.contains(item.id),
+                running: context != nil,
                 fromStore: item.fromStore,
-                hasOptions: controllers.values.contains { $0.contexts[item.id]?.optionsPageURL != nil },
+                hasOptions: context?.optionsPageURL != nil,
                 permissions: item.grantedMatchPatterns + item.grantedPermissions,
                 errors: errors[item.id] ?? []
             )
         }
-        return .init(supported: true, busy: busyID, lastError: lastError, extensions: rows)
+        return .init(supported: controller != nil, busy: busyID, lastError: lastError, extensions: rows)
     }
 
     func handleManagerRequest(_ request: ChromeExtensionsManagerPage.Request, from webView: WKWebView) {
         managerPages.add(webView)
+        let profile = Self.profileKey(for: webView.configuration.websiteDataStore)
         switch request {
         case .snapshot:
             break
         case .install(let text):
-            installStoreExtension(from: text)
+            installStoreExtension(from: text, profile: profile)
         case .loadUnpacked:
-            installUnpacked()
+            installUnpacked(profile: profile)
         case .setEnabled(let id, let enabled):
-            setEnabled(id, enabled)
+            setEnabled(id, enabled, profile: profile)
         case .remove(let id):
-            remove(id)
+            remove(id, profile: profile)
         case .reload(let id):
-            reload(id)
+            reload(id, profile: profile)
         case .openOptions(let id):
-            openOptions(id)
+            openOptions(id, profile: profile)
         case .openStore:
             if let panel = BrowserExtensionPageBridge.panel(for: webView) { openStore(from: panel) }
         }
     }
 
-    func iconPNG(for id: String) -> Data? {
-        for controller in controllers.values {
-            if let image = controller.contexts[id]?.webExtension.icon(for: CGSize(width: 64, height: 64)),
-               let tiff = image.tiffRepresentation,
-               let rep = NSBitmapImageRep(data: tiff) {
-                return rep.representation(using: .png, properties: [:])
-            }
-        }
-        return nil
+    func iconPNG(for id: String, profile: String) -> Data? {
+        guard let image = controllers[profile]?.contexts[id]?.webExtension.icon(for: CGSize(width: 64, height: 64)),
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .png, properties: [:])
     }
 
     func didPlaceStoreButton(in webView: WKWebView) {
@@ -730,15 +824,17 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     private func pushState(to webView: WKWebView, isStorePage: Bool) {
+        let profile = Self.profileKey(for: webView.configuration.websiteDataStore)
         if isStorePage {
-            let state = ChromeWebStorePage.State(installed: installed.map(\.id), busy: busyID)
+            let state = ChromeWebStorePage.State(installed: installations(inProfile: profile).map(\.extensionID), busy: busyID)
             webView.evaluateJavaScript(
                 ChromeWebStorePage.stateUpdateScript(state),
                 in: nil,
                 in: BrowserExtensionPageBridge.storeWorld,
                 completionHandler: nil
             )
-        } else if let data = try? JSONEncoder().encode(managerSnapshot()), let json = String(data: data, encoding: .utf8) {
+        } else if let data = try? JSONEncoder().encode(managerSnapshot(profile: profile)),
+                  let json = String(data: data, encoding: .utf8) {
             webView.evaluateJavaScript(
                 "window.__cmuxExtensionsPageRender && window.__cmuxExtensionsPageRender(\(json));",
                 in: nil,
@@ -755,14 +851,22 @@ final class BrowserExtensions: NSObject, ObservableObject {
         try? JSONEncoder().encode(installed).write(to: metadataURL, options: [.atomic])
     }
 
-    private func folder(for id: String) -> URL { root.appendingPathComponent(id, isDirectory: true) }
+    /// The default profile keeps the original flat layout; other profiles
+    /// each get their own folder, so the same extension can be installed in
+    /// several profiles independently.
+    private func folder(for id: String, profile: String) -> URL {
+        let base = profile == Self.defaultProfileKey
+            ? root
+            : root.appendingPathComponent("profiles", isDirectory: true).appendingPathComponent(profile, isDirectory: true)
+        return base.appendingPathComponent(id, isDirectory: true)
+    }
 
-    private func storeKey(for store: WKWebsiteDataStore) -> String {
-        store.identifier?.uuidString ?? "default"
+    private func stagingFolder(for id: String) -> URL {
+        root.appendingPathComponent(".staging-\(id)-\(UUID().uuidString.prefix(8))", isDirectory: true)
     }
 
     private func controller(for store: WKWebsiteDataStore) -> Controller {
-        let key = storeKey(for: store)
+        let key = Self.profileKey(for: store)
         if let existing = controllers[key] { return existing }
         let configuration = store.identifier.map { WKWebExtensionController.Configuration(identifier: $0) } ?? .default()
         configuration.defaultWebsiteDataStore = store
@@ -774,7 +878,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         // them again, which leaves popups such as Bitwarden's waiting forever.
         webViewConfiguration.applicationNameForUserAgent = BrowserUserAgentPolicy.system.safariApplicationName
         configuration.webViewConfiguration = webViewConfiguration
-        let controller = Controller(owner: self, configuration: configuration)
+        let controller = Controller(owner: self, profileKey: key, configuration: configuration)
         controllers[key] = controller
         if controllers.count == 1 {
             checkForUpdatesIfDue()
@@ -793,6 +897,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
 @MainActor
 private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     unowned let owner: BrowserExtensions
+    let profileKey: String
     let controller: WKWebExtensionController
     let window: BrowserExtensionWindow
     var contexts: [String: WKWebExtensionContext] = [:]
@@ -801,8 +906,9 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     private var order: [UUID] = []
     private var observations: [UUID: [AnyCancellable]] = [:]
 
-    init(owner: BrowserExtensions, configuration: WKWebExtensionController.Configuration) {
+    init(owner: BrowserExtensions, profileKey: String, configuration: WKWebExtensionController.Configuration) {
         self.owner = owner
+        self.profileKey = profileKey
         controller = WKWebExtensionController(configuration: configuration)
         window = BrowserExtensionWindow()
         super.init()
@@ -859,9 +965,13 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
         owner.objectWillChange.send()
     }
 
-    /// Opens a browser tab beside the active one and returns its adapter.
-    func openTab(url: URL, focus: Bool) -> BrowserExtensionTab? {
-        guard let anchor = activeTab?.panel ?? orderedTabs.last?.panel,
+    /// Opens a browser tab beside the active one, in this controller's
+    /// profile and data store, and returns its adapter. Refuses URLs an
+    /// extension may not open (``ChromeExtensionNavigationPolicy``).
+    func openTab(url: URL, focus: Bool, extensionID: String) -> BrowserExtensionTab? {
+        guard ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: extensionID),
+              let anchor = activeTab?.panel ?? orderedTabs.last?.panel,
+              BrowserExtensions.profileKey(for: anchor.websiteDataStore) == profileKey,
               let app = AppDelegate.shared,
               let workspace = app.workspaceContainingPanel(panelId: anchor.id, preferredWorkspaceId: anchor.workspaceId)?.workspace,
               let pane = workspace.paneId(forPanelId: anchor.id),
@@ -869,10 +979,36 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
                   inPane: pane,
                   url: url,
                   focus: focus,
-                  preferredProfileID: anchor.profileID
+                  preferredProfileID: anchor.profileID,
+                  websiteDataStore: anchor.websiteDataStore
               ) else { return nil }
-        register(panel)
+        // The panel registers itself with its own store's controller when it
+        // binds its web view; hand back an adapter only if that is this one.
+        guard BrowserExtensions.profileKey(for: panel.websiteDataStore) == profileKey else { return nil }
         return adapters[panel.id]
+    }
+
+    /// Deletes an extension's storage (`storage.local`, `.session`, `.sync`)
+    /// and the website data of its `chrome-extension://<id>` origin, so a
+    /// reinstall starts clean.
+    func removeStoredData(forExtensionID id: String) async {
+        let types: Set<WKWebExtension.DataType> = [.local, .session, .synchronized]
+        let records: [WKWebExtension.DataRecord] = await withCheckedContinuation { continuation in
+            controller.fetchDataRecords(ofTypes: types) { continuation.resume(returning: $0) }
+        }
+        let owned = records.filter { $0.uniqueIdentifier == id }
+        if !owned.isEmpty {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                controller.removeData(ofTypes: types, from: owned) { continuation.resume() }
+            }
+        }
+        guard let store = controller.configuration.defaultWebsiteDataStore else { return }
+        let allTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        let websiteRecords = await store.dataRecords(ofTypes: allTypes)
+        let originRecords = websiteRecords.filter { $0.displayName.lowercased() == id.lowercased() }
+        if !originRecords.isEmpty {
+            await store.removeData(ofTypes: allTypes, for: originRecords)
+        }
     }
 
     // MARK: WKWebExtensionControllerDelegate
@@ -886,21 +1022,25 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, openNewTabUsing configuration: WKWebExtension.TabConfiguration, for extensionContext: WKWebExtensionContext) async throws -> (any WKWebExtensionTab)? {
-        openTab(url: configuration.url ?? URL(string: "about:blank")!, focus: configuration.shouldBeActive)
+        openTab(
+            url: configuration.url ?? URL(string: "about:blank")!,
+            focus: configuration.shouldBeActive,
+            extensionID: extensionContext.uniqueIdentifier
+        )
     }
 
     /// cmux has no separate extension windows: a new window's URLs open as
     /// tabs beside the active one.
     func webExtensionController(_ controller: WKWebExtensionController, openNewWindowUsing configuration: WKWebExtension.WindowConfiguration, for extensionContext: WKWebExtensionContext) async throws -> (any WKWebExtensionWindow)? {
         for (index, url) in configuration.tabURLs.enumerated() {
-            _ = openTab(url: url, focus: index == 0 && configuration.shouldBeFocused)
+            _ = openTab(url: url, focus: index == 0 && configuration.shouldBeFocused, extensionID: extensionContext.uniqueIdentifier)
         }
         return window
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, openOptionsPageFor extensionContext: WKWebExtensionContext) async throws {
         guard let url = extensionContext.optionsPageURL else { return }
-        _ = openTab(url: url, focus: true)
+        _ = openTab(url: url, focus: true, extensionID: extensionContext.uniqueIdentifier)
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissions permissions: Set<WKWebExtension.Permission>, in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext) async -> (Set<WKWebExtension.Permission>, Date?) {
@@ -1001,8 +1141,18 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         panel?.webView.pageZoom = CGFloat(zoomFactor)
     }
 
+    /// `tabs.update({url})`. Only web URLs and the extension's own pages are
+    /// allowed, and the load takes the ordinary (untrusted) navigation path,
+    /// never the one cmux uses for its own internal pages.
     func loadURL(_ url: URL, for context: WKWebExtensionContext) async throws {
-        panel?.navigate(to: url)
+        guard ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier) else {
+            throw URLError(.unsupportedURL)
+        }
+        panel?.navigateWithoutInsecureHTTPPrompt(
+            request: URLRequest(url: url),
+            recordTypedNavigation: false,
+            trustedInternalNavigation: false
+        )
     }
 
     func reload(fromOrigin: Bool, for context: WKWebExtensionContext) async throws { _ = panel?.reload() }
@@ -1097,8 +1247,11 @@ final class BrowserExtensionPageBridge: NSObject, WKScriptMessageHandler, WKScri
         let extensions = BrowserExtensions.shared
         extensions.didPlaceStoreButton(in: webView)
         // The id is read from the tab's own address, never from the page.
-        if body["add"] != nil, let id = ChromeWebStorePage.extensionID(onStorePage: url) {
-            extensions.installStoreExtension(from: id)
+        if body["add"] as? Bool == true, let id = ChromeWebStorePage.extensionID(onStorePage: url) {
+            extensions.installStoreExtension(
+                from: id,
+                profile: BrowserExtensions.profileKey(for: webView.configuration.websiteDataStore)
+            )
         }
     }
 
@@ -1120,7 +1273,8 @@ final class BrowserExtensionPageBridge: NSObject, WKScriptMessageHandler, WKScri
         }
         let extensions = BrowserExtensions.shared
         extensions.handleManagerRequest(request, from: webView)
-        guard let data = try? JSONEncoder().encode(extensions.managerSnapshot()),
+        let profile = BrowserExtensions.profileKey(for: webView.configuration.websiteDataStore)
+        guard let data = try? JSONEncoder().encode(extensions.managerSnapshot(profile: profile)),
               let object = try? JSONSerialization.jsonObject(with: data) else {
             replyHandler(nil, "encoding")
             return
@@ -1130,14 +1284,19 @@ final class BrowserExtensionPageBridge: NSObject, WKScriptMessageHandler, WKScri
 
     // cmux://extensions and its icons.
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
-        guard let url = urlSchemeTask.request.url, ChromeExtensionsManagerPage.isManagerPageURL(url) else {
-            urlSchemeTask.didFailWithError(URLError(.unsupportedURL))
+        // Only the extensions page itself may load its document and icons.
+        // A website embedding `cmux://extensions/icon/<id>` would otherwise
+        // learn which extensions are installed.
+        guard let url = urlSchemeTask.request.url, ChromeExtensionsManagerPage.isManagerPageURL(url),
+              urlSchemeTask.request.mainDocumentURL.map(ChromeExtensionsManagerPage.isManagerPageURL) ?? false else {
+            urlSchemeTask.didFailWithError(URLError(.noPermissionsToReadFile))
             return
         }
         let body: Data
         let contentType: String
         if let id = ChromeExtensionsManagerPage.iconExtensionID(for: url) {
-            guard let png = BrowserExtensions.shared.iconPNG(for: id) else {
+            let profile = BrowserExtensions.profileKey(for: webView.configuration.websiteDataStore)
+            guard let png = BrowserExtensions.shared.iconPNG(for: id, profile: profile) else {
                 urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
                 return
             }

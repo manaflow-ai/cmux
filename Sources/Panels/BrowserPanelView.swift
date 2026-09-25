@@ -1536,7 +1536,7 @@ struct BrowserPanelView: View {
     /// Installed extensions that can be pinned, for Customize Toolbar.
     private var browserToolbarExtensionNames: [(id: String, name: String)] {
         guard #available(macOS 15.4, *) else { return [] }
-        return BrowserExtensions.shared.installed.filter(\.enabled).map { ($0.id, $0.name) }
+        return BrowserExtensions.shared.installations(for: panel).filter(\.enabled).map { ($0.extensionID, $0.name) }
     }
 
     private var browserProfileButton: some View {
