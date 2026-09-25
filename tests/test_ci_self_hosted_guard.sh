@@ -181,6 +181,12 @@ allowed = {
     ("build", "seed", "Adopt the DerivedData seed", ""),
     ("build", None, "Forget the adopted-build inode override", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # The git object seed: a miss leaves checkout to fetch everything, and a
+    # checkout the seed breaks is retried without it by the next steps.
+    ("build", None, "Restore git object seed", ""),
+    ("build", "checkout", "Checkout", "actions/checkout"),
+    ("test", None, "Restore git object seed", ""),
+    ("test", "checkout", "Checkout", "actions/checkout"),
     # The owned-pool rescue marker: without it the run is only not watched.
     ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
