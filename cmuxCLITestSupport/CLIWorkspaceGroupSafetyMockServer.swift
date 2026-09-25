@@ -93,6 +93,17 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
         }
         let result: [String: Any]
         switch method {
+        case "workspace.create":
+            result = [
+                "window_id": "22222222-2222-2222-2222-222222222222",
+                "window_ref": "window:1",
+                "workspace_id": "33333333-3333-3333-3333-333333333333",
+                "workspace_ref": "workspace:7",
+                "group_id": NSNull(),
+                "group_ref": NSNull(),
+                "surface_id": "44444444-4444-4444-4444-444444444444",
+                "surface_ref": "surface:9",
+            ]
         case "workspace.group.create":
             result = [
                 "group": [

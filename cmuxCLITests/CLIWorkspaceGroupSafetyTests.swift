@@ -59,7 +59,36 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect(params["remove_generated_anchor"] as? Bool == true)
     }
 
+    @Test func workspaceCreateJSONIncludesUUIDAndSurfaceIdentifiers() async throws {
+        let result = try await runCapturing(["workspace", "create", "--json"])
+        let payload = try jsonObject(result.output)
+
+        #expect(payload["workspace_id"] as? String == "33333333-3333-3333-3333-333333333333")
+        #expect(payload["workspace_ref"] as? String == "workspace:7")
+        #expect(payload["surface_id"] as? String == "44444444-4444-4444-4444-444444444444")
+        #expect(payload["surface_ref"] as? String == "surface:9")
+    }
+
+    @Test func legacyNewWorkspaceJSONIncludesUUIDAndSurfaceIdentifiers() async throws {
+        let result = try await runCapturing(["new-workspace", "--json"])
+        let payload = try jsonObject(result.output)
+
+        #expect(payload["workspace_id"] as? String == "33333333-3333-3333-3333-333333333333")
+        #expect(payload["workspace_ref"] as? String == "workspace:7")
+        #expect(payload["surface_id"] as? String == "44444444-4444-4444-4444-444444444444")
+        #expect(payload["surface_ref"] as? String == "surface:9")
+    }
+
     private func run(_ arguments: [String]) async throws -> [String: Any] {
+        try await runCapturing(arguments).request
+    }
+
+    private struct ProcessRunResult {
+        let request: [String: Any]
+        let output: String
+    }
+
+    private func runCapturing(_ arguments: [String]) async throws -> ProcessRunResult {
         let socketPath = Self.socketPath()
         let server = try CLIWorkspaceGroupSafetyMockServer(socketPath: socketPath)
         let requestTask = server.start()
@@ -70,6 +99,7 @@ struct CLIWorkspaceGroupSafetyTests {
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_QUIET"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "2"
 
         let process = Process()
@@ -101,8 +131,15 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect(status == 0, Comment(rawValue: output))
 
         let requestLine = try #require(await requestTask.value)
-        return try #require(
+        let request = try #require(
             JSONSerialization.jsonObject(with: Data(requestLine.utf8)) as? [String: Any]
+        )
+        return ProcessRunResult(request: request, output: output)
+    }
+
+    private func jsonObject(_ output: String) throws -> [String: Any] {
+        try #require(
+            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
         )
     }
 
