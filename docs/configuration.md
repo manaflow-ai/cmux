@@ -11,8 +11,9 @@ terminal's original process group. `automation` allows external local clients
 running as the same macOS user, including `cmux` commands from Terminal.
 `password` requires socket authentication. The CLI reads the saved socket
 password, or you can supply `--password` or `CMUX_SOCKET_PASSWORD`. Use
-`password` or `cmuxOnly` when untrusted code may run inside a cmux terminal. `allowAll` also grants access to other local macOS
-users and is unsafe on a shared Mac.
+`password` when untrusted code may run inside a cmux terminal: `cmuxOnly`
+trusts every program launched from a cmux terminal. `allowAll` also grants
+access to other local macOS users and is unsafe on a shared Mac.
 
 For an SSH workspace from an external terminal without changing socket access,
 run `open -a cmux ssh://host` (or `open -a cmux ssh://user@host`). cmux asks
