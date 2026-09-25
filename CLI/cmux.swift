@@ -6970,7 +6970,8 @@ struct CMUXCLI {
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            guard let paneRaw = optionValue(commandArgs, name: "--pane") ?? commandArgs.first else {
+            guard let paneRaw = optionValue(commandArgs, name: "--pane")
+                ?? firstPositionalArgument(commandArgs, valueOptions: Self.focusPaneValueOptions) else {
                 throw CLIError(message: "focus-pane requires --pane <id|ref>")
             }
             var params: [String: Any] = [:]
@@ -9741,6 +9742,12 @@ struct CMUXCLI {
         }
         .joined(separator: "\n")
     }
+
+    /// The `focus-pane` options that consume the following argument, so a
+    /// positional pane selector is not confused with one of their values.
+    private static let focusPaneValueOptions: Set<String> = [
+        "--pane", "--workspace", "--window",
+    ]
 
     /// The `reorder-workspace` options that consume the following argument, so a
     /// positional workspace selector is not confused with one of their values.
