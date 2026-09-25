@@ -34,6 +34,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 @MainActor
 final class EmptyStateController: UITableViewController {
     private let emptyCell = UITableViewCell()
+    private let sizingCell = UITableViewCell()
+    private var measuredSize: CGSize?
     private let countLabel = UILabel()
     private var refreshCount = 0
 
@@ -45,9 +47,14 @@ final class EmptyStateController: UITableViewController {
         countLabel.accessibilityIdentifier = "ProofRefreshCount"
         countLabel.text = "0"
         navigationItem.rightBarButtonItem = UIBarButtonItem(customView: countLabel)
-        emptyCell.selectionStyle = .none
-        emptyCell.backgroundColor = .clear
-        emptyCell.contentConfiguration = UIHostingConfiguration {
+        configure(emptyCell)
+        configure(sizingCell)
+    }
+
+    private func configure(_ cell: UITableViewCell) {
+        cell.selectionStyle = .none
+        cell.backgroundColor = .clear
+        cell.contentConfiguration = UIHostingConfiguration {
             MobileWorkspaceListEmptyRow(
                 retry: { [weak self] in await self?.didRetry() },
                 cancelRetry: nil,
@@ -86,16 +93,19 @@ final class EmptyStateController: UITableViewController {
         // Match WorkspaceListTableCoordinator.measure, including its effectively
         // unlimited height proposal and low vertical fitting priority.
         let width = max(tableView.bounds.width, 1)
-        emptyCell.bounds = CGRect(x: 0, y: 0, width: width, height: 1)
-        emptyCell.contentView.bounds = emptyCell.bounds
-        emptyCell.setNeedsLayout()
-        emptyCell.layoutIfNeeded()
-        let fitted = emptyCell.contentView.systemLayoutSizeFitting(
+        if let measuredSize, measuredSize.width == width { return measuredSize.height }
+        sizingCell.bounds = CGRect(x: 0, y: 0, width: width, height: 1)
+        sizingCell.contentView.bounds = sizingCell.bounds
+        sizingCell.setNeedsLayout()
+        sizingCell.layoutIfNeeded()
+        let fitted = sizingCell.contentView.systemLayoutSizeFitting(
             CGSize(width: width, height: CGFloat.greatestFiniteMagnitude),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         ).height
         let scale = max(tableView.traitCollection.displayScale, 1)
-        return max(1, ceil(fitted * scale) / scale)
+        let height = max(1, ceil(fitted * scale) / scale)
+        measuredSize = CGSize(width: width, height: height)
+        return height
     }
 }

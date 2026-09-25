@@ -70,16 +70,20 @@ jobs:
         run: |
           set -euo pipefail
           xcrun simctl boot "$PROOF_SIMULATOR"
-          xcrun simctl bootstatus "$PROOF_SIMULATOR" -b
+          scripts/blacksmith-bounded-command.sh 180 xcrun simctl bootstatus "$PROOF_SIMULATOR" -b
           xcrun simctl ui "$PROOF_SIMULATOR" appearance dark
           xcrun simctl io "$PROOF_SIMULATOR" recordVideo --codec=h264 --force evidence/recording.mp4 > evidence/recording.log 2>&1 &
           recorder=$!
           trap 'kill -INT "$recorder" 2>/dev/null || true; wait "$recorder" || true' EXIT
           set +e
-          xcodebuild -project ios/verification/empty-state/EmptyStateProof.xcodeproj \
+          scripts/blacksmith-bounded-command.sh 300 xcodebuild \
+            -project ios/verification/empty-state/EmptyStateProof.xcodeproj \
             -scheme EmptyStateProof -destination "platform=iOS Simulator,id=$PROOF_SIMULATOR" \
             -derivedDataPath "$RUNNER_TEMP/empty-state-proof" -resultBundlePath evidence/result.xcresult \
             -only-testing:EmptyStateProofUITests/EmptyStateProofUITests/testEmptyStateButtons \
+            -parallel-testing-enabled NO -collect-test-diagnostics never \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 120 \
             test-without-building CODE_SIGNING_ALLOWED=NO 2>&1 | tee evidence/test.log
           result=${PIPESTATUS[0]}
           set -e

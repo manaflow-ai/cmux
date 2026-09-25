@@ -23,7 +23,9 @@ final class EmptyStateProofUITests: XCTestCase {
         XCTAssertTrue(retry.waitForExistence(timeout: 10))
         XCTAssertTrue(docs.exists)
         capture("01-empty-state", app: app)
-        let frames = XCTAttachment(string: "Retry: \(retry.frame)\nSee Docs: \(docs.frame)\nScreen: \(app.frame)\n")
+        let measurements = "Retry: \(retry.frame)\nSee Docs: \(docs.frame)\nScreen: \(app.frame)\n"
+        print("EMPTY_STATE_BUTTON_FRAMES\n\(measurements)")
+        let frames = XCTAttachment(string: measurements)
         frames.name = "button-frames"
         frames.lifetime = .keepAlways
         add(frames)
