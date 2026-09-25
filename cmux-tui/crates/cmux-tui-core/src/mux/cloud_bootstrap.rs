@@ -2,6 +2,7 @@
 //! the shell only at the first interactive machine-open request.
 
 use super::*;
+use serde_json::json;
 
 #[cfg(unix)]
 mod renderer;

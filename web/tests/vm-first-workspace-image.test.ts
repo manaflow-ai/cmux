@@ -25,16 +25,16 @@ case "$*" in
 esac
 `, { mode: 0o755 });
       const command = devboxPrepareTemplateTerminalCommand()
+        .replaceAll("/tmp/cmux-", `${root}/cmux-`)
         .replaceAll("/etc/cmux", config)
         .replaceAll("/run/cmux", join(root, "run"))
-        .replaceAll("/root", home)
-        .replaceAll("/tmp/cmux-", `${root}/cmux-`);
+        .replaceAll("/root", home);
       const result = spawnSync("sh", ["-c", command], {
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
         encoding: "utf8", timeout: 5_000,
       });
       if (capable) {
-        expect(result.status).toBe(0);
+        expect(result.status, result.stderr).toBe(0);
         expect(result.stdout).toContain("first-workspace-reserved");
         expect(readFileSync(join(root, "calls"), "utf8")).toBe("closed\n");
       } else {

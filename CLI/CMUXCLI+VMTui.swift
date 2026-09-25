@@ -357,6 +357,7 @@ extension CMUXCLI {
             return values.isEmpty ? nil : values
         }()
 
+        if options.fullClient { try prepareVMTuiFirstWorkspace(vmId: vmId, client: client) }
         let initialCommand: String
         if options.fullClient, let clientPath {
             let stateDir = Self.vmTuiClientStateDir()
@@ -434,8 +435,7 @@ extension CMUXCLI {
             didCreateWorkspace = true
         }
         do {
-            // The binding is how the app finds this machine's workspace again (Machines
-            // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
+            // The binding lets later machine opens find this local workspace again.
             _ = try client.sendV2(
                 method: "workspace.cloud_vm_bind",
                 params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)

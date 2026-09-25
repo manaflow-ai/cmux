@@ -20,7 +20,7 @@ extension TerminalController {
         }
         let token = await catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
         do {
-        let request = await CloudTerminalCreationRequest(remoteWorkspaceID: remoteWorkspaceID, opensMachine: opensMachine && destination != nil, suppressWelcome: suppressWelcome)
+        let request = await CloudTerminalCreationRequest(remoteWorkspaceID: remoteWorkspaceID, opensMachine: opensMachine, suppressWelcome: suppressWelcome)
         let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID, request: request)
         let remoteView = try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID).remoteView(of: resource)
         var payload: [String: Any] = [
