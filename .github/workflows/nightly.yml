@@ -251,23 +251,29 @@ jobs:
             }
 
             let publishedSha = null;
-            try {
-              const release = await github.rest.repos.getReleaseByTag({
-                owner,
-                repo,
-                tag: channelIdentity.releaseTag,
-              });
-              const marker = await exec.getExecOutput(
-                'python3',
-                ['scripts/ci/nightly-publication-marker.py'],
-                { input: Buffer.from(release.data.body || '') },
-              );
-              publishedSha = marker.stdout.trim() || null;
-            } catch (error) {
-              if (error.status === 404) {
-                // The first publication creates the release.
-              } else {
-                core.warning(`Could not read the published ${channelIdentity.releaseTag} release marker; building: ${error.message}`);
+            const canReadReleaseMarker =
+              typeof github.rest.repos?.getReleaseByTag === 'function' &&
+              typeof exec !== 'undefined' &&
+              typeof exec.getExecOutput === 'function';
+            if (canReadReleaseMarker) {
+              try {
+                const release = await github.rest.repos.getReleaseByTag({
+                  owner,
+                  repo,
+                  tag: channelIdentity.releaseTag,
+                });
+                const marker = await exec.getExecOutput(
+                  'python3',
+                  ['scripts/ci/nightly-publication-marker.py'],
+                  { input: Buffer.from(release.data.body || '') },
+                );
+                publishedSha = marker.stdout.trim() || null;
+              } catch (error) {
+                if (error.status === 404) {
+                  // The first publication creates the release.
+                } else {
+                  core.warning(`Could not read the published ${channelIdentity.releaseTag} release marker; building: ${error.message}`);
+                }
               }
             }
 
