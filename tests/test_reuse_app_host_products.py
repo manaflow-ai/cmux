@@ -292,6 +292,7 @@ class ReuseProducts(TestProductHandoff):
             "agent-chat/src/components/Chat.tsx",
             "scripts/git-hooks/pre-commit",
             "scripts/benchmark-dev-fleet-warm-slots.py",
+            "scripts/check-pbxproj-group-membership.py",
             "scripts/check-pbxproj.sh",
             "scripts/check-test-determinism.py",
             "scripts/dev-fleet-warm-slot.py",
@@ -1595,6 +1596,48 @@ class GateDeclinedProducer(unittest.TestCase):
     def test_the_step_name_matches_the_workflow(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
         self.assertIn(f"      - name: {reuse.GATE_DECLINE_STEP}\n", workflow)
+
+
+class E2EProducerPublishedBeforeItsTests(unittest.TestCase):
+    """test-e2e.yml's build job publishes, then runs the tests itself."""
+
+    PATH = ".github/workflows/test-e2e.yml"
+
+    def job(self, status, conclusion, *steps):
+        return {
+            "status": status,
+            "conclusion": conclusion,
+            "steps": [{"name": name, "conclusion": result} for name, result in steps],
+        }
+
+    def test_a_published_product_counts_while_or_after_its_tests_run(self):
+        step = reuse.PUBLISH_STEPS[self.PATH]
+        for label, job in (
+            ("tests running", self.job("in_progress", None, (step, "success"),
+                                       ("Run selected tests on the build runner", None))),
+            ("tests failed", self.job("completed", "failure", (step, "success"),
+                                      ("Run selected tests on the build runner", "failure"))),
+        ):
+            with self.subTest(label):
+                self.assertTrue(reuse.compile_job_admitted(job, step))
+                # Only the workflow that publishes before testing is read so.
+                self.assertFalse(reuse.compile_job_admitted(job))
+
+    def test_an_unpublished_product_does_not(self):
+        step = reuse.PUBLISH_STEPS[self.PATH]
+        for label, job in (
+            ("still compiling", self.job("in_progress", None, (step, None))),
+            ("upload failed", self.job("completed", "failure", (step, "failure"))),
+            ("compile failed", self.job("completed", "failure",
+                                        ("Build the app-host and UI test product", "failure"), (step, "skipped"))),
+        ):
+            with self.subTest(label):
+                self.assertFalse(reuse.compile_job_admitted(job, step))
+
+    def test_the_step_name_matches_the_workflow(self):
+        workflow = (Path(__file__).resolve().parents[1] / self.PATH).read_text(encoding="utf-8")
+        self.assertIn(f"      - name: {reuse.PUBLISH_STEPS[self.PATH]}\n", workflow)
+        self.assertEqual(set(reuse.PUBLISH_STEPS), {self.PATH})
 
 
 class ContractParity(unittest.TestCase):
