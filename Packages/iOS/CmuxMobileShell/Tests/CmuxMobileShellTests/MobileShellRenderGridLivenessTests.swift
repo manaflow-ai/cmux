@@ -845,6 +845,28 @@ import Testing
     #expect(sawSubscribe, "listener must establish the push subscription")
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
+    // The event lane dies while the transport itself keeps carrying bytes.
+    // Since #14030 (be3855bb2d0) the RPC session condemns a transport after
+    // two request timeouts with no inbound delivery at all, which would end
+    // the listener before the watchdog's second probe ever ran. That case is
+    // owned by the session; the watchdog owns this one, so keep unrelated
+    // traffic (a topic no listener subscribes to) flowing throughout.
+    let transport = try #require(box.get())
+    let keepaliveFrame = try MobileSyncFrameCodec.encodeFrame(
+        JSONSerialization.data(withJSONObject: [
+            "kind": "event",
+            "topic": "test.unsubscribed_keepalive",
+            "payload": [String: Any](),
+        ])
+    )
+    let keepalive = Task {
+        while !Task.isCancelled {
+            await transport.deliver(keepaliveFrame)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+    defer { keepalive.cancel() }
+
     // The host stops answering two independent read-only subscription probes,
     // and also stops answering repair attempts, confirming a dead push path
     // rather than a transient stall.
