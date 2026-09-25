@@ -80,6 +80,7 @@ struct CloudTreeDevicesEmptyView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(hovered ? Color.primary.opacity(0.06) : Color.clear)

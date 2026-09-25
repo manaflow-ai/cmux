@@ -2485,6 +2485,7 @@ private struct FileExplorerStyleDebugView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 }
             }
 
@@ -3249,6 +3250,7 @@ private struct SidebarFooterIconBalanceVariantCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .accessibilityIdentifier("SidebarFooterIconBalanceVariant-\(variant.id)")
     }
 }

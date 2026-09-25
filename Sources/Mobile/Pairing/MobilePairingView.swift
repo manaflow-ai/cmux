@@ -124,6 +124,7 @@ struct MobilePairingView: View {
             )
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .accessibilityLabel(String(
             localized: "mobile.pairing.getApp.link",
             defaultValue: "Get cmux for iPhone"

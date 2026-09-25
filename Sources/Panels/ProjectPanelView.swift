@@ -44,6 +44,7 @@ struct ProjectPanelView: View {
                         .cmuxFont(size: 11, weight: .semibold)
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
                 .help("Reload project")
             }
             if let error = panel.lastLoadError, case .loaded = panel.loadState {
@@ -62,6 +63,7 @@ struct ProjectPanelView: View {
                             .cmuxFont(size: 9)
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
@@ -163,6 +165,7 @@ struct ProjectPanelView: View {
                         .foregroundStyle(panel.activeTab == tab ? Color.white : Color.primary)
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
             }
             Spacer(minLength: 0)
         }

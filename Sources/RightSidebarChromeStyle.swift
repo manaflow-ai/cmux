@@ -404,6 +404,7 @@ struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)

@@ -39,6 +39,7 @@ extension Backport where Content: View {
 private struct BackportPointerStyleModifier: ViewModifier {
     let style: BackportPointerStyle?
     @Environment(\.isEnabled) private var isEnabled
+    @State private var ownsFallbackCursor = false
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -51,16 +52,21 @@ private struct BackportPointerStyleModifier: ViewModifier {
             content.pointerStyle(effectiveStyle?.official)
         } else {
             content.onHover { isHovering in
-                guard isHovering else {
+                if effectiveStyle == .link, isHovering {
+                    guard !ownsFallbackCursor else { return }
+                    NSCursor.pointingHand.push()
+                    ownsFallbackCursor = true
+                } else if ownsFallbackCursor {
+                    NSCursor.pop()
+                    ownsFallbackCursor = false
+                } else if isHovering {
                     NSCursor.arrow.set()
-                    return
                 }
-                switch effectiveStyle {
-                case .link:
-                    NSCursor.pointingHand.set()
-                default:
-                    NSCursor.arrow.set()
-                }
+            }
+            .onDisappear {
+                guard ownsFallbackCursor else { return }
+                NSCursor.pop()
+                ownsFallbackCursor = false
             }
         }
         #else

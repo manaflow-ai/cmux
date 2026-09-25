@@ -127,6 +127,7 @@ struct CommandPaletteCommandListRowsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .backport.pointerStyle(.link)
                         .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
                         .accessibilityValue(row.id)
                         .onHover { hovering in

@@ -1002,6 +1002,7 @@ private struct FeedButtonStyleDebugView: View {
             )
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 
     private func paletteSwatches(_ palette: FeedButtonDebugPalettePreset) -> some View {
@@ -1219,6 +1220,7 @@ private struct FeedButtonStyleDebugView: View {
             )
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 
     private var kindPicker: some View {

@@ -208,6 +208,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .opacity(plusVisible ? 1 : 0)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .frame(width: metrics.plusFrame, height: metrics.plusFrame)
             .allowsHitTesting(plusVisible)
             .accessibilityHidden(!plusVisible)

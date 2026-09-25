@@ -361,6 +361,7 @@ struct CloudFailureCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .foregroundStyle(.secondary)
             .fixedSize()
             .keyboardShortcut(.cancelAction)

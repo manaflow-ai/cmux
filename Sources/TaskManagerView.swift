@@ -167,6 +167,7 @@ struct CmuxTaskManagerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .foregroundStyle(model.sortOrder.column == column ? .primary : .secondary)
         .frame(width: width, alignment: alignment)
         .frame(maxWidth: maxWidth, alignment: alignment)
@@ -388,6 +389,7 @@ struct CmuxTaskManagerRowView: View, Equatable {
                     rowContent
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
             } else {
                 rowContent
             }

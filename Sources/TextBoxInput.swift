@@ -970,6 +970,7 @@ private struct TextBoxAttachmentChip: View {
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .foregroundStyle(foreground.opacity(0.62))
             .help(String(localized: "textbox.removeAttachment.tooltip", defaultValue: "Remove Attachment"))
             .accessibilityLabel(String(localized: "textbox.removeAttachment.tooltip", defaultValue: "Remove Attachment"))
@@ -1064,6 +1065,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
                                     }
                             }
                             .buttonStyle(.plain)
+                            .backport.pointerStyle(.link)
                             .id(index)
                         }
                     }
@@ -2428,6 +2430,7 @@ struct TextBoxInputContainer: View {
                 )
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .foregroundStyle(foreground.opacity(0.82))
         .help(String(localized: "textbox.addFiles.tooltip", defaultValue: "Add Files"))
         .accessibilityLabel(String(localized: "textbox.addFiles.tooltip", defaultValue: "Add Files"))
@@ -2467,6 +2470,7 @@ struct TextBoxInputContainer: View {
                 }
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .help(String(
                 localized: "textbox.diffComments.preview",
                 defaultValue: "Show comments"
@@ -2479,6 +2483,7 @@ struct TextBoxInputContainer: View {
                     .background(Circle().fill(foreground.opacity(0.12)))
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .help(String(
                 localized: "textbox.diffComments.dismiss",
                 defaultValue: "Dismiss comments without sending"

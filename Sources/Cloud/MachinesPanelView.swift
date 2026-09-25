@@ -681,6 +681,7 @@ struct MachinesPanelView: View {
                             .underline()
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 } else if let plan = viewModel.plan {
                     Text(planIncludesLabel(plan))
                         .cmuxFont(size: 11)

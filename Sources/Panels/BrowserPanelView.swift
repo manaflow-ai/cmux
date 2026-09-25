@@ -1671,6 +1671,7 @@ struct BrowserPanelView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 }
             }
 
@@ -1684,6 +1685,7 @@ struct BrowserPanelView: View {
                     .cmuxFont(size: 12)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
 
             Button {
                 presentImportDialogFromProfileMenu()
@@ -1692,6 +1694,7 @@ struct BrowserPanelView: View {
                     .cmuxFont(size: 12)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
 
             if browserProfileStore.canRenameProfile(id: panel.profileID) {
                 Button {
@@ -1702,6 +1705,7 @@ struct BrowserPanelView: View {
                         .cmuxFont(size: 12)
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
             }
         }
         .padding(.horizontal, browserProfilePopoverHorizontalPadding)
@@ -1733,6 +1737,7 @@ struct BrowserPanelView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
                 .accessibilityIdentifier("BrowserThemeModeOption\(mode.rawValue.capitalized)")
             }
         }
@@ -2360,6 +2365,7 @@ struct BrowserPanelView: View {
             openBrowserImportSettings()
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .controlSize(.small)
         .accessibilityIdentifier("BrowserImportHintSettingsButton")
     }
@@ -2369,6 +2375,7 @@ struct BrowserPanelView: View {
             dismissBrowserImportHint()
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .controlSize(.small)
         .accessibilityIdentifier("BrowserImportHintDismissButton")
     }
@@ -5412,6 +5419,7 @@ struct OmnibarSuggestionsView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
                 .accessibilityIdentifier("BrowserOmnibarSuggestions.Row.\(idx)")
                 .accessibilityValue(
                     idx == selectedIndex

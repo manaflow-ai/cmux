@@ -148,6 +148,7 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .background(
             SidebarWorkspaceTodoPopoverHost(
                 isPresented: $isStatusPopoverPresented,

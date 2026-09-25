@@ -192,10 +192,10 @@ struct NewMachineSheet: View {
                 Button(createTitle) {
                     model.create()
                 }
+            .backport.pointerStyle(.link)
                 .disabled(model.hasNoAllowedMemoryOptions)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-            .backport.pointerStyle(.link)
                 .accessibilityIdentifier("NewMachineSheet.create")
             }
         }
@@ -319,6 +319,7 @@ private struct NewMachinePickerVariationsPreview: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                            .backport.pointerStyle(.link)
                         }
                     }
                 }
@@ -331,6 +332,7 @@ private struct NewMachinePickerVariationsPreview: View {
                                     selectedMemoryMb = size.memoryMb
                                 }
                                 .buttonStyle(.plain)
+                                .backport.pointerStyle(.link)
                             }
                         }
                         .padding(.top, 4)

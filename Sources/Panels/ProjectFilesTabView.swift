@@ -55,6 +55,7 @@ struct ProjectFilesTabView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
             }
             Spacer()
             Text("\(rowCount)")
@@ -284,6 +285,7 @@ private struct ProjectFilesGroupRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 
     private func glyph(for style: ProjectGroupStyle) -> String {
@@ -347,6 +349,7 @@ private struct ProjectFilesFileRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 
     private var memberships: [TargetMembership] { file.memberships }
