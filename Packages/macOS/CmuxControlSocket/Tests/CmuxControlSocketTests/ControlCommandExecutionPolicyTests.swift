@@ -60,7 +60,7 @@ struct ControlCommandExecutionPolicyTests {
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",
-            "browser.fill", "browser.navigate", "browser.get.text",
+            "browser.fill", "browser.set_input_files", "browser.navigate", "browser.get.text",
             "browser.find.text", "browser.highlight",
             // Adjacent WebKit/page-state methods wait on JS, cookie, or
             // capture callbacks and follow the same worker-lane contract.

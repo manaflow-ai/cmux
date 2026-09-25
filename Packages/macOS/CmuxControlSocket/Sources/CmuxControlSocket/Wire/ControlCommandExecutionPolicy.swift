@@ -235,6 +235,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.focus",
         "browser.type",
         "browser.fill",
+        "browser.set_input_files",
         "browser.press",
         "browser.keydown",
         "browser.keyup",

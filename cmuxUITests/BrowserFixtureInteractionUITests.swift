@@ -425,6 +425,75 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 /// failure turns into a test failure, prompting an assertion upgrade.
 final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
 
+    func testSetInputFilesPreservesBytesAndDispatchesEvents() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-input-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let statement = directory.appendingPathComponent("statement 日本語.csv")
+        let attachment = directory.appendingPathComponent("binary.bin")
+        let statementBytes = Data("date,amount\n2026-09-25,42\n".utf8)
+        let binaryBytes = Data([0, 1, 127, 128, 255])
+        try statementBytes.write(to: statement)
+        try binaryBytes.write(to: attachment)
+
+        try launchApp()
+        let sid = try openFixture("file-input")
+        try socketResult(method: "browser.set_input_files", params: [
+            "surface_id": sid, "selector": "#single", "files": [statement.path],
+        ])
+        let singleJSON = try evalString("window.describeFiles('single')", surfaceID: sid)
+        let single = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(singleJSON.utf8)) as? [[String: Any]]
+        )
+        XCTAssertEqual(single.count, 1)
+        XCTAssertEqual(single.first?["name"] as? String, statement.lastPathComponent)
+        XCTAssertEqual(single.first?["bytes"] as? [UInt8], Array(statementBytes))
+        XCTAssertEqual(
+            try evalString("JSON.stringify(window.fileEvents)", surfaceID: sid),
+            "[\"single:input:1\",\"single:change:1\"]"
+        )
+        XCTAssertEqual(
+            try evalString("new FormData(document.getElementById('upload')).get('statement').text()", surfaceID: sid),
+            String(decoding: statementBytes, as: UTF8.self)
+        )
+
+        try socketResult(method: "browser.set_input_files", params: [
+            "surface_id": sid, "selector": "#multiple", "files": [statement.path, attachment.path],
+        ])
+        let multipleJSON = try evalString("window.describeFiles('multiple')", surfaceID: sid)
+        let multiple = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(multipleJSON.utf8)) as? [[String: Any]]
+        )
+        XCTAssertEqual(multiple.count, 2)
+        XCTAssertEqual(multiple.last?["bytes"] as? [UInt8], Array(binaryBytes))
+
+        for (selector, paths) in [
+            ("#single", [statement.path, attachment.path]),
+            ("#single", [directory.appendingPathComponent("missing.csv").path]),
+            ("#single", [directory.path]),
+            ("#text", [statement.path]),
+        ] {
+            let envelope = try XCTUnwrap(socketEnvelope(method: "browser.set_input_files", params: [
+                "surface_id": sid, "selector": selector, "files": paths,
+            ]))
+            XCTAssertEqual(envelope["ok"] as? Bool, false, "Invalid upload must fail: \(envelope)")
+            XCTAssertEqual(
+                try evalString("window.describeFiles('single')", surfaceID: sid), singleJSON,
+                "A failed request must leave the existing selection intact"
+            )
+        }
+
+        try socketResult(method: "browser.set_input_files", params: [
+            "surface_id": sid, "selector": "#single", "files": [String](),
+        ])
+        XCTAssertEqual(try evalString("window.describeFiles('single')", surfaceID: sid), "[]")
+        XCTAssertEqual(
+            try evalString("JSON.stringify(window.fileEvents.slice(-2))", surfaceID: sid),
+            "[\"single:input:0\",\"single:change:0\"]"
+        )
+    }
+
     /// browser.click delivers a click and browser.fill delivers the final
     /// value, but fill is a single value assignment + one synthetic `input`
     /// event: there are no per-character keydown/keyup events, so the
