@@ -38,6 +38,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
+    private let prepareCloudCarrier: @MainActor () async -> Void
     /// Whether an account is signed in. Activation prepares the carrier before
     /// the fleet read only for a signed-in account; a signed-out Mac must not
     /// enroll or start a hub from a config a previous account left on disk.
@@ -86,6 +87,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
         listPage: @escaping @MainActor () async -> VMListPage? = { nil },
+        prepareCloudCarrier: (@MainActor () async -> Void)? = nil,
         hasCloudSession: @escaping @MainActor () -> Bool = { true },
         refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool = { provider, force in
             await provider.refreshCurrentGraph(force: force)
@@ -98,6 +100,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         self.isCloudEnabled = isCloudEnabled
         self.allowsBackgroundWork = allowsBackgroundWork
         self.listPage = listPage
+        self.prepareCloudCarrier = prepareCloudCarrier ?? { await wireGuardHub?.prepareForCloudUse() }
         self.hasCloudSession = hasCloudSession
         self.refreshProvider = refreshProvider
         self.notificationCenter = notificationCenter

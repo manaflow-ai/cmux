@@ -357,6 +357,40 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(h.spawner.count == 0)
     }
 
+    @Test("Ending Cloud access cancels activation preparation before it can finish", arguments: [false, true])
+    @MainActor
+    func endingAccessCancelsActivationPreparation(signOut: Bool) async {
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let preparedAfterAccessEnded = CloudLinkFirstValue<Bool>()
+        var enabled = true
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
+            isCloudEnabled: { enabled },
+            allowsBackgroundWork: { true },
+            prepareCloudCarrier: {
+                started.resolve(true)
+                _ = await release.result
+                if !Task.isCancelled { preparedAfterAccessEnded.resolve(true) }
+            },
+            listPage: { nil },
+            notificationCenter: NotificationCenter()
+        )
+
+        registry.start(catalog: SurfaceCatalog())
+        #expect(await received(started))
+        if signOut {
+            await registry.accessDidEnd()
+        } else {
+            enabled = false
+            registry.syncPollingToActivationPolicy()
+        }
+        release.resolve(true)
+
+        #expect(await received(preparedAfterAccessEnded) == false)
+        await registry.accessDidEnd()
+    }
+
     @MainActor
     private func makeHub(
         enrollment: @escaping @Sendable () async throws -> CloudWireGuardHub.Enrollment
