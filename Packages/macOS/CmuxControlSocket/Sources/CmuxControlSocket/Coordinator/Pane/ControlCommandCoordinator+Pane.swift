@@ -424,6 +424,10 @@ extension ControlCommandCoordinator {
                 typeRawValue: typeRawValue,
                 operation: .splitWindow
             )
+        case .embeddedTmuxSplitRejected(let message):
+            return .err(code: "remote_tmux_split_unavailable", message: message, data: nil)
+        case .embeddedTmuxSplit(let windowID, let workspaceID, let surfaceID, let requestID):
+            return embeddedTmuxSplitResult(windowID: windowID, workspaceID: workspaceID, surfaceID: surfaceID, requestID: requestID)
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

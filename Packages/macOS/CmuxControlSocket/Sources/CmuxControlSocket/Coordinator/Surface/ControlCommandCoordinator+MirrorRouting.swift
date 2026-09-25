@@ -4,6 +4,27 @@ internal import Foundation
 /// mirror workspace (used by `surface.split`, `surface.create`, and
 /// `pane.create`).
 extension ControlCommandCoordinator {
+    /// Acceptance receipt for a pane created inside an existing remote tmux terminal.
+    func embeddedTmuxSplitResult(
+        windowID: UUID?, workspaceID: UUID, surfaceID: UUID, requestID: UUID
+    ) -> ControlCallResult {
+        .ok(.object([
+            "accepted": .bool(true),
+            "routed": .string("remote-tmux"),
+            "remote_tmux_operation": .string("split-window"),
+            "rendering": .string("embedded"),
+            "request_id": .string(requestID.uuidString),
+            "window_id": orNull(windowID?.uuidString),
+            "window_ref": ref(.window, windowID),
+            "workspace_id": .string(workspaceID.uuidString),
+            "workspace_ref": ref(.workspace, workspaceID),
+            "source_surface_id": .string(surfaceID.uuidString),
+            "pane_id": .null,
+            "surface_id": .null,
+            "type": .string("terminal"),
+        ]))
+    }
+
     /// Success payload for a request that was routed to the remote tmux mirror:
     /// the new pane/tab arrives asynchronously via the mirror's topology events
     /// (`%layout-change` / `%window-add`), so there is no local surface id to

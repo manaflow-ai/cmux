@@ -3241,6 +3241,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    let embeddedTmuxSplits: EmbeddedTmuxSplitCoordinator
+    var embeddedTmuxSplitError: String?
+    var embeddedTmuxSplitCompletionTask: Task<Void, Never>?
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -4020,6 +4023,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        embeddedTmuxSplits: EmbeddedTmuxSplitCoordinator = EmbeddedTmuxSplitCoordinator(commands: CommandRunner()),
         restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
@@ -4033,6 +4037,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.embeddedTmuxSplits = embeddedTmuxSplits
         self.settings = settings
         self.managedDevicePolicy = managedDevicePolicy
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -6966,6 +6971,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         payload["terminal_transport"] = (remoteConfiguration?.terminalTransport.rawValue as Any?) ?? NSNull()
         payload["terminal_profile"] = (remoteConfiguration?.terminalProfile.kind.rawValue as Any?) ?? NSNull()
         payload["terminal_tmux_session"] = (remoteConfiguration?.terminalProfile.tmuxSessionName as Any?) ?? NSNull()
+        if usesEmbeddedTmuxSplits {
+            payload["tmux_split"] = embeddedTmuxSplitStatusPayload
+        }
         if let remoteConfiguration {
             payload["destination"] = remoteConfiguration.destination
             payload["port"] = remoteConfiguration.port ?? NSNull()
@@ -7061,6 +7069,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
+        resetEmbeddedTmuxSplit()
         let previousPresentedDirectory = presentedCurrentDirectory
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         let shouldResetRemoteDisconnectOwnership = previousConfiguration.map { $0 != configuration } ?? true
@@ -7175,6 +7184,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
+        resetEmbeddedTmuxSplit()
         AppDelegate.shared?.sshTuiWorkspaceCoordinator.disconnect(workspace: self)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -8121,6 +8131,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             effectiveState = state
         }
 
+        if state != .connected, remoteControllerConnectionState == .connected {
+            resetEmbeddedTmuxSplit()
+        }
         remoteControllerConnectionState = state
         remoteControllerConnectionDetail = detail
         remoteConnectionState = effectiveState
@@ -8848,6 +8861,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
+        embeddedTmuxSplitError = nil
+        if usesEmbeddedTmuxSplits && !suppressWorkspaceRemoteStartupCommand {
+            return requestEmbeddedTmuxSplit(
+                from: panelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                hasLaunchOverrides: initialCommand != nil || initialInput != nil || tmuxStartCommand != nil
+                    || workingDirectory != nil || !startupEnvironment.isEmpty
+                    || initialDividerPosition != nil || remotePTYSessionID != nil
+            )
+        }
         // In a remote tmux mirror workspace a split means "split the mirrored
         // tmux pane": route it to the remote and let the resulting
         // %layout-change render the new pane (one source of truth). NEVER
@@ -14240,6 +14265,13 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
         guard !isRetiredFromOwningTabManager else { return false }
+        if usesEmbeddedTmuxSplits && !isProgrammaticSplit {
+            if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
+               let panelId = panelIdFromSurfaceId(tabId) {
+                _ = newTerminalSplitOutcome(from: panelId, orientation: orientation)
+            }
+            return false
+        }
         // In a remote tmux mirror, split means tmux `split-window`; always veto
         // local splits so the mirror never gains an orphan pane.
         guard isRemoteTmuxMirror else { return true }
