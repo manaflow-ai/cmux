@@ -1229,3 +1229,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_main_regression_attribution.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_agent_restore_vi_mode.py"
+lane = "macos-shell"
