@@ -1046,8 +1046,10 @@ struct ContentView: View {
 
     static func preferredTmuxWorkspacePaneWindowOverlayRect(
         exactRect: CGRect?,
-        paneRect: CGRect?
+        paneRect: CGRect?,
+        isSplitZoomed: Bool = false
     ) -> CGRect? {
+        if isSplitZoomed { return exactRect }
         guard let paneRect else { return exactRect }
         guard let exactRect,
               exactRect.width > 1,
@@ -1160,9 +1162,13 @@ struct ContentView: View {
                 paneId: workspace.paneId(forPanelId: panelId)
             )
             let exactRect = contentView.flatMap { Self.tmuxWorkspacePaneExactRect(for: panel, in: $0) }
+            // The layout snapshot can still describe the unzoomed split while
+            // Bonsplit moves the hosted view into its zoomed presentation.
+            // In zoom mode, the visible view is the source of truth for the border.
             activePaneBorderRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                 exactRect: exactRect,
-                paneRect: paneRect
+                paneRect: paneRect,
+                isSplitZoomed: workspace.bonsplitController.isSplitZoomed
             )
         } else {
             activePaneBorderRect = nil

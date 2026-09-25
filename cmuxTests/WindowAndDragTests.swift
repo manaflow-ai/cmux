@@ -4348,5 +4348,27 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
             CGRect(x: 120, y: 48, width: 300, height: 200)
         )
     }
+
+    func testZoomedBorderUsesVisibleViewInsteadOfStaleSplitSnapshot() {
+        let splitRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let zoomedRect = CGRect(x: 10, y: 20, width: 620, height: 360)
+        XCTAssertEqual(
+            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
+                exactRect: zoomedRect, paneRect: splitRect, isSplitZoomed: true
+            ),
+            zoomedRect
+        )
+        XCTAssertEqual(
+            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
+                exactRect: zoomedRect, paneRect: splitRect
+            ),
+            splitRect
+        )
+        XCTAssertNil(
+            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
+                exactRect: nil, paneRect: splitRect, isSplitZoomed: true
+            )
+        )
+    }
 }
 #endif
