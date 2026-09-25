@@ -58,7 +58,6 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             socketAuthenticationEnvironment: TerminalController.shared.socketClientCapabilityEnvironment(),
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
             codexHooksEnabled: integrations.codexHooksEnabled,
-            piHooksEnabled: integrations.piHooksEnabled,
             customClaudePath: integrations.customClaudePath,
             subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
             suppressSubagentNotifications: integrations.suppressesSubagentNotifications,
@@ -73,7 +72,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             // `DisableComputerUse` (MDM) wins over the user setting on every
             // spawn, so a new agent launch never receives the tools.
             computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
-                && !ManagedDevicePolicy().isEnforced(.disableComputerUse)
+                && !ManagedDevicePolicy().isEnforced(.disableComputerUse),
+            piHooksEnabled: integrations.piHooksEnabled
         )
     }
 
