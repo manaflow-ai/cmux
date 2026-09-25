@@ -5,6 +5,8 @@ import { closeCloudDbForTests } from "../db/client";
 import { encryptCredential, decryptCredential, type CredentialKeyService } from "../services/coderouter/encryption";
 import { CodeRouterCredentialRace, encryptedCredentialForAccount, transferEncryptedAccount } from "../services/coderouter/repository";
 import { parseCredential, transferAccount } from "../services/coderouter/accounts";
+import { changeAccountVisibility } from "../services/coderouter/accountSharing";
+import { Effect } from "effect";
 
 const enabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = enabled ? test : test.skip;
@@ -99,4 +101,25 @@ dbTest("refuses another member's private account before any key operation", asyn
   const [account] = await db`select team_id from coderouter_accounts where id = ${input.accountId}`;
   expect(account?.team_id).toBe(source);
   expect((await encryptedCredentialForAccount(source, input.accountId))?.credentialRevision).toBe(1);
+});
+
+dbTest("no member can claim an ownerless legacy shared account through sharing", async () => {
+  const input = await fixture();
+  await db`update coderouter_accounts set visibility = 'team', created_by = null where id = ${input.accountId}`;
+  for (const visibility of ["private", "team"] as const) {
+    const result = await Effect.runPromise(changeAccountVisibility({
+      teamId: source, userId: "transfer-test-user", accountId: input.accountId, family: "native", visibility,
+    }));
+    expect(result).toBeNull();
+  }
+  const [account] = await db`select visibility, created_by from coderouter_accounts where id = ${input.accountId}`;
+  expect(account).toEqual({ visibility: "team", created_by: null });
+});
+
+dbTest("the importer still changes their own account's sharing", async () => {
+  const input = await fixture();
+  const result = await Effect.runPromise(changeAccountVisibility({
+    teamId: source, userId: "transfer-test-user", accountId: input.accountId, family: "native", visibility: "private",
+  }));
+  expect(result).toEqual({ id: input.accountId, visibility: "private" });
 });
