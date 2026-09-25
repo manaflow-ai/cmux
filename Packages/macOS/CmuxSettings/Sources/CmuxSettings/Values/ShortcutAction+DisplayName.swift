@@ -114,6 +114,10 @@ extension ShortcutAction {
             return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
+        case .splitRootRight:
+            return String(localized: "shortcut.splitRootRight.label", defaultValue: "Split Root Right")
+        case .splitRootDown:
+            return String(localized: "shortcut.splitRootDown.label", defaultValue: "Split Root Down")
         case .toggleSplitZoom: return "Toggle Pane Zoom"
         case .increaseWorkspaceTerminalFontSize:
             return String(

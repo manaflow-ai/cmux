@@ -8349,6 +8349,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalSplitRootRight",
+                title: constant(String(localized: "command.terminalSplitRootRight.title", defaultValue: "Split Root Right")),
+                subtitle: constant(String(localized: "command.terminalSplitRoot.subtitle", defaultValue: "Workspace Layout")),
+                keywords: ["terminal", "split", "root", "right"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.forkAgentConversationRight",
                 title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
                 subtitle: terminalPanelSubtitle,
@@ -8425,6 +8434,15 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")),
                 subtitle: constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "down"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalSplitRootDown",
+                title: constant(String(localized: "command.terminalSplitRootDown.title", defaultValue: "Split Root Down")),
+                subtitle: constant(String(localized: "command.terminalSplitRoot.subtitle", defaultValue: "Workspace Layout")),
+                keywords: ["terminal", "split", "root", "down"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
@@ -9287,6 +9305,11 @@ struct ContentView: View {
                 tabManager.createSplit(direction: .right)
             }
         }
+        registry.register(commandId: "palette.terminalSplitRootRight") {
+            if tabManager.createRootSplit(direction: .right) == nil {
+                NSSound.beep()
+            }
+        }
         registry.register(commandId: "palette.forkAgentConversationRight") {
             forkFocusedAgentConversationRight()
         }
@@ -9308,6 +9331,11 @@ struct ContentView: View {
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
+            }
+        }
+        registry.register(commandId: "palette.terminalSplitRootDown") {
+            if tabManager.createRootSplit(direction: .down) == nil {
+                NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {

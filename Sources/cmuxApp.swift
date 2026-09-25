@@ -1212,6 +1212,14 @@ struct cmuxApp: App {
                 performSplitFromMenu(direction: .down)
             }
 
+            splitCommandButton(title: String(localized: "menu.view.splitRootRight", defaultValue: "Split Root Right"), shortcut: menuShortcut(for: .splitRootRight)) {
+                performRootSplitFromMenu(direction: .right)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.splitRootDown", defaultValue: "Split Root Down"), shortcut: menuShortcut(for: .splitRootDown)) {
+                performRootSplitFromMenu(direction: .down)
+            }
+
             splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
                 performBrowserSplitFromMenu(direction: .right)
             }
@@ -1386,6 +1394,13 @@ struct cmuxApp: App {
             return
         }
         tabManager.createSplit(direction: direction)
+    }
+
+    private func performRootSplitFromMenu(direction: SplitDirection) {
+        if AppDelegate.shared?.performRootSplitShortcut(direction: direction) == true {
+            return
+        }
+        _ = tabManager.createRootSplit(direction: direction)
     }
 
     private func performBrowserSplitFromMenu(direction: SplitDirection) {

@@ -15765,6 +15765,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .splitRootRight) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=splitRootRight \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            _ = performRootSplitShortcut(
+                direction: .right,
+                preferredWindow: event.window ?? shortcutRoutingActiveWindow
+            )
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .splitRootDown) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=splitRootDown \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            _ = performRootSplitShortcut(
+                direction: .down,
+                preferredWindow: event.window ?? shortcutRoutingActiveWindow
+            )
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .splitBrowserRight) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
@@ -16867,6 +16889,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
         return didCreateSplit
+    }
+
+    /// Creates a terminal pane beside the selected workspace's full split tree.
+    @discardableResult
+    func performRootSplitShortcut(direction: SplitDirection, preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let targetManager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow) ?? tabManager
+        return targetManager?.createRootSplit(direction: direction) != nil
     }
 
     /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts

@@ -1883,6 +1883,8 @@
               "focusNextPane",
               "splitRight",
               "splitDown",
+              "splitRootRight",
+              "splitRootDown",
               "toggleSplitZoom",
               "increaseWorkspaceTerminalFontSize",
               "decreaseWorkspaceTerminalFontSize",
