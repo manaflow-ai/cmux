@@ -3990,6 +3990,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastLoggedWindowBackgroundSignature: String?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
+
+    /// Makes this terminal the AppKit first responder while identifying the request as explicit.
+    func makeFirstResponderForExplicitFocus(in window: NSWindow) -> Bool {
+        let previousState = isExplicitFirstResponderRequestInFlight
+        isExplicitFirstResponderRequestInFlight = true
+        defer { isExplicitFirstResponderRequestInFlight = previousState }
+        return window.makeFirstResponder(self)
+    }
+
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
@@ -12138,14 +12147,11 @@ final class GhosttySurfaceScrollView: NSView {
         focusTransactionId: UUID?
     ) -> Bool {
         let previousFocusTransactionId = surfaceView.firstResponderFocusTransactionId
-        let previousExplicitRequestState = surfaceView.isExplicitFirstResponderRequestInFlight
         surfaceView.firstResponderFocusTransactionId = focusTransactionId
-        surfaceView.isExplicitFirstResponderRequestInFlight = true
         defer {
             surfaceView.firstResponderFocusTransactionId = previousFocusTransactionId
-            surfaceView.isExplicitFirstResponderRequestInFlight = previousExplicitRequestState
         }
-        return window.makeFirstResponder(surfaceView)
+        return surfaceView.makeFirstResponderForExplicitFocus(in: window)
     }
 
     func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {

@@ -5373,6 +5373,32 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Replayed first-responder feedback should preserve the original focus transaction"
         )
         XCTAssertTrue(leftPanel.surface.debugDesiredFocusState())
+
+        focusCallbackCount = 0
+        observedTransaction = nil
+        window.makeFirstResponder(nil)
+        leftPanel.surface.setFocus(false)
+        leftPanel.hostedView.suppressReparentFocus()
+        leftPanel.hostedView.ensureFocus(
+            for: workspace.id,
+            surfaceId: leftPanel.id
+        )
+
+        XCTAssertTrue(leftPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertEqual(
+            focusCallbackCount,
+            0,
+            "Reparent suppression should hold an explicit focus request without a transaction ID"
+        )
+
+        leftPanel.hostedView.clearSuppressReparentFocus()
+
+        XCTAssertEqual(
+            focusCallbackCount,
+            1,
+            "Explicit focus requests without transaction IDs should still replay after suppression"
+        )
+        XCTAssertNil(observedTransaction)
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
