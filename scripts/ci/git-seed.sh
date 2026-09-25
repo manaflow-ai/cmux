@@ -182,7 +182,8 @@ restore() {
 }
 
 # `git submodule update --init --depth 1 PATH...` for jobs that initialize
-# submodules after checkout. A seeded module fetches a new pin from the URL the
+# submodules after checkout. No workflow does since cli-pipe-regressions.yml
+# was folded into compile admission; it stays for the next one that does. A seeded module fetches a new pin from the URL the
 # seed recorded, so when that fails, drop the seeded git directories and clone
 # those modules cold.
 update_submodules() {
