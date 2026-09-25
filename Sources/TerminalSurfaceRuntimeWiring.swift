@@ -96,13 +96,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
+        private let surfaceID: UUID
 
-        init(context: Unmanaged<TerminalOutputTeeContext>) {
+        init(context: Unmanaged<TerminalOutputTeeContext>, surfaceID: UUID) {
             self.context = context
+            self.surfaceID = surfaceID
         }
 
         func release() {
             context.release()
+            TerminalAgentFooterUpdate.teeDidRelease(surfaceID: surfaceID)
         }
     }
 
@@ -123,7 +126,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext)
+        return Lease(context: teeContext, surfaceID: surfaceID)
     }
 
     @MainActor

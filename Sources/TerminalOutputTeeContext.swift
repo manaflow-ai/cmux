@@ -14,6 +14,7 @@ struct TerminalAgentFooterUpdate: Sendable {
     private struct Cache: Sendable {
         var snapshots: [UUID: Snapshot] = [:]
         var retiredSurfaceIDs: Set<UUID> = []
+        var releasedSurfaceIDs: Set<UUID> = []
     }
 
     // Footer updates can arrive while a startup command is creating its
@@ -47,6 +48,7 @@ struct TerminalAgentFooterUpdate: Sendable {
     static func activate(surfaceID: UUID) {
         latestStates.withLock { cache in
             cache.retiredSurfaceIDs.remove(surfaceID)
+            cache.releasedSurfaceIDs.remove(surfaceID)
             cache.snapshots.removeValue(forKey: surfaceID)
         }
     }
@@ -55,11 +57,26 @@ struct TerminalAgentFooterUpdate: Sendable {
         latestStates.withLock { cache in
             cache.retiredSurfaceIDs.insert(surfaceID)
             cache.snapshots[surfaceID] = Snapshot(state: nil)
+            if cache.releasedSurfaceIDs.contains(surfaceID) {
+                cache.retiredSurfaceIDs.remove(surfaceID)
+                cache.releasedSurfaceIDs.remove(surfaceID)
+                cache.snapshots.removeValue(forKey: surfaceID)
+            }
         }
         NotificationCenter.default.post(
             name: .terminalAgentFooterDidUpdate,
             object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
         )
+    }
+
+    static func teeDidRelease(surfaceID: UUID) {
+        latestStates.withLock { cache in
+            cache.releasedSurfaceIDs.insert(surfaceID)
+            guard cache.retiredSurfaceIDs.contains(surfaceID) else { return }
+            cache.retiredSurfaceIDs.remove(surfaceID)
+            cache.releasedSurfaceIDs.remove(surfaceID)
+            cache.snapshots.removeValue(forKey: surfaceID)
+        }
     }
 }
 
