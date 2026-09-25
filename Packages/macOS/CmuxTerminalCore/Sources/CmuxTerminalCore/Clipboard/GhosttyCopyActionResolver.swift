@@ -64,3 +64,4 @@ public struct GhosttyCopyActionResolver: Sendable {
         return binding.flavor.bindingAction
     }
 }
+// canary: owned-mini swift-package-tests probe (cmux#14411); not for merge

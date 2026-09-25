@@ -106,3 +106,4 @@ private final class ASWebBrowserAuthSession: HostBrowserAuthSession {
         session.cancel()
     }
 }
+// canary: owned-mini swift-package-tests probe (cmux#14411); not for merge
