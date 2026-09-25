@@ -3035,6 +3035,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // WebKit exposes this configuration property publicly on iOS only, but
+        // macOS uses the same preference key to enable the native PiP menu item.
+        configuration.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
         configuration.preferences.isElementFullscreenEnabled = true
 
         // Enable JavaScript
