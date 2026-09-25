@@ -23,6 +23,14 @@ public protocol MobileExternalHostSource: AnyObject {
     /// state, so the fences hold while a link is down.
     func externalHostOwnsSurface(_ surfaceID: String) -> Bool
 
+    /// Whether this source contributes the given host (the `macDeviceID` its
+    /// workspaces carry).
+    ///
+    /// Host-level fences use this: an external host has no Mac connection to
+    /// become the foreground, no attach ticket and no route, so every Mac
+    /// mechanism keyed on a host id must skip it rather than fail against it.
+    func externalHostOwnsHost(_ hostID: String) -> Bool
+
     /// Delivers typed input for an owned surface.
     func externalHostSendInput(_ text: String, surfaceID: String)
 
@@ -49,6 +57,56 @@ extension MobileShellComposite {
     /// so a signed-out or torn-down backend leaves no rows behind.
     public func unregisterExternalHostSource(_ source: any MobileExternalHostSource) {
         externalHostSources.removeValue(forKey: ObjectIdentifier(source))
+    }
+
+    // MARK: Visibility
+
+    /// External hosts the user has hidden from their computers.
+    ///
+    /// Hiding a paired Mac disconnects it and deletes its entry. An external
+    /// host has no connection to drop and republishes on its own schedule, so
+    /// its visibility is a filter applied when the workspace list is derived,
+    /// which an incoming publish cannot undo.
+    public var hiddenExternalHostIDs: Set<String> {
+        get { hiddenExternalHostIDsStorage }
+        set {
+            guard hiddenExternalHostIDsStorage != newValue else { return }
+            hiddenExternalHostIDsStorage = newValue
+            recomputeDerivedWorkspaceState()
+        }
+    }
+
+    /// Hides or reveals one external host's workspaces.
+    public func setExternalHost(_ hostID: String, hidden: Bool) {
+        guard externalHostOwnsHost(hostID) else { return }
+        if hidden {
+            hiddenExternalHostIDs.insert(hostID)
+        } else {
+            hiddenExternalHostIDs.remove(hostID)
+        }
+    }
+
+    /// Whether this external host is hidden from the workspace list.
+    public func externalHostIsHidden(_ hostID: String) -> Bool {
+        hiddenExternalHostIDs.contains(hostID)
+    }
+
+    /// The external hosts currently contributing workspaces, for the
+    /// Computers screen: their id, name, liveness, workspace count and
+    /// whether the user has hidden them.
+    public var externalHostSummaries: [MobileExternalHostSummary] {
+        workspacesByMac.compactMap { key, state in
+            let hostID = key.pairingID
+            guard externalHostOwnsHost(hostID) else { return nil }
+            return MobileExternalHostSummary(
+                hostID: hostID,
+                displayName: state.displayName,
+                status: state.status,
+                workspaceCount: state.workspaces.count,
+                isHidden: hiddenExternalHostIDsStorage.contains(hostID)
+            )
+        }
+        .sorted { ($0.displayName ?? $0.hostID) < ($1.displayName ?? $1.hostID) }
     }
 
     // MARK: Workspace contribution
@@ -113,6 +171,23 @@ extension MobileShellComposite {
         externalHostSource(owningSurface: surfaceID) != nil
     }
 
+    /// Whether any registered source contributes this host.
+    ///
+    /// The fence for every Mac mechanism keyed on a host id: foreground
+    /// switching, attach tickets, routes and reconnect all describe a paired
+    /// Mac connection that an external host does not have.
+    public func externalHostOwnsHost(_ hostID: String) -> Bool {
+        guard !hostID.isEmpty, !externalHostSources.isEmpty else { return false }
+        return externalHostSources.values.contains { $0.externalHostOwnsHost(hostID) }
+    }
+
+    /// Whether an aggregated workspace row belongs to an external host.
+    func externalHostOwnsWorkspaceRow(_ id: MobileWorkspacePreview.ID) -> Bool {
+        guard let row = workspaces.first(where: { $0.id == id }),
+              let hostID = row.macDeviceID else { return false }
+        return externalHostOwnsHost(hostID)
+    }
+
     /// The source serving this surface, when one does.
     func externalHostSource(owningSurface surfaceID: String) -> (any MobileExternalHostSource)? {
         guard !surfaceID.isEmpty, !externalHostSources.isEmpty else { return nil }
@@ -158,5 +233,38 @@ extension MobileShellComposite {
             rows: rows
         )
         return true
+    }
+}
+
+/// One external host as the Computers screen sees it.
+///
+/// A row rather than a connection: an external host has no attach route, no
+/// pairing tag and no Mac build, so it carries only what a list row shows.
+public struct MobileExternalHostSummary: Identifiable, Equatable, Sendable {
+    /// The host id its workspaces carry, and this row's identity.
+    public var hostID: String
+    /// The machine's user-facing name.
+    public var displayName: String?
+    /// Liveness of the link serving this host.
+    public var status: MobileMacConnectionStatus
+    /// How many workspaces it contributes.
+    public var workspaceCount: Int
+    /// Whether the user has hidden it from their computers.
+    public var isHidden: Bool
+
+    public var id: String { hostID }
+
+    public init(
+        hostID: String,
+        displayName: String?,
+        status: MobileMacConnectionStatus,
+        workspaceCount: Int,
+        isHidden: Bool
+    ) {
+        self.hostID = hostID
+        self.displayName = displayName
+        self.status = status
+        self.workspaceCount = workspaceCount
+        self.isHidden = isHidden
     }
 }

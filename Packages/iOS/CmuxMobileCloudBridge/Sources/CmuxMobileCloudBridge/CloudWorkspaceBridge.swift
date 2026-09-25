@@ -123,6 +123,11 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         return admittedMachines.contains { $0.id == parsed.machineID }
     }
 
+    public func externalHostOwnsHost(_ hostID: String) -> Bool {
+        guard let machineID = CloudSurfaceIdentity.machineID(fromHostID: hostID) else { return false }
+        return admittedMachines.contains { $0.id == machineID }
+    }
+
     public func externalHostSendInput(_ text: String, surfaceID: String) {
         guard let parsed = CloudSurfaceIdentity.parse(surfaceID),
               let machine = machine(id: parsed.machineID) else { return }

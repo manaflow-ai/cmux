@@ -394,6 +394,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// same store paths (``MobileExternalHostSource``), keyed by instance so a
     /// source can be registered and torn down without a name.
     var externalHostSources: [ObjectIdentifier: any MobileExternalHostSource] = [:]
+    /// Backing store for ``hiddenExternalHostIDs``; the computed property
+    /// re-derives the workspace list when it changes.
+    var hiddenExternalHostIDsStorage: Set<String> = []
     var workspacesByMac: [MacPairingKey: MacWorkspaceState] = [:] {
         didSet {
             recomputeDerivedWorkspaceState()
@@ -6124,6 +6127,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for retainedOwnerKey in retainedOwnerKeys {
                 guard retainedOwnerKey != .anonymousForeground,
                       retainedOwnerKey != liveForegroundKey,
+                      // An external host is not a stored paired Mac and never
+                      // appears in the visible-Mac set, so this reconcile would
+                      // drop its rows on every full load and leave them to
+                      // reappear on the host's next publish — a visible flicker
+                      // in the workspace list.
+                      !externalHostOwnsHost(retainedOwnerKey.pairingID),
                       // The foreground's device-keyed feed snapshot has no tag
                       // dimension; only the exact live foreground device keeps
                       // that spelling.
@@ -8192,8 +8201,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The pure aggregation library speaks pairing-id strings; distinct
         // typed keys map to distinct pairing ids, so this conversion is
         // injective and the sentinel spelling is preserved.
+        // A hidden external host is filtered here rather than by deleting its
+        // entry: the host republishes on its own schedule, so an imperative
+        // delete would lose the race and the rows would come back.
         let statesByAggregateKey = Dictionary(
-            uniqueKeysWithValues: workspacesByMac.map { ($0.key.pairingID, $0.value) }
+            uniqueKeysWithValues: workspacesByMac
+                .filter { !hiddenExternalHostIDs.contains($0.key.pairingID) }
+                .map { ($0.key.pairingID, $0.value) }
         )
         // "Last Opened" recency for the automatic order, keyed by exact
         // pairing id. Stable and Nightly on one physical Mac keep independent
@@ -8911,9 +8925,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ownerInstanceTag,
                 activeMacInstanceTag
             )
+        // An external host (a Cloud machine) is reached over its own link, not
+        // a Mac connection, so there is no foreground pairing to switch to.
+        // Without this fence the switch below would fail for a host no Mac
+        // transport knows and roll the selection back, making the row
+        // unopenable.
         if multiMacAggregationEnabled,
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
+           !externalHostOwnsHost(macDeviceID),
            !rowIsForegroundPairing {
             // Only proceed if that Mac actually became the foreground connection.
             // The tap already selected this workspace and pushed its detail
