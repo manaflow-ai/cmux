@@ -109,22 +109,13 @@ extension DeviceSurfaceProvider {
         try await closeTerminal(id, remoteWorkspaceID: nil)
     }
 
-    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String? = nil) async throws {
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String?) async throws {
         guard id.machine == machine, link.isConnected else { throw DeviceLinkError.notConnected }
-        let workspaceID: String
-        if let remoteWorkspaceID, !remoteWorkspaceID.isEmpty {
-            guard let workspace = link.mirror.workspaces.orderedRecords.first(where: {
-                $0.id.caseInsensitiveCompare(remoteWorkspaceID) == .orderedSame
-            }), workspace.terminals.contains(where: { $0.id.caseInsensitiveCompare(id.key) == .orderedSame }) else {
-                throw SurfaceCatalogError.unknownResource(id)
-            }
-            workspaceID = workspace.id
-        } else {
-            let owners = link.mirror.workspaces.orderedRecords.filter { workspace in
-                workspace.terminals.contains { $0.id.caseInsensitiveCompare(id.key) == .orderedSame }
-            }
-            guard owners.count == 1, let owner = owners.first else { throw SurfaceCatalogError.unknownResource(id) }
-            workspaceID = owner.id
+        // Batch deletion supplies its workspace; individual closes use the
+        // mirror's index. The owner's RPC checks membership again atomically.
+        guard let workspaceID = remoteWorkspaceID ?? terminalWorkspaceIDs[id.key.lowercased()],
+              UUID(uuidString: workspaceID) != nil else {
+            throw SurfaceCatalogError.unknownResource(id)
         }
         try await layoutSync.closeTerminal(surfaceID: id.key, remoteWorkspaceID: workspaceID)
         for (panelID, session) in sessions where session.remoteSurfaceID.uuidString.lowercased() == id.key.lowercased() {

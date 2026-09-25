@@ -14,7 +14,8 @@ struct V2InboundAdmissionAuthorityTests {
             identity: V2Identity(appNamespace: platform == .mac ? "com.cmux.mac" : "dev.cmux.ios",
                 buildTag: "tag", deviceID: deviceID, environment: environment, projectID: project,
                 teamID: team, userID: platform == .mac ? "host-owner" : "permitted-teammate"),
-            identityGeneration: generation, metadata: V2DeviceMetadata(appVersion: "2", capabilities: [],
+            identityGeneration: generation, metadata: V2DeviceMetadata(appVersion: "2",
+                capabilities: platform == .mac ? ["cmux.mac-host.v1", "cmux.mac-devices.v1"] : [],
                 displayName: deviceID, pairingEnabled: true, platform: platform, relayURLs: []))
     }
 

@@ -24,7 +24,8 @@ export function errorSummary(error: unknown): string {
   const parts: string[] = [];
   let current: unknown = error;
   for (let depth = 0; current !== undefined && current !== null && depth < 4; depth += 1) {
-    const name = current instanceof Error ? current.name : typeof current;
+    const rawName = current instanceof Error ? current.name : typeof current;
+    const name = ["Error", "TypeError", "RangeError", "SyntaxError", "DrizzleError", "DrizzleQueryError"].includes(rawName) ? rawName : "Error";
     const text = current instanceof Error ? current.message : String(current);
     const marker = markers.find(candidate => text.includes(candidate));
     parts.push(marker ? `${name}:${marker}` : name);

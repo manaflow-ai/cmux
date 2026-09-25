@@ -227,6 +227,17 @@ public final class V2InboundAdmissionAuthority: Sendable {
         for permission in peers {
             let record = permission.device
             let device = record.descriptor
+            // A cached grant cannot cross the host's current platform opt-in.
+            // The Mac route also retains the server's same-account/build scope.
+            if device.metadata.platform == .mac {
+                guard own.descriptor.metadata.capabilities.contains("cmux.mac-host.v1"),
+                      device.metadata.capabilities.contains("cmux.mac-devices.v1"),
+                      device.identity.userID == host.identity.userID,
+                      device.identity.appNamespace == host.identity.appNamespace,
+                      device.identity.buildTag == host.identity.buildTag else { continue }
+            } else {
+                guard own.descriptor.metadata.pairingEnabled else { continue }
+            }
             guard device.identity.environment == host.identity.environment,
                   device.identity.projectID == host.identity.projectID,
                   device.identity.teamID == host.identity.teamID,

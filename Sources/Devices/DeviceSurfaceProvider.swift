@@ -18,6 +18,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     private(set) var record: DeviceDirectoryRecord
     /// Live projections keyed by the local panel that shows them.
     var sessions: [UUID: DeviceTerminalMirrorSession] = [:]
+    /// Unambiguous owners from the last accepted workspace mirror, keyed by canonical terminal ID.
+    private(set) var terminalWorkspaceIDs: [String: String] = [:]
     lazy var layoutSync = DeviceWorkspaceLayoutCoordinator(
         machine: machine, catalog: catalog,
         workspace: { Workspace.liveWorkspace(id: $0) },
@@ -151,6 +153,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         layoutSync.connectionChanged()
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
         let records = link.mirror.workspaces.orderedRecords
+        var owners: [String: String] = [:]
+        var ambiguous = Set<String>()
+        for workspace in records {
+            for terminal in workspace.terminals {
+                let key = terminal.id.lowercased()
+                if let previous = owners[key], previous != workspace.id { ambiguous.insert(key) }
+                owners[key] = workspace.id
+            }
+        }
+        for key in ambiguous { owners[key] = nil }
+        terminalWorkspaceIDs = owners
         let resources = projection.resources(records, layouts: layoutSync.snapshots.mapValues(\.layout))
         catalog.replaceResources(resources, on: machine, info: info, from: self)
         if link.isConnected { reconnectRestoredPanes(resources: resources) }

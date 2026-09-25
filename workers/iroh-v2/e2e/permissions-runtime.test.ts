@@ -83,7 +83,7 @@ test("a discover-only Mac may enter a same-account opted-in host, but grants no 
   const outgoingOnly = (await post("/directory", { device: "mac-alice-peer" })).body.directory;
   expect(outgoingOnly.inboundPeers).toEqual([]);
   await post("/pairing", { enabled: false });
-  expect((await post("/directory")).body.directory.inboundPeers).toEqual([]);
+  expect(names((await post("/directory")).body.directory.inboundPeers.map((p: any) => p.device))).toEqual(["mac-alice-peer"]);
 });
 
 

@@ -241,8 +241,10 @@ final class DeviceWorkspaceLayoutCoordinator {
     }
 
     private func dequeueClose(for remoteID: String) -> CloseOperation? {
-        guard var queue = pendingCloses[remoteID], let operation = queue.popFirst() else { return nil }
-        pendingCloses[remoteID] = queue.isEmpty ? nil : queue
+        // Mutate through the dictionary accessor so the backing array stays
+        // uniquely owned; copying the queue before removal would force COW.
+        guard let operation = pendingCloses[remoteID]?.popFirst() else { return nil }
+        if pendingCloses[remoteID]?.isEmpty == true { pendingCloses[remoteID] = nil }
         return operation
     }
 

@@ -57,7 +57,8 @@ export class PermissionTestDO {
       const path = new URL(request.url).pathname;
       if (path === "/time") { this.now = input.now; return Response.json({ ok: true }); }
       if (path === "/authority") return Response.json({ authority: this.store.getAuthority(input.user), stackCalls: this.stackCalls });
-      const device = this.devices.get(input.device ?? "mac-alice")!;
+      const seeded = this.devices.get(input.device ?? "mac-alice")!;
+      const device = this.store.getDevice(seeded.descriptor.identity)!;
       if (path === "/permission") {
         this.store.setPermission({ subjectUserId: input.user, deviceRecordId: device.deviceRecordId, connect: input.connect, manage: false }, this.now, "fixture");
         return Response.json({ ok: true });
@@ -89,7 +90,7 @@ export class PermissionTestDO {
         // The pair from https://github.com/manaflow-ai/cmux/issues/13458: two
         // nightly Macs on one account. The host opted into incoming access
         // (cmux.mac-host.v1); the dialer only discovers (cmux.mac-devices.v1).
-        // Both keep pairingEnabled for their phones, exactly like production.
+        // The host keeps iOS pairing off, while the dialer still hosts phones.
         const pair = [
           ["nightly-host", "e", ["irx-v2", "cmux.mac-devices.v1", "cmux.mac-host.v1"]],
           ["nightly-dialer", "d", ["irx-v2", "cmux.mac-devices.v1"]],
