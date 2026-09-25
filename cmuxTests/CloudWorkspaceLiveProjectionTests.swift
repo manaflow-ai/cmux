@@ -416,10 +416,7 @@ struct CloudWorkspaceLiveProjectionTests {
         // coordinator's own terminal materialization keeps its daemon tab.
         provider.registerDuringMaterialization = { projection in
             guard projection.resource == desktop.id else { return }
-            catalog.restore(
-                [SurfaceProjectionRecord(panelID: projection.panelID, resource: projection.resource)],
-                workspaceID: projection.workspaceID
-            )
+            catalog.record(projection)
         }
         catalog.register(provider)
         install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [desktop])
