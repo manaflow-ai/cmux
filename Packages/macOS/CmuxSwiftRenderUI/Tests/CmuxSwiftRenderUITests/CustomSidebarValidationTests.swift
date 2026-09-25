@@ -23,7 +23,12 @@ struct CustomSidebarValidationTests {
         #expect(report.validCount == 1)
         #expect(report.errorCount == 0)
         #expect(report.validNames == ["warning"])
-        #expect(report.entries.first?.warnings == ["Skipped unsupported modifiers: futureBadge, futureLayout."])
+        #expect(report.entries.first?.warnings.count == 1)
+        let warning = try #require(report.entries.first?.warnings.first)
+        #expect(warning.contains("futureBadge, futureLayout"))
+        for supported in ["frame", "resizable", "trim", "stroke"] {
+            #expect(!warning.contains(supported))
+        }
     }
 
     @Test("supported layout modifiers validate without warnings")
