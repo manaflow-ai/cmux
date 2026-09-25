@@ -83,6 +83,18 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(params["tab_id"] as? String == Self.otherWorkspaceId)
     }
 
+    /// `close-surface` with an explicit but blank `--workspace` or `--window` (for example
+    /// an unset `--workspace "$VAR"`) must fail closed instead of closing the focused
+    /// workspace's focused surface. Only an omitted flag may use the caller's context.
+    @Test(arguments: ["--workspace", "--window"])
+    func closeSurfaceBlankRoutingFlagFailsClosed(flag: String) throws {
+        let (requests, result) = try runCloseSurface(arguments: [flag, " "])
+
+        #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("surface.close"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
     /// `identify` must carry its live descriptor TTY when the restored shell has
     /// no injected workspace or surface identity, ignoring stale ambient names.
     @Test func identifyWithoutCallerIdsSendsCallerTTY() throws {
@@ -167,6 +179,43 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(handled.wait(timeout: .now() + 5) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        return (try state.requestObjects(), result)
+    }
+
+    /// Drives `close-surface <arguments>` against a mock socket that accepts any
+    /// request, so a wrong-target close would show up as a recorded `surface.close`.
+    private func runCloseSurface(arguments: [String]) throws -> ([[String: Any]], ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("close-sf")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "workspace_id": Self.focusedWorkspaceId,
+                "surface_id": Self.callerSurfaceId,
+            ])
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["close-surface"] + arguments,
+            environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: Self.callerWorkspaceId),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+
         return (try state.requestObjects(), result)
     }
 
