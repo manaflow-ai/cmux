@@ -1,17 +1,45 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
-import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
+import {
+  isDevelopmentProAccessEnabled,
+  GO_PLAN_ID,
+  MAX_PLAN_ID,
+  PRO_PLAN_ID,
+  TEAM_PLAN_ID,
+  isPaidPlanId,
+} from "../billing/pro";
+import { PAID_MAX_ACTIVE_VMS_DEFAULT, PLAN_MACHINE_MEMORY_MB } from "./machineSpec";
+
+export {
+  PAID_MAX_ACTIVE_VMS_DEFAULT,
+  PLAN_MACHINE_MEMORY_MB,
+  VM_DISK_MB_DEFAULT,
+  VM_DISK_MB_MAX,
+  VM_DISK_MB_STEP,
+  VM_MEMORY_MB_PER_VCPU,
+  DEFAULT_VM_RESOURCE_RESERVATION,
+  VM_RESOURCE_RESERVATION_METADATA_KEY,
+  VM_RESOURCE_FORK_PENDING_METADATA_KEY,
+  vmResourceForkPendingFromMetadata,
+  vmResourceReservationForCreate,
+  vmResourceReservationFromMetadata,
+  vmResourceResizePendingFromMetadata,
+  hasVmResourceReservationMetadata,
+  withVmResourceReservationMetadata,
+  vcpusForMemoryMb,
+  vmDiskMb,
+} from "./machineSpec";
 
 export type VmEntitlements = {
   readonly planId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
-  readonly maxActiveVms: number;
+  /** Active-machine ceiling for the plan; null when the plan has no cap. */
+  readonly maxActiveVms: number | null;
 };
 
 export type VmEntitlementOptions = {
   readonly requestedBillingTeamId?: string | null;
-  readonly requireTeam?: boolean;
 };
 
 export type VmBillingTeamErrorCode =
@@ -40,12 +68,35 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
-  const planId = normalizedPlanId(billing.billingPlanId ?? env.CMUX_VM_DEFAULT_PLAN ?? "free");
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(env) && user.userBillingPlanId !== MAX_PLAN_ID) {
+    return {
+      planId: PRO_PLAN_ID,
+      billingCustomerType: billing.billingCustomerType,
+      billingTeamId: billing.billingTeamId,
+      maxActiveVms: maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats }),
+    };
+  }
+  const configuredDefaultPlan = env.CMUX_VM_DEFAULT_PLAN;
+  // A deployment-wide default is useful for local/demo fixtures, but it must
+  // never grant a paid entitlement to an account with no billing metadata in
+  // the normal fail-closed mode. Reusing the same explicit escape hatch keeps
+  // this fallback from becoming a second permissive configuration path.
+  const defaultPlan = configuredDefaultPlan &&
+      (isVmFreeProvisioningAllowed(env) || !isPaidVmPlan(configuredDefaultPlan))
+    ? configuredDefaultPlan
+    : "free";
+  const billingPlanId = normalizedPlanId(billing.billingPlanId ?? defaultPlan);
+  const teamPlanId = billing.billingCustomerType === "team" && billingPlanId === MAX_PLAN_ID
+    ? TEAM_PLAN_ID : billingPlanId;
+  // Max belongs to the caller. It does not grant Max to other team members
+  // or replace the team's seat-based machine allowance.
+  const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
+    ? MAX_PLAN_ID : teamPlanId;
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
-    maxActiveVms: maxActiveVmsForPlan(planId, env),
+    maxActiveVms: maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats }),
   };
 }
 
@@ -60,6 +111,7 @@ function resolveBillingContext(
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly billingPlanId: string | null;
+  readonly billingSeats: number | null;
 } {
   const requestedTeamId = normalizedOptionalString(options.requestedBillingTeamId);
   if (requestedTeamId) {
@@ -75,6 +127,7 @@ function resolveBillingContext(
       billingCustomerType: "team",
       billingTeamId: team.id,
       billingPlanId: team.billingPlanId ?? user.userBillingPlanId,
+      billingSeats: team.billingSeats,
     };
   }
 
@@ -83,6 +136,7 @@ function resolveBillingContext(
       billingCustomerType: "team",
       billingTeamId: user.billingTeamId,
       billingPlanId: user.billingPlanId ?? user.userBillingPlanId,
+      billingSeats: user.billingSeats,
     };
   }
 
@@ -94,26 +148,45 @@ function resolveBillingContext(
     });
   }
 
-  if (options.requireTeam) {
-    throw new VmBillingTeamResolutionError({
-      code: "vm_billing_team_required",
-      status: 409,
-      message: "Stack Auth did not return a team. Enable personal team creation on sign-up before creating Cloud VMs.",
-    });
-  }
-
+  // No team at all (accounts that predate personal-team auto-create): bill
+  // the user directly. Every billing surface (Stack items, credits, plan
+  // metadata) supports user-scoped customers, so provisioning verbs must not
+  // dead-end on a 409 the caller has no way to resolve.
   return {
     billingCustomerType: "user",
     billingTeamId: user.billingTeamId,
     billingPlanId: user.userBillingPlanId,
+    billingSeats: null,
   };
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. Blaxel scales vCPUs with
- * memory (a 4 GB machine reports 2 cpus), so memory is the whole size story.
+ * Machine sizes a person can pick, as memory in MB. The supported ladder is
+ * 4/16, 8/32, 16/64, 24/96, 32/128, and 64/128 (memory/disk in GB). vCPUs
+ * follow memory (vcpusForMemoryMb). The server owns this list so clients show
+ * valid sizes. BusyBox's 128 MiB image is a bootstrap image, not a coding VM.
+ * Every selected size belongs to one machine, independently of other VMs.
  */
-export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, 32768];
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
+
+/**
+ * The largest machine Free, Pro, Team, and Founder's Edition may start. The
+ * 32 GB and 64 GB rows above it are what Max sells; the plan that unlocks
+ * them is MEMORY_UPGRADE_PLAN_ID so every surface names the same upgrade.
+ */
+export const PLAN_MAX_MEMORY_MB = 24576;
+export const GO_PLAN_MAX_MEMORY_MB = 4096;
+export const GO_PLAN_DEFAULT_MEMORY_MB = 4096;
+export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
+export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
+export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
+
+export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
+  const current = normalizedPlanId(currentPlanId);
+  if (current === MAX_PLAN_ID) return null;
+  if (current === GO_PLAN_ID && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
+  return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
+}
 
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
@@ -123,11 +196,85 @@ export function maxMemoryMbForPlan(
   const normalized = normalizedPlanId(planId ?? "");
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
-  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
+  const ceiling = normalized === MAX_PLAN_ID
+    ? MAX_PLAN_MAX_MEMORY_MB
+    : normalized === GO_PLAN_ID
+      ? GO_PLAN_MAX_MEMORY_MB
+      : PLAN_MAX_MEMORY_MB;
+  if (specific?.trim()) return Math.min(ceiling, positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`));
+  if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
+  if (normalized === GO_PLAN_ID) return GO_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
-    return positiveInteger(env.CMUX_VM_FREE_MAX_MEMORY_MB ?? "4096", "CMUX_VM_FREE_MAX_MEMORY_MB");
+    // The free machine is the product demo: the same computer Pro gets, not a
+    // cut-down teaser. The paywall is the 7-day access window and the machine
+    // count, never the machine's usefulness.
+    return Math.min(ceiling, positiveInteger(
+      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
+      "CMUX_VM_FREE_MAX_MEMORY_MB",
+    ));
   }
-  return positiveInteger(env.CMUX_VM_PAID_MAX_MEMORY_MB ?? "32768", "CMUX_VM_PAID_MAX_MEMORY_MB");
+  return Math.min(ceiling, positiveInteger(
+    env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
+    "CMUX_VM_PAID_MAX_MEMORY_MB",
+  ));
+}
+
+/** Disk ceiling follows the plan's machine tier. */
+export function maxDiskMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const fallback = normalized === MAX_PLAN_ID ? 256 * 1024 : 128 * 1024;
+  const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
+  return raw?.trim()
+    ? Math.min(fallback, positiveInteger(raw, `CMUX_VM_PLAN_${key}_MAX_DISK_MB`))
+    : fallback;
+}
+
+/** vCPU ceiling is derived from the plan's memory tier. */
+export function maxVcpusForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env) / 4096));
+}
+
+/**
+ * Ladder sizes above a plan's ceiling, and the plan that sells them. Clients
+ * render these as locked rows with an upgrade action instead of hiding them.
+ * Empty (and no upgrade plan) once the plan already has the whole ladder.
+ */
+export function lockedMemoryOptionsMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): { readonly memoryOptionsMb: readonly number[]; readonly upgradePlanId: string | null } {
+  const max = maxMemoryMbForPlan(planId, env);
+  const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
+  const normalized = normalizedPlanId(planId ?? "");
+  const candidateUpgradePlanId = normalized === GO_PLAN_ID ? GO_MEMORY_UPGRADE_PLAN_ID : MEMORY_UPGRADE_PLAN_ID;
+  const upgradePlanId = locked.length > 0 && normalized !== candidateUpgradePlanId &&
+      maxMemoryMbForPlan(candidateUpgradePlanId, env) >= locked[0]
+    ? candidateUpgradePlanId
+    : null;
+  return { memoryOptionsMb: locked, upgradePlanId };
+}
+
+/**
+ * Sizes a plan accepts: the catalog entries at or below the plan's ceiling,
+ * plus the plan's configured default, so an operator memory override
+ * (CMUX_VM_*_DEFAULT_MEMORY_MB / _MAX_MEMORY_MB) always names an accepted
+ * size instead of turning every create into a 400.
+ */
+export function memoryOptionsMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): readonly number[] {
+  const max = maxMemoryMbForPlan(planId, env);
+  const options = new Set(VM_MEMORY_OPTIONS_MB.filter((mb) => mb <= max));
+  options.add(defaultMemoryMbForPlan(planId, env));
+  return [...options].sort((a, b) => a - b);
 }
 
 /** Size a plan gets when it doesn't ask for one; never above the plan's max. */
@@ -140,35 +287,119 @@ export function defaultMemoryMbForPlan(
   const specific = env[`CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`];
   const raw = specific?.trim()
     ? positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`)
-    : normalized === "free"
-      ? positiveInteger(env.CMUX_VM_FREE_DEFAULT_MEMORY_MB ?? "4096", "CMUX_VM_FREE_DEFAULT_MEMORY_MB")
-      : positiveInteger(env.CMUX_VM_PAID_DEFAULT_MEMORY_MB ?? "8192", "CMUX_VM_PAID_DEFAULT_MEMORY_MB");
+    : normalized === GO_PLAN_ID
+      ? GO_PLAN_DEFAULT_MEMORY_MB
+      : normalized === "free"
+      ? positiveInteger(
+        env.CMUX_VM_FREE_DEFAULT_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+        "CMUX_VM_FREE_DEFAULT_MEMORY_MB",
+      )
+      : positiveInteger(
+        env.CMUX_VM_PAID_DEFAULT_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+        "CMUX_VM_PAID_DEFAULT_MEMORY_MB",
+      );
   return Math.min(raw, maxMemoryMbForPlan(planId, env));
 }
 
+/**
+ * Active-machine ceiling for a plan, or null when there is none. Paid plans
+ * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
+ * per billing team; a Team subscription multiplies it by its paid seats
+ * (`cmuxSeats`), so "50 per user" holds for the whole team. Free plans stay
+ * capped (zero unless free provisioning is allowed).
+ */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
-): number {
-  return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
-}
-
-/** A paid Cloud VM plan is Pro or Team; everything else (free) is not. */
-export function isPaidVmPlan(planId: string): boolean {
-  const normalized = normalizedPlanId(planId);
-  return normalized === PRO_PLAN_ID || normalized === TEAM_PLAN_ID;
+  options: { readonly seats?: number | null } = {},
+): number | null {
+  const normalized = normalizedPlanId(planId ?? "");
+  const resolved = activeVmLimitForPlan(normalized, env);
+  // An operator brake is an absolute ceiling for the whole team; only the
+  // advertised allowance scales with paid seats.
+  if (resolved.limit === null || resolved.brake || normalized !== TEAM_PLAN_ID) return resolved.limit;
+  const seats = options.seats;
+  const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
+  return resolved.limit * paidSeats;
 }
 
 /**
- * Whether Cloud VM provisioning is gated behind a paid plan. Ships dark: the
- * gate is OFF unless CMUX_VM_REQUIRE_PRO is explicitly truthy, so free users
- * keep provisioning until product flips the env to launch (mirrors the
- * CMUX_VM_CREATE_ENABLED opt-out convention, inverted to opt-in).
+ * How long a free-plan machine stays reachable after it is created, in days.
+ * After the window the machine (and its data) is preserved, but every access
+ * verb (attach, ssh, exec, ports, sessions) requires a paid plan; list/status/
+ * delete keep working so the machine is visible and disposable. 0 disables
+ * the window entirely (env kill switch).
+ */
+export function vmFreeAccessWindowDays(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const raw = env.CMUX_VM_FREE_ACCESS_WINDOW_DAYS;
+  if (raw === undefined || !raw.trim()) return 7;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`CMUX_VM_FREE_ACCESS_WINDOW_DAYS must be a non-negative integer, got: ${raw}`);
+  }
+  return parsed;
+}
+
+/**
+ * Whether the caller's CURRENT plan has outlived the free access window for a
+ * machine created at `createdAt`. Deliberately keyed on the caller's plan, not
+ * the plan recorded at create time: upgrading to Pro unlocks every machine the
+ * user already has.
+ */
+export function isVmFreeAccessExpired(
+  callerPlanId: string | null | undefined,
+  createdAt: Date | number | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+  nowMs: number = Date.now(),
+): boolean {
+  if (isPaidVmPlan(normalizedPlanId(callerPlanId ?? ""))) return false;
+  const windowDays = vmFreeAccessWindowDays(env);
+  if (windowDays <= 0) return false;
+  const createdMs = createdAt instanceof Date ? createdAt.getTime() : createdAt;
+  if (typeof createdMs !== "number" || !Number.isFinite(createdMs)) return false;
+  return nowMs - createdMs > windowDays * 24 * 60 * 60 * 1000;
+}
+
+/** Go, Pro, Team, and Founder's Edition are paid Cloud VM plans. */
+export function isPaidVmPlan(planId: string): boolean {
+  return isPaidPlanId(normalizedPlanId(planId));
+}
+
+/**
+ * Whether Cloud VM provisioning is gated behind a paid plan.
+ *
+ * The safe default is enforced. `CMUX_VM_ALLOW_FREE_PROVISIONING=1` is an
+ * explicit operator escape hatch for demos or a controlled rollback. The
+ * historical `CMUX_VM_REQUIRE_PRO=0` spelling remains a compatibility alias
+ * when the new switch is absent; every other unset, malformed, or truthy
+ * value keeps the gate closed to free plans.
  */
 export function isVmProGateEnforced(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return isVmRequireProFlag(env.CMUX_VM_REQUIRE_PRO);
+  return !isVmFreeProvisioningAllowed(env);
+}
+
+/**
+ * Whether an operator has explicitly opted into free Cloud VM provisioning.
+ * Keep this as the shared policy predicate so the gate and free active limit
+ * cannot drift into different permissive states.
+ */
+export function isVmFreeProvisioningAllowed(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  // The new name is authoritative when present. A value must be explicitly
+  // truthy; typos and explicit false values fail closed.
+  if (env.CMUX_VM_ALLOW_FREE_PROVISIONING !== undefined) {
+    return isVmTruthyFlag(env.CMUX_VM_ALLOW_FREE_PROVISIONING);
+  }
+
+  // Preserve the old opt-in gate's false values as a migration alias. An
+  // absent or malformed legacy value now fails closed instead of shipping dark.
+  const legacy = env.CMUX_VM_REQUIRE_PRO;
+  return legacy !== undefined && isVmFalseFlag(legacy);
 }
 
 /**
@@ -183,7 +414,7 @@ export function isVmProGateBlocked(
   return isVmProGateEnforced(env) && !isPaidVmPlan(entitlements.planId);
 }
 
-function isVmRequireProFlag(value: string | undefined): boolean {
+function isVmTruthyFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
   switch (value.trim().toLowerCase()) {
     case "1":
@@ -197,18 +428,48 @@ function isVmRequireProFlag(value: string | undefined): boolean {
   }
 }
 
-function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number {
-  const planKey = planId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
-  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
+function isVmFalseFlag(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  switch (value.trim().toLowerCase()) {
+    case "0":
+    case "false":
+    case "no":
+    case "off":
+    case "disabled":
+      return true;
+    default:
+      return false;
+  }
+}
 
-  if (planId === "free") {
-    // Free users get two machines before the create path becomes the upgrade prompt
-    // (vmActiveLimitExceededResponse renders the paywall variant for unpaid plans).
-    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "3", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
+/** `brake` marks a limit that came from an operator env override (absolute). */
+function activeVmLimitForPlan(
+  planId: string,
+  env: Record<string, string | undefined>,
+): { readonly limit: number | null; readonly brake: boolean } {
+  const planKey = planId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  if (!isPaidVmPlan(planId)) {
+    // Cloud machines are a paid feature. Keep every non-paid/unknown plan at
+    // zero unless the same explicit escape hatch that disables the Pro gate is
+    // set; this prevents a stale `CMUX_VM_FREE_MAX_ACTIVE_VMS` (or a plan-
+    // specific override) from reopening provisioning by configuration drift.
+    if (!isVmFreeProvisioningAllowed(env)) return { limit: 0, brake: false };
+    const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
+    if (specific?.trim()) {
+      return { limit: positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`), brake: true };
+    }
+    return {
+      limit: nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS"),
+      brake: true,
+    };
   }
 
-  return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "15", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
+  if (planId === GO_PLAN_ID) return { limit: 1, brake: false };
+
+  // Paid allowance is product policy. Legacy deployment overrides must not
+  // silently reduce it or prevent Team seats from scaling. The existing create
+  // kill switch remains the explicit control for a provisioning incident.
+  return { limit: PAID_MAX_ACTIVE_VMS_DEFAULT, brake: false };
 }
 
 function normalizedPlanId(planId: string): string {
@@ -226,5 +487,13 @@ function positiveInteger(raw: string, key: string): number {
   if (!/^\d+$/.test(value)) throw new Error(`${key} must be a positive integer`);
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${key} must be a positive integer`);
+  return parsed;
+}
+
+function nonNegativeInteger(raw: string, key: string): number {
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) throw new Error(`${key} must be a non-negative integer`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${key} must be a non-negative integer`);
   return parsed;
 }

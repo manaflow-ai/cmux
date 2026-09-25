@@ -7,13 +7,15 @@ import Testing
     private func workspace(
         _ id: String,
         group: String? = nil,
-        unread: Bool = false
+        unread: Bool = false,
+        unreadCount: Int? = nil
     ) -> MobileWorkspacePreview {
         MobileWorkspacePreview(
             id: .init(rawValue: id),
             name: id,
             groupID: group.map { .init(rawValue: $0) },
             hasUnread: unread,
+            unreadCount: unreadCount,
             terminals: []
         )
     }
@@ -53,7 +55,7 @@ import Testing
             groups: [group("g", anchor: "a")]
         )
         #expect(items == [
-            .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .groupHeader(group("g", anchor: "a"), unread: .read),
             .workspace(workspace("b", group: "g"), indented: true),
             .groupFooter("g"),
         ])
@@ -64,7 +66,7 @@ import Testing
             workspaces: [workspace("a", group: "g"), workspace("b", group: "g")],
             groups: [group("g", anchor: "a", collapsed: true)]
         )
-        #expect(items == [.groupHeader(group("g", anchor: "a", collapsed: true), hasUnread: false)])
+        #expect(items == [.groupHeader(group("g", anchor: "a", collapsed: true), unread: .read)])
     }
 
     @Test func ungroupedAndGroupedInterleaveByPosition() {
@@ -79,7 +81,7 @@ import Testing
         )
         #expect(items == [
             .workspace(workspace("top"), indented: false),
-            .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
+            .groupHeader(group("g", anchor: "anchor"), unread: .read),
             .workspace(workspace("member", group: "g"), indented: true),
             .groupFooter("g"),
             .workspace(workspace("bottom"), indented: false),
@@ -99,7 +101,7 @@ import Testing
             workspaces: [workspace("a", group: "g")],
             groups: [group("g", anchor: "a")]
         )
-        #expect(items == [.groupHeader(group("g", anchor: "a"), hasUnread: false)])
+        #expect(items == [.groupHeader(group("g", anchor: "a"), unread: .read)])
     }
 
     @Test func emptyGroupRendersHeaderWithoutWorkspaceRows() {
@@ -108,7 +110,7 @@ import Testing
             workspaces: [],
             groups: [empty]
         )
-        #expect(items == [.groupHeader(empty, hasUnread: false)])
+        #expect(items == [.groupHeader(empty, unread: .read)])
     }
 
     @Test func optimisticMemberPromotesStaleEmptyGroupHeader() {
@@ -125,7 +127,7 @@ import Testing
             pinned: true
         )
         #expect(items == [
-            .groupHeader(effectiveGroup, hasUnread: false),
+            .groupHeader(effectiveGroup, unread: .read),
         ])
     }
 
@@ -141,10 +143,10 @@ import Testing
             groups: [liveGroup, emptyGroup]
         )
         #expect(items == [
-            .groupHeader(liveGroup, hasUnread: false),
+            .groupHeader(liveGroup, unread: .read),
             .workspace(workspace("child", group: "live"), indented: true),
             .groupFooter("live"),
-            .groupHeader(emptyGroup, hasUnread: false),
+            .groupHeader(emptyGroup, unread: .read),
             .workspace(workspace("outside"), indented: false),
         ])
     }
@@ -165,7 +167,7 @@ import Testing
             ],
             groups: [group("g", anchor: "a", collapsed: true)]
         )
-        #expect(items == [.groupHeader(group("g", anchor: "a", collapsed: true), hasUnread: true)])
+        #expect(items == [.groupHeader(group("g", anchor: "a", collapsed: true), unread: .init(isUnread: true, count: nil))])
     }
 
     @Test func collapsedGroupHeaderCarriesAnchorUnread() {
@@ -176,7 +178,7 @@ import Testing
             ],
             groups: [group("g", anchor: "a", collapsed: true)]
         )
-        #expect(items == [.groupHeader(group("g", anchor: "a", collapsed: true), hasUnread: true)])
+        #expect(items == [.groupHeader(group("g", anchor: "a", collapsed: true), unread: .init(isUnread: true, count: nil))])
     }
 
     @Test func expandedGroupHeaderReflectsOnlyTheAnchor() {
@@ -188,7 +190,7 @@ import Testing
             groups: [group("g", anchor: "a")]
         )
         #expect(items == [
-            .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .groupHeader(group("g", anchor: "a"), unread: .read),
             .workspace(workspace("b", group: "g", unread: true), indented: true),
             .groupFooter("g"),
         ])
@@ -203,9 +205,59 @@ import Testing
             groups: [group("g", anchor: "a")]
         )
         #expect(items == [
-            .groupHeader(group("g", anchor: "a"), hasUnread: true),
+            .groupHeader(group("g", anchor: "a"), unread: .init(isUnread: true, count: nil)),
             .workspace(workspace("b", group: "g"), indented: true),
             .groupFooter("g"),
+        ])
+    }
+
+    @Test func collapsedGroupHeaderSumsMemberCounts() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("a", group: "g", unread: true, unreadCount: 2),
+                workspace("b", group: "g", unread: true, unreadCount: 3),
+                workspace("c", group: "g"),
+            ],
+            groups: [group("g", anchor: "a", collapsed: true)]
+        )
+        #expect(items == [
+            .groupHeader(
+                group("g", anchor: "a", collapsed: true),
+                unread: .init(isUnread: true, count: 5)
+            ),
+        ])
+    }
+
+    @Test func expandedGroupHeaderUsesAnchorCountOnly() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("a", group: "g", unread: true, unreadCount: 2),
+                workspace("b", group: "g", unread: true, unreadCount: 3),
+            ],
+            groups: [group("g", anchor: "a")]
+        )
+        #expect(items.first == .groupHeader(
+            group("g", anchor: "a"),
+            unread: .init(isUnread: true, count: 2)
+        ))
+    }
+
+    @Test func collapsedHeaderCountUnknownWhenAnyUnreadMemberLacksCount() {
+        // One member reports a count, the other only the boolean (old Mac):
+        // the aggregate must fall back to the count-less dot instead of
+        // undercounting hidden activity.
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("a", group: "g", unread: true, unreadCount: 2),
+                workspace("b", group: "g", unread: true),
+            ],
+            groups: [group("g", anchor: "a", collapsed: true)]
+        )
+        #expect(items == [
+            .groupHeader(
+                group("g", anchor: "a", collapsed: true),
+                unread: .init(isUnread: true, count: nil)
+            ),
         ])
     }
 
@@ -219,7 +271,7 @@ import Testing
             groups: [group("g", anchor: "a", collapsed: true)]
         )
         #expect(items == [
-            .groupHeader(group("g", anchor: "a", collapsed: true), hasUnread: true),
+            .groupHeader(group("g", anchor: "a", collapsed: true), unread: .init(isUnread: true, count: nil)),
             .workspace(workspace("mid"), indented: false),
         ])
     }
@@ -506,7 +558,7 @@ import Testing
             groups: [group("g", anchor: "anchor", collapsed: true)]
         )
         #expect(items == [
-            .groupHeader(group("g", anchor: "anchor", collapsed: true), hasUnread: false),
+            .groupHeader(group("g", anchor: "anchor", collapsed: true), unread: .read),
             .workspace(workspace("tail"), indented: false),
         ])
     }

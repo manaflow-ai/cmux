@@ -13,6 +13,11 @@ final class AgentSessionWebRendererSession {
             ownedCoordinator.onProviderIDChanged = onProviderIDChanged
         }
     }
+    var onRunCommand: ((String) throws -> [String: Any])? {
+        didSet {
+            ownedCoordinator.onRunCommand = onRunCommand
+        }
+    }
 
     func coordinator(
         panelId: UUID,

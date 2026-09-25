@@ -8,7 +8,7 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    WorkspacePublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
@@ -101,6 +101,8 @@ impl Mux {
                 tabs.insert(
                     final_index,
                     RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: tab_id.clone(),
                         pane_id: pane_id.clone(),
                         position: final_index,
@@ -116,7 +118,7 @@ impl Mux {
                 if focused {
                     destination_pane.active_tab = Some(tab_id.clone());
                 }
-                let value = public_tab_value(&projected_tab, focused);
+                let value = projected_tab.public_value(focused);
                 let result = json!({
                     "tab":tab_id,
                     "terminal":terminal_id,
@@ -585,6 +587,64 @@ pub(crate) struct ResourceEffectProjection {
     pub(crate) result: Value,
 }
 
+impl ResourceEffectProjection {
+    /// Explicit terminal close is the only operation that retires an exited
+    /// receipt. Full tree projection cannot infer that intent because exited
+    /// terminals have no runtime or views, so their tombstone and public
+    /// delete never fall out of the detached-tab diff.
+    pub(super) fn ensure_terminal_close(
+        &mut self,
+        terminal_id: &TerminalPublicId,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.patch.changes.iter().any(|change| matches!(
+                change,
+                ResourceChange::UpsertTerminal { public_id, .. } if public_id == terminal_id
+            )),
+            "terminal close projection retained {terminal_id}"
+        );
+        if let Some(existing) = self.patch.changes.iter_mut().find_map(|change| match change {
+            ResourceChange::TombstoneTerminal { public_id, expected_incarnation }
+                if public_id == terminal_id =>
+            {
+                Some(expected_incarnation)
+            }
+            _ => None,
+        }) {
+            if existing.is_none() {
+                *existing = expected_incarnation.map(ToOwned::to_owned);
+            }
+        } else {
+            self.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: terminal_id.clone(),
+                expected_incarnation: expected_incarnation.map(ToOwned::to_owned),
+            });
+        }
+
+        let changes = self
+            .changes
+            .as_array_mut()
+            .context("terminal close topology changes are not an array")?;
+        anyhow::ensure!(
+            !changes.iter().any(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"].as_str() == Some(terminal_id.as_str())
+            }),
+            "terminal close public projection retained {terminal_id}"
+        );
+        if !changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(terminal_id.as_str())
+        }) {
+            push_delete_delta(changes, "terminal", terminal_id.as_str());
+        }
+        Ok(())
+    }
+}
+
 impl Mux {
     /// Project the complete live tree into one durable patch while the caller
     /// holds the registry -> state writer fence. The matching effect receipt
@@ -813,6 +873,10 @@ impl Mux {
                             }
                         };
                         let tab = RegistryTab {
+                            name_source: before_tab.map(|tab| tab.name_source).unwrap_or_default(),
+                            name_revision: before_tab
+                                .map(|tab| tab.name_revision)
+                                .unwrap_or_default(),
                             public_id: identity.tab_id.clone(),
                             pane_id: pane.public_id.clone(),
                             position,
@@ -824,22 +888,10 @@ impl Mux {
                             terminal_id,
                         };
                         changes.push(ResourceChange::UpsertTab(tab.clone()));
-                        let content_kind = match &tab.content_id {
-                            ContentPublicId::Terminal(_) => "terminal",
-                            ContentPublicId::Browser(_) => "browser",
-                        };
                         public.push((
                             "tab",
                             tab.public_id.to_string(),
-                            json!({
-                                "id":tab.public_id,
-                                "pane_id":tab.pane_id,
-                                "index":tab.position,
-                                "name":tab.name,
-                                "focused":pane.active_tab == position,
-                                "content_kind":content_kind,
-                                "content_id":tab.content_id.as_str(),
-                            }),
+                            tab.public_value(pane.active_tab == position),
                         ));
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
@@ -1092,7 +1144,7 @@ fn tab_resource_identity(state: &State, surface_slot: SurfaceId) -> Option<TabRe
 
 fn ordered_terminal_tab_ids(
     state: &State,
-) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
+) -> anyhow::Result<HashMap<TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {
@@ -1350,7 +1402,7 @@ fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool)
 
 fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {
     let sequence = changes.len();
-    let value = public_tab_value(tab, focused);
+    let value = tab.public_value(focused);
     changes.push(json!({
         "kind": "upsert",
         "sequence": sequence,
@@ -1358,20 +1410,4 @@ fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {
         "id": tab.public_id,
         "value": value,
     }));
-}
-
-fn public_tab_value(tab: &RegistryTab, focused: bool) -> Value {
-    let content_kind = match &tab.content_id {
-        ContentPublicId::Terminal(_) => "terminal",
-        ContentPublicId::Browser(_) => "browser",
-    };
-    json!({
-        "id": tab.public_id,
-        "pane_id": tab.pane_id,
-        "index": tab.position,
-        "name": tab.name,
-        "focused": focused,
-        "content_kind": content_kind,
-        "content_id": tab.content_id.as_str(),
-    })
 }

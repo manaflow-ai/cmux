@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxFoundation
 import WebKit
 
@@ -174,8 +175,12 @@ final class MarkdownWebRenderingCoordinator {
 }
 
 @MainActor
-final class MarkdownWebView: WKWebView {
+final class MarkdownWebView: CmuxUndoableWebView {
     var onPointerDown: (() -> Void)?
+    /// Invoked after this view is attached to a window. Keep this separate
+    /// from pointer focus so a panel can complete a focus request made before
+    /// SwiftUI mounted the WebKit view.
+    var onAttachToWindow: (() -> Void)?
     /// Invoked when the view leaves its window (the detach half of a pane
     /// re-parent). Lets the renderer coordinator record whether the document
     /// was healthy at detach time so re-entry recovery can tell a detach
@@ -201,6 +206,10 @@ final class MarkdownWebView: WKWebView {
         Self.installEditableFocusTracking(on: configuration.userContentController)
         super.init(frame: frame, configuration: configuration)
         renderingCoordinator = makeRenderingCoordinator(initialBoundsSize: bounds.size)
+    }
+
+    override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        event.cmuxIsUndoRedoCommandEquivalent
     }
 
     required init?(coder: NSCoder) {
@@ -302,6 +311,8 @@ final class MarkdownWebView: WKWebView {
             // This callback only records renderer health. All WebKit lifecycle
             // selectors and layout/display work stay on the deferred path.
             onLeaveWindow?()
+        } else {
+            onAttachToWindow?()
         }
     }
 
@@ -421,6 +432,21 @@ struct MarkdownWebTheme: Equatable {
 final class MarkdownRendererSession {
     private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
 
+    /// The live preview web view — the panel's keyboard surface in preview
+    /// mode, and the evaluation target for find-in-page scripts. `nil` until
+    /// the renderer has been mounted once.
+    var webView: WKWebView? {
+        ownedCoordinator.webView
+    }
+
+    /// Invoked after the shell re-renders the markdown content (initial load,
+    /// content change, or crash recovery). Find highlights are DOM `<mark>`
+    /// wrappers that a re-render wipes, so an active search must re-run.
+    var onMarkdownRendered: (() -> Void)? {
+        get { ownedCoordinator.onMarkdownRendered }
+        set { ownedCoordinator.onMarkdownRendered = newValue }
+    }
+
     func coordinator(
         panelId: UUID,
         workspaceId: UUID,
@@ -440,6 +466,10 @@ final class MarkdownRendererSession {
 
     func renderedText() async -> String? {
         await ownedCoordinator.renderedText()
+    }
+
+    func readSurfaceSelection(filePath: String) async -> SurfaceSelectionReadResult {
+        await ownedCoordinator.readSurfaceSelection(filePath: filePath)
     }
 }
 

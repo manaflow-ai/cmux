@@ -102,6 +102,17 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Forces the exact iOS 27 keyboard seat (notification authority,
+    /// will-frames only) on any simulator OS, so iOS ≤26 CI runners exercise
+    /// the path iOS 27 devices ship with. DEBUG-only.
+    public static var forceIOS27KeyboardSeat: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
@@ -113,6 +124,7 @@ public struct UITestConfig {
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
             || workspaceDetailDelayedTerminalPreviewEnabled
             || workspaceDetailCreateDelayedTerminalPreviewEnabled
+            || workspaceDetailDisconnectedPreviewEnabled
             || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
@@ -128,6 +140,18 @@ public struct UITestConfig {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW"] == "1"
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// When `CMUX_UITEST_WHATS_NEW_PREVIEW=1`, the root view renders the
+    /// native What's New sheet content directly, without sign-in or pairing.
+    /// DEBUG-only.
+    public static var whatsNewPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WHATS_NEW_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WHATS_NEW_PREVIEW=1")
         #else
         return false
         #endif
@@ -158,6 +182,16 @@ public struct UITestConfig {
         )
     }
 
+    /// Whether the deterministic push-tab navigation fixture is enabled.
+    /// DEBUG-only so the fixture never becomes a production entry point.
+    public static var pushTabNavigationPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_PUSH_TAB_NAVIGATION_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Resolves the push-readiness preview fixture from explicit process inputs.
     public static func pushReadinessPreviewState(
         from env: [String: String],
@@ -182,6 +216,27 @@ public struct UITestConfig {
             from: ProcessInfo.processInfo.environment,
             arguments: ProcessInfo.processInfo.arguments
         )
+    }
+
+    /// Hides transient workspace-change education from deterministic screenshot
+    /// captures. This is DEBUG-only so production users still see the hint.
+    public static var hideWorkspaceChangesHintForScreenshots: Bool {
+        hideWorkspaceChangesHintForScreenshots(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Resolves the screenshot-only workspace-change hint suppression flag.
+    public static func hideWorkspaceChangesHintForScreenshots(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> Bool {
+        #if DEBUG
+        return (env["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)) == "1"
+        #else
+        return false
+        #endif
     }
 
     /// Resolves a changes preview mode from explicit process inputs.
@@ -273,6 +328,23 @@ public struct UITestConfig {
     public static var workspaceDetailCreateDelayedTerminalPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace detail disconnected-terminal layout preview is
+    /// enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED=1`, the root view renders
+    /// a workspace shell whose store is signed in but disconnected
+    /// (`macConnectionStatus == .unavailable`), already opened to a workspace
+    /// with one retained terminal. This is the exact state where the terminal is
+    /// opened while its Mac is unreachable, so the composer dock's keyboard-down
+    /// seat can be screenshotted and asserted without a paired Mac. DEBUG-only.
+    public static var workspaceDetailDisconnectedPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED"] == "1"
         #else
         return false
         #endif

@@ -1,23 +1,211 @@
 # cmux-tui user-intent board
 
-Current audit snapshot: 2026-08-25.
+## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
 
-Audit base: `codex/tui-techdebt-aggregate-wave39` at audited tip
-`31fc5df2b4`. This document records explicit user requests found in local
-session history. It does not claim that an implementation is complete. For the
-aggregate change and risk ledger, see [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md).
+Audit basis: 2026-08-27T19:39:39Z. Main's current cmux-tui merge log is
+[#10984](https://github.com/manaflow-ai/cmux/pull/10984) `e9543607420f7b3b3284ac4c71ea21918dea692e`,
+[#10975](https://github.com/manaflow-ai/cmux/pull/10975) `46958aa58d171a01af7a5b1f06164f18d8639612`,
+[#10986](https://github.com/manaflow-ai/cmux/pull/10986) `b5023a455618dd3d4885da2605e162b0bdb67790`,
+[#10982](https://github.com/manaflow-ai/cmux/pull/10982) `642a65b1512d0d61aaef88290f90ef3408bbee74`,
+[#10985](https://github.com/manaflow-ai/cmux/pull/10985) `2b61ecafceb4b1c008b6f07345270615a0fb4286`, and
+[#10612](https://github.com/manaflow-ai/cmux/pull/10612) `af31628f7b0b2f6c34e184049254fa2fe91f285d`.
 
-The prior 2026-08-24 tip `387b4185f2` and its status labels are historical.
-The current merge adds PTY delivery-gate and generation cleanup, bounded socket
-metadata handling, Go write-progress checks, Java traversal coverage, and the
-current package workflow, stale-close identity checks, and owned SSH staging
-cleanup, plus the PyPI project-description metadata fix and scoped remote-daemon
-cleanup. The latest tail also makes PID-marker recovery non-signaling,
-distinguishes verified missing terminals from control failures, and aligns the
-protocol summary with the wire. These changes move no request to complete
-without end-to-end evidence.
+The latest reconciliation records strict auditable turns as `unknown` (not
+zero), because durable session identifiers are absent. It records five practical
+documented substantive owner workstreams. The branch proxy has 96 TUI
+references and 78 substantive non-merge commits, which is not a turn count.
+Unresolved Claude history IDs: `1787650444261`, `1787650724161` (state
+ownership, manual I/O, reconnect); `1787722163382`, `1787723964393` (remove Go
+daemon, direct tunnels); `1787733887926`, `1787780735531` (machine terminals,
+VNC, attach, parity); `1787794506089` (cloud tree); `1787823710241` (sidebar
+split); `1787825896700` (wheel arrows); `1787826030510` (completion
+subscriptions). No completion evidence was found.
 
-## 2026-08-25 intent-audit delta
+## Historical refresh: main `2b61ecafceb4b1c008b6f07345270615a0fb4286`
+
+Snapshot: 2026-08-27T18:44:45Z, documentation only. Main includes merged
+[#10982](https://github.com/manaflow-ai/cmux/pull/10982), source
+`1e0c3eefaf43e733c967131199361d587f56a34b`, merge
+`642a65b1512d0d61aaef88290f90ef3408bbee74`, [run 33100547866](https://github.com/manaflow-ai/cmux/actions/runs/33100547866)
+passed, and [#10985](https://github.com/manaflow-ai/cmux/pull/10985), source
+`f32d788d1cb503fb7cddf50e70fc40d0e067ec4e`, merge
+`2b61ecafceb4b1c008b6f07345270615a0fb4286`, [runs 33103012053](https://github.com/manaflow-ai/cmux/actions/runs/33103012053)
+and [33103010095](https://github.com/manaflow-ai/cmux/actions/runs/33103010095)
+passed. Both have CodeRabbit comment-only reviews. Rollbacks are
+`git revert 642a65b1512d0d61aaef88290f90ef3408bbee74` and
+`git revert 2b61ecafceb4b1c008b6f07345270615a0fb4286`.
+
+Current intent gates: [#10966](https://github.com/manaflow-ai/cmux/pull/10966)
+head `dda134e95835a415d6cce062e896367ad30c3a94`, runs
+[#33104657912](https://github.com/manaflow-ai/cmux/actions/runs/33104657912) and
+[#33104745426](https://github.com/manaflow-ai/cmux/actions/runs/33104745426)
+in progress, five CodeRabbit comments; [#10969](https://github.com/manaflow-ai/cmux/pull/10969)
+head `0a89a140738c68d105ddd7d1cf5bbcb1e713bb02`, runs
+[#33104519612](https://github.com/manaflow-ai/cmux/actions/runs/33104519612) and
+[#33104514655](https://github.com/manaflow-ai/cmux/actions/runs/33104514655)
+in progress, one CodeRabbit comment; [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
+head `ddc15ed4d7fc737cf86e9bd4bf2adc8bd1ebf5fa`, successful runs
+[#33103112353](https://github.com/manaflow-ai/cmux/actions/runs/33103112353) and
+[#33103077154](https://github.com/manaflow-ai/cmux/actions/runs/33103077154),
+comment-only reviews and stale base; [#10891](https://github.com/manaflow-ai/cmux/pull/10891)
+head `e16aa8c35bbb1fafa7b3cb1340f872754c66d6a7`, queued
+[#33104968098](https://github.com/manaflow-ai/cmux/actions/runs/33104968098) and
+in-progress [#33104965438](https://github.com/manaflow-ai/cmux/actions/runs/33104965438),
+earlier-head CodeRabbit comments. None is ready here.
+
+Closed without merge: [#9806](https://github.com/manaflow-ai/cmux/pull/9806),
+[#9813](https://github.com/manaflow-ai/cmux/pull/9813),
+[#10136](https://github.com/manaflow-ai/cmux/pull/10136),
+[#10413](https://github.com/manaflow-ai/cmux/pull/10413),
+[#10237](https://github.com/manaflow-ai/cmux/pull/10237),
+[#10267](https://github.com/manaflow-ai/cmux/pull/10267), and
+[#10746](https://github.com/manaflow-ai/cmux/pull/10746); no rollback applies.
+Issues [#10881](https://github.com/manaflow-ai/cmux/issues/10881) and
+[#10394](https://github.com/manaflow-ai/cmux/issues/10394) closed after merged
+[#10954](https://github.com/manaflow-ai/cmux/pull/10954). Browser
+[#335](https://github.com/manaflow-ai/cmux/pull/335) resolved at merge
+`5697f71fc6956729524a76a5f17d5611c3ff485b`; rollback:
+`git revert 5697f71fc6956729524a76a5f17d5611c3ff485b`.
+
+No new session scan ran. Retained evidence supports at least 258 named
+substantive turns, not a total and not a 10,000-session claim. Later code
+merges require a final refresh.
+
+Historical audit snapshot: 2026-08-27T13:05:00Z. The source baseline was
+`origin/main` at [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0),
+committed 2026-08-27T05:49:57-07:00 with subject
+`Integrate Escape passthrough fix from PR #9810 (#10959)`. The prior
+`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and earlier
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots are retained below as
+historical evidence. No new session scan was run, so the existing scan receipt
+and honest lower-bound ledger remain unchanged.
+
+The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/10936),
+[#10944](https://github.com/manaflow-ai/cmux/pull/10944), and
+[#10950](https://github.com/manaflow-ai/cmux/pull/10950), [#10951](https://github.com/manaflow-ai/cmux/pull/10951), [#10954](https://github.com/manaflow-ai/cmux/pull/10954), [#10958](https://github.com/manaflow-ai/cmux/pull/10958), [#10962](https://github.com/manaflow-ai/cmux/pull/10962), [#10970](https://github.com/manaflow-ai/cmux/pull/10970), and [#10959](https://github.com/manaflow-ai/cmux/pull/10959). Their exact source
+heads, authors, merge times, merge SHAs, and rollback commands are recorded in
+[`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
+The current ancestry also contains [#10972](https://github.com/manaflow-ai/cmux/pull/10972).
+
+The retained session receipt supports at least 258 named substantive turns.
+This is a verifiable lower bound, not a total session count, and no
+10,000-session claim is made.
+
+The scroll audit confirms alternate-screen wheel behavior is intentional: crossterm
+classifies wheel events as scroll, cmux forwards Ghostty wheel events when mouse
+tracking is enabled, and otherwise emits three arrow sequences. A configurable
+policy and modifier override remain open; changing the default may break TUIs
+that rely on arrows. Evidence: `cmux-tui/src/app.rs` `handle_scroll_with_admission`
+and the crossterm `MouseEventKind` and Ghostty terminal configuration references.
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA | Rollback |
+| --- | --- | --- | --- | --- | --- |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+| [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Lawrence Chen | `0f6bc912500c630921a6a74d86c09d5817e56278` | 2026-08-27 09:58:58 | `d65d6e6ccacf1d7300316451ce2830f05f889e14` | `git revert d65d6e6ccacf1d7300316451ce2830f05f889e14` |
+| [#10951](https://github.com/manaflow-ai/cmux/pull/10951) | Lawrence Chen | `978655f95b56351c9d554d2bdd1be9ad6ec2c551` | 2026-08-27 12:04:42 | `de3902db48d2924c227b5acb26cbe1d89fe03cc0` | `git revert de3902db48d2924c227b5acb26cbe1d89fe03cc0` |
+| [#10954](https://github.com/manaflow-ai/cmux/pull/10954) | Lawrence Chen | `cc1edc896dbf321da26e26e10fb71e5fbb22e57c` | 2026-08-27 11:23:26 | `a293eba98d6f4fafa4add823327c44deef8371ef` | `git revert a293eba98d6f4fafa4add823327c44deef8371ef` |
+| [#10958](https://github.com/manaflow-ai/cmux/pull/10958) | Lawrence Chen | `c6de8f16b6390038225f87474f603b0ea157506e` | 2026-08-27 10:22:03 | `9cf920bb6b7a87bae3af721a0f98c989c45b9c4b` | `git revert 9cf920bb6b7a87bae3af721a0f98c989c45b9c4b` |
+| [#10962](https://github.com/manaflow-ai/cmux/pull/10962) | Lawrence Chen | `ff719b6dc4e9f05358d0c77b7f49a9db021f72e7` | 2026-08-27 10:41:51 | `ef5e7434927d89996e2cd29b429823b8a716a08e` | `git revert ef5e7434927d89996e2cd29b429823b8a716a08e` |
+| [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | `561ddccdc9da7d6389d90940f73e9ea30205fa26` | 2026-08-27 12:25:26 | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
+| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | `d41cac100d2488c41cbabff7c236166186b9deb4` | 2026-08-27 12:22:32 | `2f95b8760005047ff470afe4a00fd33783e4cf93` | `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
+| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | `8f74239c78a81352d69e8fe5512a688b0a9d7b7e` | 2026-08-27 12:49:58 | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
+
+## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+
+The following intent delta and status labels preserve the prior snapshot
+captured at 2026-08-27T09:54:48Z. They are historical evidence, not a claim
+that the same rows were rescanned.
+
+Historical audit snapshot: 2026-08-27T09:54:48Z. The source baseline was
+`origin/main` at [`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`](https://github.com/manaflow-ai/cmux/commit/5c2ee1244e2d796c9e4be5307788b320ac2ee4ff),
+committed 2026-08-27T02:31:38-07:00 with subject
+`fix(tui): zeroize oversized remote frames (#10950)`. The previous
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshot, captured at
+2026-08-27T09:25:01Z, is retained below as historical evidence. No new session
+scan was run for this metadata refresh, so the existing scan receipt and honest
+lower-bound ledger remain unchanged.
+
+The current main tail includes [#10944](https://github.com/manaflow-ai/cmux/pull/10944)
+and [#10950](https://github.com/manaflow-ai/cmux/pull/10950). Their exact source
+heads, authors, merge times, merge SHAs, and rollback commands are recorded in
+[`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA | Rollback |
+| --- | --- | --- | --- | --- | --- |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+
+## Historical snapshot retained: main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+The following intent delta and status labels preserve the prior snapshot. They
+are historical evidence, not a claim that the same rows were rescanned.
+
+Historical audit snapshot: 2026-08-27T09:25:01Z. The source baseline was
+`origin/main` at [`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095).
+This document records explicit user requests found in local session history. A
+merged code change does not close a row without behavior evidence. The prior
+aggregate tip and all older status labels remain historical below. For code
+changes, open PR dispositions, and rollback commands, see
+[`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md) and
+[`PR-INTENT-BOARD.md`](PR-INTENT-BOARD.md).
+
+The historical main tail included merged PRs [#10941](https://github.com/manaflow-ai/cmux/pull/10941),
+[#10940](https://github.com/manaflow-ai/cmux/pull/10940),
+[#10938](https://github.com/manaflow-ai/cmux/pull/10938),
+[#10935](https://github.com/manaflow-ai/cmux/pull/10935),
+[#10932](https://github.com/manaflow-ai/cmux/pull/10932),
+[#10937](https://github.com/manaflow-ai/cmux/pull/10937),
+[#10939](https://github.com/manaflow-ai/cmux/pull/10939),
+[#10934](https://github.com/manaflow-ai/cmux/pull/10934), and
+[#10949](https://github.com/manaflow-ai/cmux/pull/10949). The subsequent
+[#10944](https://github.com/manaflow-ai/cmux/pull/10944) merge also reached the
+baseline. Their merge SHAs and
+individual revert commands are recorded in the changelog. None of these merges
+proves full restore, cloud lifecycle, direct-I/O ownership, or end-to-end
+transport acceptance.
+
+## Historical 2026-08-27 intent-audit delta at main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+The tail scan covered 174 parsed Claude records across 42 session IDs from
+`~/.claude/history.jsonl:90614-end`; 26 records across 12 IDs matched the
+TUI/relay/PTY/journal/surface terms. It covered 47 parsed Codex records across
+17 session IDs from `~/.codex/history.jsonl:18787-end`; two records across two
+IDs matched the narrow TUI terms. These are scan receipts, not a count of
+substantive requests. Credentials, secret values, emails, pasted payloads,
+encrypted inter-agent content, and unrelated records were excluded.
+
+New explicit intent clusters remain open:
+
+- Account-scoped Iroh discovery must authenticate and pair at the relay before
+  dialing. The requested policy rejects endpoint-ID probing and hidden fallback,
+  and keeps the chosen Tailscale TCP or Iroh transport explicit. Evidence:
+  `~/.claude/history.jsonl:90614-90626,90736-90745,90751,90756-90758,90772-90774,90779`.
+- A compact machine rail should own a per-machine catalog of terminals, VNC
+  screens, and remote workspaces. Agents need authoritative open/closed state,
+  live mirror, and close semantics. Evidence:
+  `~/.claude/history.jsonl:90630-90631,90664-90673,90734-90735,90763,90777`.
+- Ghostty parity work must keep direct manual I/O and tunnel ownership in
+  cmux-tui, with parser/rendering behavior compared against Ghostty and no
+  unrequested startup privacy prompts. Evidence:
+  `~/.claude/history.jsonl:90634,90639-90641,90657,90761`.
+- Restore and performance work must classify failed restore, bound CPU and
+  latency, and prevent a frozen leader or client. Evidence:
+  `~/.claude/history.jsonl:90660-90670,90697-90699`.
+- Every authorized thread should inspect or use every permitted sandbox under
+  respectful ownership; strict conversation binding is not the requested
+  policy. Evidence: `~/.claude/history.jsonl:90780-90781`.
+
+| ID | New explicit ask and evidence | Status at historical `origin/main` `99bdc375e9` | Acceptance test |
+| --- | --- | --- | --- |
+| UI-26 | Account-scoped discovery and relay-side pairing before Iroh dialing; no endpoint probing or implicit transport fallback. Evidence: `~/.claude/history.jsonl:90614-90626,90736-90745`. | Open. | Pair two authorized accounts, reject unauthenticated discovery and endpoint probing, and record the selected transport and bounded reconnect result. |
+| UI-27 | Per-machine catalog with terminals, VNC screens, and remote workspaces as resources or pointers; agent-visible open/closed state. Evidence: `~/.claude/history.jsonl:90630-90631,90664-90673,90734-90735`. | Open. | Add two machines, open and close resources from separate clients, and prove one revisioned catalog, live mirror, and no stale resource after reconnect. |
+| UI-28 | Cloud resource topology needs New terminal, workspace, and display controls plus explicit close semantics across many remote screens. Evidence: `~/.claude/history.jsonl:90763,90777` and `~/.codex/history.jsonl:18795-18812`. | Open. | Create multiple remote workspaces and screens, close one, reopen the app, and verify stable IDs, ownership, and bounded list/attach latency. |
+| UI-29 | Keep direct Ghostty-compatible I/O, tunnel, parser, and rendering ownership in cmux-tui. Evidence: `~/.claude/history.jsonl:90634,90639-90641,90657,90761`. | Open. | Compare raw I/O, ANSI/OSC rendering, cursor behavior, and reconnect against Ghostty without a frontend parser or background shim. |
+| UI-30 | Sandbox access should follow authenticated capability and respectful ownership, not strict conversation binding. Evidence: `~/.claude/history.jsonl:90780-90781`. | Open. | Enumerate an allowlisted sandbox capability, attach from two authorized threads, reject arbitrary targets, and prove independent PTY/session ownership. |
+| UI-31 | Restore failure, CPU, and latency must be visible and bounded without freezing a leader or client. Evidence: `~/.claude/history.jsonl:90660-90670,90697-90699`. | Open. | Interrupt restore and sustained output, report one actionable outcome, and assert bounded CPU, latency, and cancellation with no frozen client. |
+
+## Historical 2026-08-25 intent-audit delta
 
 The session audit found no new independent product row, but it added concrete
 acceptance evidence for existing rows:
@@ -53,7 +241,7 @@ of this branch, so its create-or-attach behavior is not documented as current.
 
 ## Deduplicated requests
 
-| ID | Explicit ask and evidence | Status at audited tip `31fc5df2b4` | Acceptance test |
+| ID | Explicit ask and evidence | Status at historical tip `31fc5df2b4` | Acceptance test |
 | --- | --- | --- | --- |
 | UI-01 | Make every cmux terminal use a separate cmux-tui owner, keep the CLI path coherent, preserve terminals across Swift restart, and define the Swift layout projection. Evidence: `~/.claude/history.jsonl:89411,89422-89442`, 2026-08-19T03:49:41Z to 04:29:21Z UTC; follow-up `~/.claude/history.jsonl:89568`, 2026-08-20T02:57:08Z UTC. | Partial. The aggregate has relay/TUI integration, but the technical-debt board says manual-IO replacement, full restore, and layout ownership remain open. | Start a terminal, quit and reopen the Swift shell, and prove the same PTY, scrollback, cwd, and session ID remain. Exercise the CLI and a right-sidebar projection without creating a second owner. |
 | UI-02 | Use journal-first recovery for both a normal cmux restart and a host reboot, with explicit recovery intent and outcome. Evidence: `~/.claude/history.jsonl:89427,89568`, 2026-08-19T04:04:18Z and 2026-08-20T02:57:08Z UTC; `~/.codex/history.jsonl:17612-17614`, 2026-08-07T07:58:12Z to 08:00:03Z UTC. | Open. The aggregate explicitly says reboot checkpoints, full agent restore, and policy-controlled resume are not implemented. | Run clean mux restart with a live host, then host-crash/reboot simulation. The first preserves the live PTY; the second classifies the session interrupted and records one journaled recovery intent and outcome. No secrets or live capabilities enter the journal. |

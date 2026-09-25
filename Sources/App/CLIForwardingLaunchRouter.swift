@@ -61,7 +61,7 @@ enum CLIForwardingLaunchRouter {
         if first.isEmpty || first.hasPrefix("-") { return false }
         if first.contains("://") { return false }
 
-        let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY"]
+        let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY", "RC"]
         if guiLaunchSentinels.contains(first) { return false }
 
         return true

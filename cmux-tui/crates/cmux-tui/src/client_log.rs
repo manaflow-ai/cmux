@@ -11,6 +11,8 @@
 //! `CMUX_TUI_LOG_FILE` override. Logging is best-effort and silent: a client
 //! must never fail or spam the terminal because its log file is unavailable.
 
+#[cfg(test)]
+use std::cell::RefCell;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -39,6 +41,33 @@ struct Record {
     level: &'static str,
     area: String,
     message: String,
+}
+
+#[cfg(test)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TestLogRecord {
+    pub(crate) level: &'static str,
+    pub(crate) area: String,
+    pub(crate) message: String,
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_LOG_RECORDS: RefCell<Option<Vec<TestLogRecord>>> = const {
+        RefCell::new(None)
+    };
+}
+
+#[cfg(test)]
+pub(crate) fn start_test_log_capture() {
+    TEST_LOG_RECORDS.with(|records| {
+        *records.borrow_mut() = Some(Vec::new());
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn take_test_log_capture() -> Vec<TestLogRecord> {
+    TEST_LOG_RECORDS.with(|records| records.borrow_mut().take().unwrap_or_default())
 }
 
 /// Cap on one record's message, so 512 queued records from unbounded input
@@ -572,6 +601,21 @@ fn sanitize(message: &str) -> String {
 /// Append one record. `area` names the subsystem ("status", "machine",
 /// "startup", "provider", ...). Best-effort: errors are swallowed.
 pub(crate) fn log(level: &'static str, area: &str, message: &str) {
+    #[cfg(test)]
+    if TEST_LOG_RECORDS.with(|records| {
+        if let Some(records) = records.borrow_mut().as_mut() {
+            records.push(TestLogRecord {
+                level,
+                area: area.to_string(),
+                message: message.to_string(),
+            });
+            true
+        } else {
+            false
+        }
+    }) {
+        return;
+    }
     let _ = log_tracked(level, area, message);
 }
 

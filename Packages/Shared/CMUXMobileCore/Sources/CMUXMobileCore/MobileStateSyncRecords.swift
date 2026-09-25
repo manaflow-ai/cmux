@@ -99,6 +99,11 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         public let isReady: Bool
         /// Whether the terminal currently holds focus in its workspace.
         public let isFocused: Bool
+        /// The agent whose structured status the Mac shows for this terminal
+        /// (`claude_code`, `codex`, …), when one is attached. `nil` from older Macs.
+        public let agentSource: String?
+        /// That agent's current status text, when one is attached.
+        public let agentState: String?
 
         /// Creates a terminal row from its wire fields.
         public init(
@@ -106,13 +111,17 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             title: String,
             currentDirectory: String?,
             isReady: Bool,
-            isFocused: Bool
+            isFocused: Bool,
+            agentSource: String? = nil,
+            agentState: String? = nil
         ) {
             self.id = id
             self.title = title
             self.currentDirectory = currentDirectory
             self.isReady = isReady
             self.isFocused = isFocused
+            self.agentSource = agentSource
+            self.agentState = agentState
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -121,6 +130,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             case currentDirectory = "current_directory"
             case isReady = "is_ready"
             case isFocused = "is_focused"
+            case agentSource = "agent_source"
+            case agentState = "agent_state"
         }
     }
 
@@ -152,6 +163,10 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let lastActivityAt: Double
     /// Whether the workspace has unread activity on the Mac.
     public let hasUnread: Bool
+    /// The exact unread count behind ``hasUnread`` (the number the Mac sidebar
+    /// badge shows). `nil` when decoded from a Mac old enough not to emit it;
+    /// the phone then falls back to the boolean dot.
+    public let unreadCount: Int?
     /// Position in the Mac's presented cross-window order.
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
@@ -183,6 +198,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         previewAt: Double?,
         lastActivityAt: Double,
         hasUnread: Bool,
+        unreadCount: Int? = nil,
         sortIndex: Int,
         terminals: [Terminal],
         surfaces: [Surface]? = nil,
@@ -202,6 +218,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.previewAt = previewAt
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
+        self.unreadCount = unreadCount
         self.sortIndex = sortIndex
         self.terminals = terminals
         self.surfaces = surfaces
@@ -228,6 +245,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
         lastActivityAt = try container.decode(Double.self, forKey: .lastActivityAt)
         hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
+        unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
         surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
@@ -252,6 +270,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case previewAt = "preview_at"
         case lastActivityAt = "last_activity_at"
         case hasUnread = "has_unread"
+        case unreadCount = "unread_count"
         case sortIndex = "sort_index"
         case terminals
         case surfaces

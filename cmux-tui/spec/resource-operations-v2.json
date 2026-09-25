@@ -461,7 +461,7 @@
       },
       "extra": false,
       "constraints": [
-        "namespace must equal plugin.<producer_id>.",
+        "namespace must equal plugin.<producer_id>",
         "Manifest versions increase monotonically.",
         "Storage v1 rejects secret producer authority until encrypted retention is implemented."
       ]
@@ -557,6 +557,8 @@
       },
       "extra": false,
       "constraints": [
+        "producer_id must be a valid plugin component and kind must start with plugin.<producer_id>.",
+        "The event kind must be declared by the installed producer manifest.",
         "The installed producer manifest determines class, replay policy, and default sensitivity.",
         "The payload must validate against the declared JSON Schema."
       ]
@@ -1899,7 +1901,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -2108,6 +2110,14 @@
             "kind": "ref",
             "name": "TerminalLifecycle"
           }
+        },
+        "stream_revision": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Coalesced PTY output revision. It is absent when no live PTY is available and may be absent from older servers."
         },
         "exit": {
           "required": false,
@@ -2418,6 +2428,15 @@
             "name": "string"
           }
         },
+        "subtitle": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 512
+          },
+          "description": "Second line under the title, as the local cmux notify --subtitle. Absent when the producer gave none."
+        },
         "body": {
           "required": true,
           "type": {
@@ -2453,6 +2472,21 @@
             "name": "boolean"
           }
         },
+        "read_by": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 256,
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "description": "Client ids that acknowledged this notification through notification.ack. Sorted, unique. Per-client read state; the shared unread marker is unaffected."
+        },
         "extra": {
           "required": false,
           "type": {
@@ -2463,6 +2497,66 @@
             }
           },
           "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+        }
+      },
+      "extra": false
+    },
+    "NotificationAckResult": {
+      "kind": "object",
+      "fields": {
+        "client_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "acknowledged": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 256,
+            "items": {
+              "kind": "resource_id",
+              "resource": "notification"
+            }
+          },
+          "description": "Notification ids now recorded as read by client_id, including ids that were already read."
+        },
+        "unknown": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 256,
+            "items": {
+              "kind": "resource_id",
+              "resource": "notification"
+            }
+          },
+          "description": "Requested ids the session no longer retains. They are not an error: a bounded ledger may have evicted them."
+        }
+      },
+      "extra": false
+    },
+    "NotificationClearResult": {
+      "kind": "object",
+      "fields": {
+        "cleared": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "min_items": 0,
+            "max_items": 256,
+            "items": {
+              "kind": "resource_id",
+              "resource": "notification"
+            }
+          },
+          "description": "Notification ids removed from the session. Each is also a delete delta on the events feed."
         }
       },
       "extra": false
@@ -2505,7 +2599,8 @@
             "values": [
               "hook",
               "socket",
-              "detected"
+              "detected",
+              "plugin"
             ]
           }
         },
@@ -3628,6 +3723,28 @@
             "name": "string"
           }
         },
+        "revision": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "Coalesced PTY output revision. Older servers may omit this field or send null when unavailable."
+        },
+        "osc_progress": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Latest bounded OSC 9 progress payload. The daemon exposes terminal metadata only; plugins decide how to interpret it. Older servers may omit this field or send null when unavailable."
+        },
         "cols": {
           "required": true,
           "type": {
@@ -3713,6 +3830,44 @@
       "extra": false,
       "constraints": [
         "Styled history rows use the same lossless runs, attributes, underline variants, and width hints as live render attachments."
+      ]
+    },
+    "TerminalOutputReadResult": {
+      "kind": "object",
+      "fields": {
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "start_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "next_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "Offsets are terminal.output stream byte offsets. next_offset is always a valid resume cursor: a follow-up read with after set to it returns only output strictly after this window.",
+        "complete is false when this window was truncated by max_bytes or by exit-snapshot coverage; the caller resumes with next_offset."
       ]
     },
     "TerminalStateResult": {
@@ -3938,6 +4093,17 @@
             }
           },
           "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails. All current servers emit this field. Protocol 2 SDK decoders accept it being absent from older servers and treat absence as null."
+        },
+        "foreground_executable": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Executable path or name of the PTY foreground process-group leader. Null when the lookup fails. Older servers may omit this field."
         },
         "children": {
           "required": true,
@@ -7202,6 +7368,126 @@
         "validation.invalid"
       ]
     },
+    "notification.ack": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "notification",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "client_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Durable identity of the acknowledging client install. ASCII graphic bytes only."
+          },
+          "notifications": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "min_items": 1,
+              "max_items": 256,
+              "items": {
+                "kind": "resource_id",
+                "resource": "notification"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NotificationAckResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "notification.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "notification",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "terminal_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            },
+            "description": "Clear only this terminal's notifications. Omit to clear every retained notification in the session."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "NotificationClearResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "notification.create": {
       "class": "mutation",
       "idempotency": "required",
@@ -7221,15 +7507,26 @@
             "type": {
               "kind": "primitive",
               "name": "string",
-              "min_length": 1
+              "min_length": 1,
+              "max_length": 512
+            }
+          },
+          "subtitle": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
             }
           },
           "body": {
             "required": true,
             "type": {
               "kind": "primitive",
-              "name": "string"
-            }
+              "name": "string",
+              "max_length": 4096
+            },
+            "description": "Bounded: every retained row is pushed to every attached client."
           },
           "level": {
             "required": false,
@@ -7298,9 +7595,10 @@
               "kind": "primitive",
               "name": "uint32",
               "minimum": 1,
-              "maximum": 1000
+              "maximum": 256
             },
-            "default": 100
+            "default": 100,
+            "description": "The session retains at most 256 notifications; older rows are evicted, so a full clear names at most 256 ids."
           }
         },
         "extra": false
@@ -10513,9 +10811,37 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "auto"
+              ]
+            },
+            "default": "user"
+          },
+          "expected_generation": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_name_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "source auto requires expected_generation and expected_name_revision."
+        ]
       },
       "result": {
         "kind": "apply",
@@ -11349,6 +11675,71 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "terminal.output_read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {
+          "after": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Resume cursor: the terminal.output stream byte offset a previous read returned as next_offset. Absent reads from the earliest still-retained byte."
+          },
+          "max_bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "default": 262144,
+            "description": "Bound on raw stream bytes rendered into one window. A window never splits a journal record, so the first record of a window is always included whole even when it alone exceeds this bound."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TerminalOutputReadResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Text is the plain-text projection of the selected stream window replayed through a fresh terminal emulator; escape sequences never appear in it.",
+        "Works on live terminals and on exited ones, including exited terminals whose views were detached: the selector resolves the durable exit receipt exactly like terminal.wait_exit.",
+        "start_offset may exceed the requested cursor when earlier bytes are no longer retained, and a cursor that lands mid-record starts the window at that record's boundary (start_offset below the cursor).",
+        "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw records: start_offset is 0 and next_offset is the snapshot coverage end.",
+        "A window rendered from mid-stream records may carry escape-state artifacts at its leading edge; a snapshot window cannot."
       ]
     },
     "terminal.process.get": {

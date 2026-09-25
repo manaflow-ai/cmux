@@ -1,4 +1,4 @@
-/// The fully planned, shell-free invocation used by `cmux restore`.
+/// The fully planned, shell-free invocation used by `cmux restore` or `cmux fork`.
 public struct AgentRestoreInvocation: Equatable, Sendable {
     /// Process arguments, including `argv[0]`.
     public let arguments: [String]
@@ -8,17 +8,21 @@ public struct AgentRestoreInvocation: Equatable, Sendable {
     public let environment: [String: String]
     /// Typed subprocesses that must succeed before the final process replacement.
     public let preflightInvocations: [AgentRestorePreflightInvocation]
+    /// The resumed Codex thread checked again at the final exec boundary.
+    public let codexResumeSessionID: String?
 
-    /// Creates a planned restore invocation.
+    /// Creates a planned restore or fork invocation.
     public init(
         arguments: [String],
         workingDirectory: String?,
         environment: [String: String],
-        preflightInvocations: [AgentRestorePreflightInvocation] = []
+        preflightInvocations: [AgentRestorePreflightInvocation] = [],
+        codexResumeSessionID: String? = nil
     ) {
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
         self.preflightInvocations = preflightInvocations
+        self.codexResumeSessionID = codexResumeSessionID
     }
 }

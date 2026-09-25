@@ -12,13 +12,172 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3da10da73`, the head of
-https://github.com/manaflow-ai/ghostty/pull/200. It reports a terminal outcome
-for every accepted tokened iOS render, rejects renderer-thread requests that
-iOS external-drain mode cannot consume, and exposes a nonblocking prompt reveal
-operation. The pin includes the prior fork changes below, including VT
-formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
-`9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
+### Cloud restore replay trailing rows
+
+- Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
+- Summary: preserve trailing physical blank rows until the VT cursor/state
+  restoration footer when replay requests cursor restoration. Normal formatter
+  output and soft-wrap behavior are unchanged.
+- Verification: hosted Ghostty test workflow passed before the GhosttyKit build;
+  the cmux replay regression is `vt_replay_preserves_blank_tail_after_history`.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a3e9304c5d19c8667f58a342830f774579c74472-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The submodule pinned by this branch is `a3e9304c5d`, a cmux-only replay fix on
+top of `c5c31ce819`, the upstream Ghostty merge commit for PR #218 after the
+embedded-environment lifetime fix from PR #227 was merged. The replay fix
+preserves physical blank rows until cursor/state restoration completes, so a
+restored Cloud grid cannot regain stale history rows. The base SHA preserves
+cmux's Cloud loopback link-detection changes while adding the localhost-port
+punctuation fix and owned POSIX environment snapshots for embedded hosts.
+
+The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
+Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
+`59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
+previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
+#221, merged as `3869e81a0`; its branch tip `370f08cf1` is `4a0e9e185` merged
+into the Hangul commits), the targeted upstream picks of fork PR #224 (input
+encoding, erase/scroll state, termio lifetime), the write-pool FIFO fix of fork
+PR #223, and the `clear_screen` scrollback change of fork PR #213. It
+includes the incremental embedded configuration propagation and Fish SSH
+feature-gating fixes described below, plus the renderer/API compatibility pin
+and the repeated word-selection drag anchor fix. Its tree includes the prior
+fork changes below, including tokened iOS render dispositions, VT formatter
+cursor restoration, VT stream-boundary visibility, and Hangul canonical font
+resolution.
+
+### Base feature pin
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/main (contains the Hangul fix
+    through merge commit `3869e81a0`; the pin itself is one merge ahead of
+    fork `main`, on the Cloud loopback link-detection branch)
+- Commit:
+  - `c5c31ce819` (upstream merge of Ghostty #218 after #227; preserves Cloud
+    loopback behavior and is reachable from `manaflow-ai/ghostty:main`; the
+    current branch adds `a3e9304c5d` above it)
+- Summary:
+  - Fixes localhost-port sentence punctuation and owns POSIX environment
+    snapshots retained by embedded Ghostty, on top of the
+    the NFD Hangul shaping fix and jamo/style coverage, the fork PR #224
+    upstream picks, the write-pool FIFO fix, `clear_screen` scrollback erasure
+    and bare localhost port-link detection on top of cmux's prior pin,
+    preserving incremental embedded configuration propagation and Fish SSH
+    feature gating, with the renderer/API compatibility pin and repeated
+    word-selection drag anchor behavior.
+- Verification:
+  - `src/font` at `35ae29b7c2` is byte-identical to `370f08cf1`
+    (`git diff 370f08cf1 35ae29b7c2 -- src/font` is empty), so the Hangul
+    results below apply to this pin's font code unchanged.
+  - Zig 0.16.0 on macOS 26.4, at `370f08cf1`, `-Dtest-filter=Hangul`: 78/78
+    with the CoreText shaper and 77/77 with `-Dfont-backend=coretext_harfbuzz`.
+    73 of those run regardless of the filter under either backend (a filter
+    matching nothing still reports 73), so the filter itself selects 5 tests
+    with CoreText and 4 with HarfBuzz; `-Dtest-filter=composedSyllable` adds
+    the 3 `hangul.zig` unit tests.
+  - At `6f2701078`, reverting only `src/font/shaper/run.zig` to the test-first
+    commit turns 3 of them red under both shapers: CoreText `expected 218,
+    found 1942` (the Apple SD Gothic Neo glyph ID from the report), HarfBuzz
+    `expected 218, found 0` (`.notdef`). The inherited fork CI skips tests
+    outside ghostty-org, so these were run by hand on a leased fleet Mac.
+  - A tagged cmux app built against the `370f08cf1` GhosttyKit renders both
+    configurations from cmux #12753 correctly where the earlier pins drew
+    unrelated symbols (cmux #12826). The `35ae29b7c2` archive itself was not
+    run through that check.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-35ae29b7c2bcee7c721d515d0096a9bc3f3242bb-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `6f83f20842140a782c8029156aabe92c246a181682794f01ad0a30ca43c76620`
+    is pinned in `scripts/ghosttykit-checksums.txt` (cmux #12669).
+  - The Hangul branch tip `370f08cf1` also has a published archive,
+    https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-370f08cf15a6ab646b9a291f72af034bb0960fb3-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+    (SHA-256 `ec53b8992b466ecd9cc87b42754188fe504898ff0b139f54b3eef1dc6a441233`,
+    `build-ghosttykit.yml` run 35197286294, embeds `1.3.2-HEAD-+370f08c`). Its
+    checksum stays in `scripts/ghosttykit-checksums.txt` because that is the
+    build the runtime proof used.
+
+### Fish SSH feature gating
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `fd13a3fc2` (shell-integration: fix Fish SSH feature condition)
+- File:
+  - `src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish`
+- Summary:
+  - Groups the `ssh-env` and `ssh-terminfo` alternatives beneath the shared
+    `GHOSTTY_BIN` guard instead of chaining `and`/`or` commands whose final
+    `and` made the `ssh-env`-only case depend on `ssh-terminfo`.
+  - Preserves the existing per-feature forwarding flags and installs the Fish
+    `ssh` wrapper when either feature is enabled.
+- Conflict note:
+  - If upstream rewrites Fish SSH integration, retain behavior coverage for
+    `ssh-env`, `ssh-terminfo`, and the combined feature set.
+- Verification:
+  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fd13a3fc20f8aab4136437b5693e2e447b86eafc-crashsubdir-cmux-crash-sentry-off-v1
+  - Historical artifact SHA-256: `4b0ad8668eb50b57a36868c693ab80d5a75e9b0c4900e97f8f95150e0c7d9a35`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
+
+### Incremental embedded configuration propagation
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `64b5767a6` (embedded: allow app-only config updates)
+- Files:
+  - `include/ghostty.h`
+  - `src/App.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_app_update_config_without_surface_propagation`, which applies
+    conditional app state and emits the app-scoped config-change action without
+    walking the native surface registry.
+  - Keeps `ghostty_app_update_config` behavior unchanged by factoring its
+    existing surface and app phases into separate internal methods.
+  - Lets cmux prioritize visible surfaces and spread offscreen derivation across
+    main-actor turns while sharing one finalized configuration pointer.
+- Conflict note:
+  - If upstream splits app configuration from surface propagation, replace this
+    fork API with the upstream seam. Until then, keep the legacy full-update API
+    propagating to surfaces and keep the app-only API explicitly host-managed.
+- Verification:
+  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
+  - Exported symbol verified in macOS universal, iOS device, and iOS simulator
+    archives.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-64b5767a64acac59dad75d9de606e2e06d118e3e-crashsubdir-cmux-crash-sentry-off-v1
+  - Historical artifact SHA-256: `88d0c1af6eaed2db05f327c935ad9c4da4d5cf46b8404f8fd2e14b939a258359`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
+
+### Repeated word-selection drag anchor
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/211
+- Commits:
+  - `aa2fb7d9e` (test: anchor repeated selection at second click)
+  - `fb90d3515` (fix: anchor repeated word selection at latest click)
+  - `3f33233aa` (docs: describe repeated selection anchor)
+- File:
+  - `src/terminal/SelectionGesture.zig`
+- Summary:
+  - Moves the tracked pin and surface coordinates to every accepted repeated
+    press, so a double-click drag starts at the word under the second click.
+  - Measures the next repeat distance from the preceding press, matching the
+    moving anchor and preserving chained double/triple clicks.
+  - Adds behavior tests for the moved double-click anchor and chained repeat
+    distance.
+- Conflict note:
+  - Preserve the latest-press anchor when integrating upstream selection
+    changes. A repeat that selects the new word but drags from an older pin
+    regresses the visible selection and the next repeat's distance check.
+
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
+pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
@@ -79,6 +238,49 @@ formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
     `af9f8f12e6f41ffe00b5b65f150bb887b19dc752e47d20d3c351696c803509af`,
     which is pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Hangul shaping uses the resolved spelling
+
+- Issue: https://github.com/manaflow-ai/cmux/issues/12753
+- Commits:
+  - `452bc460c` (test: reproduce NFD Hangul fallback glyph mismatch)
+  - `3a7fc9230` (fix: shape NFD Hangul with the resolved syllable)
+  - `e5a6849dc` (test: cover Hangul jamo fonts and style fallback)
+  - `6f2701078` (test: cover Hangul selection bounds, copy path, and uncomposable jamo)
+  - `370f08cf1` (merge of cmux `main`'s pin `4a0e9e185`; touches only
+    `src/termio` and `src/datastruct`, no overlap with `src/font`)
+  - Reached cmux `main` through the `35ae29b7c2` pin (cmux #12669), which
+    contains the fork `main` merge `3869e81a0` of PR #221; `src/font` there
+    is identical to `370f08cf1`.
+- `RunIterator.resolveFontInfo` carries the canonical syllable together with
+  its resolved font index. Both CoreText and HarfBuzz receive that spelling,
+  preventing CoreText from returning jamo fallback glyph IDs that would be
+  rasterized with the selected, composed-only face.
+- Composition is limited to the existing modern L+V, L+V+T and LV+T cases
+  whose composed syllable resolves. Uncomposable clusters and per-jamo fallback
+  retain their existing path. Stored terminal cells and copy bytes are unchanged.
+- The regression uses a licensed, renamed D2Coding subset without jamo glyphs.
+  A similarly licensed Source Han Mono subset with direct jamo coverage exercises
+  the jamo-capable and regular-style fallback cases.
+  It checks glyph IDs, column positions, regular/bold styles, cursor and
+  selection run breaks (including a selection bound on a wide syllable's spacer
+  tail), preserved NFD storage, and the copied line through `selectLine` +
+  `selectionString`. An archaic-vowel cluster, which has no precomposed
+  syllable, must keep the per-jamo path and shape to the selected face's own
+  replacement glyph. Before the fix CoreText returns glyph 1942 where the
+  selected fixture face requires 218, and HarfBuzz returns `.notdef`.
+- Why this lives in the run iterator: the CoreText shaper consumes the glyph
+  IDs of every `CTRun` without checking which font CoreText used, so any
+  codepoint the run's face lacks comes back as a substituted font's glyph ID
+  and is drawn with the wrong face. The run iterator is what guarantees every
+  codepoint it hands over is covered by the run's face; #185 broke that for
+  composable Hangul and this restores it. Hardening the shaper itself to reject
+  substituted runs is deliberately not part of this change: a false positive
+  would turn correct text into tofu for every font, which needs its own
+  validation.
+- Conflict note: preserve the face/codepoint pairing if upstream restructures
+  run construction. Resolver-index equality alone does not detect this bug;
+  keep `src/font/shaper/hangul_test.zig` exercising actual shaping.
+
 ### Hangul NFC/NFD canonical font resolution
 
 - Pull request:
@@ -100,19 +302,18 @@ formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
     equivalent text.
   - `src/font/hangul.zig` implements the algorithmic Hangul canonical
     composition from The Unicode Standard ch. 3.12 (L+V, L+V+T, and LV+T
-    clusters over the modern jamo ranges). `RunIterator.indexForCell`
+    clusters over the modern jamo ranges). `RunIterator.resolveFontInfo`
     resolves the face through the composed codepoint first, so both
     encodings produce the identical resolver query.
-  - Terminal cell contents and shaper input are unchanged: copy/paste of NFD
-    text still returns the original NFD codepoints, and CoreText/HarfBuzz
-    compose the cluster during shaping when the face carries the precomposed
-    glyph.
+  - Terminal cell contents are unchanged: copy/paste returns the original NFD
+    codepoints. The follow-up above also composes shaping input; relying on
+    CoreText to compose after selecting a composed-only face caused #12753.
 - Conflict note:
   - Upstream tracks the same defect in
     https://github.com/ghostty-org/ghostty/discussions/4163. If upstream
     lands its own cluster-level or normalization-based resolution, prefer
     the upstream mechanism and drop `src/font/hangul.zig` plus the
-    `indexForCell` hook, keeping the `coretext.zig` regression test to prove
+    `resolveFontInfo` hook, keeping the resolver and shaping regression tests to prove
     the behavior survives the merge.
 - Fixes:
   - https://github.com/manaflow-ai/cmux/issues/9583
@@ -1651,7 +1852,8 @@ tend to conflict together during rebases.
     `mouseLinkRefreshAllowedState`) that also allows local link handling when the
     ctrl/super modifier is held, using the effective mouse-reporting state
     (`isMouseReporting()`), matching iTerm2 and macOS Terminal. Fixes
-    https://github.com/manaflow-ai/cmux/issues/5128.
+    https://github.com/manaflow-ai/cmux/issues/5128 and the original tmux
+    reproduction in https://github.com/manaflow-ai/cmux/issues/2896.
   - Follow-up (#74): `mouseButtonCallback` ran the link-open path only on
     release, while the mouse-report path ran for both press and release and only
     broke out for the shift-release case — so a Cmd-click over a link still

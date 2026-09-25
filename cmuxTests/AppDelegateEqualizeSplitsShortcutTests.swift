@@ -367,6 +367,30 @@ private func waitWhileSuspended(
     }
 }
 
+/// Finishes any configuration reload still fanning out to surfaces.
+///
+/// A reload commits synchronously but completes after its bounded surface
+/// fanout, which `TerminalConfigurationApplyScheduler` drives through
+/// main-actor tasks. A nested `RunLoop.main.run` inside a synchronous
+/// main-actor test cannot execute those tasks, so reload cases must suspend
+/// instead. A reload issued here merges with any queued one, and its
+/// completion runs only after the shared coordinator has finished them.
+@MainActor
+private func settleConfigurationReload(
+    _ app: GhosttyApp
+) async {
+    let settled = expectation(
+        description: "earlier configuration reload settled"
+    )
+    app.reloadConfiguration(
+        source: "test.settleConfigurationReload",
+        reloadSettingsFromFile: false
+    ) {
+        settled.fulfill()
+    }
+    await waitWhileSuspended(for: [settled], timeout: 5)
+}
+
 @MainActor
 private extension TabManager {
     @discardableResult
@@ -444,7 +468,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
+    func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            await self.equalizeSplitsShortcutBalancesWorkspaceDividersBody()
+        }
+    }
+
+    /// Body of the above. Split out so the gate wraps exactly one `@MainActor`
+    /// async closure rather than the whole `@Test` attribute surface.
+    @MainActor
+    private func equalizeSplitsShortcutBalancesWorkspaceDividersBody() async {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -492,8 +525,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
 
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
-        guard let seededLayoutSnapshot = workspace.tmuxLayoutSnapshot else {
-            XCTFail("Expected cached layout snapshot after seeding split geometry")
+        guard let seededLayoutSnapshot = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
+            $0.panes == workspace.bonsplitController.layoutSnapshot().panes
+        }) else {
+            XCTFail("tmuxLayoutSnapshot never caught up to the seeded 3-pane tree; the geometry publish Task did not run")
             return
         }
         let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
@@ -527,11 +562,18 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
 
-        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
-        guard let cachedEqualizedLayout = workspace.tmuxLayoutSnapshot else {
-            XCTFail("Expected cached layout snapshot after equalizing split geometry")
+        // Wait for the equalize to be published rather than for the cache to
+        // match the live tree: waiting on equality would make the frame
+        // comparison below true by construction. Waiting for the cache to
+        // leave the seeded geometry keeps that comparison able to fail if the
+        // publish lands the wrong snapshot.
+        guard let cachedEqualizedLayout = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
+            $0.panes != seededLayoutSnapshot.panes
+        }) else {
+            XCTFail("tmuxLayoutSnapshot never left the seeded geometry; the geometry publish Task did not run")
             return
         }
+        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
         XCTAssertNotEqual(
             shortcutRoutingPaneFramesById(in: seededLayoutSnapshot),
             shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
@@ -5499,11 +5541,20 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     @Test
     func testFullConfigurationReloadStagesAppearanceUntilConfigurationCommit()
-        throws {
+        async throws {
 #if DEBUG
         let app = GhosttyApp.shared
+        await settleConfigurationReload(app)
         let originalProfile =
             GhosttyStartupAppearancePreviewState.profile
+        // An idle reload commits synchronously. Hold one transaction in its
+        // surface fanout so the staged reload below is queued behind it. It
+        // reloads the unchanged configuration, so the appearance captured
+        // next is still the one to restore.
+        app.reloadConfiguration(
+            source: "test.stageAppearance.active",
+            reloadSettingsFromFile: false
+        )
         let originalBackgroundHex =
             app.defaultBackgroundColor.hexString()
         let targetProfile: GhosttyStartupAppearancePreviewProfile =
@@ -5528,33 +5579,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         ) { _ in
             reloadCompleted.fulfill()
         }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-            GhosttyStartupAppearancePreviewState.profile =
-                originalProfile
-            GhosttyConfig.invalidateLoadCache()
-
-            let restoreCompleted = expectation(
-                description: "original appearance restored"
-            )
-            let restoreObserver =
-                NotificationCenter.default.addObserver(
-                    forName: .ghosttyConfigDidReload,
-                    object: nil,
-                    queue: .main
-                ) { _ in
-                    restoreCompleted.fulfill()
-                }
-            app.reloadConfiguration(
-                source: "test.restoreStagedAppearance",
-                reloadSettingsFromFile: false
-            )
-            wait(for: [restoreCompleted], timeout: 5)
-            NotificationCenter.default.removeObserver(
-                restoreObserver
-            )
-            withExtendedLifetime(retainedPanels) {}
-        }
 
         GhosttyStartupAppearancePreviewState.profile =
             targetProfile
@@ -5568,14 +5592,36 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         XCTAssertEqual(
             app.defaultBackgroundColor.hexString(),
             originalBackgroundHex,
-            "A pending full reload must not publish its new background before the matching Ghostty config commits"
+            "A full reload queued behind an active transaction must not publish its new background before its own Ghostty config commits"
         )
-        wait(for: [reloadCompleted], timeout: 5)
+        await waitWhileSuspended(
+            for: [reloadCompleted],
+            timeout: 5
+        )
         XCTAssertNotEqual(
             app.defaultBackgroundColor.hexString(),
             originalBackgroundHex,
             "The staged appearance must publish when the full configuration commits"
         )
+
+        NotificationCenter.default.removeObserver(observer)
+        GhosttyStartupAppearancePreviewState.profile =
+            originalProfile
+        GhosttyConfig.invalidateLoadCache()
+        let restoreCompleted = expectation(
+            description: "original appearance restored"
+        )
+        app.reloadConfiguration(
+            source: "test.restoreStagedAppearance",
+            reloadSettingsFromFile: false
+        ) {
+            restoreCompleted.fulfill()
+        }
+        await waitWhileSuspended(
+            for: [restoreCompleted],
+            timeout: 5
+        )
+        withExtendedLifetime(retainedPanels) {}
 #else
         throw XCTSkip("Startup appearance previews require DEBUG")
 #endif
@@ -5583,9 +5629,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     @Test
     func testConfigurationReloadRemainsActiveUntilAsyncReconciliationCompletes()
-        throws {
+        async throws {
 #if DEBUG
         let app = GhosttyApp.shared
+        await settleConfigurationReload(app)
         let retainedPanels = (0..<16).map { _ in
             TerminalPanel(
                 workspaceId: UUID(),
@@ -5607,7 +5654,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             app.isConfigurationReloadActive,
             "Appearance synchronization must stay deferred while incremental reconciliation is pending"
         )
-        wait(for: [reloadCompleted], timeout: 5)
+        await waitWhileSuspended(
+            for: [reloadCompleted],
+            timeout: 5
+        )
         XCTAssertFalse(app.isConfigurationReloadActive)
         withExtendedLifetime(retainedPanels) {}
 #else
@@ -5638,8 +5688,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         let request = coordinator.takePendingRequest()
         XCTAssertEqual(
             request?.completions.count,
-            maximumCompletionCount,
-            "Coalesced reloads must retain a bounded number of completion closures"
+            maximumCompletionCount - 1,
+            "Coalesced reloads must retain bounded optional completions while reserving a commit slot"
         )
 
         for index in 100..<200 {
@@ -5665,10 +5715,46 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
+    func testConfigurationReloadCoordinatorReservesCommitCompletionCapacity() {
+        let coordinator =
+            TerminalConfigurationReloadCoordinator(
+                maximumOutstandingCompletionCount: 2
+            )
+
+        let finalAdmission = coordinator.enqueue(
+            TerminalPendingConfigurationReload(
+                soft: true,
+                source: "test.commitReservation.final",
+                reloadSettingsFromFile: false,
+                preferredColorScheme: nil,
+                completions: [{ }, { }]
+            )
+        )
+        XCTAssertFalse(finalAdmission.retainedAllCompletions)
+
+        let commitAdmission = coordinator.enqueue(
+            TerminalPendingConfigurationReload(
+                soft: true,
+                source: "test.commitReservation.commit",
+                reloadSettingsFromFile: false,
+                preferredColorScheme: nil,
+                completions: [],
+                commitCompletions: [{ _ in }]
+            )
+        )
+        XCTAssertTrue(commitAdmission.retainedAllCompletions)
+
+        let request = coordinator.takePendingRequest()
+        XCTAssertEqual(request?.completions.count, 1)
+        XCTAssertEqual(request?.commitCompletions.count, 1)
+    }
+
+    @Test
     func testConfigurationReloadQueuesRequestDuringAsyncReconciliation()
-        throws {
+        async throws {
 #if DEBUG
         let app = GhosttyApp.shared
+        await settleConfigurationReload(app)
         let retainedPanels = (0..<16).map { _ in
             TerminalPanel(
                 workspaceId: UUID(),
@@ -5707,7 +5793,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             secondCompletionGeneration,
             "A request queued during reconciliation must not report success against the active transaction"
         )
-        wait(
+        await waitWhileSuspended(
             for: [
                 firstReloadCompleted,
                 secondReloadCompleted
@@ -6192,11 +6278,12 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testGhosttyAppConfigUpdateWaitsForFontBarrier() {
+    func testGhosttyAppConfigUpdateWaitsForFontBarrier() async {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
+        await settleConfigurationReload(GhosttyApp.shared)
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -6245,31 +6332,66 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         XCTAssertEqual(applyAttemptCount, 2)
 
         var didUpdateGhosttyAppConfig = false
+        let configUpdated = expectation(
+            description: "ghostty app config update published"
+        )
         let observer = NotificationCenter.default.addObserver(
             forName: .ghosttyConfigDidReload,
             object: nil,
             queue: .main
         ) { _ in
             didUpdateGhosttyAppConfig = true
+            configUpdated.fulfill()
         }
         defer {
             NotificationCenter.default.removeObserver(observer)
         }
 
+        var didCommitGhosttyAppConfig = false
         GhosttyApp.shared.reloadConfiguration(
             soft: true,
             source: "test.fontBarrier",
-            reloadSettingsFromFile: false
+            reloadSettingsFromFile: false,
+            commitCompletion: { committed in
+                didCommitGhosttyAppConfig = committed
+                // Anything published while the barrier held would already
+                // be recorded when the reload finally commits.
+                XCTAssertFalse(
+                    didUpdateGhosttyAppConfig,
+                    "The app config update itself must wait behind font work"
+                )
+            }
         )
+        // Held, not merely not yet run: the transaction is parked at the
+        // font-work barrier, and giving the main actor turns does not move it.
+        // Only releasing the barrier below may.
+#if DEBUG
+        XCTAssertEqual(
+            GhosttyApp.shared.debugConfigurationReloadPhase,
+            .waitingForFontWork,
+            "The app config update must wait at the font-work barrier"
+        )
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(
+            GhosttyApp.shared.debugConfigurationReloadPhase,
+            .waitingForFontWork,
+            "Main-actor turns must not release the font-work barrier"
+        )
+#endif
         XCTAssertFalse(
-            didUpdateGhosttyAppConfig,
-            "The app config update itself must wait behind font work"
+            didCommitGhosttyAppConfig,
+            "The reload must be blocked at the font barrier"
         )
         XCTAssertGreaterThan(scheduler.delays.count, 2)
         if scheduler.delays.count > 2 {
             scheduler.fire(at: 2)
         }
         XCTAssertEqual(applyAttemptCount, 3)
+        // Releasing the barrier commits the app configuration; the reload
+        // notification is published after its bounded surface fanout, which
+        // runs on later main-actor turns.
+        await waitWhileSuspended(for: [configUpdated], timeout: 5)
+        XCTAssertTrue(didCommitGhosttyAppConfig)
         XCTAssertTrue(didUpdateGhosttyAppConfig)
     }
 
@@ -7532,7 +7654,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testConfiguredWorkspaceTerminalFontSizeResetRestoresEverySplit() {
+    func testConfiguredWorkspaceTerminalFontSizeResetRestoresEverySplit() async {
+        // A reload an earlier case left fanning out holds the app-wide
+        // font-size barrier, and the arbiter queues a reset issued behind it
+        // until the barrier lifts, which is after these synchronous checks.
+        // Settle it while suspended so the reset below applies immediately.
+        await settleConfigurationReload(GhosttyApp.shared)
+        XCTAssertFalse(
+            GhosttyApp.shared.isConfigurationReloadActive,
+            "A configuration reload in flight would queue the reset past these checks"
+        )
         withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
                 XCTFail("Expected AppDelegate.shared")
@@ -7982,6 +8113,34 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     private func shortcutRoutingPaneFramesById(in snapshot: LayoutSnapshot) -> [String: PixelRect] {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
+    }
+
+    /// The recorded `tmuxLayoutSnapshot` once it satisfies `predicate`.
+    ///
+    /// Since a27969a38b the geometry callback hands its work to
+    /// `geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce)`,
+    /// which is `Task { await Task.yield(); action() }` on the MainActor
+    /// executor. The pre-`async` version of this case read
+    /// `tmuxLayoutSnapshot` with no suspension point after the geometry call,
+    /// so it could only ever observe the one-pane value written at workspace
+    /// init. The caller must be `async` and this must suspend.
+    ///
+    /// The deadline bounds the failure path only: a publish that lands
+    /// promptly returns on the first drain.
+    private func shortcutRoutingAwaitPublishedLayout(
+        _ workspace: Workspace,
+        timeout: Duration = .seconds(3),
+        until predicate: (LayoutSnapshot) -> Bool
+    ) async -> LayoutSnapshot? {
+        var published: LayoutSnapshot?
+        let settled = await AppKitTestEventPump().waitUntil(timeout: timeout) {
+            guard let cached = workspace.tmuxLayoutSnapshot, predicate(cached) else {
+                return false
+            }
+            published = cached
+            return true
+        }
+        return settled ? published : nil
     }
 
     private func shortcutRoutingAssertPaneFramesMatch(

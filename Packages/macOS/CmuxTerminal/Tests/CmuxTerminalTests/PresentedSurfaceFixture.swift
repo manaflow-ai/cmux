@@ -1,6 +1,8 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
+import GhosttyRuntimeTestStubs
+import Testing
 @testable import CmuxTerminal
 
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
@@ -73,8 +75,13 @@ struct PresentedSurfaceFixture {
         if !windowVisibleAtCreation {
             surface.setRendererWindowVisible(false)
         }
+        _ = makeRendererCallbackContextForTesting(on: surface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
+        if surface.rendererPresentationState.inFlightToken != nil {
+            acknowledgePendingPresentation()
+        }
     }
 
     func tearDown() {
@@ -83,5 +90,9 @@ struct PresentedSurfaceFixture {
         resetRendererRealizedTracking()
         window.contentView = nil
         window.close()
+    }
+
+    func acknowledgePendingPresentation() {
+        #expect(cmux_test_ghostty_renderer_present(runtimeSurface))
     }
 }

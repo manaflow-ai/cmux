@@ -12,6 +12,11 @@ The current server reports `protocol:12` from `identify` and `ping`. Clients mus
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
+Byte viewers that keep their own theme advertise `terminal-color-overrides-v1`
+using `set-client-info` before `attach-surface`. Supporting servers then add
+application-authored special-color provenance to that attachment's color
+sidecars (see `events.md`); unadvertised attachments keep the legacy wire shape.
+
 ## Unix Socket
 
 | Field | Value |
@@ -141,11 +146,15 @@ The Unix socket does not use the WebSocket auth preamble. Its filesystem permiss
 
 `CMUX_TUI_SOCKET` and `CMUX_MUX_SOCKET` inherited by a child are ambient full-session capabilities. Untrusted child processes must not inherit them.
 
-### Implemented v10 limits
+### Implemented transport message limits
 
-WebSocket protocol messages are limited to 4 MiB. Unix JSON-lines readers and relay readers currently have no equivalent application limit and may buffer an unterminated line. SDK readers also differ. This is a v10 security limitation, not permission to send unbounded messages.
-
-vNext applies a 4,194,304-byte client-to-server UTF-8 message limit on every transport and a 16,777,216-byte server-to-client limit. The JSON-lines delimiter is excluded. A receiver closes on an oversized message or invalid UTF-8. WebSocket limits apply after reassembly, and an oversized WebSocket closes with code `1009`.
+WebSocket messages are limited to 4 MiB on inbound connections. Unix
+JSON-lines and relay mux uploads accept at most 16,777,216 UTF-8 payload bytes;
+the JSON-lines delimiter is excluded. Relay framing may split a line across
+carrier frames, but it does not raise this Unix ingress limit. Server-to-client
+remote session messages, including render attach and VT replay responses, may
+use the separate 33,554,432-byte budget. Receivers reject an oversized message
+before decoding or allocating its payload.
 
 ## Relay Stdio
 
@@ -344,7 +353,7 @@ GET /api/v1/events
 Optional query parameters mirror proposed `subscribe` filters:
 
 ```text
-GET /api/v1/events?events=bell,agent-state-changed&surfaces=1,a8f3k2
+GET /api/v1/events?events=bell,agent-changed&surfaces=1,a8f3k2
 ```
 
 Each event is sent as:
