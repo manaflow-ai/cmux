@@ -457,7 +457,7 @@ def fleet(busy=0, queued=0, age=2, **kwargs) -> dict:
 
 def owned_choice(snap, *, owned="1", machines=11, **kwargs):
     kwargs.setdefault("owned_slots", json.dumps({MINI: machines}))
-    # A compile-only run: admission beside the CLI pipe and remote daemon lanes.
+    # A compile-only run: admission beside the Claude wrapper and remote daemon lanes.
     kwargs.setdefault("jobs", 3)
     return choose(snap, pins=OWNED_PINS, owned=owned, **kwargs)
 
@@ -553,12 +553,12 @@ class OwnedPools(unittest.TestCase):
             # unknown run and one that took 2 minis.
             return pool.Routed(unknown=5) if len(windows) == 1 else pool.Routed(unknown=1, owned={MINI: 2})
 
-        choice = owned_choice(fleet(busy=0), live_owned={MINI: 6}, jobs=1, routed=routed)
-        # 6 idle - 2 taken - 1 replayed run * REPLAYED_RUN_JOBS(4) = 0 < 1: Blacksmith.
+        choice = owned_choice(fleet(busy=0), live_owned={MINI: 5}, jobs=1, routed=routed)
+        # 5 idle - 2 taken - 1 replayed run * REPLAYED_RUN_JOBS(3) = 0 < 1: Blacksmith.
         self.assertEqual(choice.runner, LARGE)
         self.assertEqual(windows[1], (NOW - dt.timedelta(minutes=pool.LIVE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"))
         windows.clear()
-        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 7}, jobs=1, routed=routed).runner, MINI)
+        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 6}, jobs=1, routed=routed).runner, MINI)
 
     def test_main_reads_the_runners_only_with_the_route_token(self):
         fresh = fleet(busy=11)
@@ -652,18 +652,19 @@ class OwnedPools(unittest.TestCase):
                         claude_wrapper="false", cli="false", remote_daemon="false")
             return pool.run_jobs(**{**base, **flags})
         self.assertEqual(jobs(), 1)
-        self.assertEqual(jobs(cli="true", remote_daemon="true"), 3)
+        self.assertEqual(jobs(cli="true", remote_daemon="true"), 2)
         self.assertEqual(jobs(unit_suite="true"), 1)
-        # A CLI change adds the pipe lane and cli-product-tests after admission.
-        self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 2)
-        self.assertEqual(jobs(unit_suite="true", cli="true"), 3)
+        # A CLI change adds cli-product-tests after admission, on its machine;
+        # admission itself runs the CLI smoke checks.
+        self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 1)
+        self.assertEqual(jobs(unit_suite="true", cli="true"), 2)
         # Full suite: seven shards, tests-build-and-lag and cli-product-tests after
-        # admission, beside the three side lanes.
+        # admission, beside the two side lanes.
         self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), pool.MAX_RUN_JOBS)
-        self.assertEqual(pool.MAX_RUN_JOBS, 12)
+        self.assertEqual(pool.MAX_RUN_JOBS, 11)
         # A CLI-only run still compiles, then tests the bundled CLI.
-        self.assertEqual(jobs(macos="false", cli="true"), 2)
-        self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 3)
+        self.assertEqual(jobs(macos="false", cli="true"), 1)
+        self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 2)
         self.assertEqual(jobs(macos="false"), 0)
 
     def test_committed_peaks_count_jobs_not_created_yet(self):
@@ -679,16 +680,18 @@ class OwnedPools(unittest.TestCase):
 
     def test_replayed_runs_are_charged_a_compile_only_peak(self):
         # A run created since the snapshot has an unknown peak: any that could
-        # have taken the pool is assumed to, and charged REPLAYED_RUN_JOBS (4).
-        self.assertEqual(pool.REPLAYED_RUN_JOBS, 4)
-        # 11 machines: two newer runs take 8, leaving 3 for this 3-job run.
+        # have taken the pool is assumed to, and charged REPLAYED_RUN_JOBS (3).
+        self.assertEqual(pool.REPLAYED_RUN_JOBS, 3)
+        # 11 machines: three newer runs take 9, leaving 2, too few for this
+        # 3-job run; two newer runs leave 5.
+        self.assertEqual(owned_choice(fleet(), routed=3).runner, LARGE)
         self.assertEqual(owned_choice(fleet(), routed=2).runner, MINI)
-        self.assertEqual(owned_choice(fleet(), routed=2, jobs=4).runner, LARGE)
+        self.assertEqual(owned_choice(fleet(), routed=2, jobs=6).runner, LARGE)
         self.assertEqual(owned_choice(fleet(busy=10), routed=1).runner, LARGE)
 
     def test_newer_runs_with_known_routes_are_charged_what_they_took(self):
         # 5 machines, 5 newer runs. Guessed, the first two replays would close
-        # the pool (4 each); known, only the one on the minis counts, at its peak.
+        # the pool (3 each); known, only the one on the minis counts, at its peak.
         guessed = owned_choice(fleet(), machines=5, jobs=1, routed=5)
         self.assertEqual(guessed.runner, LARGE)
         known = pool.Routed(owned={MINI: 3}, ephemeral=4)
@@ -698,7 +701,7 @@ class OwnedPools(unittest.TestCase):
         self.assertIn(f"3 machine(s) newer runs took on {MINI}", choice.reason)
         self.assertEqual(owned_choice(fleet(), machines=5, jobs=3, routed=known).runner, LARGE)
         # A run still picking is replayed as before, on top of what is known.
-        self.assertEqual(owned_choice(fleet(), machines=5, jobs=1,
+        self.assertEqual(owned_choice(fleet(), machines=5, jobs=2,
                                       routed=pool.Routed(unknown=1, owned={MINI: 1})).runner, LARGE)
 
     def test_runs_off_the_owned_pools_still_queue_on_blacksmith(self):
@@ -896,13 +899,15 @@ class PerJobPlacement(unittest.TestCase):
         plan = routing(**FULL)
         self.assertTrue(plan.admission)
         self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
-        self.assertEqual(plan.side, ("claude-wrapper", "cli-pipe", "remote-daemon"))
+        self.assertEqual(plan.side, ("claude-wrapper", "remote-daemon"))
         self.assertEqual(plan.peak, pool.MAX_RUN_JOBS)
         # The unit-ci label runs all seven shards; selected suites one worker, shard 8.
         self.assertEqual(routing(unit_suite="true").after, tuple(f"shard-{index}" for index in range(1, 8)))
         self.assertEqual(routing(unit_suite="true", unit_selectors="Suite").after, ("shard-8",))
         self.assertEqual(routing(unit_suite="true", unit_in_admission="true", unit_selectors="Suite").after, ())
-        self.assertEqual(routing(macos="false", cli="true").side, ("cli-pipe",))
+        # A CLI-only run compiles, then runs cli-product-tests; nothing beside it.
+        cli_only = routing(macos="false", cli="true")
+        self.assertEqual((cli_only.admission, cli_only.after, cli_only.side), (True, ("cli-product",), ()))
 
     def test_admission_then_gui_jobs_then_light_jobs(self):
         plan = routing(**FULL)
@@ -912,19 +917,19 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual(pool.place(plan, 1), (("admission", "shard-1"), 1))
         self.assertEqual(pool.place(plan, 3), (("admission", "shard-1", "shard-2", "shard-3"), 3))
         self.assertEqual(pool.place(plan, 9), (("admission", *shards, "lag", "cli-product"), 9))
-        self.assertEqual(pool.place(plan, 12), (("admission", *shards, "lag", "cli-product", "cli-pipe",
-                                                 "remote-daemon", "claude-wrapper"), 12))
-        self.assertEqual(pool.owned_peak(plan), 12)
+        self.assertEqual(pool.place(plan, 11), (("admission", *shards, "lag", "cli-product",
+                                                 "remote-daemon", "claude-wrapper"), 11))
+        self.assertEqual(pool.owned_peak(plan), 11)
         self.assertEqual(pool.place(routing(unit_suite="true", unit_selectors="Suite"), 1),
                          (("admission", "shard-8"), 1))
 
     def test_gui_jobs_stay_off_when_switched_off(self):
         plan = routing(**FULL)
         self.assertEqual(pool.place(plan, 1, gui=False), (("admission", "cli-product"), 1))
-        self.assertEqual(pool.place(plan, 2, gui=False), (("admission", "cli-product", "cli-pipe"), 2))
-        everything = ("admission", "cli-product", "cli-pipe", "remote-daemon", "claude-wrapper")
-        self.assertEqual(pool.place(plan, 12, gui=False), (everything, 4))
-        self.assertEqual(pool.owned_peak(plan, gui=False), 4)
+        self.assertEqual(pool.place(plan, 2, gui=False), (("admission", "cli-product", "remote-daemon"), 2))
+        everything = ("admission", "cli-product", "remote-daemon", "claude-wrapper")
+        self.assertEqual(pool.place(plan, 12, gui=False), (everything, 3))
+        self.assertEqual(pool.owned_peak(plan, gui=False), 3)
         # A run without admission places its side lanes alone.
         self.assertEqual(pool.place(routing(macos="false", remote_daemon="true"), 1), (("remote-daemon",), 1))
 
@@ -983,20 +988,20 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual(partial["owned_jobs"], " admission shard-1 shard-2 shard-3 ")
         # The marker (and so the janitor) counts the owned machines placed.
         self.assertEqual(partial["jobs"], "3")
-        # 11 machines for a 12-machine run: the last light job overflows.
-        most = self.output(busy=0, **full)
-        self.assertEqual(most["owned_jobs"].split()[-3:], ["cli-product", "cli-pipe", "remote-daemon"])
-        self.assertEqual(most["jobs"], "11")
+        # 10 free machines for an 11-machine run: the last light job overflows.
+        most = self.output(busy=1, **full)
+        self.assertEqual(most["owned_jobs"].split()[-3:], ["lag", "cli-product", "remote-daemon"])
+        self.assertEqual(most["jobs"], "10")
         # GUI jobs off: only admission and the light jobs.
         light = self.output(busy=9, gui="0", **full)
-        self.assertEqual((light["owned_jobs"], light["jobs"]), (" admission cli-product cli-pipe ", "2"))
+        self.assertEqual((light["owned_jobs"], light["jobs"]), (" admission cli-product remote-daemon ", "2"))
         # Selected suites a compile admission would run itself move to shard 8.
         suites = self.output(busy=0, RUN_UNIT_SUITE="true", RUN_UNIT_IN_ADMISSION="true",
                              RUN_UNIT_SELECTORS="cmuxTests/SomeSuite")
         self.assertEqual(suites["owned_jobs"], " admission shard-8 ")
         # Split off: the whole-run rule over the owned-eligible jobs only.
-        self.assertEqual(self.output(busy=7, split="", gui="0", **full)["runner"], MINI)
-        off = self.output(busy=8, split="", gui="0", **full)
+        self.assertEqual(self.output(busy=8, split="", gui="0", **full)["runner"], MINI)
+        off = self.output(busy=9, split="", gui="0", **full)
         self.assertEqual((off["runner"], off["owned_jobs"]), (LARGE, ""))
 
 
@@ -1045,7 +1050,6 @@ class Wiring(unittest.TestCase):
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key.
             "ci-macos.yml": {retry_lane("' admission '"), retry_lane("' lag '")},
-            "cli-pipe-regressions.yml": {retry_lane("' cli-pipe '")},
             "remote-daemon.yml": {retry_lane("' remote-daemon '")},
         }
         for name, lane in expected.items():
@@ -1073,13 +1077,11 @@ class Wiring(unittest.TestCase):
         xcode = "${{ needs.changes.outputs.macos_pr_xcode_app }}"
         self.assertEqual(jobs["macos"]["with"]["pr_runner"], runner)
         self.assertEqual(jobs["macos"]["with"]["pr_xcode_app"], xcode)
-        self.assertEqual(jobs["cli"]["with"]["pr_runner"], runner)
-        self.assertEqual(jobs["cli"]["with"]["pr_xcode_app"], xcode)
         self.assertEqual(jobs["remote-daemon"]["with"]["pr_runner"], runner)
         retry = "${{ needs.changes.outputs.macos_pr_retry_runner }}"
-        for name in ("macos", "cli", "remote-daemon"):
+        for name in ("macos", "remote-daemon"):
             self.assertEqual(jobs[name]["with"]["pr_retry_runner"], retry, name)
-        for name in ("macos", "cli", "remote-daemon", "claude-wrapper"):
+        for name in ("macos", "remote-daemon", "claude-wrapper"):
             needs = jobs[name]["needs"]
             self.assertIn("changes", [needs] if isinstance(needs, str) else needs, name)
 
@@ -1087,17 +1089,13 @@ class Wiring(unittest.TestCase):
         # A fork pull request never reads the lane's pin (see
         # tests/test_ci_fork_runner_routing.py); main's dispatch still does.
         same = "github.event.pull_request.head.repo.full_name == github.repository"
-        lane = f"(inputs.pr_xcode_app || {same} && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)"
         dispatch_lane = (f"(inputs.pr_xcode_app || (github.event_name != 'pull_request' || {same}) "
                          "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)")
-        pin = f"${{{{ github.event_name == 'pull_request' && {lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}"
         main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
                          f"&& github.ref == 'refs/heads/main') && {dispatch_lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
         macos = self.workflow("ci-macos.yml")["jobs"]
         for job in ("macos-compile-admission", "tests-build-and-lag"):
             self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], main_dispatch, job)
-        cli = self.workflow("cli-pipe-regressions.yml")["jobs"]["cli-pipe-regressions"]
-        self.assertEqual(cli["env"]["CMUX_CI_XCODE_APP"], pin)
 
     def test_build_input_fingerprint_keys_on_the_chosen_xcode(self):
         # A run moved to the macOS 15 pool compiles under another Xcode, so it
@@ -1114,7 +1112,6 @@ class Wiring(unittest.TestCase):
 
     def test_reusable_inputs_default_to_todays_route(self):
         for name, keys in (("ci-macos.yml", ("pr_runner", "pr_retry_runner", "pr_xcode_app")),
-                           ("cli-pipe-regressions.yml", ("pr_runner", "pr_retry_runner", "pr_xcode_app")),
                            ("remote-daemon.yml", ("pr_runner", "pr_retry_runner"))):
             # PyYAML reads the `on:` key as True.
             inputs = self.workflow(name)[True]["workflow_call"]["inputs"]
