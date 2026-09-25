@@ -31,7 +31,7 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
         case .identityUnproven:
             return String(localized: "devices.link.error.identityUnproven", defaultValue: "This Mac did not confirm it is signed into your account.")
         case .identityMismatch:
-            return String(localized: "devices.link.error.identityMismatch", defaultValue: "A different Mac answered at this address. Pair it again from Settings \u{203A} Computers.")
+            return String(localized: "devices.link.error.identityMismatch", defaultValue: "A different Mac answered at this address. Pair it again from Settings › Computers.")
         }
     }
 }
@@ -58,7 +58,7 @@ final class DeviceLink {
     let instance: SurfaceDeviceInstanceID
     private(set) var record: DeviceDirectoryRecord
     private(set) var phase: Phase = .idle
-    private(set) var lastFailure: String?
+    private(set) var lastFailure: DeviceLinkFailure?
     /// The device is online and this account's, but the pairing store holds no
     /// grant for any of its routes; the row says so instead of dialing.
     private(set) var needsAuthorization = false
@@ -75,6 +75,7 @@ final class DeviceLink {
     private let authorization: any DeviceLinkAuthorizationSource
     private let routeSelector: DeviceRouteSelector
     private let clock: any Clock<Duration>
+    private let diagnostics: DeviceLinkDiagnostics?
     private var policy = DeviceLinkReconnectPolicy()
     private var client: MobileCoreRPCClient?
     private var connectTask: Task<Void, Never>?
@@ -89,7 +90,8 @@ final class DeviceLink {
         runtime: DeviceLinkRuntime,
         authorization: any DeviceLinkAuthorizationSource,
         routeSelector: DeviceRouteSelector? = nil,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        diagnostics: DeviceLinkDiagnostics? = nil
     ) {
         instance = record.instance
         self.record = record
@@ -97,6 +99,7 @@ final class DeviceLink {
         self.authorization = authorization
         self.routeSelector = routeSelector ?? runtime.routeSelector
         self.clock = clock
+        self.diagnostics = diagnostics
     }
 
     var isConnected: Bool { phase == .connected }
@@ -120,6 +123,15 @@ final class DeviceLink {
         if phase == .connected { scheduleFetch() }
     }
 
+    /// The control plane issued a new directory revision. A host's refusal
+    /// was its reading of the previous revision, so this is the one signal
+    /// that retries it; identity and route blocks wait for a refresh or a
+    /// pairing change.
+    func directoryRevisionAdvanced() {
+        transition(applyPolicy(.directoryRevisionAdvanced))
+        onChange?()
+    }
+
     func stop() {
         transition(applyPolicy(.stopped))
         mirror.reset()
@@ -129,7 +141,7 @@ final class DeviceLink {
     /// A session or mutation saw the transport fail; reconnect from a fresh dial.
     func reportTransportLost(_ error: any Error) {
         deviceLinkLog.error("device link lost \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
-        lastFailure = Self.classify(error).reason
+        lastFailure = DeviceLinkFailure.classify(error, hostName: record.deviceName)
         transition(applyPolicy(.transportLost))
         onChange?()
     }
@@ -141,9 +153,15 @@ final class DeviceLink {
     private func reevaluate(unblock: Bool) {
         var granted = false
         var needsAuthorization = false
+        var precondition: DeviceLinkFailure?
         do {
-            _ = try selectRoute()
+            let selection = try selectRoute()
             granted = true
+            // The directory already says whether the Devices service can have
+            // told the host to admit this Mac; a dial cannot change that answer.
+            if selection.route.kind == .iroh, record.controlPlaneSupport == .outdated {
+                precondition = .controlPlaneOutdated()
+            }
         } catch DeviceRouteSelector.SelectionError.needsAuthorization {
             needsAuthorization = true
         } catch {
@@ -153,7 +171,13 @@ final class DeviceLink {
         if unblock, case .blocked = phase {
             policy = DeviceLinkReconnectPolicy()
         }
-        transition(applyPolicy(.directory(dialable: record.isDialable && granted)))
+        if let precondition {
+            lastFailure = precondition
+        } else if lastFailure?.kind == .controlPlaneOutdated {
+            // The directory now names the rule; the next dial starts clean.
+            lastFailure = nil
+        }
+        transition(applyPolicy(.directory(dialable: record.isDialable && granted, precondition: precondition)))
         onChange?()
     }
 
@@ -205,6 +229,7 @@ final class DeviceLink {
         let previous = phase
         phase = next
         deviceLinkLog.info("device link \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: previous), privacy: .private) -> \(String(describing: next), privacy: .private)")
+        diagnostics?.record(phase: next, failure: lastFailure, instance: instance, deviceName: record.deviceName)
         switch next {
         case .connecting(let attempt):
             tearDownClient(notify: previous == .connected)
@@ -266,10 +291,10 @@ final class DeviceLink {
                 return
             } catch {
                 guard !Task.isCancelled, generation == self.generation else { return }
-                let classified = Self.classify(error)
-                self.lastFailure = classified.reason
-                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.reason, privacy: .private)")
-                self.transition(self.applyPolicy(.connectFailed(retryable: classified.retryable, reason: classified.reason)))
+                let classified = DeviceLinkFailure.classify(error, hostName: record.deviceName)
+                self.lastFailure = classified
+                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.code, privacy: .public)")
+                self.transition(self.applyPolicy(.connectFailed(classified)))
                 self.onChange?()
             }
         }
@@ -333,40 +358,6 @@ final class DeviceLink {
             await client.disconnect()
             throw error
         }
-    }
-
-    private static func classify(_ error: any Error) -> (retryable: Bool, reason: String) {
-        if let error = error as? DeviceRouteSelector.SelectionError {
-            switch error {
-            case .noRoutes:
-                return (false, String(localized: "devices.link.error.noRoutes", defaultValue: "This Mac has not published a route yet."))
-            case .needsAuthorization:
-                return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
-            case .noDialableRoute:
-                return (false, String(localized: "devices.link.error.noDialableRoute", defaultValue: "This Mac has no supported connection route. Update cmux on both Macs and try again."))
-            }
-        }
-        if let error = error as? DeviceLinkError {
-            switch error {
-            case .identityUnproven, .identityMismatch:
-                return (false, error.errorDescription ?? String(describing: error))
-            case .blocked(let reason):
-                return (false, reason)
-            case .notConnected, .hostRejected, .malformedResponse:
-                return (true, error.errorDescription ?? String(describing: error))
-            }
-        }
-        if let error = error as? MobileShellConnectionError {
-            switch error {
-            case .accountMismatch, .authorizationFailed:
-                return (false, DeviceLinkError.identityUnproven.localizedDescription)
-            case .insecureManualRoute:
-                return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
-            default:
-                break
-            }
-        }
-        return (true, String(localized: "devices.link.error.connectionFailed", defaultValue: "Could not connect to this Mac. Check that it is online and try again."))
     }
 
     // MARK: - Sync and events

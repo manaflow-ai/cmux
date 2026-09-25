@@ -38,6 +38,9 @@ final class DeviceDirectory {
     private(set) var registryError: String?
     private(set) var hasLoadedRegistry = false
     private(set) var isRefreshingRegistry = false
+    /// The revision of the v2 directory the last registry read observed; the
+    /// provider registry retries host refusals when it advances.
+    private(set) var directoryStamp: DeviceDirectoryStamp?
 
     /// Notifications describe the whole UI snapshot, not only its rows. A
     /// status transition is observable even when the directory stays empty.
@@ -47,6 +50,7 @@ final class DeviceDirectory {
         let registryError: String?
         let hasLoadedRegistry: Bool
         let isRefreshingRegistry: Bool
+        let directoryStamp: DeviceDirectoryStamp?
     }
 
     private var lastPublishedState: PublishedState?
@@ -161,6 +165,7 @@ final class DeviceDirectory {
         records = []
         hasLoadedRegistry = false
         registryError = nil
+        directoryStamp = nil
         notifyChanged()
     }
 
@@ -199,8 +204,10 @@ final class DeviceDirectory {
             if let automaticClient = self.automaticClient {
                 do {
                     let bindings = try await automaticClient.discoverMacs()
+                    let stamp = await automaticClient.directoryStamp()
                     guard !Task.isCancelled else { return }
                     self.authenticatedMacs = bindings
+                    self.directoryStamp = stamp
                     self.registryError = nil
                 } catch {
                     guard !Task.isCancelled else { return }
@@ -341,7 +348,8 @@ final class DeviceDirectory {
             presenceState: presenceState,
             registryError: registryError,
             hasLoadedRegistry: hasLoadedRegistry,
-            isRefreshingRegistry: isRefreshingRegistry
+            isRefreshingRegistry: isRefreshingRegistry,
+            directoryStamp: directoryStamp
         )
         guard state != lastPublishedState else { return }
         lastPublishedState = state

@@ -54,7 +54,8 @@ An owned Mac pool (``glaeda-<class>-xcode-<version>``) is one more pool
 here: stale pull request runs (b) on it are cancelled whatever its queue,
 which frees minis, and the other categories only while it is backed up. With
 CI_PR_POOL_OWNED on, the snapshot also carries each owned pool's
-``committed`` machines: the peak each run holding it declared in its
+``committed`` machines: the owned machines each run holding it declared at
+its peak (the jobs it placed there, not the whole run) in its
 ``macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>`` marker, read with one
 artifact listing per run that may hold one.
 
@@ -371,15 +372,20 @@ def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int
 def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI can (a retry
-    never takes one). Its other macOS jobs say nothing: swift-package-tests
-    always runs on a Blacksmith pool beside a run on an owned one.
+    Only attempt 1 of a same-repository pull request run of CI, or of an E2E
+    dispatch (test-e2e.yml's runner job uploads the same marker), can (a
+    retry never takes one). Its other macOS jobs say nothing:
+    swift-package-tests always runs on a Blacksmith pool beside a run on an
+    owned one.
     """
-    if run.get("event") != "pull_request" or (run.get("run_attempt") or 1) != 1:
+    if (run.get("run_attempt") or 1) != 1:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
-    return str(run.get("path") or "").endswith("/ci.yml")
+    path = str(run.get("path") or "")
+    if run.get("event") == "workflow_dispatch":
+        return path.endswith("/test-e2e.yml")
+    return run.get("event") == "pull_request" and path.endswith("/ci.yml")
 
 
 def pool_load_snapshot(
@@ -419,7 +425,15 @@ def pool_load_snapshot(
                     POOL_QUEUED_JOB_STATUSES | RUNNING_JOB_STATUSES):
                 seen[runner_pool(job)] = seen.get(runner_pool(job), 0) + 1
         marker = (markers or {}).get(run.get("id"))
-        if marker and run.get("status") != "completed":
+        # A run whose owned jobs all finished holds no owned machine, even while
+        # its Blacksmith jobs (per-job placement) keep it in flight. Shard jobs
+        # exist only after admission finishes, so the marker keeps reserving its
+        # peak until that many owned jobs have completed.
+        owned_jobs = [job for job in jobs_by_run.get(run.get("id"), ()) if is_macos_job(job) and owned_label(job)]
+        done = sum(1 for job in owned_jobs if job.get("status") == "completed")
+        released = (bool(owned_jobs) and done == len(owned_jobs)
+                    and (not marker or done >= marker[1]))
+        if marker and run.get("status") != "completed" and not released:
             seen[marker[0]] = max(seen.get(marker[0], 0), marker[1])
         for label, count in seen.items():
             committed[label] = committed.get(label, 0) + count

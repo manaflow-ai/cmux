@@ -1156,10 +1156,7 @@ final class WindowTerminalPortal: NSObject {
                     shouldFlushLatestNow = self.pendingExternalGeometrySyncRequiresImmediate
                 }
                 if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.hostView.inLiveResize
-                }
-                if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.window?.inLiveResize == true
+                    shouldFlushLatestNow = self.isWindowLiveResizeActive
                 }
                 if !shouldFlushLatestNow {
                     shouldFlushLatestNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
@@ -1193,11 +1190,11 @@ final class WindowTerminalPortal: NSObject {
             if !shouldPerformNow {
                 shouldPerformNow = self.pendingExternalGeometrySyncRequiresImmediate
             }
+            // Same live-resize predicate as the anchor callback that queued
+            // this pass, so a live resize flushes on this hop instead of
+            // trailing the window edge by another runloop turn.
             if !shouldPerformNow {
-                shouldPerformNow = self.hostView.inLiveResize
-            }
-            if !shouldPerformNow {
-                shouldPerformNow = self.window?.inLiveResize == true
+                shouldPerformNow = self.isWindowLiveResizeActive
             }
             if !shouldPerformNow {
                 shouldPerformNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
@@ -3121,6 +3118,22 @@ enum TerminalWindowPortalRegistry {
 
     static func endInteractiveGeometryResize(in window: NSWindow?) {
         endInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
+    }
+    /// The window of the pointer event AppKit is dispatching, for scoping a
+    /// divider drag. `NSApp.currentEvent` keeps the last event AppKit
+    /// dequeued, which can be an unrelated `appKitDefined` event from another
+    /// window, so only mouse events count; callers fall back to the window
+    /// that hosts their terminals.
+    static func pointerEventWindow() -> NSWindow? {
+        guard let event = NSApp.currentEvent else { return nil }
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp,
+             .rightMouseDown, .rightMouseDragged, .rightMouseUp,
+             .otherMouseDown, .otherMouseDragged, .otherMouseUp:
+            return event.window
+        default:
+            return nil
+        }
     }
     static func beginInteractiveGeometryResize(owner: AnyObject, in window: NSWindow?) {
         let ownerId = ObjectIdentifier(owner)

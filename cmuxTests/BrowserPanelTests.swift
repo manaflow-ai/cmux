@@ -3366,8 +3366,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let portal = WindowBrowserPortal(window: window)
         defer { portal.tearDown() }
-        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
+        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let dockContext = BrowserPaneDropContext(
             workspaceId: UUID(),
             panelId: UUID(),
@@ -3582,7 +3582,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -3688,7 +3688,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor1)
         contentView.addSubview(anchor2)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor1, visibleInUI: true)
         let firstSuperview = webView.superview
 
@@ -3731,7 +3731,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3770,7 +3770,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: -30, y: 0, width: 220, height: 120))
         clipView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         clipView.layoutSubtreeIfNeeded()
@@ -3806,7 +3806,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 20, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3829,7 +3829,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     func testPortalSlotPinPreservesSideDockedInspectorManagedWebViewFrameOnRehost() {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let inspectorContainer = NSView(frame: NSRect(x: 132, y: 0, width: 108, height: 160))
         let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
         inspectorView.autoresizingMask = [.width, .height]
@@ -3872,7 +3872,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4074,7 +4074,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4189,7 +4189,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4258,7 +4258,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4289,7 +4289,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4561,7 +4561,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         XCTAssertNotNil(webView.superview)
@@ -4586,7 +4586,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)

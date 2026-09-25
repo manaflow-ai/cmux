@@ -7,6 +7,7 @@ import os
 import json
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,6 +87,18 @@ class CanonicalFingerprintTests(unittest.TestCase):
         ):
             with self.subTest(workspace=workspace, derived=derived):
                 self.assertNotEqual(self._fp(workspace, derived, root=root), canonical)
+
+    def test_a_second_compile_slot_gets_keys_of_its_own(self):
+        # An owned Mac's second compile slot builds at /private/tmp/cmux-ci-2:
+        # different absolute paths in every entry, so it must never adopt a
+        # seed or compilation cache keyed for the first slot's root.
+        first, second = "/private/tmp/cmux-ci", "/private/tmp/cmux-ci-2"
+        self.assertNotEqual(
+            self._fp(f"{first}/src", f"{first}/derived-data-compile-admission", root=first),
+            self._fp(f"{second}/src", f"{second}/derived-data-compile-admission", root=second))
+        # The default root adds no line, so every existing key is unchanged.
+        text = SCRIPT.read_text()
+        self.assertIn('if [ "$CANONICAL_BUILD_ROOT" != /private/tmp/cmux-ci ]; then', text)
 
     def test_purposes_stay_separate_under_the_canonical_root(self):
         # Two purposes are two directories, so their entries cannot hit each
@@ -270,17 +283,23 @@ class CanonicalRecipeTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in calls.read_text().splitlines()]
-            # Derive the expected calls from the recipe rather than pinning a
-            # count: one version probe, one resolve, then one build per scheme.
+            # Derive the expected builds from the recipe rather than pinning a
+            # count: version probes, one resolve, then one build per scheme.
             # A hardcoded total silently breaks whenever a scheme is added --
-            # cmux-cli-tests did exactly that.
-            schemes = re.findall(
-                r"for scheme in ([^;]+); do",
-                SCRIPT.read_text(encoding="utf-8"),
-            )
-            self.assertEqual(len(schemes), 1, "expected one scheme loop in the recipe")
-            expected_schemes = schemes[0].split()
-            self.assertEqual(len(records), 2 + len(expected_schemes))
+            # cmux-cli-tests did exactly that. The recipe now takes its scheme
+            # list from PRODUCT_PROFILES, so read the same source it does.
+            sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+            import product_input_identity as identity
+
+            expected_schemes = list(identity.profile_schemes("app-host"))
+            # Version probes are not pinned either: the build step reads the
+            # Xcode version too, to decide the compilation cache (#14359).
+            # Every other call is the one resolve or a scheme build.
+            probes = [args for _cwd, args in records if args == ["-version"]]
+            resolves = [args for _cwd, args in records if "-resolvePackageDependencies" in args]
+            self.assertGreaterEqual(len(probes), 1)
+            self.assertEqual(len(resolves), 1)
+            self.assertEqual(len(records), len(probes) + len(resolves) + len(expected_schemes))
             # resolve() also passes -scheme (cmux-unit) alongside
             # -resolvePackageDependencies; only the build invocations count.
             built = [
