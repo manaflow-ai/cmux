@@ -485,14 +485,12 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
-    // identity on the platform instance id, rotating auth/connection state on
-    // a clone while preserving the warm journal, and holds the daemon on the builder.
-    expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
+    // identity on the platform instance id and holds the daemon on the
+    // builder. The park wiped every identity file, so a clone's daemon
+    // creates them fresh; the supervisor deletes nothing on a clone.
     expect(devboxBoot).toContain("/latest/meta-data/instance-id");
     expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
     expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
-    expect(devboxBoot).toContain('find "$REMOTE_STATE_DIR/sessions"');
-    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR/connections"');
     // The supervisor owns the daemon as a background child so it can stop a
     // daemon that belongs to another machine (a clone of a live machine).
     expect(devboxBoot).toContain("daemon_pid=$!");
