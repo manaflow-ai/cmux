@@ -8,8 +8,13 @@ extension CMUXCLI {
         inputTurnID: String?
     ) -> Bool {
         guard mapped?.runtimeStatus == .needsInput else { return false }
-        let normalizedInput = inputTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 }
+        let normalizedInput: String?
+        if let inputTurnID {
+            let value = inputTurnID.trimmingCharacters(in: .whitespacesAndNewlines)
+            normalizedInput = value.isEmpty ? nil : value
+        } else {
+            normalizedInput = nil
+        }
         if let normalizedInput {
             let activeTurnIDs = mapped?.activePromptTurnIds?.compactMap { value in
                 let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
