@@ -358,6 +358,17 @@ def steps(workflow, job):
     return load(workflow)["jobs"][job]["steps"]
 
 
+def seed_pools():
+    """The pool expressions that seed, in order: the decide step's SEED_POOL_n.
+
+    The seed job's matrix is the subset of these decide finds without a seed
+    for the push's build inputs (seed_decide.py).
+    """
+    decide = load("seed-derived-data.yml")["jobs"]["decide"]["steps"]
+    env = next(step for step in decide if step.get("id") == "inputs")["env"]
+    return [env[f"SEED_POOL_{index}"] for index in (1, 2, 3)]
+
+
 def named(step_list, name):
     matches = [index for index, step in enumerate(step_list) if step.get("name") == name]
     assert len(matches) == 1, name
@@ -581,7 +592,12 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        self.assertIn(nightly["runs-on"], job["strategy"]["matrix"]["pool"])
+        # Every nightly cold seed lands on a pool the per-push seeder uses, on
+        # the same Xcode, and the macOS 15 pool gets one too.
+        self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
+        self.assertLessEqual(set(nightly["strategy"]["matrix"]["pool"]), set(seed_pools()))
+        self.assertEqual(nightly["strategy"]["matrix"]["pool"][-1], seed_pools()[-1])
+        self.assertEqual(nightly["env"]["CMUX_CI_XCODE_APP"], job["env"]["CMUX_CI_XCODE_APP"])
         # On the lane's pools the seeder uses the nightly's Xcode.
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         context["matrix"] = {"pool": "blacksmith-6vcpu-macos-26"}
@@ -601,7 +617,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["runs-on"], "${{ matrix.pool }}")
         self.assertIs(job["strategy"]["fail-fast"], False)
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
-        pools = {evaluate(pool, context) for pool in job["strategy"]["matrix"]["pool"]}
+        pools = {evaluate(pool, context) for pool in seed_pools()}
         # macOS 15 too: pull requests overflow there, on its own Xcode.
         self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
                                  "blacksmith-6vcpu-macos-15"})
@@ -635,7 +651,7 @@ class Wiring(unittest.TestCase):
         # another image or Xcode.
         # The 12 vCPU pool comes first: it starts in seconds, and the first
         # entry alone publishes the app-host product.
-        runs_on, own, _ = load("seed-derived-data.yml")["jobs"]["seed"]["strategy"]["matrix"]["pool"]
+        runs_on, own, _ = seed_pools()
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
         self.assertIn(larger, runs_on)
@@ -651,7 +667,7 @@ class Wiring(unittest.TestCase):
         import pr_runner_pool
 
         job = load("seed-derived-data.yml")["jobs"]["seed"]
-        *_, overflow = job["strategy"]["matrix"]["pool"]
+        *_, overflow = seed_pools()
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pool = evaluate(overflow, context)
         self.assertEqual(pool, pr_runner_pool.MACOS_15_RUNNER)
@@ -659,7 +675,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-15.app")
         self.assertEqual(pr_runner_pool.POOLS[pool], "CMUX_CI_XCODE_APP_MACOS_15")
         # Only the first entry publishes the product, never this one.
-        self.assertNotEqual(job["strategy"]["matrix"]["pool"][0], overflow)
+        self.assertNotEqual(seed_pools()[0], overflow)
 
     def test_main_push_publishes_the_product_admission_would_compile(self):
         """Pull requests adopt this product in place of compiling, so it has to
@@ -809,7 +825,7 @@ class Wiring(unittest.TestCase):
                 context = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
                 for name in unset:
                     context["vars"].pop(name)
-                pools = [evaluate(pool, context) for pool in seeder["strategy"]["matrix"]["pool"]]
+                pools = [evaluate(pool, context) for pool in seed_pools()]
                 self.assertIn(evaluate(admission["runs-on"], context), pools)
                 self.assertEqual(
                     evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
