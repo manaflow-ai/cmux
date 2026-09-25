@@ -14,6 +14,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/test-e2e.yml').read_text())
 JOBS = {name: spec['steps'] for name, spec in WORKFLOW['jobs'].items() if 'steps' in spec}
+# The test steps live in a composite action that the build job runs, or the
+# fallback test job when the build job did not. Treat it as a job of its own.
+TESTS = 'e2e-run-tests'
+JOBS[TESTS] = yaml.safe_load((ROOT / '.github/actions/e2e-run-tests/action.yml').read_text())['runs']['steps']
 
 
 def step(name, job=None):
@@ -84,7 +88,7 @@ class E2ECompilationCache(unittest.TestCase):
         # longer depends on which target was selected, and its xcodebuild
         # invocation must not compile anything.
         values = self.prepare()
-        script = step('Run selected tests', 'test')['run']
+        script = step('Run selected tests', TESTS)['run']
         start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
         end = script.index('\nset +e', start)
         construction = script[start:end]
@@ -113,7 +117,7 @@ class E2ECompilationCache(unittest.TestCase):
 
     def test_a_missing_manifest_fails_instead_of_silently_compiling(self):
         values = self.prepare()
-        script = step('Run selected tests', 'test')['run']
+        script = step('Run selected tests', TESTS)['run']
         start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
         end = script.index('\nset +e', start)
         result = subprocess.run(['bash', '-eu', '-c',
@@ -153,13 +157,13 @@ exit 97
         self.assertIn('Skipping zig CLI helper build', result.stdout)
 
     def test_one_build_serves_the_test_job_and_every_retry(self):
-        # The whole point of the split: compilation happens in `build`, once,
-        # and `test` consumes that exact artifact. A rerun of a failed `test`
-        # job re-downloads the product instead of recompiling it.
+        # Compilation happens in `build`, once, and the tests consume that
+        # exact archive: the build job restores what it packaged, and the
+        # fallback `test` job downloads it. Neither compiles.
         build = JOBS['build']
         compiles = [s for s in build if 'compile-app-host-test-product.sh canonical-build' in (s.get('run') or '')]
         self.assertEqual(len(compiles), 1, 'build must compile exactly once')
-        for job in ('test',):
+        for job in ('test', TESTS):
             for entry in JOBS[job]:
                 run = entry.get('run') or ''
                 self.assertNotIn('compile-app-host-test-product.sh', run, entry.get('name'))
@@ -175,6 +179,63 @@ exit 97
         self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
         self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
         self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'runner', 'build'])
+
+    def test_the_build_runner_runs_the_tests_so_a_run_queues_once(self):
+        # The test job queued again for a runner of the same label, which on
+        # saturated pools cost 10 to 60 minutes (2026-09-25). The build job
+        # now runs the tests after publishing the product, and the test job
+        # is only the fallback for a build that did not.
+        names = [entry.get('name') for entry in JOBS['build']]
+        here = step('Run the selected tests here', 'build')
+        self.assertEqual(here['id'], 'test-here')
+        self.assertEqual(WORKFLOW['jobs']['build']['outputs']['tested'],
+                         '${{ steps.test-here.outputs.tested }}')
+        self.assertNotIn('always()', here.get('if', ''))
+        run = step('Run selected tests', 'build')
+        self.assertEqual(run['uses'], './.e2e-workflow/.github/actions/e2e-run-tests')
+        self.assertEqual(run['if'], "${{ steps.test-here.outputs.tested == 'true' }}")
+        self.assertEqual(run['with']['product-from-producer'], 'true')
+        self.assertEqual(run['with']['sha256'], '${{ steps.package.outputs.sha256 }}')
+        self.assertEqual(run['with']['artifact-id'], '${{ steps.upload-product.outputs.artifact-id }}')
+        # Tests start after the product is published, so later dispatches can
+        # adopt it while they run, and after the canonical DerivedData is
+        # gone, since the tests restore into a DerivedData of their own.
+        for earlier in ('Upload the compiled test product', 'Save E2E compilation cache', 'Clean owned DerivedData'):
+            self.assertLess(names.index(earlier), names.index(here['name']), earlier)
+        self.assertLess(names.index(here['name']), names.index('Checkout the E2E test steps'))
+        self.assertLess(names.index('Checkout the E2E test steps'), names.index(run['name']))
+        self.assertEqual(
+            WORKFLOW['jobs']['test']['if'],
+            "${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.tested != 'true' }}")
+        # Both jobs take the steps from this workflow's revision, so a dispatch
+        # of a ref that predates the action still runs them.
+        for job in ('build', 'test'):
+            checkout = step('Checkout the E2E test steps', job)
+            self.assertEqual(checkout['with']['ref'], '${{ github.workflow_sha }}')
+            self.assertEqual(checkout['with']['path'], '.e2e-workflow')
+            self.assertEqual(checkout['with']['sparse-checkout'], '.github/actions/e2e-run-tests')
+        # The build job's budget covers compiling and testing.
+        self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
+                         '${{ fromJSON(needs.filter.outputs.build_timeout) }}')
+
+    def test_the_build_timeout_doubles_job_timeout(self):
+        script = WORKFLOW['jobs']['filter']['steps'][0]['run']
+        for value, expected in (('45', '90'), ('7', '14')):
+            with self.subTest(value=value):
+                (self.root / 'output').write_text('')
+                result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=self.workspace,
+                    env=dict(self.env, TEST_FILTER_INPUT='cmuxTests/Foo', RECORD_VIDEO_INPUT='false',
+                             RUNNER_LABEL='blacksmith-6vcpu-macos-26', JOB_TIMEOUT=value),
+                    text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'build_timeout={expected}', (self.root / 'output').read_text())
+        for value in ('', 'ten', '4.5'):
+            with self.subTest(value=value):
+                result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=self.workspace,
+                    env=dict(self.env, TEST_FILTER_INPUT='cmuxTests/Foo', RECORD_VIDEO_INPUT='false',
+                             RUNNER_LABEL='blacksmith-6vcpu-macos-26', JOB_TIMEOUT=value),
+                    text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
 
     def test_the_build_adopts_the_admission_seed_at_the_canonical_root(self):
         # The seed is only reusable at the paths it was built at, so the build
@@ -212,11 +273,13 @@ exit 97
     def test_the_test_job_verifies_the_product_before_using_it(self):
         # A transport is allowed to miss; it is not allowed to hand over
         # unverified bytes. The restore step checks the archive SHA-256 that
-        # the build job published, whichever transport delivered it.
-        restore = step('Restore the compiled test product', 'test')
-        self.assertEqual(restore['env']['EXPECTED_SHA256'], '${{ needs.build.outputs.sha256 }}')
-        self.assertEqual(restore['run'], 'scripts/ci/restore-app-host-test-product.sh')
+        # the build job published, whichever transport delivered it, or the
+        # build job's own archive when it runs the tests itself.
+        restore = step('Restore the compiled test product', TESTS)
+        self.assertEqual(restore['env']['EXPECTED_SHA256'], '${{ inputs.sha256 }}')
+        self.assertTrue(restore['run'].rstrip().endswith('scripts/ci/restore-app-host-test-product.sh'))
         self.assertNotIn('continue-on-error', restore)
+        self.assertEqual(step('Run selected tests', 'test')['with']['sha256'], '${{ needs.build.outputs.sha256 }}')
 
         fast = step('Read the compiled test product over parallel range requests', 'test')
         self.assertIs(fast['continue-on-error'], True)
@@ -238,10 +301,24 @@ exit 97
         self.assertFalse(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
         self.assertFalse(Path(values['CMUX_E2E_COMPILATION_CACHE']).exists())
 
+    def test_the_test_steps_cleanup_after_the_build_cleanup_when_preparation_was_skipped(self):
+        # Run 36168944875: the screen-capture preflight failed, which skipped
+        # the tests' "Prepare isolated DerivedData", and their always()
+        # cleanup then refused the build's canonical path still in the env.
+        values = self.prepare()
+        (self.root / 'env').write_text('')
+        result = self.run_step('Clean owned DerivedData', 'build', **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        handed_over = dict(line.split('=', 1) for line in (self.root / 'env').read_text().splitlines())
+        self.assertEqual(handed_over.get('CMUX_DERIVED_DATA_PATH'), '')
+        result = self.run_step('Clean owned DerivedData', TESTS, **dict(values, **handed_over))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('nothing to clean', result.stdout)
+
     def prepare_test_job(self):
         for file in ('env', 'output'):
             (self.root / file).write_text('')
-        result = self.run_step('Prepare isolated DerivedData', 'test')
+        result = self.run_step('Prepare isolated DerivedData', TESTS)
         self.assertEqual(result.returncode, 0, result.stderr)
         return dict(line.split('=', 1) for file in ('env', 'output')
                     for line in (self.root / file).read_text().splitlines())
@@ -259,11 +336,11 @@ exit 97
         self.assertNotIn('CMUX_E2E_COMPILATION_CACHE', values)
         unrelated = self.root / 'keep'
         unrelated.mkdir()
-        rejected = self.run_step('Clean owned DerivedData', 'test',
+        rejected = self.run_step('Clean owned DerivedData', TESTS,
                                  **dict(values, CMUX_DERIVED_DATA_PATH=str(unrelated)))
         self.assertNotEqual(rejected.returncode, 0)
         self.assertTrue(unrelated.exists())
-        result = self.run_step('Clean owned DerivedData', 'test', **values)
+        result = self.run_step('Clean owned DerivedData', TESTS, **values)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(derived.exists())
 
@@ -427,7 +504,7 @@ else:
                 # timeout, before substituting an expensive setup side effect.
                 reached = root / 'dependency-setup'
                 command = ''
-                for entry in JOBS['test']:
+                for entry in JOBS[TESTS]:
                     if entry.get('name') == 'Verify screen capture before dependency setup':
                         timeout = '2' if mode == 'timeout' else '10'
                         command += entry['run'].rstrip() + ' --timeout-seconds ' + timeout + '\n'

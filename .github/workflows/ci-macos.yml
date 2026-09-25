@@ -1434,12 +1434,24 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
+          permission-organization-self-hosted-runners: read
+      # All or nothing: without the org permission granted, the repository one alone.
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
       - name: Place the jobs after admission
         id: place
         continue-on-error: true
         timeout-minutes: 1
         env:
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           MACOS: ${{ inputs.macos }}
           CLI: ${{ inputs.cli }}
           FULL_SUITE: ${{ inputs.full_suite }}
@@ -2917,6 +2929,7 @@ jobs:
             CmuxSudoBrokerUI
             CmuxTerminal
             CmuxTerminalCore
+            CmuxTerminalPrediction
             CmuxUpdater
             CmuxWorkspaces
             CMUXAgentLaunch
