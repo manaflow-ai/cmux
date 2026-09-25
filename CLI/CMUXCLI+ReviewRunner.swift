@@ -47,6 +47,7 @@ extension CMUXCLI {
 
         var discoveries: [ReviewDiscovery] = []
         var behavior: [String] = []
+        var seenBehavior: Set<String> = []
         var investigated = 0
         for role in ["correctness", "impact"] {
             let focus = role == "correctness"
@@ -60,7 +61,7 @@ extension CMUXCLI {
                   let changed = response["behavior_changed"] as? [String] else {
                 throw CLIError(message: CMUXDiffViewerLocalization.string("cli.review.error.invalidResponse", defaultValue: "The reviewer returned an invalid response."))
             }
-            for item in changed where !behavior.contains(item) { behavior.append(item) }
+            for item in changed where seenBehavior.insert(item).inserted { behavior.append(item) }
             investigated += findings.count
             for payload in findings {
                 let finding = try ReviewDiscovery(payload: payload, reviewer: role)

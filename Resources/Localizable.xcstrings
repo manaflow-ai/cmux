@@ -557314,55 +557314,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux review <subcommand> [options]\n\nReview a frozen diff; tools and repairs are disabled.\nRunning reviews requires a signed-in Codex CLI.\nModel claims still require executable verification.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nAll subcommands accept --repo <path> and --json.\nNo running cmux app or socket is required."
+            "value": "Usage: cmux review <subcommand> [options]\n\nReview a frozen diff; tools and repairs are disabled.\nRunning reviews requires a signed-in reviewer executable.\nModel claims still require executable verification.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nAll subcommands accept --repo <path> and --json.\nNo running cmux app or socket is required."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux review <subcommand> [options]\n\nPrüft einen eingefrorenen Diff; Werkzeuge und Reparaturen sind deaktiviert.\nFür Prüfungen ist eine angemeldete Codex CLI erforderlich.\nModellbehauptungen erfordern weiterhin eine ausführbare Überprüfung.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nAlle Unterbefehle akzeptieren --repo <path> und --json.\nEine laufende cmux-App oder ein Socket ist nicht erforderlich."
+            "value": "Verwendung: cmux review <subcommand> [options]\n\nPrüft einen eingefrorenen Diff; Werkzeuge und Reparaturen sind deaktiviert.\nFür Prüfungen ist eine angemeldete Prüferdatei erforderlich.\nModellbehauptungen erfordern weiterhin eine ausführbare Überprüfung.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nAlle Unterbefehle akzeptieren --repo <path> und --json.\nEine laufende cmux-App oder ein Socket ist nicht erforderlich."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux review <subcommand> [options]\n\nExamine un diff figé ; les outils et les corrections sont désactivés.\nLes revues nécessitent une CLI Codex connectée.\nLes affirmations du modèle nécessitent encore une vérification exécutable.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nTous les sous-commandes acceptent --repo <path> et --json.\nAucune application cmux en cours ni aucun socket ne sont requis."
+            "value": "Utilisation : cmux review <subcommand> [options]\n\nExamine un diff figé ; les outils et les corrections sont désactivés.\nLes revues nécessitent un exécutable de revue connecté.\nLes affirmations du modèle nécessitent encore une vérification exécutable.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nTous les sous-commandes acceptent --repo <path> et --json.\nAucune application cmux en cours ni aucun socket ne sont requis."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux review <subcommand> [options]\n\nمراجعة فرق ثابت؛ الأدوات والإصلاحات معطلة.\nتتطلب المراجعات تسجيل الدخول إلى Codex CLI.\nلا تزال ادعاءات النموذج تتطلب تحققًا بالتنفيذ.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nتقبل جميع الأوامر الفرعية --repo <path> و --json.\nلا يلزم تشغيل تطبيق cmux أو مقبس."
+            "value": "الاستخدام: cmux review <subcommand> [options]\n\nمراجعة فرق ثابت؛ الأدوات والإصلاحات معطلة.\nتتطلب المراجعات ملفًا تنفيذيًا للمراجعة مع تسجيل الدخول.\nلا تزال ادعاءات النموذج تتطلب تحققًا بالتنفيذ.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nتقبل جميع الأوامر الفرعية --repo <path> و --json.\nلا يلزم تشغيل تطبيق cmux أو مقبس."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux review <subcommand> [options]\n\nRevisa un diff congelado; las herramientas y reparaciones están desactivadas.\nLas revisiones requieren una sesión iniciada en Codex CLI.\nLas afirmaciones del modelo aún requieren verificación ejecutable.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nTodos los subcomandos aceptan --repo <path> y --json.\nNo se requiere una aplicación cmux en ejecución ni un socket."
+            "value": "Uso: cmux review <subcommand> [options]\n\nRevisa un diff congelado; las herramientas y reparaciones están desactivadas.\nLas revisiones requieren un ejecutable de revisión con sesión iniciada.\nLas afirmaciones del modelo aún requieren verificación ejecutable.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nTodos los subcomandos aceptan --repo <path> y --json.\nNo se requiere una aplicación cmux en ejecución ni un socket."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux review <subcommand> [options]\n\n審查固定的差異；工具與修復已停用。\n執行審查需要已登入的 Codex CLI。\n模型主張仍需執行驗證。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n所有子命令皆接受 --repo <path> 與 --json。\n不需要執行中的 cmux 應用程式或通訊端。"
+            "value": "用法： cmux review <subcommand> [options]\n\n審查固定的差異；工具與修復已停用。\n執行審查需要已登入的審查執行檔。\n模型主張仍需執行驗證。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n所有子命令皆接受 --repo <path> 與 --json。\n不需要執行中的 cmux 應用程式或通訊端。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux review <subcommand> [options]\n\n审查固定的差异；工具和修复已禁用。\n运行审查需要已登录的 Codex CLI。\n模型主张仍需执行验证。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n所有子命令均接受 --repo <path> 和 --json。\n不需要运行中的 cmux 应用或套接字。"
+            "value": "用法： cmux review <subcommand> [options]\n\n审查固定的差异；工具和修复已禁用。\n运行审查需要已登录的审查可执行文件。\n模型主张仍需执行验证。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n所有子命令均接受 --repo <path> 和 --json。\n不需要运行中的 cmux 应用或套接字。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux review <subcommand> [options]\n\n고정된 차이를 검토합니다. 도구와 수정은 비활성화됩니다.\n검토를 실행하려면 로그인된 Codex CLI가 필요합니다.\n모델의 주장은 여전히 실행 검증이 필요합니다.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n모든 하위 명령은 --repo <path> 및 --json을 지원합니다.\n실행 중인 cmux 앱이나 소켓은 필요하지 않습니다."
+            "value": "사용법: cmux review <subcommand> [options]\n\n고정된 차이를 검토합니다. 도구와 수정은 비활성화됩니다.\n검토를 실행하려면 로그인된 검토 실행 파일이 필요합니다.\n모델의 주장은 여전히 실행 검증이 필요합니다.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n모든 하위 명령은 --repo <path> 및 --json을 지원합니다.\n실행 중인 cmux 앱이나 소켓은 필요하지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux review <subcommand> [options]\n\n固定された差分をレビューします。ツールと修正は無効です。\nレビューの実行にはログイン済みの Codex CLI が必要です。\nモデルの主張には引き続き実行による検証が必要です。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nすべてのサブコマンドで --repo <path> と --json を指定できます。\n実行中の cmux アプリやソケットは不要です。"
+            "value": "使い方: cmux review <subcommand> [options]\n\n固定された差分をレビューします。ツールと修正は無効です。\nレビューの実行にはログイン済みのレビュアー実行ファイルが必要です。\nモデルの主張には引き続き実行による検証が必要です。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nすべてのサブコマンドで --repo <path> と --json を指定できます。\n実行中の cmux アプリやソケットは不要です。"
           }
         }
       }

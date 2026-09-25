@@ -218,6 +218,7 @@ output.write_text(json.dumps(result))
         failing_git.chmod(0o755)
         filter_failure_environment = dict(environment)
         filter_failure_environment["PATH"] = str(failing_git_directory) + ":" + os.environ.get("PATH", "")
+        filter_marker.unlink(missing_ok=True)
         filter_failure = subprocess.run(
             command, env=filter_failure_environment, text=True, capture_output=True, timeout=30,
         )
@@ -225,6 +226,10 @@ output.write_text(json.dumps(result))
             failures.append("review capture continued after filter discovery failed")
         elif "Unable to capture review source." not in filter_failure.stderr:
             failures.append(f"filter discovery failure leaked an unexpected review error (status={filter_failure.returncode}, stdout={filter_failure.stdout.strip()!r}, stderr={filter_failure.stderr.strip()!r}, git={failing_git_log.read_text()!r})")
+        if filter_marker.exists():
+            failures.append("repository clean filter executed after filter discovery failed")
+        if sorted(p.name for p in ledger.glob("*.json")) != before:
+            failures.append("filter discovery failure published a receipt")
     return failures
 
 
