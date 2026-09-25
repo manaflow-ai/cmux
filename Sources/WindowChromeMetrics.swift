@@ -66,6 +66,9 @@ enum RightSidebarChromeMetrics {
     /// controls share one leading column and one trailing column.
     static let headerLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
     static let headerTrailingPadding: CGFloat = 6
+    /// Space reserved at the trailing edge while the persistent right-sidebar
+    /// titlebar toggle is installed in AppKit's right titlebar accessory slot.
+    static let titlebarToggleReservationWidth: CGFloat = HeaderChromeControlMetrics.buttonSize + 10
     static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
