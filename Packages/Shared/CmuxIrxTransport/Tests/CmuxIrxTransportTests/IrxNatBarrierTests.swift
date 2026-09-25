@@ -217,6 +217,54 @@ struct IrxNatBarrierTests {
         await irx.close(code: .userRequested, origin: .local)
     }
 
+    @Test("failed pre-authorization recheck aborts before authorizing or signaling")
+    func preAuthorizationFailureAbortsWithoutDisclosure() async throws {
+        struct StaleDial: Error {}
+        let clientJournal = IrxLiveTestSupport.journal()
+        let serverJournal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> Bool in
+            guard let incoming = await server.acceptNext() else { return false }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: serverJournal)
+            guard let control = await irx.acceptLane(),
+                try await control.reader.readControlFrame(BarrierHello.self) != nil
+            else { return false }
+            try await control.writer.writeControlFrame(
+                BarrierAdmit(
+                    v: 1, session: "s-stale", keepaliveIntervalMs: 5000,
+                    keepaliveDeadlineMs: 2000, natBarrier: true))
+            // The aborting client must never send ready; its abandoned lane
+            // may surface as EOF, which is equally "no ready arrived".
+            let readyResult = try? await withIrxDeadlineResult(.milliseconds(400)) {
+                try await control.reader.readControlFrame(IrxClientReady.self)
+            }
+            if case .operation(.some) = readyResult ?? .timeout { return false }
+            return true
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: clientJournal)
+        await #expect(throws: StaleDial.self) {
+            _ = try await IrxAdmission().performClient(
+                connection: irx, grantJWS: "good-grant", journal: clientJournal,
+                authorizesDirectPaths: true,
+                preAuthorization: { throw StaleDial() })
+        }
+        let noReadyArrived = try await serverTask.value
+        #expect(noReadyArrived)
+        // The abort happened before any NAT-traversal authorization.
+        let events = clientJournal.tail().map(\.event)
+        #expect(!events.contains("nat-traversal-authorized"))
+        await irx.close(code: .userRequested, origin: .local)
+    }
+
     @Test("real admission halves complete the barrier and order authorization")
     func fullAdmissionOrdersAuthorization() async throws {
         let journal = IrxLiveTestSupport.journal()

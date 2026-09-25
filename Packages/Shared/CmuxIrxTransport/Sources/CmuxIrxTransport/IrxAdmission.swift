@@ -62,16 +62,23 @@ public struct IrxAdmission: Sendable {
     /// candidates that reach a not-yet-authorized peer are discarded and
     /// tombstoned by the transport with no retransmission (the frames were
     /// ACKed), which strands the connection on relay permanently.
+    /// `preAuthorization` runs after the admit and before NAT traversal is
+    /// authorized: callers put their post-admit validity rechecks (dial
+    /// scope, binding identity) here so a stale dial can never start
+    /// exchanging direct candidates. A throw aborts admission before any
+    /// candidate disclosure; the caller closes the connection as usual.
     public func performClient(
         connection: IrxConnection,
         grantJWS: String? = nil,
         journal: IrxJournal,
-        authorizesDirectPaths: Bool = false
+        authorizesDirectPaths: Bool = false,
+        preAuthorization: (@Sendable () async throws -> Void)? = nil
     ) async throws -> (IrxAdmit, IrxLaneStream) {
         do {
             return try await clientExchange(
                 connection: connection, grantJWS: grantJWS, journal: journal,
-                authorizesDirectPaths: authorizesDirectPaths)
+                authorizesDirectPaths: authorizesDirectPaths,
+                preAuthorization: preAuthorization)
         } catch let denial as IrxAdmissionDenied {
             throw denial
         } catch {
@@ -93,7 +100,8 @@ public struct IrxAdmission: Sendable {
         connection: IrxConnection,
         grantJWS: String?,
         journal: IrxJournal,
-        authorizesDirectPaths: Bool
+        authorizesDirectPaths: Bool,
+        preAuthorization: (@Sendable () async throws -> Void)?
     ) async throws -> (IrxAdmit, IrxLaneStream) {
         let startedAt = DispatchTime.now()
         let control = try await connection.openLane(IrxLaneDescriptor(lane: .control))
@@ -159,6 +167,12 @@ public struct IrxAdmission: Sendable {
             ]
         )
         if authorizesDirectPaths {
+            // The caller's post-admit validity recheck runs before any
+            // authorization, so a dial that went stale during admission
+            // never discloses direct candidates. On an acked barrier the
+            // resulting abort skips ready, and the server times the wait
+            // out into a reasoned admission-timeout close.
+            try await preAuthorization?()
             // Client-first ordering: authorize before signaling the server,
             // so the server's candidate advertisement can only reach an
             // already-authorized client. authorizeDirectPaths never throws;

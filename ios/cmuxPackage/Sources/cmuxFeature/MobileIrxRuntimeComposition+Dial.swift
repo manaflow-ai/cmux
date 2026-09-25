@@ -160,7 +160,13 @@ extension MobileIrxRuntimeComposition {
             if !forceRelayOnly, case .automatic = intent { authorizesDirectPaths = true }
             let (admit, control) = try await IrxAdmission().performClient(
                 connection: connection, journal: journal,
-                authorizesDirectPaths: authorizesDirectPaths)
+                authorizesDirectPaths: authorizesDirectPaths,
+                // Scope recheck before NAT traversal authorizes, so a dial
+                // superseded during admission never discloses candidates.
+                preAuthorization: { [weak self] in
+                    guard let self else { throw CompositionError.directDialUnavailable }
+                    try await self.assertScope(scope, epoch: currentEpoch)
+                })
             try await assertScope(scope, epoch: currentEpoch)
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
             try await assertScope(scope, epoch: currentEpoch)
