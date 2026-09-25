@@ -147,7 +147,7 @@ jobs:
       matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
     runs-on: ${{ matrix.pool }}
     # One seed at a time per pool, and never cancel-in-progress. main takes
-    # several merges an hour and a cold seed takes 15-20 minutes, so
+    # several merges an hour and a cold seed takes 15-20 minutes on Blacksmith (about an hour on the trusted pool), so
     # cancelling the running seed for each newer push would starve publishing
     # for as long as merges keep arriving. With `false`, the running seed
     # always finishes and publishes, GitHub keeps at most one pending job, and
