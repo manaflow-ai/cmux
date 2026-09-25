@@ -12,6 +12,23 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Runtime color-scheme reporting
+
+- Commit: `798b829fd8c0f5725600912321f0249f2a786ba1`
+- Fork PR: https://github.com/manaflow-ai/ghostty/pull/231
+- CSI 996 queries and Mode 2031 transition reports now read the surface's runtime
+  scheme, initialized when terminal I/O starts and updated under the renderer
+  mutex on appearance callbacks. Plain configs no longer leave reports stuck on
+  the parser's default light state. Queued config reloads cannot reset this state.
+- The candidate includes fork main through `01e7c93ca` and preserves the existing
+  cmux replay pin `a3e9304c5d`; neither dependency history is discarded.
+- Conflict notes: retain the runtime `Termio.color_scheme` separately from
+  `DerivedConfig` when merging upstream changes to config or appearance handling.
+  This change does not alter Mode 2031 enable-report or deduplication behavior.
+- Regression: `TerminalColorSchemeQueryTests` sends real CSI 996 queries through
+  Ghostty before and after plain config reloads and dark/light/dark transitions.
+- The fork PR must land before this pointer can merge into cmux main.
+
 ### Cloud restore replay trailing rows
 
 - Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
@@ -25,7 +42,7 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `a3e9304c5d`, a cmux-only replay fix on
+The previous submodule pin was `a3e9304c5d`, a cmux-only replay fix on
 top of `c5c31ce819`, the upstream Ghostty merge commit for PR #218 after the
 embedded-environment lifetime fix from PR #227 was merged. The replay fix
 preserves physical blank rows until cursor/state restoration completes, so a

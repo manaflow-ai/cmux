@@ -3352,6 +3352,7 @@
 		B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */; };
 		B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
+		091C381F9850DB9930BFC773 /* TerminalColorSchemeQueryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5114B704678B75530F07618F /* TerminalColorSchemeQueryTests.swift */; };
 		A10557060000000000000001 /* TerminalConfigurationApplyCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557060000000000000002 /* TerminalConfigurationApplyCompletion.swift */; };
 		A10557030000000000000001 /* TerminalConfigurationApplySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557030000000000000002 /* TerminalConfigurationApplySnapshot.swift */; };
 		A10557040000000000000001 /* TerminalConfigurationPresentationMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557040000000000000002 /* TerminalConfigurationPresentationMetrics.swift */; };
@@ -7355,6 +7356,7 @@
 		B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardInputSequencerTests.swift; sourceTree = "<group>"; };
 		B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardRequestSurfaceIdentity.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
+		5114B704678B75530F07618F /* TerminalColorSchemeQueryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalColorSchemeQueryTests.swift"; sourceTree = "<group>"; };
 		A10557060000000000000002 /* TerminalConfigurationApplyCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationApplyCompletion.swift; sourceTree = "<group>"; };
 		A10557030000000000000002 /* TerminalConfigurationApplySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationApplySnapshot.swift; sourceTree = "<group>"; };
 		A10557040000000000000002 /* TerminalConfigurationPresentationMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationPresentationMetrics.swift; sourceTree = "<group>"; };
@@ -12262,6 +12264,7 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
+				5114B704678B75530F07618F /* TerminalColorSchemeQueryTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16766,6 +16769,7 @@
 				E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */,
 				B8835A000000000000000003 /* TerminalClipboardInputSequencerTests+Replay.swift in Sources */,
 				B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */,
+				091C381F9850DB9930BFC773 /* TerminalColorSchemeQueryTests.swift in Sources */,
 				A10557080000000000000001 /* TerminalConfigurationPresentationMetricsTests.swift in Sources */,
 				8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */,
