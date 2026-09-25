@@ -46,6 +46,32 @@ struct ManagedPolicyBrowserGateTests {
         try body()
     }
 
+    @Test func browserAvailabilityObserverEmitsOnlyActualTransitions() {
+        var isEnabled = true
+        var transitions: [Bool] = []
+        let observer = ManagedPolicyEnforcementObserver(
+            notificationCenter: NotificationCenter(),
+            isBrowserDisabledByPolicy: { false },
+            isBrowserEnabled: { isEnabled },
+            onBrowserAvailabilityChange: { transitions.append($0) },
+            browserURLAllowlistPolicy: { BrowserURLAllowlistPolicy(defaults: .standard) },
+            isRemoteControlDisabledByPolicy: { false },
+            enforceBrowserPolicy: {},
+            enforceBrowserURLAllowlistPolicy: {},
+            enforceRemoteControlPolicy: {}
+        )
+
+        observer.reevaluate()
+        #expect(transitions.isEmpty)
+
+        isEnabled = false
+        observer.reevaluate()
+        #expect(transitions == [false])
+
+        observer.reevaluate()
+        #expect(transitions == [false])
+    }
+
     @Test func managedPolicyWinsOverAUserLevelEnable() {
         withBrowserPolicy(managed: true, userDisabled: false) {
             #expect(BrowserAvailabilitySettings.isDisabled())

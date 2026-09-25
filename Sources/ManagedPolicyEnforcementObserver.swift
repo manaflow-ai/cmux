@@ -27,12 +27,15 @@ final class ManagedPolicyEnforcementObserver {
     static let recheckInterval: Duration = .seconds(60)
     private let notificationCenter: NotificationCenter
     private let isBrowserDisabledByPolicy: () -> Bool
+    private let isBrowserEnabled: () -> Bool
+    private let onBrowserAvailabilityChange: (Bool) -> Void
     private let browserURLAllowlistPolicy: () -> BrowserURLAllowlistPolicy
     private let isRemoteControlDisabledByPolicy: () -> Bool
     private let enforceBrowserPolicy: () -> Void
     private let enforceBrowserURLAllowlistPolicy: () -> Void
     private let enforceRemoteControlPolicy: () -> Void
     private var browserPolicyActive: Bool
+    private var lastBrowserEnabled: Bool
     private var observedBrowserURLAllowlistPolicy: BrowserURLAllowlistPolicy
     private var remoteControlPolicyActive: Bool
     private var observationTasks: [Task<Void, Never>] = []
@@ -42,6 +45,10 @@ final class ManagedPolicyEnforcementObserver {
         isBrowserDisabledByPolicy: @escaping () -> Bool = {
             BrowserAvailabilitySettings.isManagedByPolicy
         },
+        isBrowserEnabled: @escaping () -> Bool = {
+            BrowserAvailabilitySettings.isEnabled()
+        },
+        onBrowserAvailabilityChange: @escaping (Bool) -> Void = { _ in },
         browserURLAllowlistPolicy: @escaping () -> BrowserURLAllowlistPolicy = {
             BrowserURLAllowlistPolicy(defaults: .standard)
         },
@@ -54,12 +61,15 @@ final class ManagedPolicyEnforcementObserver {
     ) {
         self.notificationCenter = notificationCenter
         self.isBrowserDisabledByPolicy = isBrowserDisabledByPolicy
+        self.isBrowserEnabled = isBrowserEnabled
+        self.onBrowserAvailabilityChange = onBrowserAvailabilityChange
         self.browserURLAllowlistPolicy = browserURLAllowlistPolicy
         self.isRemoteControlDisabledByPolicy = isRemoteControlDisabledByPolicy
         self.enforceBrowserPolicy = enforceBrowserPolicy
         self.enforceBrowserURLAllowlistPolicy = enforceBrowserURLAllowlistPolicy
         self.enforceRemoteControlPolicy = enforceRemoteControlPolicy
         browserPolicyActive = isBrowserDisabledByPolicy()
+        lastBrowserEnabled = isBrowserEnabled()
         observedBrowserURLAllowlistPolicy = browserURLAllowlistPolicy()
         remoteControlPolicyActive = isRemoteControlDisabledByPolicy()
         observe(UserDefaults.didChangeNotification)
@@ -106,6 +116,15 @@ final class ManagedPolicyEnforcementObserver {
             // Both directions change the effective availability of gated UI.
             notificationCenter.post(
                 name: BrowserAvailabilitySettings.didChangeNotification,
+                object: nil
+            )
+        }
+        let browserEnabledNow = isBrowserEnabled()
+        if browserEnabledNow != lastBrowserEnabled {
+            lastBrowserEnabled = browserEnabledNow
+            onBrowserAvailabilityChange(browserEnabledNow)
+            notificationCenter.post(
+                name: BrowserAvailabilitySettings.effectiveStateDidChangeNotification,
                 object: nil
             )
         }

@@ -412,10 +412,7 @@ struct cmuxApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
                     browserFocusModeMenuRevision &+= 1
                 }
-                .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.didChangeNotification)) { _ in
-                    browserAvailabilityRevision &+= 1
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.effectiveStateDidChangeNotification)) { _ in
                     browserAvailabilityRevision &+= 1
                 }
         }

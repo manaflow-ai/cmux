@@ -622,6 +622,7 @@ enum BrowserLinkOpenSettings {
 enum BrowserAvailabilitySettings {
     static let disabledKey = "browserDisabledOverride"
     static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
+    static let effectiveStateDidChangeNotification = Notification.Name("cmux.browserAvailabilityEffectiveStateDidChange")
     static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {

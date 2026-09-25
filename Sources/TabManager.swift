@@ -4157,6 +4157,12 @@ class TabManager: ObservableObject {
         }
     }
 
+    func refreshSurfaceTabBarButtonsForBrowserAvailability() {
+        for workspace in tabs {
+            workspace.refreshSurfaceTabBarButtonsForBrowserAvailability()
+        }
+    }
+
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,

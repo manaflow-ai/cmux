@@ -8,6 +8,12 @@ extension AppDelegate {
     func installManagedPolicyEnforcement() {
         guard managedPolicyEnforcementObserver == nil else { return }
         managedPolicyEnforcementObserver = ManagedPolicyEnforcementObserver(
+            onBrowserAvailabilityChange: { [weak self] _ in
+                guard let self else { return }
+                for manager in self.allTabManagersForManagedPolicyEnforcement() {
+                    manager.refreshSurfaceTabBarButtonsForBrowserAvailability()
+                }
+            },
             enforceBrowserPolicy: { [weak self] in
                 self?.closeBrowserPanelsForManagedPolicy()
             },
