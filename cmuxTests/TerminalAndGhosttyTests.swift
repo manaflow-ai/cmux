@@ -6630,6 +6630,32 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 }
 
 
+@MainActor
+final class TerminalWakeRefreshTests: XCTestCase {
+    func testScreenWakeNotifiesTerminalWakePath() {
+        let notificationCenter = NotificationCenter()
+        var screenWakeCount = 0
+        let observers = RemoteSessionPowerObserver().install(
+            in: notificationCenter,
+            onWillSleep: {},
+            onDidWake: { screenWakeCount += 1 }
+        )
+        defer {
+            for observer in observers {
+                notificationCenter.removeObserver(observer)
+            }
+        }
+
+        notificationCenter.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+
+        XCTAssertEqual(
+            screenWakeCount,
+            1,
+            "A display wake must reach the terminal refresh path even without a system wake notification"
+        )
+    }
+}
+
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     func testResolvesHTTPSAsEmbeddedBrowser() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
