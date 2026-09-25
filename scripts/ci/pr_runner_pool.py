@@ -130,8 +130,8 @@ room for, by the same expected wait; a
 pool without one keeps the pool label for every job. A root job also holds
 one of the pool's machines, so it counts against both.
 
-Side lanes (the Claude wrapper and remote daemon lanes, light jobs that never
-touch a canonical root) take the pool's side label,
+Side lanes (the Claude wrapper, remote daemon and package lanes, light jobs
+that never touch a canonical root) take the pool's side label,
 `glaeda-side-<class>-xcode-<version>` (side_label()), the other runners of
 each mini, whenever the pool has a root count and more machines than root
 runners (the `side_runner` output). On the pool label a side lane landed on a
@@ -293,8 +293,8 @@ DEFAULT_MAIN_RESERVE = 0
 MAIN_REF = "refs/heads/main"
 MAIN_BRANCH = "main"
 # A pull request run holds several macOS machines at once, each job on its
-# own. Beside compile admission run the Claude wrapper and remote daemon
-# lanes; once admission passes, a full suite adds APP_HOST_SHARDS
+# own. Beside compile admission run the Claude wrapper, remote daemon and
+# package lanes; once admission passes, a full suite adds APP_HOST_SHARDS
 # shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
 # shard, and a CLI change cli-product-tests. A run takes an owned pool when
 # its own peak (run_jobs) fits there by the expected wait and the queue bound
@@ -304,15 +304,17 @@ MAIN_BRANCH = "main"
 # job without one means it took none. Its peak counts toward the queue bound,
 # and toward the wait only once it is older than a job (young_charge()).
 # Only a run still picking is replayed and charged REPLAYED_RUN_JOBS, the
-# peak of a compile-only run with every side lane.
-# swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane only on a run
-# that builds no Release helper: a package change under the compile-only
-# policy, with no app-host shards. The full suite these bounds describe
-# builds the helper, so it keeps that lane on Blacksmith and SIDE_LANES at 2.
+# peak of a compile-only run with the Claude wrapper and remote daemon lanes.
+# swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane on a run that
+# builds no Release helper (package_lane_owned()): a package change, or a full
+# suite with release_build false, which then peaks at all three side lanes
+# beside admission and its nine follow-on jobs. MAX_RUN_JOBS counts all three;
+# the replay charge leaves out the package lane, which a compile-only run
+# carries only on a package change.
 APP_HOST_SHARDS = 7
-SIDE_LANES = 2
+SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
-REPLAYED_RUN_JOBS = SIDE_LANES + 1
+REPLAYED_RUN_JOBS = 3
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
 # but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
 # apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40 idle minis.
@@ -506,7 +508,7 @@ def shard_job(index: int) -> str:
 
 # A full suite with every side lane: what a run whose routing is unknown is charged.
 FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", "cli-product"),
-                   ("claude-wrapper", "remote-daemon"))
+                   ("claude-wrapper", "remote-daemon", "swift-package"))
 
 
 def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | None,
@@ -579,7 +581,7 @@ LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JO
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
 ROOT_JOBS = "admission, shards, lag, cli-product"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
-SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon")
+SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB)
 
 
 def gui_job(key: str) -> bool:

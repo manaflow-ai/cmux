@@ -762,9 +762,12 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 1)
         self.assertEqual(jobs(unit_suite="true", cli="true"), 2)
         # Full suite: seven shards, tests-build-and-lag and cli-product-tests after
-        # admission, beside the two side lanes.
-        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), pool.MAX_RUN_JOBS)
-        self.assertEqual(pool.MAX_RUN_JOBS, 11)
+        # admission, beside the two side lanes; the package lane joins them only
+        # when the suite builds no Release helper, and MAX_RUN_JOBS counts it.
+        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), 11)
+        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true", swift_packages="true",
+                              release_build="false"), pool.MAX_RUN_JOBS)
+        self.assertEqual(pool.MAX_RUN_JOBS, 12)
         # A CLI-only run still compiles, then tests the bundled CLI.
         self.assertEqual(jobs(macos="false", cli="true"), 1)
         self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 2)
@@ -1020,7 +1023,9 @@ class PerJobPlacement(unittest.TestCase):
         self.assertTrue(plan.admission)
         self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
         self.assertEqual(plan.side, ("claude-wrapper", "remote-daemon"))
-        self.assertEqual(plan.peak, pool.MAX_RUN_JOBS)
+        self.assertEqual(plan.peak, 11)
+        # With no Release helper the package lane is a third side lane: the most any run holds.
+        self.assertEqual(routing(**FULL, release_build="false").peak, pool.MAX_RUN_JOBS)
         # The unit-ci label runs all seven shards; selected suites one worker, shard 8.
         self.assertEqual(routing(unit_suite="true").after, tuple(f"shard-{index}" for index in range(1, 8)))
         self.assertEqual(routing(unit_suite="true", unit_selectors="Suite").after, ("shard-8",))
@@ -1823,12 +1828,17 @@ class Wiring(unittest.TestCase):
         retry = "${{ needs.changes.outputs.macos_pr_retry_runner }}"
         for name in ("macos", "remote-daemon"):
             self.assertEqual(jobs[name]["with"]["pr_retry_runner"], retry, name)
-        # Only ci-macos.yml runs root jobs; the side lanes take the side label.
+        # Only ci-macos.yml runs root jobs; the side lanes (swift-package-tests
+        # among them) take the side label.
         self.assertEqual(jobs["macos"]["with"]["pr_root_runner"], "${{ needs.changes.outputs.macos_pr_root_runner }}")
         self.assertNotIn("pr_root_runner", jobs["remote-daemon"]["with"])
         self.assertEqual(jobs["remote-daemon"]["with"]["pr_side_runner"],
                          "${{ needs.changes.outputs.macos_pr_side_runner }}")
-        self.assertNotIn("pr_side_runner", jobs["macos"]["with"])
+        self.assertEqual(jobs["macos"]["with"]["pr_side_runner"], "${{ needs.changes.outputs.macos_pr_side_runner }}")
+        # In ci-macos.yml only swift-package-tests reads it; its root jobs never do.
+        macos_jobs = self.workflow("ci-macos.yml")["jobs"]
+        readers = sorted(name for name, job in macos_jobs.items() if "pr_side_runner" in yaml.safe_dump(job))
+        self.assertEqual(readers, ["swift-package-tests"])
         self.assertEqual(self.workflow("ci.yml")["jobs"]["changes"]["outputs"]["macos_pr_side_runner"],
                          "${{ steps.macos-pool.outputs.side_runner }}")
         self.assertEqual(jobs["macos"]["with"]["pr_admission_runner"],
@@ -1926,8 +1936,8 @@ class Wiring(unittest.TestCase):
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
         owned = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-                 "(github.run_attempt == 1 && inputs.pr_runner || github.run_attempt == 2 && "
-                 "github.triggering_actor == 'github-actions[bot]' && inputs.pr_refused_retry_runner)")
+                 "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
+                 "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner))")
         self.assertEqual(job["runs-on"], (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "

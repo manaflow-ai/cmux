@@ -6060,8 +6060,8 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         "CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && "
         "github.event.pull_request.head.repo.full_name == github.repository && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-        "(github.run_attempt == 1 && inputs.pr_runner || github.run_attempt == 2 && "
-        "github.triggering_actor == 'github-actions[bot]' && inputs.pr_refused_retry_runner) && "
+        "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
+        "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
     assert (

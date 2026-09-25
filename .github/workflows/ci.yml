@@ -1278,6 +1278,7 @@ jobs:
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
+      pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
     # ci-macos.yml's late-placement reads idle root runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}

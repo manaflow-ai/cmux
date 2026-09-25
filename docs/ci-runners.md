@@ -362,8 +362,10 @@ helper needs an SDK 15 Xcode that only Blacksmith's macOS 15 image carries
 (the minis have Xcode 26.6 alone), so a full suite with `release_build`
 keeps it there (`pr_runner_pool.package_lane_owned()`). On the owned label it
 takes the lane's Xcode (`CMUX_CI_XCODE_APP` restates the runs-on condition);
-every other attempt keeps the macOS 15 pool and pin. glaeda classes the job
-id as light, so it never holds a root runner.
+every other attempt keeps the macOS 15 pool and pin. Like the other side
+lanes it takes the pool's side label (`pr_side_runner`) when the picker names
+one, so it never holds a mini's root runner. With it a full suite without the
+helper holds 12 machines at peak (`MAX_RUN_JOBS`).
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -573,8 +575,8 @@ overflow and ci-owned-pool-rescue.yml as the way off a busy or refusing mini.
 | Jobs | Route | Why |
 | --- | --- | --- |
 | `ci-macos.yml` compile admission, app-host shards, `tests-build-and-lag`, `cli-product-tests` | owned via `pr_runner_pool.py` (root label), pull requests and main's full-suite dispatch | canonical-root jobs |
-| `ci.yml` `claude-wrapper`, `remote-daemon.yml` macOS tests | owned side lane via the picker | light |
-| `ci-macos.yml` `swift-package-tests` | owned side lane via the picker when the run builds no Release helper; else Blacksmith macOS 15 | the helper needs an SDK 15 Xcode |
+| `ci.yml` `claude-wrapper`, `remote-daemon.yml` macOS tests | owned side lane via the picker (the side label) | light |
+| `ci-macos.yml` `swift-package-tests` | owned side lane via the picker (the side label) when the run builds no Release helper; else Blacksmith macOS 15 | the helper needs an SDK 15 Xcode |
 | the seven side-lane workflows above | `CI_SIDE_LANE_RUNNER` on attempt 1 of a pull request | light; other events stay on Blacksmith |
 | `test-e2e.yml` (and `dispatch-focused-test.py`) | owned via `e2e_runner_pool.py`; UI runs with `CI_E2E_OWNED_UI=1` | root jobs; Blacksmith when no root runner is free |
 | `test-ios.yml`, `ios-screenshots.yml` | owned via `ios_runner_pool.py` behind `CI_IOS_OWNED=1` | needs the `glaeda-ios-sim` label (an iOS 26.x simulator runtime) |
