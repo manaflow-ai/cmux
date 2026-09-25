@@ -11,6 +11,51 @@ import Testing
 /// Inline `type: "workspace"` config actions: decoding, resolution defaults,
 /// plus-button menu auto-append, trust disclosure, and executor behavior.
 struct CmuxConfigWorkspaceActionTests {
+    @MainActor
+    @Test func backgroundCommandRunsWithoutCreatingATerminal() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-action-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = directory.appendingPathComponent("result")
+        let config = try decode("""
+        {
+          "actions": {
+            "quiet": {
+              "type": "command", "title": "Quiet command", "target": "background",
+              "command": "printf '%s' \\\"$CMUX_WORKSPACE_ID\\\" > result"
+            }
+          }
+        }
+        """)
+        let definition = try #require(config.actions["quiet"])
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "quiet", definition: definition, sourcePath: nil
+        ))
+        let manager = TabManager(initialWorkingDirectory: directory.path)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panels = Set(workspace.panels.keys)
+        let focusedPanel = workspace.focusedPanelId
+
+        #expect(CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: directory.path,
+            globalConfigPath: directory.appendingPathComponent("cmux.json").path
+        ))
+
+        // A bounded test-only wait observes the shell's filesystem side effect.
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(try String(contentsOf: marker, encoding: .utf8) == workspace.id.uuidString)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(Set(workspace.panels.keys) == panels)
+        #expect(workspace.focusedPanelId == focusedPanel)
+    }
+
     private func decode(_ json: String) throws -> CmuxConfigFile {
         try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
     }
