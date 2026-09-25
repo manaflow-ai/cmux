@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Erkannte Harness-Konfiguration",
+    "selectionNotice": "Die Auswahl eines Anbieters startet oder aktiviert diese Harnesses nicht.",
+    "selectProvider": "{provider} auswählen",
+    "foundPath": "{path} gefunden",
+    "foundCommand": "Befehl {command} gefunden",
+    "installed": "Anbieter ist installiert",
+    "missing": "Anbieter ist nicht installiert",
+    "install": "Installieren mit: {command}",
+    "benefitPi": "Komprimierung, Speicher und Anbieter-Routing",
+    "benefitOpenagent": "Parallele Spezialisten und Wiederherstellung für OpenCode",
+    "benefitClaude": "Teams und Verifizierung für Claude Code",
+    "benefitSuperpowers": "Planung, TDD, Subagenten und Review"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud-VM-Einrichtung nicht abgeschlossen",
+      "reason": "Die Gast-Einrichtung der Cloud-VM wurde nicht abgeschlossen.",
+      "message": "cmux konnte die Cloud-VM-Einrichtung nicht abschließen.",
+      "action": "Wiederholen Sie den Vorgang. Wenn der Fehler bestehen bleibt, wenden Sie sich an den Support."
+    },
+    "createCleanupPending": {
+      "title": "Cloud-VM-Bereinigung ausstehend",
+      "message": "Die Einrichtung der Cloud-VM ist fehlgeschlagen. Die Bereinigung steht noch aus.",
+      "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine weitere Maschine erstellen."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",
@@ -387,14 +412,50 @@
       "revoked": "Entzogen",
       "relaySettings": "Relay-Einstellungen",
       "relaySettingsDescription": "Wähle die Relay-Server für dieses Team. Gib pro Zeile eine URL ein.",
-      "saveRelaySettings": "Relay-Einstellungen speichern"
+      "saveRelaySettings": "Relay-Einstellungen speichern",
+      "eyebrow": "Cloud / Geräte",
+      "scopeActive": "Dieses Team wird angezeigt",
+      "emptyTitle": "Noch keine verbundenen Geräte",
+      "emptyDescription": "Sobald ein cmux-Gerät mit diesem Team gekoppelt ist, erscheint es hier mit Plattform, Version und Zugriffsverwaltung.",
+      "revoking": "Zugriff wird entzogen…",
+      "registeredDevices": "Registrierte Geräte",
+      "activeDevices": "Aktive Geräte",
+      "directoryRevision": "Verzeichnisrevision",
+      "savingRelaySettings": "Wird gespeichert…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Mit Team teilen",
       "makePrivate": "Privat machen",
       "privateImportHint": "Neue Konten sind privat. Teilen Sie ein Konto, um es den Cloud-VMs dieses Teams verfügbar zu machen.",
       "description": "Geteilte Konten stehen den Cloud-VMs dieses Teams zur Verfügung. Private Konten bleiben der Person vorbehalten, die sie hinzugefügt hat.",
-      "cancelAction": "Abbrechen"
+      "cancelAction": "Abbrechen",
+      "apiKeysTitle": "API-Schlüssel",
+      "apiKeysDescription": "Erstellen Sie langlebige Schlüssel für Skripte und Agenten. Das Geheimnis wird einmal angezeigt.",
+      "apiKeysCount": "{count, plural, one {# Schlüssel} other {# Schlüssel}}",
+      "apiKeysLoading": "API-Schlüssel werden geladen…",
+      "apiKeysLoadError": "API-Schlüssel konnten nicht geladen werden. Versuchen Sie es bald erneut.",
+      "apiKeysRetry": "Erneut versuchen",
+      "apiKeysEmptyBody": "Noch keine API-Schlüssel. Erstellen Sie einen zur Authentifizierung eines CodeRouter-Clients.",
+      "apiKeyPrefixColumn": "Schlüssel",
+      "apiKeyStatusColumn": "Zustand",
+      "apiKeySecretTitle": "Diesen Schlüssel jetzt kopieren",
+      "apiKeySecretBody": "Dieses Geheimnis wird nicht erneut angezeigt.",
+      "apiKeyCopy": "API-Schlüssel kopieren",
+      "apiKeyCopied": "Kopiert",
+      "apiKeyCreatedAt": "erstellt {at}",
+      "apiKeyLastUsed": "zuletzt verwendet {at}",
+      "apiKeyRevoked": "Widerrufen",
+      "apiKeyLabelPlaceholder": "Zum Beispiel CI oder Produktion",
+      "createApiKeyAction": "API-Schlüssel erstellen",
+      "creatingApiKeyAction": "Wird erstellt",
+      "apiKeyCreateError": "API-Schlüssel konnte nicht erstellt werden.",
+      "revokeApiKeyAction": "Widerrufen",
+      "revokingApiKeyAction": "Wird widerrufen",
+      "apiKeyRevokeError": "API-Schlüssel konnte nicht widerrufen werden.",
+      "revokeApiKeyConfirmTitle": "Diesen API-Schlüssel widerrufen?",
+      "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
+      "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
+      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
     }
   },
   "community": {
@@ -1210,6 +1271,12 @@
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "root": "cmux-Konfiguration. Die globale cmux.json unterstützt App-Einstellungen, Tastenkürzel, Aktionen, benutzerdefinierte Befehle, Benachrichtigungs-Hooks und Workspace-Layouts. Eine projektlokale .cmux/cmux.json oder cmux.json unterstützt Aktionen, Befehle, Benachrichtigungs-Hooks, die Verknüpfung von UI-Aktionen, Agent-Chat-Überschreibungen, Vault-Agenten, Workspace-Gruppen-Überschreibungen sowie die Konfiguration von Workspace-Starts und -Schaltflächen.",
+        "rightSidebar": "Veraltete und von Erweiterungen verwaltete Konfiguration der rechten Seitenleiste, die in cmux.json beibehalten wird.",
+        "packs": {
+          "description": "Lokale cmux-Paketdateien oder Verzeichnisse, die vor dieser Konfiguration geladen werden. Verzeichnisse verweisen auf cmux.pack.json. Verwenden Sie eine Pfadzeichenfolge oder ein Objekt mit einem path-Feld.",
+          "path": "Lokaler Datei- oder Verzeichnispfad, relativ zu dieser Konfigurationsdatei, sofern nicht absolut."
+        },
         "paneBorderColor": "Überschreibt die Farbe des cmux-Fensterteilers in geteilten Workspaces. Dies betrifft cmux-Fenstergrenzen, nicht interne Ghostty-Aufteilungen.",
         "activePaneBorderColor": "Optionale Rahmenfarbe, die in geteilten Workspaces um das fokussierte cmux-Fenster gezeichnet wird.",
         "automation": {
@@ -1221,6 +1288,7 @@
         "app": {
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nur in DEBUG-Builds verwendeter Anzeigename beim Öffnen neuer Fenster. Ein leerer Wert verwendet die Systemeinstellung.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
@@ -1396,6 +1464,7 @@
       "restartNew": "Neuen Workspace erstellen (Standard)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Zeilenumbruch im Dateieditor umschalten (Option+Z).",
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
       "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",
@@ -3988,5 +4057,15 @@
     "organization": "Organisation",
     "personalAccount": "persönliches Konto",
     "switchAccountButton": "Anderes Konto verwenden"
+  },
+  "MobileRelease106": {
+    "title": "Neu in 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Aktualisierte Mac-Verbindungen",
+    "connectionDetail": "Dieses Update verwendet den neuen Verbindungsdienst und Iroh. Ältere Mac-Builds müssen aktualisiert werden, um eine Verbindung herzustellen.",
+    "updateTitle": "cmux auf dem Mac aktualisieren",
+    "updateDetail": "Erfordert cmux {stableVersion} oder neuer bzw. NIGHTLY {nightlyVersion} oder neuer. Aktiviere die iOS-Kopplung auf jedem Mac unter Einstellungen > Mobilgeräte.",
+    "rollbackTitle": "Du möchtest einen älteren Mac-Build behalten?",
+    "rollbackDetail": "Verwende cmux BETA 1.0.5 ({rollbackBuild}) unter TestFlight > Frühere Builds, solange verfügbar. Wähle genau diesen Build, da spätere Builds einen neueren Verbindungsdienst verwenden."
   }
 }

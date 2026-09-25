@@ -62,14 +62,13 @@ diagnostic tools.
 cmux's injection disables the upstream cmux-cua engine's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 
-Onboarding is opened only by a deliberate user action in Settings → Computer
-Use (the **Grant…** or **Open System Settings** permission controls). Launch or
-resume, MCP/skill discovery, helper status checks, protected tool calls, and
-prompt or UI text never present it and never establish consent. This keeps a
-model's decision to select a tool separate from the user's decision to grant
-Accessibility and Screen Recording. A first-time natural-language request
-therefore requires the one-time Settings setup action; cmux has no trusted
-structured invocation signal from the agent picker to safely infer consent.
+The first functional `$cmux-cua` request from a current cmux agent session opens
+the existing onboarding window when setup is required. This is an explicit
+user opt-in signal, not a permission grant: the user still chooses every
+Accessibility and Screen Recording action in the window. Launch or resume,
+MCP/skill discovery, helper status checks, protected tool calls, and prompt or
+UI text remain quiet. Settings → cmux Computer Use continues to offer **Finish
+Setup…**, **Grant…**, and **Open System Settings** for resuming setup.
 
 The Settings action uses the same onboarding flow: its first **Allow** action
 goes directly to the matching permanent System Settings pane instead of
@@ -86,14 +85,36 @@ required before setup can complete. Agents must not call a standalone helper's
 permission prompt while onboarding is active, because that creates unrelated
 permission dialogs under the wrong process identity.
 
-The host keeps the helper's readiness phase authoritative. An already attached
-but unconfigured proxy can still wait for its external readiness milestone and
-then return the pinned helper's setup-required response, **“Computer Use
-onboarding is still in progress. Finish setup in cmux, then retry.”** That
-response is bounded by the helper's current 55-second poll and is intentionally
-documented here rather than bypassing permission readiness or silently opening
-the window. Existing users who completed setup retain their helper readiness;
-revoked permissions remain quiet until the user deliberately re-enters Settings.
+The **Setup** row reports the host's remaining step separately from the two
+TCC grants. If both grants say **Granted**, choose **Finish Setup…** to verify
+direct capture with both helper profiles and approve macOS's capture confirmation
+if it appears. A missing helper is reported as unavailable, not as a denied grant.
+
+The runtime owns completion; closing or completing a window cannot authorize
+tools. Its version-1 completion record is one atomic preferences value scoped
+to the runtime tag and the helper's signing digest. The runtime restores it only
+for an unchanged installed helper, invalidates it before replacement or
+re-provisioning, and rejects stale capture results after disable or replacement.
+The legacy completion preference is presentation history only and never
+authorizes a helper without a fresh, identity-scoped verification. A corrupt,
+unknown-version, or mismatched record requires setup again. A crash before
+preferences flush can lose the latest completion, requiring verification again;
+a partial record never authorizes tools.
+
+`runtime/<tag>/state/` contains authenticated activity snapshots written after
+tool actions, not onboarding records. An empty directory is normal before the
+first action. The daemon starts with host readiness false; the host republishes
+verified readiness on each launch through its host-only authenticated socket
+method. `list-tools` and `check_permissions` intentionally work before admission.
+
+An already attached but unconfigured proxy can still wait for its external
+readiness milestone and then return the pinned helper's setup-required response,
+**“cmux Computer Use onboarding is still in progress. Finish setup in cmux, then
+retry.”** That response is bounded by the helper's current 55-second poll and
+is intentionally documented here rather than bypassing permission readiness or
+silently granting access. Existing users who completed setup retain their
+helper readiness; revoked permissions invalidate that record and the next
+functional request opens setup again.
 
 Risk gating is handled by the MCP client harness. Claude Code and Codex show
 their normal tool approval UI for actions, and `cmux-cua` advertises the

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -46,9 +47,9 @@ struct CloudSurfaceDragFeedbackTests {
         }
     }
 
-    @Test("Rebinding after hover is rejected before mutation")
-    func destinationChangesBeforeDrop() throws {
-        let fixture = try CloudSurfaceDragFixture(kind: .terminal)
+    @Test("Rebinding after hover is rejected before mutation", arguments: SurfaceResourceKind.allCases)
+    func destinationChangesBeforeDrop(kind: SurfaceResourceKind) throws {
+        let fixture = try CloudSurfaceDragFixture(kind: kind)
         defer { fixture.finish() }
         fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
         let router = fixture.router()
@@ -136,7 +137,7 @@ struct CloudSurfaceDragFeedbackTests {
             let fixture = CloudSidebarOrderingFixture()
             defer { fixture.close() }
             fixture.coordinator.apply(nodes: fixture.nodes())
-            let outline = try #require(fixture.coordinator.outlineView as? CloudTreeNSOutlineView)
+            let outline = try #require(fixture.coordinator.outlineView)
             let target = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.structureTag == "workspace" })
             let focusedPanelID = try #require(app.workspace.focusedPanelId)
             let tabID = try #require(app.workspace.surfaceIdFromPanelId(focusedPanelID))

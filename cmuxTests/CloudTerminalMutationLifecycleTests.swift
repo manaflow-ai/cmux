@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import Foundation
 import Testing
 
@@ -132,7 +133,7 @@ struct CloudTerminalMutationLifecycleTests {
         try #require(await admitted.result == true)
         if change == "resume" {
             provider.suspendForFeatureFlag()
-            provider.update(summary: provider.summary)
+            provider.update(summary: try #require(provider.summary.cloudSummary))
         } else {
             replacement = makeProvider(catalog: catalog, machineID: provider.machineID)
         }
@@ -160,7 +161,7 @@ struct CloudTerminalMutationLifecycleTests {
         try #require(await transport.started.result == true)
         provider.suspendForFeatureFlag()
         #expect(active.isCancelled && queued.isCancelled)
-        provider.update(summary: provider.summary)
+        provider.update(summary: try #require(provider.summary.cloudSummary))
         #expect(throws: CancellationError.self) { try provider.validateTerminalMutationLifecycle(oldGeneration) }
         let generation = provider.lifecycleGeneration
         let next = provider.terminalMutationQueue.enqueue {
@@ -182,7 +183,7 @@ struct CloudTerminalMutationLifecycleTests {
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: { VMListPage(vms: summaries, limits: nil) },
-            refreshProvider: { _, _ in },
+            refreshProvider: { _, _ in true },
             closeTransports: {},
             notificationCenter: NotificationCenter()
         )
@@ -232,7 +233,7 @@ struct CloudTerminalMutationLifecycleTests {
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: { VMListPage(vms: [summary], limits: nil) },
-            refreshProvider: { _, _ in }, closeTransports: {}, notificationCenter: NotificationCenter()
+            refreshProvider: { _, _ in true }, closeTransports: {}, notificationCenter: NotificationCenter()
         )
         registry.start(catalog: catalog)
         _ = await registry.refresh(force: true)

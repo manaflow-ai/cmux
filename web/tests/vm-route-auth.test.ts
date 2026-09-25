@@ -472,6 +472,9 @@ describe("VM REST auth", () => {
       provider: "freestyle",
       image: "snapshot-test",
       createdAt: 1_777_000_000_000,
+      addressIpv4: "10.16.0.9",
+      addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
     });
 
     const response = await POST(
@@ -501,6 +504,10 @@ describe("VM REST auth", () => {
         persistentHome: false,
         attachTransports: ["cmux-remote"],
       },
+      // New Machine dials the baked daemon from these two fields instead of
+      // re-reading the fleet and calling POST /attach-endpoint.
+      address: { ipv4: "10.16.0.9", ipv6: null },
+      cmuxTuiContract: "snapshot-v2",
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",

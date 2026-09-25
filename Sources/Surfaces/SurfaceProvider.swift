@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A provider owns the resources of one machine and knows how to put one on screen.
@@ -39,7 +40,9 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
-    /// Called after restore records an already-published resource.
+    /// Called after a restore recorded projections of resources this provider has
+    /// already published. Their panes are placeholders until the provider
+    /// materializes them, and no later publish is guaranteed to follow.
     func projectionsRestored()
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.

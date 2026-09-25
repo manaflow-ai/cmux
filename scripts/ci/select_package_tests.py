@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 PATH_DEPENDENCY = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*",\s*)?path:\s*"([^"]+)"')
@@ -26,10 +27,17 @@ EXTRA_INPUTS = {
 # toolchain and GhosttyKit revision. A change to any of these selects everything.
 GLOBAL_INPUTS = (
     ".github/workflows/ci.yml",
+    ".github/workflows/ci-macos.yml",
     "scripts/build-ghostty-cli-helper.sh",
+    "scripts/ci/git-seed.sh",
+    "scripts/ci/release-build-archs.sh",
+    "scripts/ci/ci_process_tree.py",
+    "scripts/ci/hung_test_watchdog.py",
+    "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/select_package_tests.py",
+    "scripts/ci/verify-binary-archs.sh",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/install-rust-ci.sh",
     "scripts/install-zig-ci.sh",
@@ -37,6 +45,7 @@ GLOBAL_INPUTS = (
     "scripts/ghosttykit-checksums.txt",
     "scripts/validate-xcframework-archive.py",
     "scripts/select-ci-xcode.sh",
+    "scripts/ci/xcode-pins.txt",
     ".xcode-version",
     "ghostty",
 )
@@ -49,6 +58,8 @@ UNRELATED_PREFIXES = (
     "TunnelExtension/",
     "Resources/",
     "cmuxTests/",
+    "cmuxCLITests/",
+    "cmuxCLITestSupport/",
     "cmuxUITests/",
     "cmux.xcodeproj/",
     "cmux.xcworkspace/",
@@ -142,16 +153,42 @@ def select(root: Path, packages: list[str], changed: list[str] | None) -> list[s
     ]
 
 
+@lru_cache(maxsize=1)
+def routed_input_prefixes(root: Path) -> frozenset[str]:
+    """Known package inputs, including transitive local dependencies outside Packages/."""
+    dirs = package_dirs(root)
+    return frozenset(
+        prefix for name in dirs for prefix in input_prefixes(root, name, dirs)
+    )
+
+
+def is_routed_input(path: str, root: Path) -> bool:
+    """Inputs eligible to start the targeted PR lane, excluding global sweeps.
+
+    Use the same dependency graph as selection: a vendor submodule revision or
+    source change can affect package tests just as a change inside Packages/ can.
+    """
+    return path.startswith("Packages/") or any(
+        under(path, prefix) for prefix in routed_input_prefixes(root)
+    )
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", default=".")
     parser.add_argument("--changed-files", help="one path per line; omit when the diff is unknown")
+    parser.add_argument("--routed-inputs-only", action="store_true",
+                        help="select only inputs eligible for the targeted PR lane")
     parser.add_argument("packages", nargs="+")
     args = parser.parse_args(argv)
 
     changed = None
     if args.changed_files:
         changed = [line for line in Path(args.changed_files).read_text(encoding="utf-8").splitlines() if line]
+    if args.routed_inputs_only:
+        if changed is None:
+            parser.error("--routed-inputs-only requires --changed-files")
+        changed = [path for path in changed if is_routed_input(path, Path(args.root))]
     # The list has historical duplicates; keep the first of each.
     packages = list(dict.fromkeys(args.packages))
     for name in select(Path(args.root), packages, changed):

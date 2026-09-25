@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -148,6 +149,14 @@ struct SurfaceSocketCommandTests {
         func renameRemoteWorkspace(id: String, name: String) async throws {
             mutations.append("workspace rename \(id) \(name)")
         }
+
+        func renameRemoteTab(id: String, name: String) async throws {
+            mutations.append("tab rename \(id) \(name)")
+        }
+
+        func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
+            mutations.append("terminal rename \(id.key) \(name)")
+        }
     }
 
     /// One registered fake machine with two workspaces: `ws_a` holds `term_a1` and
@@ -168,11 +177,11 @@ struct SurfaceSocketCommandTests {
         var browserA: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .browser, key: "browser_1") }
 
         @MainActor
-        init(manager: TabManager) {
+        init(manager: TabManager, device: Bool = false) {
             // Locals first: a nested helper must not capture `self` before every stored
             // property is initialized.
             let machineID = "sock-" + UUID().uuidString.lowercased().prefix(8)
-            let machine = SurfaceMachineID.cloud(machineID)
+            let machine = device ? SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default")) : .cloud(machineID)
             let catalog = SurfaceCatalog.shared
             let provider = FakeCloudProvider(machine: machine, catalog: catalog, workspaces: [Self.wsA, Self.wsB, Self.wsEmpty])
             catalog.register(provider)
@@ -195,7 +204,7 @@ struct SurfaceSocketCommandTests {
                 info: provider.info
             )
             TerminalController.shared.setActiveTabManager(manager)
-            self.machineID = machineID
+            self.machineID = machine.rawValue
             self.machine = machine
             self.provider = provider
             self.manager = manager
@@ -221,7 +230,7 @@ struct SurfaceSocketCommandTests {
         }
     }
 
-    private static func withFixture(_ body: (Fixture) async throws -> Void) async throws {
+    private static func withFixture(device: Bool = false, _ body: (Fixture) async throws -> Void) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
             let flag = CmuxFeatureFlags.cloudMachinesFlag
@@ -229,6 +238,14 @@ struct SurfaceSocketCommandTests {
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
             let previousBeta = UserDefaults.standard.object(forKey: betaKey)
             let app = try VaultPaneAppFixture()
+            // `vm.workspace_new` admits its optimistic local workspace through the
+            // active main window before it asks the provider for anything; a
+            // context without a window is pruned and the call is cancelled. Bind
+            // a bare window the way the shortcut tests do.
+            let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+            app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID }?.window = window
+            defer { withExtendedLifetime(window) {} }
             defer {
                 app.tearDown()
                 TerminalController.shared.setActiveTabManager(previousManager)
@@ -237,7 +254,7 @@ struct SurfaceSocketCommandTests {
             }
             UserDefaults.standard.set(true, forKey: betaKey)
             CmuxFeatureFlags.shared.setOverride(true, for: flag)
-            let fixture = Fixture(manager: app.manager)
+            let fixture = Fixture(manager: app.manager, device: device)
             defer { fixture.tearDown() }
             try await body(fixture)
         }
@@ -501,6 +518,15 @@ struct SurfaceSocketCommandTests {
         }
     }
 
+    @Test func deviceWorkspaceAndTerminalRenamesReachTheSameProvider() async throws {
+        try await Self.withFixture(device: true) { fixture in
+            _ = try Self.ok(try await Self.call("vm.workspace_rename", ["id": fixture.machineID, "workspace_id": "ws_b", "name": "Project"]))
+            _ = try Self.ok(try await Self.call("vm.tab_rename", ["id": fixture.machineID, "tab_id": "tab_term_b", "name": "Build"]))
+            _ = try Self.ok(try await Self.call("vm.terminal_rename", ["id": fixture.machineID, "terminal_id": "term_b", "name": "Tests"]))
+            #expect(fixture.provider.mutations == ["workspace rename ws_b Project", "tab rename tab_term_b Build", "terminal rename term_b Tests"])
+        }
+    }
+
     @Test func workspaceCloseRenameAndDeleteReachTheProviderInContractOrder() async throws {
         try await Self.withFixture { fixture in
 
@@ -535,7 +561,10 @@ struct SurfaceSocketCommandTests {
 
             let response = try await Self.call("vm.workspace_new", ["id": fixture.machineID, "name": "feature"])
             #expect(fixture.provider.mutations.first == "workspace create feature")
-            #expect(fixture.provider.refreshes == 0, "creation consumes its receipt without a blocking snapshot")
+            // This fake answers like an older daemon: its receipt carries no
+            // starter terminal, so creation takes exactly one snapshot to look
+            // for one before creating the starter (CloudWorkspaceCreationCoordinator).
+            #expect(fixture.provider.refreshes == 1, "a receipt without a starter costs one snapshot, not a re-sync per step")
             try #require(fixture.provider.createdTerminals.count == 1)
             #expect(fixture.provider.createdTerminals[0].remoteWorkspaceID == "ws_created")
             if response["ok"] as? Bool == true {

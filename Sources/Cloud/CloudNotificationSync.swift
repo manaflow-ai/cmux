@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 // Cloud notifications: the VM's cmux-tui daemon is the source of truth.
@@ -257,6 +258,11 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
+    private var hasAppliedSnapshot = false
+    /// Rows whose delivery was transiently declined or had no local placement.
+    /// A catalog change or later feed fold retries only this small set instead
+    /// of refolding every unchanged row.
+    private var retryableDeliveryIDs: Set<String> = []
     private var flushTask: Task<Void, Never>?
     private var flushRequested = false
     /// Set by `retire()`: a replaced sync must not write the shared per-machine
@@ -293,18 +299,26 @@ final class CloudNotificationSync {
 
     /// Fold one accepted state. Called after every installed snapshot or
     /// delta; cheap when the rows did not change.
-    func apply(rows incoming: [CloudVMNotificationRow]) {
-        guard !retired else { return }
+    @discardableResult
+    func apply(rows incoming: [CloudVMNotificationRow]) -> Bool {
+        guard !retired else { return false }
+        guard rows != incoming || !retryableDeliveryIDs.isEmpty || !hasAppliedSnapshot else {
+            requestFlush()
+            return false
+        }
+        hasAppliedSnapshot = true
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
         var placed: [(CloudVMNotificationRow, CloudNotificationDeliveryTarget)] = []
+        retryableDeliveryIDs.removeAll(keepingCapacity: true)
         for row in plan.deliver {
             if let target = resolveTarget(row) {
                 placed.append((row, target))
             } else {
                 // Not consumed: the next fold retries placement.
                 next.delivered.removeAll { $0 == row.id }
+                retryableDeliveryIDs.insert(row.id)
             }
         }
         // Commit before delivering: the store can call back into this sync
@@ -323,6 +337,7 @@ final class CloudNotificationSync {
                 break
             case .declined:
                 undelivered.append(row.id)
+                retryableDeliveryIDs.insert(row.id)
             case .suppressed:
                 suppressed.append(row.id)
             }
@@ -340,6 +355,7 @@ final class CloudNotificationSync {
             commit(declined)
         }
         requestFlush()
+        return true
     }
 
     /// Local reads of this machine's notifications, by daemon row id.

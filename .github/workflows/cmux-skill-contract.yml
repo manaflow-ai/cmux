@@ -13,6 +13,8 @@ on:
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
   push:
     branches: [main]
@@ -27,6 +29,8 @@ on:
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
 
 permissions:
@@ -38,7 +42,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -51,6 +55,12 @@ jobs:
 
       - name: Exercise browser skill regression guard
         run: python3 tests/test_cmux_browser_skill.py
+
+      - name: Exercise settings JSONC mutation regressions
+        run: python3 tests/test_cmux_settings_jsonc.py
+
+      - name: Exercise settings transaction regressions
+        run: python3 tests/test_cmux_settings_transactions.py
 
       - name: Exercise settings skill path validation
         run: python3 tests/test_cmux_settings_supported_paths.py

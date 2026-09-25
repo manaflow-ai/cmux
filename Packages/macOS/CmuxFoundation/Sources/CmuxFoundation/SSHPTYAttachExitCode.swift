@@ -5,7 +5,7 @@ import Foundation
 /// Status 252 has a bounded consecutive-failure budget, statuses 247–250 carry
 /// managed transport/authentication phases, and statuses 251, 254, and 255 use
 /// the general reconnect budget.
-public enum SSHPTYAttachExitCode: Int32 {
+public enum SSHPTYAttachExitCode: Int32, Sendable {
     private static let healthyBridgeUptime: Double = 30
 
     /// The v2 error code `workspace.remote.pty_bridge` answers with when the

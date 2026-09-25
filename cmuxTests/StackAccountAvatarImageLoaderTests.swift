@@ -100,7 +100,19 @@ struct StackAccountAvatarImageLoaderTests {
         }
         for y in 0..<height {
             for x in 0..<width {
-                bitmap.setColor(color(x, y).usingColorSpace(.deviceRGB) ?? .black, atX: x, y: y)
+                guard let rgb = color(x, y).usingColorSpace(.deviceRGB) else { return nil }
+                // AppKit's bitmap setter cannot consume every CGColor-backed NSColor
+                // returned by color-space conversion. Materialize a device color.
+                bitmap.setColor(
+                    NSColor(
+                        deviceRed: rgb.redComponent,
+                        green: rgb.greenComponent,
+                        blue: rgb.blueComponent,
+                        alpha: rgb.alphaComponent
+                    ),
+                    atX: x,
+                    y: y
+                )
             }
         }
         return bitmap.representation(using: .png, properties: [:])

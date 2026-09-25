@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -7,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing {
+final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing, SurfaceAgentNaming {
     let machine: SurfaceMachineID
     var info: SurfaceMachineInfo
     var moved: [(tab: String, workspace: String)] = []
@@ -19,6 +20,8 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var beforeMaterialization: (() async throws -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
+    /// The daemon cursor a projection reply carries. The real reply always has one.
+    var projectCursor: CloudVMCursor?
     var workspaceRenames: [String] = []
     var tabRenames: [String] = []
 
@@ -48,6 +51,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
         tabRenames.append(name)
         renamedTabs.append((id, name))
     }
+    func renameAgentTab(context: CloudAgentNameContext, name: String) async throws {
+        try await renameRemoteTab(id: try #require(context.projection.remoteTabID), name: name)
+    }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         events.append("move-start:" + remoteWorkspaceID)
@@ -59,7 +65,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func projectTerminal(_ id: SurfaceResourceID, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         try await beforeMutation?()
         projected.append((id.key, remoteWorkspaceID))
-        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: "tab_projected")
+        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: "tab_projected", cursor: projectCursor)
     }
     func closeRemoteTab(id: String, inRemoteWorkspace remoteWorkspaceID: String) async throws {
         events.append("close:" + id)

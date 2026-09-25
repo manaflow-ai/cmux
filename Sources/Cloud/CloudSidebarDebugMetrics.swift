@@ -3,20 +3,20 @@ import SwiftUI
 
 /// Persisted geometry edited by the spacing lab and resolved into one render snapshot.
 struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
-    var referenceInset: Double = 8
-    var disclosureSlot: Double = 13
+    var referenceInset: Double = 12
+    var disclosureSlot: Double = 16
     var disclosureGap: Double = 2
     /// Retained for saved tuning data; machine glyphs now use the shared iconSlot.
     var dotSlot: Double = 11
     var dotGap: Double = 4
-    var detailGap: Double = 4
-    var trailingGap: Double = 0
+    var detailGap: Double = 5
+    var trailingGap: Double = 10
     var machineLineSpacing: Double = 1
-    var rowHeight: Double = 24
-    var indentPerLevel: Double = 8
-    var iconSlot: Double = 2
-    var iconGap: Double = 13
-    var machineVerticalPadding: Double = 0
+    var rowHeight: Double = 22
+    var indentPerLevel: Double = 10
+    var iconSlot: Double = 16
+    var iconGap: Double = 4
+    var machineVerticalPadding: Double = 2
 
     static let `default` = Self()
 

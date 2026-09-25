@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Otkrivena konfiguracija harnessa",
+    "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",
+    "selectProvider": "Odaberi {provider}",
+    "foundPath": "Pronađen {path}",
+    "foundCommand": "Pronađena naredba {command}",
+    "installed": "Provajder je instaliran",
+    "missing": "Provajder nije instaliran",
+    "install": "Instaliraj pomoću: {command}",
+    "benefitPi": "Sažimanje, memorija i rutiranje provajdera",
+    "benefitOpenagent": "Paralelni specijalisti i oporavak za OpenCode",
+    "benefitClaude": "Timovi i provjera za Claude Code",
+    "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Postavljanje Cloud VM-a nije završeno",
+      "reason": "Postavljanje gosta za Cloud VM nije završeno.",
+      "message": "cmux nije mogao završiti postavljanje Cloud VM-a.",
+      "action": "Pokušajte ponovo. Ako se problem nastavi, obratite se podršci."
+    },
+    "createCleanupPending": {
+      "title": "Čišćenje Cloud VM-a na čekanju",
+      "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
+      "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
@@ -387,14 +412,50 @@
       "revoked": "Opozvan",
       "relaySettings": "Postavke releja",
       "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
-      "saveRelaySettings": "Sačuvaj postavke releja"
+      "saveRelaySettings": "Sačuvaj postavke releja",
+      "eyebrow": "oblak / uređaji",
+      "scopeActive": "Prikazan je ovaj tim",
+      "emptyTitle": "Još nema povezanih uređaja",
+      "emptyDescription": "Kada se cmux uređaj upari s ovim timom, ovdje će se prikazati njegova platforma, verzija i kontrole pristupa.",
+      "revoking": "Opozivanje pristupa…",
+      "registeredDevices": "Registrirani uređaji",
+      "activeDevices": "Aktivni uređaji",
+      "directoryRevision": "Revizija direktorija",
+      "savingRelaySettings": "Spremanje…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Podijeli s timom",
       "makePrivate": "Učini privatnim",
       "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
       "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
-      "cancelAction": "Otkaži"
+      "cancelAction": "Otkaži",
+      "apiKeysTitle": "API ključevi",
+      "apiKeysDescription": "Kreirajte dugotrajne ključeve za skripte i agente. Tajna vrijednost prikazuje se jednom.",
+      "apiKeysCount": "{count, plural, one {# ključ} other {# ključeva}}",
+      "apiKeysLoading": "Učitavanje API ključeva…",
+      "apiKeysLoadError": "API ključevi se ne mogu učitati. Pokušajte ponovo uskoro.",
+      "apiKeysRetry": "Pokušaj ponovo",
+      "apiKeysEmptyBody": "Još nema API ključeva. Kreirajte ga za autentifikaciju CodeRouter klijenta.",
+      "apiKeyPrefixColumn": "Ključ",
+      "apiKeyStatusColumn": "Stanje",
+      "apiKeySecretTitle": "Kopirajte ovaj ključ sada",
+      "apiKeySecretBody": "Ova tajna vrijednost se više neće prikazati.",
+      "apiKeyCopy": "Kopiraj API ključ",
+      "apiKeyCopied": "Kopirano",
+      "apiKeyCreatedAt": "kreiran {at}",
+      "apiKeyLastUsed": "posljednji put korišten {at}",
+      "apiKeyRevoked": "Opozvan",
+      "apiKeyLabelPlaceholder": "Na primjer, CI ili produkcija",
+      "createApiKeyAction": "Kreiraj API ključ",
+      "creatingApiKeyAction": "Kreiranje",
+      "apiKeyCreateError": "API ključ se ne može kreirati.",
+      "revokeApiKeyAction": "Opozovi",
+      "revokingApiKeyAction": "Opozivanje",
+      "apiKeyRevokeError": "API ključ se ne može opozvati.",
+      "revokeApiKeyConfirmTitle": "Opozvati ovaj API ključ?",
+      "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
+      "apiKeyUsageUnavailable": "Upotreba nije dostupna",
+      "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju."
     }
   },
   "community": {
@@ -1210,6 +1271,12 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
+        "root": "Konfiguracija za cmux. Globalni cmux.json podržava postavke aplikacije, prečice, radnje, prilagođene komande, hookove obavijesti i rasporede radnih prostora. Projektni .cmux/cmux.json ili cmux.json podržava radnje, komande, hookove obavijesti, povezivanje UI radnji, Agent Chat izmjene, vault agente, izmjene grupa radnih prostora te konfiguraciju pokretanja i dugmadi radnog prostora.",
+        "rightSidebar": "Naslijeđena konfiguracija desne bočne trake kojom upravljaju ekstenzije i koja se čuva u cmux.json.",
+        "packs": {
+          "description": "Lokalne datoteke ili direktoriji cmux paketa koji se učitavaju prije ove konfiguracije. Direktoriji upućuju na cmux.pack.json. Koristite tekstualnu putanju ili objekt s poljem path.",
+          "path": "Putanja lokalne datoteke ili direktorija, relativna u odnosu na ovu konfiguracijsku datoteku ako nije apsolutna."
+        },
         "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
         "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "automation": {
@@ -1221,6 +1288,7 @@
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Naziv ekrana koji se koristi samo u DEBUG izdanjima pri otvaranju novih prozora. Prazna vrijednost koristi zadanu vrijednost sistema.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
@@ -1396,6 +1464,7 @@
       "restartNew": "Kreiraj novi radni prostor (zadano)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z).",
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
@@ -3988,5 +4057,15 @@
     "organization": "Organizacija",
     "personalAccount": "lični račun",
     "switchAccountButton": "Koristi drugi račun"
+  },
+  "MobileRelease106": {
+    "title": "Novosti u verziji 1.0.6",
+    "releaseLabel": "1.0.6 · Septembar 2026",
+    "connectionTitle": "Ažurirane veze s Mac računarima",
+    "connectionDetail": "Ovo ažuriranje koristi novu uslugu povezivanja i Iroh prijenos. Starije Mac verzije treba ažurirati da bi se povezale.",
+    "updateTitle": "Ažurirajte cmux na Mac računaru",
+    "updateDetail": "Potreban je cmux {stableVersion} ili noviji, ili NIGHTLY {nightlyVersion} ili noviji. Omogućite iOS uparivanje u Postavke > Mobilni uređaji na svakom Mac računaru.",
+    "rollbackTitle": "Trebate zadržati stariju Mac verziju?",
+    "rollbackDetail": "Koristite cmux BETA 1.0.5 ({rollbackBuild}) iz TestFlight > Prethodne verzije dok je dostupna. Odaberite upravo tu verziju jer novije koriste noviju uslugu povezivanja."
   }
 }

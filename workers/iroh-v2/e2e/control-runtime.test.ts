@@ -14,6 +14,7 @@ let dashboardTicketKey = "";
 let fixturePublicKey = "";
 let workerRoot = "";
 let persistencePath = "";
+let fixtureTeamMember = true;
 const environment = "test";
 const projectId = "iroh-v2-test";
 const teamId = "team-control";
@@ -24,13 +25,13 @@ const json = async (request: RequestInfo, init?: RequestInit) => {
   return { response, body: await response.json() as any };
 };
 
-const setupFor = async (requestId: string, input: unknown) => {
-  const plainSetup = { schemaId: "session.open.v1", requestId, device: descriptor };
+const setupFor = async (requestId: string, input: unknown, device = descriptor) => {
+  const plainSetup = { schemaId: "session.open.v1", requestId, device };
   const nonce = encodeBase64URL(crypto.getRandomValues(new Uint8Array(16)));
   const issuedAt = Math.floor(Date.now() / 1000);
   const body = input === undefined ? plainSetup : { setup: plainSetup, request: input };
   const value = await crypto.subtle.sign("Ed25519", signingKey, new TextEncoder().encode(
-    requestSigningInput(descriptor, requestId, issuedAt, body, nonce),
+    requestSigningInput(device, requestId, issuedAt, body, nonce),
   ));
   return {
     ...plainSetup,
@@ -92,11 +93,30 @@ beforeAll(async () => {
       PLANETSCALE_DATABASE_URL: "postgresql://fixture:fixture@fixture.psdb.cloud/control",
       FIXTURE_ENDPOINT_ID: fixturePublicKey,
     },
+    outboundService: async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/api/v1/users/me") return Response.json({ id: userId });
+      if (path === "/api/v1/teams") return Response.json({ items: fixtureTeamMember ? [{ id: teamId }] : [] });
+      if (path === "/api/v1/team-permissions") return Response.json({ items: [{ id: "$update_team", team_id: teamId, user_id: userId }] });
+      return new Response(null, { status: 404 });
+    },
   }), verbose: true });
   await mf.ready;
 }, 60_000);
 
 afterAll(async () => { await mf?.dispose(); });
+
+test("the unauthenticated health route names the deployed revision and the rules the Worker implements", async () => {
+  const { response, body } = await json("https://iroh.test/v2/health");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(body.schemaId).toBe("health.v1");
+  expect(body.environment).toBe(environment);
+  expect(body.sourceRevision).toMatch(/^(?:[0-9a-f]{7,64}|unknown)$/);
+  expect(body.rules).toContain("cmux.mac-peer-inbound.v1");
+  expect((await mf.dispatchFetch("https://iroh.test/v2/health", { method: "POST" })).status).toBe(405);
+  expect((await mf.dispatchFetch("https://iroh.test/v2/health?x=1")).status).toBe(404);
+});
 
 test("browser dashboard upgrade survives the Worker-to-Durable-Object boundary", async () => {
   const { token } = await issueDashboardTicket({
@@ -139,6 +159,45 @@ test("browser socket admission still rejects foreign origins and expired tickets
     });
     expect(response.status).toBe(origin === "https://cmux.com" ? 401 : 403);
     expect(response.webSocket).toBeNull();
+  }
+});
+
+test("dashboard closes an existing socket when membership is removed", async () => {
+  const { token } = await issueDashboardTicket({
+    authority: { environment, projectId, teamId, userId, verifiedAt: Math.floor(Date.now() / 1000) },
+    origin: "https://cmux.com", clientInstanceId: "revocation-browser", canManageTeam: false,
+  }, "k1", dashboardTicketKey);
+  const response = await mf.dispatchFetch("https://iroh.test/v2/dashboard/socket", {
+    headers: { origin: "https://cmux.com", upgrade: "websocket", "sec-websocket-protocol": `cmux-v2-dashboard, ticket.${token}` },
+  });
+  const socket = response.webSocket!;
+  try {
+    expect(response.status).toBe(101);
+    const connected = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("No dashboard connected frame")), 2000);
+      socket.addEventListener("message", event => {
+        clearTimeout(timer);
+        expect((JSON.parse(String(event.data)) as any).schemaId).toBe("dashboard.connected.v1");
+        resolve();
+      }, { once: true });
+    });
+    socket.accept();
+    await connected;
+    fixtureTeamMember = false;
+    const closed = new Promise<CloseEvent>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Dashboard socket did not close after membership removal")), 2000);
+      socket.addEventListener("close", event => { clearTimeout(timer); resolve(event); }, { once: true });
+    });
+    const denied = new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("No dashboard revocation error")), 2000);
+      socket.addEventListener("message", event => { clearTimeout(timer); resolve(JSON.parse(String(event.data))); }, { once: true });
+    });
+    socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "removed-member" }));
+    expect((await denied).code).toBe("team_access_revoked");
+    expect((await closed).code).toBe(1008);
+  } finally {
+    fixtureTeamMember = true;
+    socket.close();
   }
 });
 
@@ -281,4 +340,18 @@ test("forged scope is rejected before the TeamControl binding", async () => {
     body: JSON.stringify({ schemaId: "session.open.v1", requestId, device: forged }),
   });
   expect(response.status).toBe(403);
+});
+
+
+test("a discovery-only Mac can open control without publishing a host", async () => {
+  for (const discovery of [false, true]) {
+    const device = { ...descriptor, metadata: { ...descriptor.metadata,
+      pairingEnabled: false, capabilities: discovery ? ["cmux.mac-devices.v1"] : [] } };
+    const setup = await setupFor(`discovery-only-${discovery}`, undefined, device);
+    const result = await json("https://iroh.test/v2/control/session", {
+      method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}` },
+      body: JSON.stringify(setup),
+    });
+    expect(result.response.status).toBe(discovery ? 200 : 403);
+  }
 });

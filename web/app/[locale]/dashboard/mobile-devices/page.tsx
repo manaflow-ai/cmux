@@ -17,9 +17,9 @@ export default async function MobileDevicesDashboardPage({
   const t = await getTranslations({ locale, namespace: "dashboard.mobileDevices" });
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <h1 className="text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+      <div className="mb-5 border-b border-border pb-4">
+        <h1 className="text-base font-medium">{t("title")}</h1>
+        <p className="mt-1 text-sm text-muted">{t("description")}</p>
       </div>
       <Suspense fallback={<DashboardSectionSkeleton variant="rows" />}>
         <MobileDevicesSection locale={locale} />

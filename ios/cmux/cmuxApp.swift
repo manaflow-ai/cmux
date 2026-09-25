@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
@@ -20,9 +21,16 @@ struct cmuxApp: App {
     @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Erases this device's cmux data for Settings > Reset.
+    private static let localDataEraser = MobileLocalDataEraser.current()
+
     /// The de-singletonized composition root: built once, injected down.
     @MainActor
     private static let root: AppCompositionRoot = {
+        // Finish a Settings reset before anything below reads the keychain,
+        // defaults, or container files, so the objects built here see a fresh
+        // install.
+        localDataEraser.completePendingEraseIfNeeded()
         let reachability = ReachabilityService()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
@@ -41,7 +49,9 @@ struct cmuxApp: App {
         )
         let v2Configuration = MobileIrohV2Configuration.current(projectID: auth.config.stack.projectId)
         let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
-            keychainAccessGroup: auth.keychainAccessGroup)
+            macListAuthState: MobileMacListAuthState(),
+            keychainAccessGroup: auth.keychainAccessGroup,
+            diagnosticLog: diagnosticLog)
         Task { await irx.configure(auth: auth.coordinator) }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
@@ -161,7 +171,9 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.irohSettingsController)
+        .environment(\.mobileLocalDataEraser, Self.localDataEraser)
         .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
+        .environment(\.scrollInteractionReporter, Self.root.scrollInteractionReporter)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
@@ -173,9 +185,11 @@ struct cmuxApp: App {
     private var mobileRootScene: CMUXMobileRootScene {
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
+            macListAuthState: Self.root.irx.macListAuthState,
             auth: Self.root.auth,
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
+            analyticsClientID: Self.root.analytics.anonymousID,
             terminalLatencyObserver: Self.root.analytics.terminalLatencyReporter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,

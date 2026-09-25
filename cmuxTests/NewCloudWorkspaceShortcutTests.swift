@@ -196,7 +196,10 @@ final class NewCloudWorkspaceShortcutTests {
         }
     }
 
-    private func withDefaultPlusMenu<T>(_ body: (NSMenu) throws -> T) throws -> T {
+    /// The plus menu gates its Cloud rows on the signed-in account, like the
+    /// command palette and the File menu. A test `AppDelegate()` has no account
+    /// flow, so the account state is injected through the production seam.
+    private func withDefaultPlusMenu<T>(isAuthenticated: Bool = true, _ body: (NSMenu) throws -> T) throws -> T {
         let (store, root) = try loadStore(globalJSON: "{}")
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(!store.newWorkspaceContextMenuIsConfigured)
@@ -208,7 +211,11 @@ final class NewCloudWorkspaceShortcutTests {
         )
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
         let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
+        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(
+            context: context,
+            cmuxConfigStore: store,
+            isAuthenticated: isAuthenticated
+        ))
         return try body(menu)
     }
 
@@ -221,8 +228,8 @@ final class NewCloudWorkspaceShortcutTests {
             #expect(leading == [.newWorkspace, .newCloudWorkspace, .newCloudMachine, .newTerminal, .newBrowser])
 
             let hints = Dictionary(uniqueKeysWithValues: rows.map { ($0.action, $0.item) })
-            #expect(hints[.newWorkspace]?.keyEquivalent == "n")
-            #expect(hints[.newWorkspace]?.keyEquivalentModifierMask == [.command])
+            #expect(hints[.newWorkspace]?.keyEquivalent == "")
+            #expect(hints[.newWorkspace]?.keyEquivalentModifierMask == [])
             #expect(hints[.newCloudWorkspace]?.keyEquivalent == "y")
             #expect(hints[.newCloudWorkspace]?.keyEquivalentModifierMask == [.command, .shift])
             #expect(hints[.newCloudMachine]?.keyEquivalent == "y")
@@ -266,6 +273,17 @@ final class NewCloudWorkspaceShortcutTests {
         }
     }
 
+    @Test func testPlusMenuHidesCloudRowsWhenSignedOut() throws {
+        defer { restoreState() }
+        setCloudMachinesEnabled(true)
+        try withDefaultPlusMenu(isAuthenticated: false) { menu in
+            let actions = builtInMenuRows(menu).map(\.action)
+            #expect(!actions.contains(.newCloudWorkspace))
+            #expect(!actions.contains(.newCloudMachine))
+            #expect(actions.prefix(3).map { $0 } == [.newWorkspace, .newTerminal, .newBrowser])
+        }
+    }
+
     @Test func testPlusMenuHidesBrowserRowWhenBrowserIsDisabled() throws {
         defer { restoreState() }
         setCloudMachinesEnabled(true)
@@ -292,10 +310,15 @@ final class NewCloudWorkspaceShortcutTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: store)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
         let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
+        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(
+            context: context,
+            cmuxConfigStore: store,
+            isAuthenticated: true
+        ))
         let rows = builtInMenuRows(menu)
         #expect(rows.prefix(2).map(\.action) == [.newTerminal, .newCloudWorkspace])
-        #expect(rows[1].item.keyEquivalent == "y")
+        let cloudRow = try #require(rows.dropFirst().first)
+        #expect(cloudRow.item.keyEquivalent == "y")
     }
 
     // MARK: Shared action path
@@ -346,6 +369,15 @@ final class NewCloudWorkspaceShortcutTests {
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
+        // Shortcut routing bypasses an event bound to a window this delegate
+        // cannot resolve (the app host's key window), so route the keystroke
+        // through a registered main window like the rebind test does.
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
+        appDelegate.mainWindowContexts.values.first { $0.windowId == windowID }?.window = window
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID); withExtendedLifetime(window) {} }
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
         appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 
@@ -354,7 +386,7 @@ final class NewCloudWorkspaceShortcutTests {
             location: .zero,
             modifierFlags: [.command],
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+            windowNumber: window.windowNumber,
             context: nil,
             characters: "y",
             charactersIgnoringModifiers: "y",
@@ -492,6 +524,8 @@ final class NewCloudWorkspaceShortcutTests {
         let workspace = try #require(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
+        let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowID) }
         #expect(!app.performNewWorkspaceAction(tabManager: manager))
         #expect(manager.tabs.map(\.id) == originalIDs)
     }
