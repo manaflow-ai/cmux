@@ -48,7 +48,12 @@ extension CMUXCLI {
         } else {
             throw CLIError(message: String(localized: "cli.agent.goalState.error.unknownAgent", defaultValue: "Unknown agent."))
         }
-        guard let state = AgentGoalLifecycleState(rawValue: stateRaw.lowercased()) else {
+        let state: AgentGoalLifecycleState
+        if resolvedAgent == "codex" {
+            state = CodexGoalLifecycleAdapter().state(for: stateRaw)
+        } else if let parsed = AgentGoalLifecycleState(rawValue: stateRaw.lowercased()) {
+            state = parsed
+        } else {
             throw CLIError(message: String(
                 format: String(localized: "cli.agent.goalState.error.invalidState", defaultValue: "Invalid goal state '%@'."),
                 stateRaw

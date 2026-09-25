@@ -57,6 +57,12 @@ Use `--previous-generation` when replacing a completed generation. The journal
 rejects a replacement unless it names the currently stored generation, which
 prevents a late completion from an earlier objective from changing the new one.
 
+Each newly committed goal update also emits `agent.goal.state_changed` on the
+public `cmux events` stream. Its payload contains the event id, exact provider
+session id, lifecycle state, generation, producer timestamp, and provenance;
+the journal event id and stream sequence make reconnect and deduplication safe.
+Replaying an already committed append does not emit a second public event.
+
 ## Testing
 
 Everything is constructor-injected and runs headless:

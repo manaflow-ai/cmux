@@ -262,6 +262,9 @@ final class AgentJournalLifecycleCenter: Sendable {
         }
         do {
             let outcome = try store.append(draft)
+            if draft.kind == .goalStateChanged, !outcome.replayed, let goal = draft.goalLifecycle {
+                Self.publishGoalLifecycleEvent(draft: draft, goal: goal)
+            }
             operations.yield(
                 .ingest(
                     AgentJournalEvent(
@@ -291,6 +294,30 @@ final class AgentJournalLifecycleCenter: Sendable {
 #endif
             return "ERROR: agent journal append failed"
         }
+    }
+
+    /// Publishes the durable objective transition on the reconnectable public
+    /// event stream after its journal transaction commits.
+    private static func publishGoalLifecycleEvent(
+        draft: AgentJournalEventDraft,
+        goal: AgentGoalLifecycle
+    ) {
+        CmuxEventBus.shared.publish(
+            name: "agent.goal.state_changed",
+            category: "agent",
+            source: "journal",
+            workspaceId: draft.workspaceId,
+            surfaceId: draft.surfaceId,
+            payload: [
+                "event_id": draft.eventId,
+                "session_id": draft.sessionId ?? "",
+                "goal_lifecycle": goal.state.rawValue,
+                "goal_generation": goal.generation,
+                "goal_updated_at_ms": goal.updatedAtMs,
+                "goal_provenance": goal.provenance,
+                "reconnectable": true,
+            ]
+        )
     }
 
     /// Reads one current objective projection for the sessions CLI without
