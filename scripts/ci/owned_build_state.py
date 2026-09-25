@@ -215,7 +215,7 @@ def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "keep":
         write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))
         return 0
-    if len(argv) == 4 and argv[1] == "save":
+    if len(argv) == 5 and argv[1] == "save":
         write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4])))
         return 0
     print(__doc__, file=sys.stderr)

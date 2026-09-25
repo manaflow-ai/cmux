@@ -96,8 +96,8 @@ class PreferenceOrder(unittest.TestCase):
         # The macOS 15 pool has no seed, so it counts COLD_QUEUE_PENALTY more.
         self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, LARGE)
         self.assertEqual(choose(backlog(small=21, large=20, old=4)).runner, OLD)
-        self.assertIn("counting 12 more", choose(backlog(small=21, large=20, old=4)).reason)
-        self.assertIn("counting 12 more", choose(backlog(small=21, large=6, old=4)).reason)
+        self.assertIn("counting 4 more", choose(backlog(small=21, large=20, old=4)).reason)
+        self.assertIn("counting 4 more", choose(backlog(small=21, large=6, old=4)).reason)
         self.assertNotIn("counting", choose(backlog(small=21, large=6, old=9)).reason)
         # A threshold above the penalty still gives the cold pool no headroom.
         self.assertEqual(choose(backlog(small=20, large=20, old=0), max_queued="30").runner, LARGE)
@@ -121,12 +121,12 @@ class PreferenceOrder(unittest.TestCase):
     def test_runs_since_the_snapshot_spread_a_burst(self):
         # 12vcpu has 9 of its 10 slots idle (1 running), 6vcpu 26 has 6
         # queued, macOS 15 is full with nothing queued: pushes after a sweep
-        # fill 12vcpu's idle slots and queue there until it is as deep as
-        # 6vcpu 26, then alternate; macOS 15 waits for both to reach 12.
+        # fill 12vcpu's idle slots and queue there until macOS 15, which counts
+        # COLD_QUEUE_PENALTY (4) more, is shallower; then all three share it.
         snap = backlog(small=6, large=0, old=0)
         snap["pools"][OLD]["running"] = pool.POOL_CAPACITY
         picks = [choose(snap, routed=n).runner for n in range(30)]
-        self.assertEqual(picks, [LARGE] * 16 + [SMALL, LARGE] * 6 + [SMALL, OLD])
+        self.assertEqual(picks, [LARGE] * 14 + [OLD, LARGE] * 2 + [SMALL, OLD, LARGE] * 4)
         self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
 
     def test_idle_slots_absorb_recent_runs(self):
@@ -512,6 +512,86 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(owned_choice(fleet(), routed=2).runner, MINI)
         self.assertEqual(owned_choice(fleet(), routed=2, jobs=4).runner, LARGE)
         self.assertEqual(owned_choice(fleet(busy=10), routed=1).runner, LARGE)
+
+    def test_newer_runs_with_known_routes_are_charged_what_they_took(self):
+        # 5 machines, 5 newer runs. Guessed, the first two replays would close
+        # the pool (4 each); known, only the one on the minis counts, at its peak.
+        guessed = owned_choice(fleet(), machines=5, jobs=1, routed=5)
+        self.assertEqual(guessed.runner, LARGE)
+        known = pool.Routed(owned={MINI: 3}, ephemeral=4)
+        choice = owned_choice(fleet(), machines=5, jobs=1, routed=known)
+        self.assertEqual(choice.runner, MINI)
+        self.assertIn("2 of 5 owned machines free", choice.reason)
+        self.assertIn(f"3 machine(s) newer runs took on {MINI}", choice.reason)
+        self.assertEqual(owned_choice(fleet(), machines=5, jobs=3, routed=known).runner, LARGE)
+        # A run still picking is replayed as before, on top of what is known.
+        self.assertEqual(owned_choice(fleet(), machines=5, jobs=1,
+                                      routed=pool.Routed(unknown=1, owned={MINI: 1})).runner, LARGE)
+
+    def test_runs_off_the_owned_pools_still_queue_on_blacksmith(self):
+        snap = backlog(small=0, large=2)
+        self.assertEqual(choose(snap).runner, LARGE)
+        self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, SMALL)
+
+    def test_route_lookup_reads_markers_then_the_changes_job(self):
+        same = {"head_repository": {"id": 5}, "repository": {"id": 5}}
+        skipped = [{"name": pool.MARKER_STEP, "conclusion": "skipped"}]
+        runs = [{"id": 1, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 2, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 3, "run_attempt": 1, "status": "queued", **same},
+                {"id": 4, "run_attempt": 1, "status": "completed", **same},
+                {"id": 5, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 6, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 7, "run_attempt": 1, "status": "in_progress",
+                 "head_repository": {"id": 8}, "repository": {"id": 5}},
+                {"id": 8, "run_attempt": 2, "status": "in_progress", **same},
+                {"id": 9, "run_attempt": 1, "status": "in_progress", **same}]
+        responses = {
+            # A marker, with an absurd peak capped at MAX_RUN_JOBS.
+            "/actions/runs/1/artifacts?per_page=100": {"artifacts": [
+                {"name": f"macos-pool-persistent-1-1-999-{MINI}", "expired": False}]},
+            # Another run's marker does not count; the skipped marker step does.
+            "/actions/runs/2/artifacts?per_page=100": {"artifacts": [
+                {"name": f"macos-pool-persistent-7-1-9-{MINI}", "expired": False}]},
+            "/actions/runs/2/jobs?filter=latest&per_page=100": {"jobs": [
+                {"name": "changes", "status": "completed", "steps": skipped}]},
+            # Still picking.
+            "/actions/runs/3/artifacts?per_page=100": {"artifacts": []},
+            "/actions/runs/3/jobs?filter=latest&per_page=100": {"jobs": [
+                {"name": "changes", "status": "in_progress", "steps": skipped}]},
+            # Picked an owned pool but the marker upload was lost.
+            "/actions/runs/5/artifacts?per_page=100": {"artifacts": []},
+            "/actions/runs/5/jobs?filter=latest&per_page=100": {"jobs": [
+                {"name": "changes", "status": "completed",
+                 "steps": [{"name": pool.MARKER_STEP, "conclusion": "success"}]}]},
+            # Run 6's lookup fails; runs 7 (fork) and 8 (retry) are never looked up.
+        }
+
+        def get(path):
+            if path not in responses:
+                raise RuntimeError(f"GET {path} failed (500)")
+            return responses[path]
+
+        client = pool.GitHub("token", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
+                unittest.mock.patch.object(client, "get", side_effect=get):
+            routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9)
+        self.assertEqual(routed, pool.Routed(unknown=3, owned={MINI: pool.MAX_RUN_JOBS}, ephemeral=3))
+
+    def test_marker_step_and_routing_job_names_match_ci_yml(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        self.assertIn(f"      - name: {pool.MARKER_STEP}\n", workflow)
+        self.assertIn(f"\n  {pool.ROUTING_JOB}:\n", workflow)
+
+    def test_route_lookups_stop_at_the_cap(self):
+        same = {"head_repository": {"id": 5}, "repository": {"id": 5}, "run_attempt": 1, "status": "queued"}
+        runs = [{"id": n, **same} for n in range(1, pool.ROUTE_LOOKUPS + 4)]
+        client = pool.GitHub("token", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
+                unittest.mock.patch.object(client, "get", return_value={}) as get:
+            routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=None)
+        self.assertEqual(routed, pool.Routed(unknown=len(runs)))
+        self.assertEqual(get.call_count, 2 * pool.ROUTE_LOOKUPS)
 
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
         self.assertEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, LARGE)
