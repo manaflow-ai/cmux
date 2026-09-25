@@ -26,6 +26,9 @@ extension CMUXCLI {
         if isCmuxAppBundleResourceBinChild(candidate) {
             return true
         }
+        if isCmuxAppBundleHelpersChild(candidate) {
+            return true
+        }
         guard let bundledBinDirectory = bundledProviderBinDirectory() else { return false }
         return candidate.hasPrefix(bundledBinDirectory + "/")
     }
@@ -343,7 +346,7 @@ extension CMUXCLI {
 
         return AgentExecutableSearchPathResolver()
             .normalizedDirectories(from: directories)
-            .filter { !isCmuxAppBundleResourceBinDirectory($0) }
+            .filter { !isCmuxAppBundleResourceBinDirectory($0) && !isCmuxAppBundleHelpersDirectory($0) }
     }
 
     private func providerNodeVersionBinDirectories(root: String, suffix: String) -> [String] {
@@ -383,7 +386,8 @@ extension CMUXCLI {
             return nil
         }
         let directory = executableURL.deletingLastPathComponent().standardizedFileURL.path
-        guard directory.hasSuffix("/Contents/Resources/bin") || directory.hasSuffix("/Resources/bin") else {
+        guard directory.hasSuffix("/Contents/Resources/bin") || directory.hasSuffix("/Resources/bin")
+            || directory.hasSuffix("/Contents/Helpers") || directory.hasSuffix("/Helpers") else {
             return nil
         }
         return directory
@@ -401,6 +405,18 @@ extension CMUXCLI {
         } ?? false
     }
 
+    private func isCmuxAppBundleHelpersDirectory(_ path: String) -> Bool {
+        cmuxAppBundleHelpersComponentIndex(path).map { index in
+            URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.pathComponents.count == index + 3
+        } ?? false
+    }
+
+    private func isCmuxAppBundleHelpersChild(_ path: String) -> Bool {
+        cmuxAppBundleHelpersComponentIndex(path).map { index in
+            URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.pathComponents.count > index + 3
+        } ?? false
+    }
+
     private func cmuxAppBundleResourceBinComponentIndex(_ path: String) -> Int? {
         let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
         guard components.count >= 4 else { return nil }
@@ -411,6 +427,22 @@ extension CMUXCLI {
                   components[index + 1] == "Contents",
                   components[index + 2] == "Resources",
                   components[index + 3] == "bin" else {
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private func cmuxAppBundleHelpersComponentIndex(_ path: String) -> Int? {
+        let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        guard components.count >= 3 else { return nil }
+        for index in components.indices {
+            guard components[index].hasSuffix(".app"),
+                  components[index].lowercased().contains("cmux"),
+                  components.indices.contains(index + 2),
+                  components[index + 1] == "Contents",
+                  components[index + 2] == "Helpers" else {
                 continue
             }
             return index

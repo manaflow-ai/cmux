@@ -116,7 +116,8 @@ extension CMUXCLI {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storeURL.path)
     }
 
-    /// The client bundled beside this CLI (`Contents/Resources/bin/cmux-tui`, installed by
+    /// The client bundled beside this CLI (`Contents/Helpers/cmux-tui` in signed releases,
+    /// with a `Contents/Resources/bin/cmux-tui` development fallback), installed by
     /// scripts/install-cmux-tui-client.sh) comes first, so the Machines panel needs no
     /// install; then CMUX_TUI_CLIENT, ~/.cmux/bin/cmux (install-static.sh's target) and
     /// `cmux-tui` on PATH. Plain `cmux` on PATH is deliberately not probed: that is this

@@ -34,16 +34,27 @@ public struct CommandRunner: CommandRunning, Sendable {
     /// - Parameters:
     ///   - environment: The environment whose `PATH` is searched; defaults to the process environment.
     ///   - bundledBinPath: An extra directory searched ahead of the fallbacks (the app's
-    ///     bundled CLI directory); defaults to `Bundle.main`'s `Contents/Resources/bin`.
+    ///     bundled CLI directory); defaults to `Contents/Helpers` in signed
+    ///     releases and falls back to `Contents/Resources/bin` for development.
     ///   - fallbackSearchDirectories: Directories searched after `PATH` and the bundled bin.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
+        bundledBinPath: String? = Self.defaultBundledBinPath(),
         fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories
     ) {
         self.environment = environment
         self.bundledBinPath = bundledBinPath
         self.fallbackSearchDirectories = fallbackSearchDirectories
+    }
+
+    @usableFromInline
+    internal static func defaultBundledBinPath() -> String? {
+        let candidates = [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers", isDirectory: true),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        ].compactMap { $0 }
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
     }
 
     /// Runs `executable` with `arguments` in `directory`, capturing its output.

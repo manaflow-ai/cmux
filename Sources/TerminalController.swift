@@ -3287,10 +3287,10 @@ class TerminalController {
         if let executablePath = Bundle.main.executableURL?.path {
             result["app_executable_path"] = executablePath
         }
-        if let cliPath = Bundle.main.resourceURL?
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: false)
-            .path {
+        if let cliPath = [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        ].first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })?.path {
             result["app_cli_path"] = cliPath
         }
         return result

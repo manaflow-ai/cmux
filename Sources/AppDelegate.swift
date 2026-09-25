@@ -7005,7 +7005,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
         guard let workspace = tabManager?.selectedWorkspace,
-              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              let cliURL = CLIForwardingLaunchRouter.bundledExecutableURL(named: "cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             return false
         }
@@ -13679,7 +13679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "windowRouteFailure": "",
         ], at: path)
 
-        guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+        guard let cliURL = CLIForwardingLaunchRouter.bundledExecutableURL(named: "cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             writeMultiWindowNotificationTestData([
                 "windowRouteStatus": "0",
@@ -17885,8 +17885,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
             return
         }
-        let embeddedCLIURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        let embeddedCLIURL = CLIForwardingLaunchRouter.bundledExecutableURL(named: "cmux")
+            ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false)
             .standardizedFileURL
             .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier

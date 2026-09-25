@@ -39,7 +39,8 @@ done
 [[ -L "$RESOURCE_BIN/cmux" ]] || { echo 'missing legacy cmux symlink' >&2; exit 1; }
 [[ "$(readlink "$RESOURCE_BIN/cmux")" == '../../Helpers/cmux' ]] || { echo 'legacy cmux symlink points to the wrong helper' >&2; exit 1; }
 for name in ghostty cmux-cua cmux-diff-sidecar cmux-tui cmuxd cmux-paste-text-worker coderouter; do
-  [[ ! -e "$RESOURCE_BIN/$name" ]] || { echo "stale resource helper remains: $name" >&2; exit 1; }
+  [[ -L "$RESOURCE_BIN/$name" ]] || { echo "missing legacy helper symlink: $name" >&2; exit 1; }
+  [[ "$(readlink "$RESOURCE_BIN/$name")" == "../../Helpers/$name" ]] || { echo "legacy helper symlink points to the wrong helper: $name" >&2; exit 1; }
 done
 [[ -x "$RESOURCE_BIN/cmux-claude-wrapper" ]] || { echo 'wrapper moved unexpectedly' >&2; exit 1; }
 [[ -f "$RESOURCE_BIN/cmux-cua-LICENSE.md" ]] || { echo 'license moved unexpectedly' >&2; exit 1; }

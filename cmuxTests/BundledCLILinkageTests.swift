@@ -24,14 +24,20 @@ enum BundledCLITestSupport {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+        let helpersCLIURL = appBundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Helpers", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: false)
         let expectedCLIURL = appBundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Resources", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: false)
 
-        if fileManager.isExecutableFile(atPath: expectedCLIURL.path) {
-            return expectedCLIURL
+        for candidate in [helpersCLIURL, expectedCLIURL] {
+            if fileManager.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
         }
 
         let enumerator = fileManager.enumerator(
@@ -41,12 +47,13 @@ enum BundledCLITestSupport {
         )
         while let item = enumerator?.nextObject() as? URL {
             guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux"),
+                  (item.path.contains(".app/Contents/Helpers/cmux")
+                      || item.path.contains(".app/Contents/Resources/bin/cmux")),
                   fileManager.isExecutableFile(atPath: item.path) else { continue }
             return item
         }
 
-        let message = "Bundled cmux CLI not found at \(expectedCLIURL.path)"
+        let message = "Bundled cmux CLI not found under Contents/Helpers or Contents/Resources/bin"
         XCTFail(message, file: file, line: line)
         throw NSError(domain: "cmux.tests", code: 1, userInfo: [
             NSLocalizedDescriptionKey: message,
@@ -76,7 +83,7 @@ final class BundledCLILinkageTests: XCTestCase {
         XCTAssertEqual(
             privateRPathFrameworks,
             [],
-            "The bundled cmux CLI is copied into Contents/Resources/bin as a standalone helper. Private @rpath framework dependencies abort in dyld before CLI code can run."
+            "The bundled cmux CLI is a standalone nested helper. Private @rpath framework dependencies abort in dyld before CLI code can run."
         )
     }
 

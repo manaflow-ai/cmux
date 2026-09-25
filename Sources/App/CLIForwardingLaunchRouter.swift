@@ -17,8 +17,8 @@ enum CLIForwardingLaunchRouter {
         CLIForwardingDecision(arguments: argv, forwardingGuardIsSet: forwardingGuardIsSet)
     }
 
-    /// If `argv` looks like a CLI invocation, exec the bundled CLI at
-    /// `Contents/Resources/bin/cmux` and never return. macOS-launch arguments
+    /// If `argv` looks like a CLI invocation, exec the bundled CLI and never
+    /// return. macOS-launch arguments
     /// (`-psn_...`, other `-` flags) and `cmux://` URLs are left to the GUI.
     /// A CLI invocation that cannot be forwarded (the forwarding guard is
     /// already set) exits with an error instead of falling through to the GUI.
@@ -39,7 +39,7 @@ enum CLIForwardingLaunchRouter {
 
         guard let cliURL = bundledCLIURL(bundle: bundle, fileManager: fileManager) else {
             #if DEBUG
-            let resourcePath = bundle.resourceURL?.appendingPathComponent("bin/cmux").path ?? "<missing>"
+            let resourcePath = bundle.bundleURL.appendingPathComponent("Contents/Helpers/cmux").path
             let executablePath = processExecutableURL()?.path ?? "<missing>"
             cliForwardingLogger.debug("bundled CLI not found for forwarding; bundleID=\(bundle.bundleIdentifier ?? "<missing>", privacy: .public) resourcePath=\(resourcePath, privacy: .public) executablePath=\(executablePath, privacy: .public)")
             #endif
@@ -78,14 +78,26 @@ enum CLIForwardingLaunchRouter {
         CLIForwardingDecision.shouldForwardToBundledCLI(arguments: argv)
     }
 
+    static func bundledExecutableURL(
+        named name: String,
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let candidates = [
+            bundle.bundleURL.appendingPathComponent("Contents/Helpers/\(name)", isDirectory: false),
+            bundle.bundleURL.appendingPathComponent("Contents/Resources/bin/\(name)", isDirectory: false),
+            bundle.resourceURL?.appendingPathComponent("bin/\(name)", isDirectory: false)
+        ].compactMap { $0 }
+        return candidates.first { fileManager.isExecutableFile(atPath: $0.path) }
+    }
+
     static func bundledCLIURL(
         bundle: Bundle = .main,
         fileManager: FileManager = .default,
         executableURL: URL? = processExecutableURL()
     ) -> URL? {
-        let bundleCandidate = bundle.resourceURL?.appendingPathComponent("bin/cmux")
-        if let bundleCandidate, fileManager.isExecutableFile(atPath: bundleCandidate.path) {
-            return bundleCandidate
+        if let bundled = bundledExecutableURL(named: "cmux", bundle: bundle, fileManager: fileManager) {
+            return bundled
         }
 
         guard let executableURL else { return nil }
@@ -93,6 +105,10 @@ enum CLIForwardingLaunchRouter {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Resources")
+        let helperCandidate = resourcesURL.deletingLastPathComponent().appendingPathComponent("Helpers/cmux")
+        if fileManager.isExecutableFile(atPath: helperCandidate.path) {
+            return helperCandidate
+        }
         let executableCandidate = resourcesURL.appendingPathComponent("bin/cmux")
         if fileManager.isExecutableFile(atPath: executableCandidate.path) {
             return executableCandidate
