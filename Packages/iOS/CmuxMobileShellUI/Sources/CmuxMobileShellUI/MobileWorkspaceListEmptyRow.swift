@@ -113,12 +113,13 @@ struct MobileWorkspaceListEmptyRow: View {
                             retryRecoveryGeneration = nil
                             retryTimedOut = true
                         }
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.retry", defaultValue: "Retry"),
-                            systemImage: "arrow.clockwise"
-                        )
-                    }
+                        } label: {
+                            Label {
+                                Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
+                            } icon: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
                     .disabled(isRetrying)
