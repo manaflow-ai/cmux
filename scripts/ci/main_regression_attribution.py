@@ -20,7 +20,8 @@ its diff reaches the failing test's suite: 2 when it edits the suite
 (test_impact.py), 1 when a changed app declaration or string is named by the
 suite (reverse_test_impact.py), 0 otherwise. The top score names the
 suspects; when every score is 0 the failure is left unattributed rather than
-blaming the whole range.
+blaming the whole range. A tie lists pull requests labeled merged-unverified
+(merge_receipt.py: a judging check was not green when they merged) first.
 
 `report` writes a "New since" markdown section for the tracking issue (read
 by main_full_suite.py report --extra-section) and comments once on each
@@ -45,6 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main_full_suite as suite_run  # noqa: E402
+from merge_receipt import LABEL as UNVERIFIED_LABEL  # noqa: E402
 
 APP_HOST_JOB_RE = re.compile(r"app-host unit tests \((\d+)/\d+\)")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -100,6 +102,8 @@ class PullRequest:
     # Suites the diff edits, and suites that name what the diff changes.
     edited_suites: set[str] = field(default_factory=set)
     reached_suites: set[str] = field(default_factory=set)
+    # Labeled by merge_receipt.py: a judging check was not green at merge.
+    unverified: bool = False
 
 
 def log_failures(log_text: str, known: Iterable[str] = ()) -> set[str]:
@@ -215,6 +219,10 @@ def merged_prs(
                     url=str(pr.get("url") or ""),
                     merge_sha=merge_sha,
                     author=str(((pr.get("author") or {}) or {}).get("login") or ""),
+                    unverified=any(
+                        label.get("name") == UNVERIFIED_LABEL
+                        for label in ((pr.get("labels") or {}).get("nodes") or [])
+                    ),
                 )
     merge_order = {sha: index for index, sha in enumerate(reversed(ordered))}
     prs = sorted(found.values(), key=lambda pr: merge_order.get(pr.merge_sha, 0))
@@ -248,7 +256,12 @@ def suspects_for(
     if best == 0:
         return [], "no pull request in the range reaches this suite"
     how = "edits the suite" if best == 2 else "changes code the suite names"
-    return [pr for value, pr in scored if value == best], how
+    tied = [pr for value, pr in scored if value == best]
+    # A pull request that merged before its checks passed is listed first in a
+    # tie; the others stay, since a verified head can still break main
+    # through an interaction with another merge.
+    tied.sort(key=lambda pr: not pr.unverified)
+    return tied, how
 
 
 def tests_digest(tests: Iterable[str]) -> str:
@@ -454,7 +467,8 @@ def associated_prs(repo: str, shas: list[str]) -> dict[str, list[dict]]:
         chunk = shas[start:start + 40]
         fields = " ".join(
             f'c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 5) '
-            "{ nodes { number title url state baseRefName author { login } mergeCommit { oid } } } } }"
+            "{ nodes { number title url state baseRefName author { login } mergeCommit { oid } "
+            "labels(first: 20) { nodes { name } } } } } }"
             for index, sha in enumerate(chunk)
         )
         query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
