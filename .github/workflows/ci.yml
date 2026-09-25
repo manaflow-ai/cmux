@@ -288,8 +288,9 @@ jobs:
             # inputs through the base classifier. Unknown scripts/ci inputs stay
             # in the list and therefore fail open.
             if [ "$ci_router_changed" = true ] || [ "$ci_workflow_changed" = true ]; then
-              # ci.yml is stripped below, but its `cli` job is the CLI lane's
-              # call site. An edit to that job, or to the triggers and
+              # ci.yml is stripped below, but its `macos` job is the CLI lane's
+              # call site: it passes the `cli` route to compile admission and
+              # cli-product-tests. An edit to that job, or to the triggers and
               # permissions before `jobs:` that it inherits, runs the lane.
               cli_call_site_changed=false
               if [ "$ci_workflow_changed" = true ]; then
@@ -304,7 +305,7 @@ jobs:
               if not marker:
                   raise SystemExit(1)
               for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
-                  if block.partition(":")[0] == "cli":
+                  if block.partition(":")[0] == "macos":
                       return preamble, block
               return preamble, ""
 
@@ -955,17 +956,6 @@ jobs:
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
-  cli:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.cli == 'true' }}
-    uses: ./.github/workflows/cli-pipe-regressions.yml
-    with:
-      pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
-      pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
-      pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
-      pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
-      pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
-
   web:
     # Beside static-preflight for the same reason as guards.
     needs: [changes]
@@ -1036,7 +1026,7 @@ jobs:
   # through ordinary job results: no sleep and no polling. It is every job
   # that needs nothing beyond changes/static-preflight and runs only on Linux;
   # the workflow test derives the same list. Jobs with a Mac runner
-  # (claude-wrapper, remote-daemon, cli) are already billed and slow, so
+  # (claude-wrapper, remote-daemon) are already billed and slow, so
   # waiting on them saves nothing. It finishes long before a compile does, and
   # compile admission's last step reads its result once: a declined gate
   # fails admission, which skips the shards, CLI product tests, lag and
@@ -1345,7 +1335,6 @@ jobs:
       - ghosttykit-release-check
       - browser
       - remote-daemon
-      - cli
       - web
       - linux-preflight
       - macos-admission-gate

@@ -283,8 +283,8 @@ class CanonicalRecipeTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in calls.read_text().splitlines()]
-            # Derive the expected calls from the recipe rather than pinning a
-            # count: one version probe, one resolve, then one build per scheme.
+            # Derive the expected builds from the recipe rather than pinning a
+            # count: version probes, one resolve, then one build per scheme.
             # A hardcoded total silently breaks whenever a scheme is added --
             # cmux-cli-tests did exactly that. The recipe now takes its scheme
             # list from PRODUCT_PROFILES, so read the same source it does.
@@ -292,7 +292,14 @@ class CanonicalRecipeTests(unittest.TestCase):
             import product_input_identity as identity
 
             expected_schemes = list(identity.profile_schemes("app-host"))
-            self.assertEqual(len(records), 2 + len(expected_schemes))
+            # Version probes are not pinned either: the build step reads the
+            # Xcode version too, to decide the compilation cache (#14359).
+            # Every other call is the one resolve or a scheme build.
+            probes = [args for _cwd, args in records if args == ["-version"]]
+            resolves = [args for _cwd, args in records if "-resolvePackageDependencies" in args]
+            self.assertGreaterEqual(len(probes), 1)
+            self.assertEqual(len(resolves), 1)
+            self.assertEqual(len(records), len(probes) + len(resolves) + len(expected_schemes))
             # resolve() also passes -scheme (cmux-unit) alongside
             # -resolvePackageDependencies; only the build invocations count.
             built = [

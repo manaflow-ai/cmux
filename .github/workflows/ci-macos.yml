@@ -736,6 +736,11 @@ jobs:
 
       # These no-socket probes take seconds and need only the compiled CLI.
       # Fail admission before allocating app-host shards or the runtime job.
+      # They run after a compile and after a product reuse alike: both leave
+      # the Debug CLI at the same path, and both product profiles build it.
+      # This is the CLI lane's only Debug CLI build; the closed-consumer,
+      # config and Glaeda contract tests used to build it again on their own
+      # Mac (cli-pipe-regressions.yml).
       - name: Run early CLI binary smoke checks
         run: |
           set -euo pipefail
@@ -747,6 +752,8 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_broken_pipe_writes.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_glaeda_execution.py
 
       # Compile-only forks without targeted CLI tests have no artifact consumers and cannot seed reuse:
       # both the reuse selector and broker require an in-repository producer.
