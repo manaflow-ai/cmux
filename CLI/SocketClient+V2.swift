@@ -24,6 +24,10 @@ extension SocketClient {
         }
     }
 
+    /// Sends one v2 request and decodes its structured response.
+    ///
+    /// Plain-text socket policy denials are translated by the shared transport
+    /// before the response can be mistaken for malformed JSON.
     func sendV2(
         method: String,
         params: [String: Any] = [:],

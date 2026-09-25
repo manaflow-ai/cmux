@@ -3187,6 +3187,10 @@ final class SocketClient {
         socketAuthenticated = true
     }
 
+    /// Sends a command over the control socket and returns its response.
+    ///
+    /// Access-policy denials are converted into localized CLI guidance so v1
+    /// and v2 callers report the same actionable error.
     func send(
         command: String,
         responseTimeout: TimeInterval? = nil,
