@@ -1379,7 +1379,11 @@ struct SidebarWorkspaceTableTests {
         )
 
         currentModel = clearedModel
-        workspace.sidebarMetadata.invalidateWorkspaceObservation()
+        workspace.sidebarMetadata.appendLogEntry(
+            message: "telemetry changed after color",
+            level: .info,
+            source: "test"
+        )
         await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == "after telemetry clear" }
         #expect(
             cell.currentModelForMeasurement?.snapshot.customDescription == "after telemetry clear",
