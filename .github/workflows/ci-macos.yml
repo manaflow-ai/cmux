@@ -92,6 +92,14 @@ on:
         required: false
         default: ""
         type: string
+      # Set only for a full suite on a Blacksmith pool (pr_runner_pool.py
+      # spread_shards): another pool on the same Xcode, with more room than
+      # compile admission's for the app-host shards. The product runs on any
+      # pool on its Xcode, since every one reproduces the canonical root.
+      pr_shard_runner:
+        required: false
+        default: ""
+        type: string
       # Set only when pr_runner is persistent: the owned label again, for
       # attempt 2 of a job in pr_owned_jobs. ci-owned-pool-rescue.yml re-runs
       # the failed jobs of a run whose owned job was refused, and that re-run
@@ -1285,8 +1293,10 @@ jobs:
     # When compile admission ran on an owned pool, a shard the picker did not
     # place there (no machine left, or CI_PR_POOL_OWNED_GUI=0), and a re-run
     # of failed shards, take pr_retry_runner: Blacksmith on the lane's Xcode,
-    # which is the Xcode the owned label names.
-    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+    # which is the Xcode the owned label names. Otherwise a full suite's shards
+    # take pr_shard_runner when the picker found another pool on admission's
+    # Xcode with more room, and admission's own pool when it is empty.
+    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1368,7 +1378,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
