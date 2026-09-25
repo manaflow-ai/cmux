@@ -45,6 +45,8 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     public let surfaceNotFound: String
     /// Product-level message for a scoped clear that cannot reach notifications.
     public let clearUnavailable: String
+    /// A present but undecodable `effects` override on a create request.
+    public let effectsInvalid: String
 
     /// Creates the localized message bundle.
     ///
@@ -66,6 +68,7 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     ///   - workspaceNotFound: The workspace-not-found message.
     ///   - surfaceNotFound: The surface-not-found message.
     ///   - clearUnavailable: The product-level scoped-clear unavailable message.
+    ///   - effectsInvalid: The invalid-effects message.
     public init(
         dismissSelectorRequired: String,
         idRequired: String,
@@ -83,7 +86,8 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         clearWorkspaceIDInvalid: String,
         workspaceNotFound: String = "Workspace not found",
         surfaceNotFound: String = "Surface not found",
-        clearUnavailable: String = "Notifications are unavailable. Try again."
+        clearUnavailable: String = "Notifications are unavailable. Try again.",
+        effectsInvalid: String = "Missing or invalid effects"
     ) {
         self.dismissSelectorRequired = dismissSelectorRequired
         self.idRequired = idRequired
@@ -102,5 +106,6 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         self.workspaceNotFound = workspaceNotFound
         self.surfaceNotFound = surfaceNotFound
         self.clearUnavailable = clearUnavailable
+        self.effectsInvalid = effectsInvalid
     }
 }

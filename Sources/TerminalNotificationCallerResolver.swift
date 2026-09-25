@@ -92,10 +92,9 @@ extension TerminalController {
         let subtitle = stringParam(params, "subtitle") ?? ""
         let body = stringParam(params, "body") ?? ""
         let replyShape = TerminalNotificationReplyShape(wire: stringParam(params, "reply_shape"))
-        if params["desktop"] != nil, boolParam(params, "desktop") == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid desktop", data: nil)
+        guard let effects = notificationEffects(rawParam: params["effects"]) else {
+            return .err(code: "invalid_params", message: notificationStrings.effectsInvalid, data: nil)
         }
-        let desktop = boolParam(params, "desktop")
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         runOnMain {
@@ -117,7 +116,7 @@ extension TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: replyShape,
-                desktop: desktop
+                effects: effects
             )
             let surfaceId: Any = target.surfaceId?.uuidString ?? NSNull()
             let payload: [String: Any] = [

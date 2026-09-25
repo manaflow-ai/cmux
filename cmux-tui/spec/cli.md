@@ -379,7 +379,7 @@ provider authority install
 work unchanged inside a machine: `--title` (default `Notification`, at most
 512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
 `--clear`, `--surface`, `--workspace`, `--json`; `--window`, `--id-format`, and
-`--desktop` are accepted and ignored. The target defaults to the caller's own terminal
+`--desktop` (validated as `true|false`) are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
 session, and `--workspace` alone posts a session-level row with no terminal.

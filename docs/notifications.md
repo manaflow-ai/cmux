@@ -52,7 +52,7 @@ cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval neede
 
 # Post to the panel only: record the entry in the Notifications panel, sidebar
 # badge and pane ring without a native banner, for a caller that shows its own
-cmux notify --title "Deploy finished" --body "prod is live" --desktop false
+cmux notify --title "Done" --desktop false
 
 # Notify a specific workspace/surface
 cmux notify --title "Done" --workspace workspace:1 --surface surface:1
@@ -177,7 +177,7 @@ Hook input and output use this shape:
 }
 ```
 
-Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. When the caller passed `cmux notify --desktop false`, the envelope's `effects.desktop` already starts out `false`, so a hook sees the request and can still override it. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
+Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. When the caller passed `cmux notify --desktop false`, the request carries `effects: {"desktop": false}` (the same shape a hook emits) and the envelope's `effects.desktop` already starts out `false`, so a hook sees the request and can still override it. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
 
 ### Agent-event context
 

@@ -153,7 +153,7 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertEqual(envelope.notification.body, "Filtered")
     }
 
-    func testRequestedDesktopEffectSeedsTheHookEnvelope() async throws {
+    func testRequestedEffectsSeedTheHookEnvelope() async throws {
         let request = TerminalNotificationPolicyRequest(
             tabId: UUID(),
             surfaceId: UUID(),
@@ -163,7 +163,7 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
             cwd: FileManager.default.temporaryDirectory.path,
             isAppFocused: false,
             isFocusedPanel: false,
-            desktop: false
+            effects: TerminalNotificationPolicyEffectsPatch(desktop: false)
         )
         let passthrough = CmuxResolvedNotificationHook(
             id: "passthrough",
@@ -187,10 +187,21 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         )
         let overridden = try await evaluate(request: request, hooks: [restore]).get()
         XCTAssertTrue(overridden.effects.desktop, "a hook keeps the last word over the flag")
+
+        let unrelated = CmuxResolvedNotificationHook(
+            id: "unrelated",
+            command: #"printf '{"effects":{"sound":false}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let partial = try await evaluate(request: request, hooks: [unrelated]).get()
+        XCTAssertFalse(partial.effects.desktop, "a hook patching another effect leaves the requested desktop value alone")
+        XCTAssertFalse(partial.effects.sound)
     }
 
-    func testNoHooksKeepTheRequestedDesktopEffect() async throws {
-        func request(desktop: Bool?) -> TerminalNotificationPolicyRequest {
+    func testNoHooksKeepTheRequestedEffects() async throws {
+        func request(_ effects: TerminalNotificationPolicyEffectsPatch?) -> TerminalNotificationPolicyRequest {
             TerminalNotificationPolicyRequest(
                 tabId: UUID(),
                 surfaceId: nil,
@@ -200,13 +211,14 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
                 cwd: nil,
                 isAppFocused: false,
                 isFocusedPanel: false,
-                desktop: desktop
+                effects: effects
             )
         }
-        XCTAssertFalse(try await evaluate(request: request(desktop: false), hooks: []).get().effects.desktop)
-        XCTAssertTrue(try await evaluate(request: request(desktop: true), hooks: []).get().effects.desktop)
-        XCTAssertTrue(try await evaluate(request: request(desktop: nil), hooks: []).get().effects.desktop)
-        XCTAssertEqual(request(desktop: nil).baseEffects, TerminalNotificationPolicyEffects())
+        XCTAssertFalse(try await evaluate(request: request(.init(desktop: false)), hooks: []).get().effects.desktop)
+        XCTAssertTrue(try await evaluate(request: request(.init(desktop: true)), hooks: []).get().effects.desktop)
+        XCTAssertTrue(try await evaluate(request: request(nil), hooks: []).get().effects.desktop)
+        XCTAssertEqual(request(nil).baseEffects, TerminalNotificationPolicyEffects())
+        XCTAssertEqual(request(.init()).baseEffects, TerminalNotificationPolicyEffects())
     }
 
     func testHookCanFilterExistingPolicyEnvelope() async throws {
@@ -1602,7 +1614,7 @@ final class NotificationDockBadgeTests: XCTestCase {
             title: "Panel only",
             subtitle: "",
             body: "The caller showed its own banner",
-            desktop: false
+            effects: TerminalNotificationPolicyEffectsPatch(desktop: false)
         )
 
         let recorded = try XCTUnwrap(store.notifications.first, "desktop: false must still record the panel entry")

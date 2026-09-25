@@ -77370,124 +77370,6 @@
         }
       }
     },
-    "cli.error.notifyDesktopValue": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop takes true or false"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop には true か false を指定してください"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop 只接受 true 或 false"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop erwartet true oder false"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop accepte true ou false"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقبل notify --desktop القيمة true أو false فقط"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop acepta true o false"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop 只接受 true 或 false"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify --desktop에는 true 또는 false를 지정해야 합니다."
-          }
-        }
-      }
-    },
-    "cli.error.notifyDesktopConflict": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify: --desktop and --no-desktop disagree; pass one of them"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify: --desktop と --no-desktop の指定が矛盾しています。どちらか一方だけを指定してください"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify：--desktop 与 --no-desktop 相互矛盾；请只使用其中一个"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify: --desktop und --no-desktop widersprechen sich; geben Sie nur eines davon an"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify : --desktop et --no-desktop se contredisent ; n'indiquez que l'un des deux"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify: يتعارض --desktop مع --no-desktop؛ استخدم أحدهما فقط"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify: --desktop y --no-desktop se contradicen; indica solo uno de ellos"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify：--desktop 與 --no-desktop 互相矛盾；請只使用其中一個"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notify: --desktop과 --no-desktop이 서로 충돌합니다. 둘 중 하나만 지정하세요."
-          }
-        }
-      }
-    },
     "cli.error.clearNotificationsCorrelationKeyInvalid": {
       "extractionState": "manual",
       "localizations": {
@@ -440976,6 +440858,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "surface_id가 없거나 잘못되었습니다"
+          }
+        }
+      }
+    },
+    "socket.notification.effectsInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid effects"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects が指定されていないか無効です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects 缺失或无效"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlende oder ungültige effects"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects manquant ou invalide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة effects مفقودة أو غير صالحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects faltante o no válido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遺失或無效的 effects"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects가 없거나 잘못되었습니다"
           }
         }
       }

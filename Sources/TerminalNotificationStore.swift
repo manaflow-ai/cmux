@@ -1115,7 +1115,7 @@ final class TerminalNotificationStore: ObservableObject {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         origin: TerminalNotificationOrigin = .local,
-        desktop: Bool? = nil
+        effects: TerminalNotificationPolicyEffectsPatch? = nil
     ) -> UUID? {
 #if DEBUG
         cmuxDebugLog(
@@ -1127,6 +1127,8 @@ final class TerminalNotificationStore: ObservableObject {
         // that types into a pane, a click action that opens a local path, agent context
         // that hooks treat as trusted identity, or a sound override. Clamped here so no
         // caller can regress it, and hooks are never resolved from a local cwd for it.
+        // The effects override is allowed from a remote because every default is true,
+        // so an override can only turn delivery off.
         let replyShape = origin.isRemote ? .none : replyShape
         let clickAction = origin.isRemote ? nil : clickAction
         let agent = origin.isRemote ? nil : agent
@@ -1185,15 +1187,16 @@ final class TerminalNotificationStore: ObservableObject {
             agent: agent,
             soundContext: soundContext,
             origin: origin,
-            desktop: desktop
+            effects: effects
         )
+        let baseEffects = policyContext.request.baseEffects
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             inFlightPolicyRequests.discardPending(
                 forDeliveryIdentityOf: policyContext.request
             )
             let didRecord = applyNotification(
                 request: policyContext.request,
-                effects: policyContext.request.baseEffects,
+                effects: baseEffects,
                 now: now,
                 cooldownReservation: cooldownReservation,
                 scrollPosition: policyContext.scrollPosition,
@@ -1214,7 +1217,7 @@ final class TerminalNotificationStore: ObservableObject {
             completePolicyRequest(
                 policyRequestId,
                 request: policyContext.request,
-                effects: policyContext.request.baseEffects,
+                effects: baseEffects,
                 cooldownReservation: cooldownReservation,
                 scrollPosition: policyContext.scrollPosition,
                 clickAction: clickAction,
@@ -1238,7 +1241,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self.completePolicyRequest(
                     policyRequestId,
                     request: policyContext.request,
-                    effects: policyContext.request.baseEffects,
+                    effects: baseEffects,
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction,
@@ -1266,7 +1269,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self.completePolicyRequest(
                     policyRequestId,
                     request: policyContext.request,
-                    effects: policyContext.request.baseEffects,
+                    effects: baseEffects,
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction,
@@ -1371,7 +1374,7 @@ final class TerminalNotificationStore: ObservableObject {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         origin: TerminalNotificationOrigin = .local,
-        desktop: Bool? = nil
+        effects: TerminalNotificationPolicyEffectsPatch? = nil
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
@@ -1419,7 +1422,7 @@ final class TerminalNotificationStore: ObservableObject {
                 agent: agent,
                 soundContext: soundContext,
                 origin: origin,
-                desktop: desktop
+                effects: effects
             ),
             scrollPosition: scrollPosition,
             hooks: resolvedHooks ?? (origin.isRemote ? [] : cmuxConfigStore?.notificationHooks(
@@ -1467,7 +1470,7 @@ final class TerminalNotificationStore: ObservableObject {
                 agent: request.agent,
                 soundContext: envelope.context.soundContext,
                 origin: request.origin,
-                desktop: request.desktop
+                effects: request.effects
             ),
             effects: envelope.effects,
             now: now,

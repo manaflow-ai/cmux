@@ -70,7 +70,9 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
     }
 }
 
-private struct TerminalNotificationPolicyEffectsPatch: Decodable {
+/// A partial effects override: what a hook emits under `effects`, and what a
+/// `cmux notify --desktop false` request carries in before hooks run.
+struct TerminalNotificationPolicyEffectsPatch: Codable, Sendable, Equatable {
     var record: Bool?
     var markUnread: Bool?
     var reorderWorkspace: Bool?
@@ -78,6 +80,24 @@ private struct TerminalNotificationPolicyEffectsPatch: Decodable {
     var sound: Bool?
     var command: Bool?
     var paneFlash: Bool?
+
+    init(
+        record: Bool? = nil,
+        markUnread: Bool? = nil,
+        reorderWorkspace: Bool? = nil,
+        desktop: Bool? = nil,
+        sound: Bool? = nil,
+        command: Bool? = nil,
+        paneFlash: Bool? = nil
+    ) {
+        self.record = record
+        self.markUnread = markUnread
+        self.reorderWorkspace = reorderWorkspace
+        self.desktop = desktop
+        self.sound = sound
+        self.command = command
+        self.paneFlash = paneFlash
+    }
 
     func merged(into effects: TerminalNotificationPolicyEffects) -> TerminalNotificationPolicyEffects {
         var merged = effects
@@ -262,10 +282,10 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let agent: TerminalNotificationPolicyAgentContext?
     let soundContext: NotificationSoundOverrideContext?
     let origin: TerminalNotificationOrigin
-    /// The caller's `desktop` effect (`cmux notify --desktop false`). `nil` keeps
-    /// the policy default. Hooks receive it as the envelope's starting value and
-    /// may still override it.
-    let desktop: Bool?
+    /// The caller's effects override (`cmux notify --desktop false`). `nil`
+    /// keeps the policy defaults. Hooks receive the merged result as the
+    /// envelope's starting effects and may still override it.
+    let effects: TerminalNotificationPolicyEffectsPatch?
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -282,7 +302,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         origin: TerminalNotificationOrigin = .local,
-        desktop: Bool? = nil
+        effects: TerminalNotificationPolicyEffectsPatch? = nil
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
@@ -299,17 +319,13 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.agent = agent
         self.soundContext = soundContext
         self.origin = origin
-        self.desktop = desktop
+        self.effects = effects
     }
 
-    /// The effects a delivery starts from before any hook runs: the defaults with
-    /// the caller's `desktop` request applied.
+    /// The effects a delivery starts from before any hook runs: the defaults
+    /// with the caller's override merged in.
     var baseEffects: TerminalNotificationPolicyEffects {
-        var effects = TerminalNotificationPolicyEffects()
-        if let desktop {
-            effects.desktop = desktop
-        }
-        return effects
+        effects?.merged(into: TerminalNotificationPolicyEffects()) ?? TerminalNotificationPolicyEffects()
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {

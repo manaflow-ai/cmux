@@ -331,6 +331,29 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("notification.create_for_target carrying an effects override is forwarded")
+    func allowsNotificationCreateForTargetWithEffects() throws {
+        let localWorkspace = UUID()
+        let localSurface = UUID()
+        try withServer(
+            workspaceAliases: [localWorkspace: localWorkspace],
+            surfaceAliases: [localSurface: localSurface]
+        ) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"p15","method":"notification.create_for_target","params":{"workspace_id":"\(localWorkspace.uuidString)","surface_id":"\(localSurface.uuidString)","title":"Done","effects":{"desktop":false}}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+            let forwarded = try #require(unixServer.requests.first)
+            #expect(String(decoding: forwarded, as: UTF8.self).contains("\"effects\":{\"desktop\":false}"))
+        }
+    }
+
     @Test("relay does not learn ownership from unsolicited create responses")
     func createdSurfaceIsImmediatelyUsable() throws {
         // The package relay never treats response fields as an ownership grant;

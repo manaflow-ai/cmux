@@ -38,7 +38,7 @@ struct RemoteRelayRoutingSchema {
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "notification.create_for_target":
-            return surface.union(["title", "subtitle", "body", "reply_shape", "desktop"])
+            return surface.union(["title", "subtitle", "body", "reply_shape", "effects"])
         default: return nil
         }
     }

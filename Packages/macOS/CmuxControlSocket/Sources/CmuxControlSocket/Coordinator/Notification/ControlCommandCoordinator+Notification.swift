@@ -42,8 +42,8 @@ extension ControlCommandCoordinator {
 
     /// `notification.create` — deliver to the resolved/focused surface.
     func notificationCreate(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let desktop = desktopEffect(params) else {
-            return invalidDesktopEffect
+        guard let effects = notificationEffects(params) else {
+            return .err(code: "invalid_params", message: notificationEffectsInvalidMessage, data: nil)
         }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
@@ -55,7 +55,7 @@ extension ControlCommandCoordinator {
             subtitle: subtitle,
             body: body,
             replyShapeWire: rawString(params, "reply_shape"),
-            desktop: desktop
+            effects: effects
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -85,8 +85,8 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-        guard let desktop = desktopEffect(params) else {
-            return invalidDesktopEffect
+        guard let effects = notificationEffects(params) else {
+            return .err(code: "invalid_params", message: notificationEffectsInvalidMessage, data: nil)
         }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
@@ -98,7 +98,7 @@ extension ControlCommandCoordinator {
             subtitle: subtitle,
             body: body,
             replyShapeWire: rawString(params, "reply_shape"),
-            desktop: desktop
+            effects: effects
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
     }
@@ -112,8 +112,8 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-        guard let desktop = desktopEffect(params) else {
-            return invalidDesktopEffect
+        guard let effects = notificationEffects(params) else {
+            return .err(code: "invalid_params", message: notificationEffectsInvalidMessage, data: nil)
         }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
@@ -126,22 +126,20 @@ extension ControlCommandCoordinator {
             subtitle: subtitle,
             body: body,
             replyShapeWire: rawString(params, "reply_shape"),
-            desktop: desktop
+            effects: effects
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
     }
 
-    /// The `desktop` effect a create request asks for: `.some(nil)` when the key
-    /// is absent (policy default), `.some(value)` for a recognizable bool, and
-    /// `nil` when the key is present but not a bool, which the caller rejects.
-    private func desktopEffect(_ params: [String: JSONValue]) -> Bool?? {
-        guard params["desktop"] != nil else { return .some(nil) }
-        guard let value = bool(params, "desktop") else { return nil }
-        return .some(value)
-    }
-
-    private var invalidDesktopEffect: ControlCallResult {
-        .err(code: "invalid_params", message: "Missing or invalid desktop", data: nil)
+    /// The effects override a create request asks for: `.some(nil)` when the
+    /// key is absent or JSON null (policy defaults), `.some(patch)` for a strictly
+    /// decodable object, and `nil` when the key is present but undecodable,
+    /// which the caller rejects.
+    private func notificationEffects(_ params: [String: JSONValue]) -> ControlNotificationEffectsPatch?? {
+        guard hasNonNull(params, "effects") else { return .some(nil) }
+        guard let value = params["effects"],
+              let patch = ControlNotificationEffectsPatch(json: value) else { return nil }
+        return .some(patch)
     }
 
     /// The shared result shaping for `create_for_surface` / `create_for_target`.
@@ -543,8 +541,13 @@ extension ControlCommandCoordinator {
             clearWorkspaceIDInvalid: "Missing or invalid workspace_id",
             workspaceNotFound: "Workspace not found",
             surfaceNotFound: "Surface not found",
-            clearUnavailable: "Notifications are unavailable. Try again."
+            clearUnavailable: "Notifications are unavailable. Try again.",
+            effectsInvalid: "Missing or invalid effects"
         )
+    }
+
+    private var notificationEffectsInvalidMessage: String {
+        notificationStrings.effectsInvalid
     }
 
     private var notificationDismissSelectorRequiredMessage: String {

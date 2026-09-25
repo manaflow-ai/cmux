@@ -148,15 +148,15 @@ struct RemoteRelayAuthorizationPolicyTests {
             ownerWorkspaceID: workspaceID,
             surfaceIDs: [surfaceID]
         ) == .allowed)
-        // `desktop` only turns the banner off for the relay's own delivery; it
-        // stays inside the targeted method's closed parameter contract.
+        // `effects` can only turn the relay's own delivery off (every default
+        // is true); it stays inside the targeted method's closed contract.
         #expect(policy.validate(
             method: "notification.create_for_target",
             parameters: [
                 "workspace_id": workspaceID.uuidString,
                 "surface_id": surfaceID.uuidString,
                 "title": "Done",
-                "desktop": false,
+                "effects": ["desktop": false],
             ],
             ownerWorkspaceID: workspaceID,
             surfaceIDs: [surfaceID]
