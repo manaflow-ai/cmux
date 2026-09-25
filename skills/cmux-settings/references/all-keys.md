@@ -158,6 +158,7 @@ Socket control and automation settings from Settings > Automation.
 | `automation.autoNamingAgent` | string | `"auto"` | Which agent generates auto-names for every session. "auto" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks. |
 | `automation.ripgrepBinaryPath` | string | `""` | Custom path to the ripgrep (rg) binary used by project search. |
 | `automation.suppressSubagentNotifications` | boolean | `true` | Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry. |
+| `automation.hookTimeoutMs` | integer | `15000` | Maximum time in milliseconds for an injected agent hook to run before cmux terminates it. |
 | `automation.ampIntegration` | boolean | `true` | Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed. |
 | `automation.kiroIntegration` | boolean | `true` | Enable cmux integration hooks for Kiro CLI. |
 | `automation.kiroNotificationLevel` | `"minimal"` or `"standard"` or `"verbose"` | `"standard"` | Controls how many Kiro tool events appear in Feed. |
