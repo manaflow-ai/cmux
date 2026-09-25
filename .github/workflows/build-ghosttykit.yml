@@ -107,6 +107,17 @@ jobs:
             -Dsentry=false \
             -Dtest-filter="open stderr reader exits"
 
+      - name: Test Ghostty CJK fallback sizing
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="ideograph fallback sizing fills two primary cells" \
+            --summary all
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |

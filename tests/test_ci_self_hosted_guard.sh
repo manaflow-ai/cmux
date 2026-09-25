@@ -300,7 +300,7 @@ check_release_helper_artifact_from_package_lane() {
 
     in_job && index($0, dual_runner) { saw_dual_runner=1 }
     in_job && /vars\.MACOS_RUNNER_PR/ { saw_pr_lane=1 }
-    in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
+    in_job && /timeout-minutes:[[:space:]]*60/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
     in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
     in_job && /CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15/ { saw_helper_sdk_pin=1 }
@@ -1726,9 +1726,10 @@ from pathlib import Path
 import yaml
 
 
-# Attempt 1 of compile admission may take the warm labels in
-# pr_admission_runner, a JSON array; the env restates the first, the root label.
-WARM_RUNS_ON = "fromJSON(inputs.pr_admission_runner)"
+# Attempt 1 of compile admission may take the pinned labels of
+# admission-placement or pr_admission_runner, a JSON array; the env restates
+# the first, the root label.
+WARM_RUNS_ON = "fromJSON(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
 
 
 def restated(value):
