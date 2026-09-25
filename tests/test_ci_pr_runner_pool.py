@@ -58,7 +58,8 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
            overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1, owned="",
-           owned_slots="", jobs=pool.MAX_RUN_JOBS, split="", live_owned=None, root_jobs=0, shards=0):
+           owned_slots="", jobs=pool.MAX_RUN_JOBS, split="", live_owned=None, root_jobs=0, shards=0, light_retry="",
+           actor=""):
     def count_routed(since):
         if isinstance(routed, Exception):
             raise routed
@@ -67,7 +68,7 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins, owned=owned,
         owned_slots=owned_slots, jobs=jobs, split=split, live_owned=live_owned, root_jobs=root_jobs,
-        shards=shards,
+        shards=shards, light_retry=light_retry, triggering_actor=actor,
         fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt,
     )[0]
 
@@ -414,7 +415,7 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job("glaeda-std-xcode-26.6", "queued")]))
         # swift-package-tests sits on Blacksmith beside a full-suite run on an owned pool.
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job(OLD, "queued")]))
-        for change in ({"event": "push"}, {"run_attempt": 2}, {"head_repository": {"id": 8}},
+        for change in ({"event": "push"}, {"run_attempt": 3}, {"head_repository": {"id": 8}},
                        {"path": ".github/workflows/nightly.yml"}):
             self.assertFalse(janitor.may_hold_owned_pool({**run, **change}, []), change)
 
@@ -615,6 +616,66 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
         self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
 
+    def test_attempt_2_may_take_the_light_tier_when_switched_on(self):
+        # The rescue re-runs a run stuck on a full std pool in full; that
+        # attempt picks again and, with CI_OWNED_LIGHT_RETRY, may take light.
+        snap = fleet(busy=11)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        slots = json.dumps({MINI: 11, LIGHT: 3})
+        bot = pool.RESCUE_ACTOR
+        light = owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", actor=bot)
+        self.assertEqual(light.runner, LIGHT)
+        self.assertEqual(light.retry_runner, LARGE)
+        self.assertIn("retry attempt 2", light.reason)
+        # Off by default, never for attempt 3, and never std on a retry.
+        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=2, actor=bot).runner, LARGE)
+        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=3, light_retry="1", actor=bot).runner, LARGE)
+        idle = fleet(busy=0)
+        idle["pools"][LIGHT] = {"queued": 0, "running": 3}
+        self.assertEqual(owned_choice(idle, owned_slots=slots, attempt=2, light_retry="1", actor=bot).runner, LARGE)
+        # Light has to fit the whole owned peak, as on attempt 1.
+        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", jobs=4,
+                                      actor=bot).runner, LARGE)
+        # A fork never reaches an owned pool.
+        fork = choose(snap, owned="1", owned_slots=slots, jobs=3, attempt=2, light_retry="1", actor=bot,
+                      head="someone/cmux", default="", pins={})
+        self.assertFalse(fork.runner.startswith("glaeda-"))
+
+    def test_the_light_retry_is_only_for_the_rescues_re_run(self):
+        # ci.yml sends attempt 2's jobs to the refused-retry (light) label only
+        # when github-actions[bot] started it. A person's re-run lands them on
+        # Blacksmith, so the picker must not claim light (and its marker) then.
+        snap = fleet(busy=11)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        slots = json.dumps({MINI: 11, LIGHT: 3})
+        for actor in ("", "teamleaderleo", "github-actions"):
+            choice = owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", actor=actor)
+            self.assertEqual(choice.runner, LARGE, actor)
+        self.assertIn("github.triggering_actor == 'github-actions[bot]'",
+                      (WORKFLOWS / "ci.yml").read_text())
+        # main() reads the actor Actions sets on every step.
+        fresh = snap
+        fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for actor, expected in ((pool.RESCUE_ACTOR, LIGHT), ("teamleaderleo", LARGE)):
+            with tempfile.TemporaryDirectory() as tmp, \
+                    unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
+                    unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
+                    unittest.mock.patch("sys.stdout", io.StringIO()):
+                out = Path(tmp, "out")
+                env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "t",
+                       "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
+                       "OWNED_SLOTS": slots, "OWNED_LIGHT_RETRY": "1", "GITHUB_TRIGGERING_ACTOR": actor,
+                       "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
+                       "GITHUB_RUN_ATTEMPT": "2", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true"}
+                pool.main([], env)
+                values = dict(line.split("=", 1) for line in out.read_text().splitlines() if "=" in line)
+            self.assertEqual(values["runner"], expected, actor)
+
+    def test_the_light_retry_variable_reaches_the_picker(self):
+        step = next(step for step in yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]["steps"]
+                    if step.get("id") == "macos-pool")
+        self.assertEqual(step["env"]["OWNED_LIGHT_RETRY"], "${{ vars.CI_OWNED_LIGHT_RETRY }}")
+
     def test_label_follows_the_lane_xcode_pin(self):
         self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
         self.assertEqual(pool.owned_pools("/Applications/Xcode_27.0.1.app"),
@@ -754,7 +815,9 @@ class OwnedPools(unittest.TestCase):
             "/actions/runs/5/jobs?filter=latest&per_page=100": {"jobs": [
                 {"name": "changes", "status": "completed",
                  "steps": [{"name": pool.MARKER_STEP, "conclusion": "success"}]}]},
-            # Run 6's lookup fails; runs 7 (fork) and 8 (retry) are never looked up.
+            # Run 6's lookup fails, and so does run 8's: attempt 2 may hold the
+            # fleet (a refused job's retry, or the light tier), so it is looked
+            # up and replayed when unknown. Run 7 (fork) is never looked up.
         }
 
         def get(path):
@@ -766,7 +829,7 @@ class OwnedPools(unittest.TestCase):
         with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
                 unittest.mock.patch.object(client, "get", side_effect=get):
             routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9)
-        self.assertEqual(routed, pool.Routed(unknown=3, owned={MINI: pool.MAX_RUN_JOBS}, ephemeral=3))
+        self.assertEqual(routed, pool.Routed(unknown=4, owned={MINI: pool.MAX_RUN_JOBS}, ephemeral=2))
 
     def test_marker_step_and_routing_job_names_match_ci_yml(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()

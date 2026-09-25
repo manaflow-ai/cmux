@@ -394,7 +394,10 @@ class Rescuing(unittest.TestCase):
         api = FakeAPI(clock, persistent_run(), marker=True)
         code, summary = run_main(api, clock)
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+        start = api.calls.index("cancel")
+        self.assertEqual(api.calls[start:start + 4], ["cancel", "run", "pull", "rerun"])
+        # The full re-run may take the light tier, so attempt 2 is watched too.
+        self.assertIn("jobs:2", api.calls[start + 4:])
         self.assertIn(f"queued on {MINI} for at least 90s", summary)
         self.assertIn("attempt 2 takes an ephemeral pool", summary)
         # Rescued at the first look past 40 + 90 seconds.

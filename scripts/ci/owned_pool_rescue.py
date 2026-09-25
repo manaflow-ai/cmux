@@ -532,7 +532,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         api.rerun_failed(target.run_id)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id)
-    return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
+    return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool, "
+            "or the light tier when CI_OWNED_LIGHT_RETRY is 1 and it is free")
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
@@ -590,9 +591,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             result = rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only,
                             deadline=rescue_deadline, refused=(outcome == "refused") if target.e2e else None)
             log(result)
-            if not (failed_only and result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
+            if not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
                 return finish("done")
-            # The re-run may take the owned pool once more; watch it here.
+            # The re-run may take the owned pool once more: a refused job's
+            # re-run reuses the owned label, and a stuck run's full re-run may
+            # take the light tier (CI_OWNED_LIGHT_RETRY). Watch it here.
             target = dataclasses.replace(target, attempt=target.attempt + 1)
             outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
                                     deadline=deadline)

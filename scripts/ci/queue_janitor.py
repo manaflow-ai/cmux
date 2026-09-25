@@ -419,14 +419,15 @@ def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str
 def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI, or of an E2E
-    or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
-    ios-screenshots.yml uploads the same marker), can (a
-    retry never takes one). Its other macOS jobs say nothing:
+    Only attempts 1 and 2 of a same-repository pull request run of CI, or of
+    an E2E or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
+    ios-screenshots.yml uploads the same marker), can: attempt 2 retries a
+    refused owned job on the fleet, or takes the light tier
+    (pr_runner_pool.LIGHT_RETRY_ATTEMPT); later attempts never do. Its other macOS jobs say nothing:
     swift-package-tests always runs on a Blacksmith pool beside a run on an
     owned one.
     """
-    if (run.get("run_attempt") or 1) != 1:
+    if (run.get("run_attempt") or 1) > 2:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
