@@ -63,13 +63,15 @@ MAX_CANDIDATES = 6
 # consumer event, so nothing a pull request compiled can reach main.
 #
 # A dispatch consumer is at least as trusted as a merge group, because starting
-# one requires write access, so it may adopt any exact product CI compiled as
-# well as the ones earlier dispatches of its own lane compiled. Nothing adopts a
-# dispatch product in the other direction: CI's trust surface is unchanged.
+# one requires write access, so it may adopt any exact product CI compiled,
+# including main's seeder product, as well as the ones earlier dispatches of
+# its own lane compiled. A dispatch of a main commit that no pull request
+# compiled then adopts the seeder's product. Nothing adopts a dispatch product
+# in the other direction: CI's trust surface is unchanged.
 PERMITTED_PRODUCERS = {
     "pull_request": {"pull_request", "push"},
     "merge_group": {"pull_request", "merge_group"},
-    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch"},
+    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch", "push"},
 }
 
 # The workflow each event is trusted to run from, keyed by event so a future
