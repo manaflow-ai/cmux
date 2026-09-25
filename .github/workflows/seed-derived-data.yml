@@ -282,13 +282,18 @@ jobs:
       # SwiftPM's evaluated-manifest cache, which compile admission restores
       # read-only (scripts/ci/swiftpm-manifest-cache.sh). Exact key only: a
       # miss starts empty so the saved cache holds just this revision's
-      # manifests, at the canonical path admission resolves from.
+      # manifests, at the canonical path admission resolves from. Root 1 only:
+      # the key does not name the root, so a root lane could win the
+      # write-once save with entries no root 1 reader hits, and its clear
+      # would empty the cache every slot on that Mac shares. Owned Macs keep
+      # their other roots' entries themselves (`install` merges).
       - name: Compute SwiftPM manifest cache key
         id: swiftpm-manifest-key
         run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
 
       - name: Restore SwiftPM manifest cache
         id: swiftpm-manifest-restore
+        if: matrix.root == ''
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         with:
@@ -297,6 +302,7 @@ jobs:
           key: ${{ steps.swiftpm-manifest-key.outputs.key }}
 
       - name: Install SwiftPM manifest cache
+        if: matrix.root == ''
         run: |
           set -euo pipefail
           if [ "$MANIFEST_CACHE_HIT" = true ]; then
@@ -347,7 +353,7 @@ jobs:
 
       - name: Stage SwiftPM manifest cache
         id: swiftpm-manifest-stage
-        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        if: matrix.root == '' && steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
         continue-on-error: true
         run: scripts/ci/swiftpm-manifest-cache.sh stage "$RUNNER_TEMP/swiftpm-manifests"
 
