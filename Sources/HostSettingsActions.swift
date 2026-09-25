@@ -187,6 +187,14 @@ final class HostSettingsActions: SettingsHostActions {
         openAgentHooksCommand("hooks status")
     }
 
+    func openAgentHooksInstall(agent: String) {
+        openAgentHooksCommand("hooks \(agent) install --yes")
+    }
+
+    func openAgentHooksUninstall(agent: String) {
+        openAgentHooksCommand("hooks \(agent) uninstall --yes")
+    }
+
     private func openAgentHooksCommand(_ command: String) {
         let cliURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
@@ -195,22 +203,42 @@ final class HostSettingsActions: SettingsHostActions {
             return
         }
         guard let appDelegate = AppDelegate.shared,
-              let manager = appDelegate.activeTabManagerForCommands(),
-              let workspace = manager.selectedWorkspace else {
+              let manager = appDelegate.activeTabManagerForCommands() else {
             NSSound.beep()
             return
         }
 
-        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) \(command) 2>/dev/null; exit\n"
+        // Settings is a local-machine action. Never type the bundled local CLI
+        // into a selected SSH/cloud workspace, where the shell would execute it
+        // on the remote host. Reuse an existing local workspace when possible;
+        // otherwise create a new local workspace explicitly.
+        let targetWorkspaceID: UUID
+        if let localWorkspace = manager.tabs.first(where: { !$0.isRemoteWorkspace }) {
+            targetWorkspaceID = localWorkspace.id
+        } else {
+            do {
+                targetWorkspaceID = try SurfacePaneFactory.createLocalWorkspace(
+                    title: String(localized: "settings.automation.agentHooks.workspaceTitle", defaultValue: "cmux hooks")
+                ).workspaceID
+            } catch {
+                hostSettingsLogger.error("Failed to create local workspace for agent hooks command")
+                return
+            }
+        }
+
+        // Keep the shell open so the user can read install/uninstall output and
+        // any diagnostics written to stderr.
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) \(command)\n"
         do {
             let terminal = try SurfacePaneFactory.makeTerminalPane(
                 initialCommand: nil,
                 initialInput: initialInput,
                 workingDirectory: nil,
-                at: .workspace(id: workspace.id, placement: .tab),
+                at: .workspace(id: targetWorkspaceID, placement: .tab),
                 focus: true
             )
-            if let windowID = appDelegate.windowId(for: manager) {
+            if let targetManager = appDelegate.tabManagerFor(tabId: targetWorkspaceID),
+               let windowID = appDelegate.windowId(for: targetManager) {
                 _ = appDelegate.focusMainWindow(windowId: windowID)
             }
             SurfacePaneFactory.focus(panelID: terminal.panelID, in: terminal.workspaceID)

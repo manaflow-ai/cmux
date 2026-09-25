@@ -30,6 +30,30 @@ struct CLIHooksSetupSurfaceTests {
         #expect(result.output.contains("\"codex\""), Comment(rawValue: result.output))
     }
 
+    @Test("Hook status accepts flag and positional agent filters")
+    func hookStatusAgentFilters() throws {
+        let flag = try runCLI(arguments: ["hooks", "status", "--agent", "codex", "--json"])
+        #expect(flag.status == 0, Comment(rawValue: flag.output))
+        #expect(flag.output.contains("\"codex\""), Comment(rawValue: flag.output))
+        #expect(!flag.output.contains("\"claude\""), Comment(rawValue: flag.output))
+
+        let positional = try runCLI(arguments: ["hooks", "status", "codex", "--json"])
+        #expect(positional.status == 0, Comment(rawValue: positional.output))
+        #expect(positional.output.contains("\"codex\""), Comment(rawValue: positional.output))
+        #expect(!positional.output.contains("\"gemini\""), Comment(rawValue: positional.output))
+    }
+
+    @Test("Hook status rejects invalid and conflicting agent filters")
+    func hookStatusRejectsInvalidFilters() throws {
+        let invalid = try runCLI(arguments: ["hooks", "status", "--agent", "does-not-exist", "--json"])
+        #expect(invalid.status != 0, Comment(rawValue: invalid.output))
+        #expect(invalid.output.contains("Unknown hooks target"), Comment(rawValue: invalid.output))
+
+        let conflicting = try runCLI(arguments: ["hooks", "status", "codex", "--agent", "gemini", "--json"])
+        #expect(conflicting.status != 0, Comment(rawValue: conflicting.output))
+        #expect(conflicting.output.contains("Conflicting hooks target"), Comment(rawValue: conflicting.output))
+    }
+
     private func runCLI(arguments: [String]) throws -> ProcessResult {
         let process = Process()
         let output = Pipe()

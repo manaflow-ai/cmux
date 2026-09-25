@@ -558407,6 +558407,20 @@
           }
         }
       }
+    },
+    "settings.automation.agentHooks.workspaceTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "cmux hooks"}},
+        "de": {"stringUnit": {"state": "translated", "value": "cmux-Hooks"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "hooks cmux"}},
+        "es": {"stringUnit": {"state": "translated", "value": "hooks de cmux"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "خطافات cmux"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "cmux フック"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "cmux 후크"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "cmux 挂钩"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "cmux 掛鉤"}}
+      }
     }
   },
   "version": "1.0"

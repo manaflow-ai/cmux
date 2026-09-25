@@ -40576,12 +40576,12 @@ export default CMUXSessionRestore;
         case "setup":
             try runSetupHooks(
                 uninstall: false,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                positionalAgentFilter: try Self.hooksSetupAgentFilter(from: Array(commandArgs.dropFirst()))
             )
             return true
 
         case "status":
-            let filter = try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            let filter = try Self.hooksSetupAgentFilter(from: Array(commandArgs.dropFirst()))
             let definitions: [AgentHookDef]
             if let filter {
                 guard let definition = Self.agentDef(named: filter) else {
@@ -40624,7 +40624,7 @@ export default CMUXSessionRestore;
         case "uninstall":
             try runSetupHooks(
                 uninstall: true,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                positionalAgentFilter: try Self.hooksSetupAgentFilter(from: Array(commandArgs.dropFirst()))
             )
             return true
 
@@ -40689,9 +40689,37 @@ export default CMUXSessionRestore;
             return false
         }
         let markers = Self.hookMarkers(for: definition) + Self.feedHookMarkers(for: definition)
-        return markers.contains(where: contents.contains)
+        if markers.contains(where: contents.contains)
             || contents.contains("cmux-\(definition.name)-")
             || contents.contains("cmux_\(definition.name)_")
+            || Self.extensionHookMarkers(for: definition).contains(where: contents.contains) {
+            return true
+        }
+        // Most JSON-backed integrations store generated shell commands under a
+        // `command` key. Reuse the installer ownership predicate so commands
+        // that invoke `$cmux_cli` (rather than the literal `cmux` binary) are
+        // recognized, while avoiding Codex script materialization during a
+        // read-only status query.
+        guard let data = contents.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return false
+        }
+        return Self.jsonHookValueContainsCmuxOwnedCommand(
+            object,
+            for: definition,
+            materializeCodexScripts: false
+        )
+    }
+
+    private static func extensionHookMarkers(for definition: AgentHookDef) -> [String] {
+        switch definition.name {
+        case "opencode": return ["cmux-opencode-session-plugin-marker", "cmux-feed-plugin-marker"]
+        case "pi": return ["cmux-session extension", "cmux-feed"]
+        case "omp": return ["cmux-omp-session"]
+        case "campfire": return ["cmux-campfire-session"]
+        case "amp": return ["cmux-session"]
+        default: return []
+        }
     }
 
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
@@ -40810,27 +40838,56 @@ export default CMUXSessionRestore;
         }
     }
 
-    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
-        var skipNext = false
+    private static func hooksSetupAgentFilter(from args: [String]) throws -> String? {
         var positionalAgent: String?
-        for arg in args {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            switch arg {
-            case "--agent":
-                skipNext = true
-            case "--yes", "-y", "--uninstall":
-                continue
-            default:
-                if !arg.hasPrefix("-") {
-                    if positionalAgent != nil {
-                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
-                    }
-                    positionalAgent = arg
+        var flagAgent: String?
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--agent" {
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: "--agent requires an agent name")
                 }
+                flagAgent = args[index + 1]
+                index += 2
+                continue
             }
+            if arg.hasPrefix("--agent=") {
+                let value = String(arg.dropFirst("--agent=".count))
+                guard !value.isEmpty else {
+                    throw CLIError(message: "--agent requires an agent name")
+                }
+                flagAgent = value
+                index += 1
+                continue
+            }
+            if arg == "--yes" || arg == "-y" || arg == "--uninstall" || arg == "--json" {
+                index += 1
+                continue
+            }
+            if !arg.hasPrefix("-") {
+                guard positionalAgent == nil else {
+                    throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
+                }
+                positionalAgent = arg
+            }
+            index += 1
+        }
+
+        if let flagAgent, let positionalAgent {
+            guard let flagDef = Self.agentDef(named: flagAgent) else {
+                throw CLIError(message: "Unknown hooks target: \(flagAgent)")
+            }
+            guard let positionalDef = Self.agentDef(named: positionalAgent) else {
+                throw CLIError(message: "Unknown hooks target: \(positionalAgent)")
+            }
+            guard flagDef.name == positionalDef.name else {
+                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+            }
+            return flagDef.name
+        }
+        if let flagAgent {
+            return flagAgent
         }
         return positionalAgent
     }

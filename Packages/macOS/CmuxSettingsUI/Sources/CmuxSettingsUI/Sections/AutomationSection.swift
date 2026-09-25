@@ -4,6 +4,22 @@ import SwiftUI
 /// Automation settings, including socket access, agent integrations, and port ranges.
 @MainActor
 public struct AutomationSection: View {
+    private struct AgentHookSettingsItem: Identifiable {
+        let agent: String
+        let titleKey: String
+        let defaultTitle: String
+        var id: String { agent }
+    }
+
+    private static let agentHookSettingsItems = [
+        AgentHookSettingsItem(agent: "codex", titleKey: "settings.automation.codex", defaultTitle: "Codex"),
+        AgentHookSettingsItem(agent: "claude", titleKey: "settings.automation.claudeCode", defaultTitle: "Claude Code"),
+        AgentHookSettingsItem(agent: "gemini", titleKey: "settings.automation.gemini", defaultTitle: "Gemini"),
+        AgentHookSettingsItem(agent: "opencode", titleKey: "settings.automation.agentHooks.opencode", defaultTitle: "OpenCode"),
+        AgentHookSettingsItem(agent: "amp", titleKey: "settings.automation.amp", defaultTitle: "Amp"),
+        AgentHookSettingsItem(agent: "pi", titleKey: "settings.automation.agentHooks.pi", defaultTitle: "Pi"),
+    ]
+
     private let catalog: SettingCatalog
     private let hostActions: any SettingsHostActions
     private let socketPolicyResolver: SocketControlPolicyResolver
@@ -171,10 +187,37 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.agentHooks.note", defaultValue: "Install detected agent hooks with one click, or run `cmux hooks setup --agent <name>` for one agent. Claude Code hooks are injected automatically by the cmux wrapper. Hook status and uninstall are available from the same terminal command."))
+            ForEach(Self.agentHookSettingsItems) { item in
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .action,
+                    String(localized: item.titleKey, defaultValue: item.defaultTitle),
+                    subtitle: String(
+                        localized: "settings.automation.agentHooks.perAgentSubtitle",
+                        defaultValue: "Install or remove hooks for this agent."
+                    )
+                ) {
+                    HStack(spacing: 8) {
+                        Button(String(localized: "settings.automation.agentHooks.install", defaultValue: "Install")) {
+                            hostActions.openAgentHooksInstall(agent: item.agent)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("SettingsAgentHooksInstall\(item.agent.capitalized)Button")
+
+                        Button(String(localized: "settings.automation.agentHooks.uninstall", defaultValue: "Uninstall")) {
+                            hostActions.openAgentHooksUninstall(agent: item.agent)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("SettingsAgentHooksUninstall\(item.agent.capitalized)Button")
+                    }
+                }
+            }
             SettingsCardDivider()
             Link(
                 String(localized: "settings.automation.agentHooks.docs", defaultValue: "Open agent hooks documentation"),
-                destination: URL(string: "https://cmux.com/docs/agent-integrations/oh-my-codex")!
+                destination: URL(string: "https://cmux.com/docs/session-restore")!
             )
             .cmuxFont(.caption)
             .padding(.horizontal, 14)
