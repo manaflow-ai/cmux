@@ -9097,7 +9097,9 @@ struct CMUXCLI {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
         if isUUID(trimmed) || isHandleRef(trimmed) {
-            if let workspaceHandle {
+            // UUIDs are global; only refs (or a window-scoped lookup) need a
+            // surface.list round trip to resolve inside the workspace.
+            if let workspaceHandle, isHandleRef(trimmed) || windowHandle != nil {
                 if let matched = try matchingSurfaceHandleInWorkspace(
                     trimmed,
                     client: client,
