@@ -1,6 +1,6 @@
 ---
 name: cmux-settings
-description: "View and edit cmux settings in ~/.config/cmux/cmux.json, including terminal, browser, Markdown, diff, file preview, and sidebar-tool behavior. Use when the user wants to change cmux preferences, set a value by JSON path, validate the file, open it in an editor, or look up which keys cmux recognizes. Triggers on '/cmux-settings', 'change cmux setting', 'customize viewer', 'set <something> in cmux', 'cmux config', 'cmux.json', or 'rebind a cmux shortcut'."
+description: "View and edit cmux settings in ~/.config/cmux/cmux.json, including terminal, browser, Markdown, diff, notes, HTML, file preview, and sidebar-tool behavior. Use when the user wants to change cmux preferences, set a value by JSON path, validate the file, open it in an editor, or look up which keys cmux recognizes. Triggers on '/cmux-settings', 'change cmux setting', 'customize viewer', 'set <something> in cmux', 'cmux config', 'cmux.json', or 'rebind a cmux shortcut'."
 ---
 
 # cmux-settings
