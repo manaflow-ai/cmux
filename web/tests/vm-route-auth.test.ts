@@ -1266,6 +1266,35 @@ describe("VM REST auth", () => {
     });
   });
 
+  test.each(["free", null])("an upgraded plan unlocks listed machines recorded with plan %s", async (billingPlanId) => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "upgraded-vm", provider: "freestyle", image: "snapshot-test", imageVersion: null, status: "running", createdAt: 1_777_000_000_000, ownerTeamId: "team-1", billingPlanId },
+    ]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      vms: [{ id: "upgraded-vm", freeAccessExpiresAt: null }],
+      limits: { planId: "pro", freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+    });
+  });
+
+  test("a downgraded plan applies the free window to machines recorded on a paid plan", async () => {
+    getUser.mockResolvedValue(freePlanStackUser());
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "downgraded-vm", provider: "freestyle", image: "snapshot-test", imageVersion: null, status: "running", createdAt: 1_777_000_000_000, ownerTeamId: "team-1", billingPlanId: "pro" },
+    ]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    const expiresAt = 1_777_000_000_000 + 7 * 24 * 60 * 60 * 1000;
+    expect(await response.json()).toMatchObject({
+      vms: [{ id: "downgraded-vm", freeAccessExpiresAt: expiresAt }],
+      limits: { planId: "free", freeAccessWindowDays: 7, freeAccessExpiresAt: expiresAt },
+    });
+  });
+
   test("every listed machine carries its provider's capabilities (no driver forks)", async () => {
     // The app hides Checkpoint/Fork when these are false instead of offering verbs
     // that can only answer 502 "not implemented". Freestyle snapshots and
@@ -1734,8 +1763,11 @@ describe("VM REST auth", () => {
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-2", { includePersonal: true });
     const body = await response.json();
     expect(body.limits.activeVmCount).toBe(1);
+    expect(body.vms.map((vm: { id: string }) => vm.id)).toEqual(["provider-vm-personal", "provider-vm-team"]);
+    expect(body.vms[0]).not.toHaveProperty("ownerTeamId");
+    expect(body.vms[0]).not.toHaveProperty("billingPlanId");
     expect(body.vms.find((vm: { id: string }) => vm.id === "provider-vm-personal").freeAccessExpiresAt)
-      .toBe(1_777_000_000_000 + 7 * 24 * 60 * 60 * 1000);
+      .toBeNull();
     expect(body.vms.find((vm: { id: string }) => vm.id === "provider-vm-team").freeAccessExpiresAt).toBeNull();
   });
 
