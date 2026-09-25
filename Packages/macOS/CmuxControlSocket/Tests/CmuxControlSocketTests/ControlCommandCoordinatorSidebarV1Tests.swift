@@ -157,6 +157,20 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.manualPullRequestCall?.branch == "feature/pr")
     }
 
+    @Test(arguments: ["report_workspace_pr", "clear_workspace_pr"])
+    func workspacePullRequestRejectsMissingWorkspace(command: String) {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.manualPullRequestAvailable = false
+        let coordinator = ControlCommandCoordinator(context: context)
+        let target = "--tab=\(UUID().uuidString)"
+        let args = command == "report_workspace_pr"
+            ? "123 https://github.com/owner/repo/pull/123 \(target)"
+            : target
+        #expect(coordinator.handleSidebarV1(command: command, args: args)?.hasPrefix("ERROR") == true)
+        #expect(context.manualPullRequestCall == nil)
+        #expect(context.manualPullRequestClearTab == nil)
+    }
+
     @Test func workspacePullRequestClearUsesWorkspaceScope() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

@@ -5,6 +5,8 @@ import Foundation
 final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
     var workspaceLoadingResult: ControlSidebarWorkspaceLoadingState?
     var workspaceLoadingCall: (tabArg: String?, key: String, on: Bool)?
+    // Test-only synchronous seam: calls and reads are serial within each test.
+    nonisolated(unsafe) var manualPullRequestAvailable = true
     nonisolated(unsafe) var manualPullRequestCall: (
         tabArg: String?, number: Int, label: String, url: URL, state: String, branch: String?
     )?
@@ -48,10 +50,12 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         statusRawValue: String,
         branch: String?
     ) {
+        guard manualPullRequestAvailable else { return }
         manualPullRequestCall = (tabArg, number, label, url, statusRawValue, branch)
     }
 
     nonisolated func controlSidebarScheduleManualPullRequestClear(tabArg: String?) {
+        guard manualPullRequestAvailable else { return }
         manualPullRequestClearTab = tabArg
     }
 
