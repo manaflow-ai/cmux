@@ -77,10 +77,22 @@ rebuild: those whose content differs from the kept RECORD, and from the
 MANIFEST of the nearest seed in this commit's history that this Mac keeps
 (seed_derived_data.py CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the
 one with fewer changed inputs wins, and the adopt that follows clones exactly
-that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 190 s,
+that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 250 s,
 so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
 given. A kept DerivedData without a record replays nothing and rebuilds the
 whole `cmux` module, so any seed beats it. Every error keeps the warm path.
+
+The count alone misleads when a local package's source changed (Packages/,
+vendor/, Examples/): every `cmux` file imports those modules and recompiles,
+whether 19 or 1,000 inputs changed. On 2026-09-25 three warm jobs cloned a
+kept seed 9 to 20 commits behind because it had fewer changed inputs than the
+kept DerivedData, and compiled for 533 to 958 s. In two of them the seed sat
+behind a package change that a nearer bucket seed had already built (jobs
+108004619872, 107981633810). So a start that recompiles the app loses
+to one that does not, and when both the kept DerivedData and the kept seed
+would, a nearer bucket seed wins at any distance if GitHub's compare of its
+commit with the checkout shows no package source change: its download (about
+250 s on a mini) costs less than recompiling the app (365 to 1,053 s).
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
@@ -319,9 +331,17 @@ def save(store: Path, source_packages: Path, workspace: Path, package_store: Pat
 
 # Not build inputs of the compile, and not present at every recording.
 UNCOMPARED = (".ci-source-packages/", "GhosttyKit.xcframework/")
+# Local Swift packages the app target imports. A changed source in any of them
+# changes a module the `cmux` target imports, so every `cmux` file recompiles
+# (2,300 to 2,700 SwiftCompile tasks, 365 to 1,053 s on an owned mini on
+# 2026-09-25), however few inputs changed: 115 changed inputs cost 958 s in
+# job 108004619872, 19 changed app inputs 222 s in job 107986723124.
+PACKAGE_SOURCES = ("Packages/", "vendor/", "Examples/")
+# GitHub's compare API lists at most this many files; a longer diff is unknown.
+COMPARE_FILE_LIMIT = 300
 
 
-def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
+def changed_paths(current: dict[str, list], recorded: dict[str, list]) -> set[str]:
     """Files whose content differs between two records, or that only one has."""
     def files(entries: dict[str, list]) -> dict[str, str]:
         return {
@@ -329,7 +349,68 @@ def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
             if not path.endswith("/") and not path.startswith(UNCOMPARED) and isinstance(entry, list) and entry
         }
     now, then = files(current), files(recorded)
-    return sum(1 for path in now.keys() | then.keys() if now.get(path) != then.get(path))
+    return {path for path in now.keys() | then.keys() if now.get(path) != then.get(path)}
+
+
+def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
+    return len(changed_paths(current, recorded))
+
+
+def rebuilds_app(paths) -> bool:
+    """Whether these changed files recompile the whole `cmux` module.
+
+    A package's Tests/ are not built by the app's schemes, so they do not count.
+    """
+    return any(
+        path.startswith(PACKAGE_SOURCES) and path.endswith(".swift") and "/Tests/" not in path
+        for path in paths
+    )
+
+
+def cost(paths: set[str]) -> tuple[bool, int]:
+    """What a start with these changed inputs compiles: an app rebuild first, then the count."""
+    return rebuilds_app(paths), len(paths)
+
+
+def bucket_seed_rebuilds_app(key: str, workspace: Path) -> bool | None:
+    """Whether the commits from KEY's revision to the checkout change a package source.
+
+    None when GitHub cannot say (no repository, an error, or a diff past the
+    compare API's file limit); the caller then treats the seed as no better.
+    """
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if not repository:
+        return None
+    try:
+        head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+        files = json.loads(subprocess.run(
+            ["gh", "api", f"repos/{repository}/compare/{key.rsplit('-', 1)[-1]}...{head}",
+             "--jq", "[.files[]? | .filename, (.previous_filename // empty)]"],
+            check=True, capture_output=True, text=True, timeout=60,
+        ).stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if len(files) >= COMPARE_FILE_LIMIT:
+        return None
+    # A submodule bump (vendor/bonsplit) is listed as the bare submodule
+    # path, while the local records see the .swift files under it.
+    if rebuilds_app(files):
+        return True
+    bumped = [path for path in files if path.startswith(PACKAGE_SOURCES)]
+    return bool(bumped) and not submodules(workspace).isdisjoint(bumped)
+
+
+def submodules(workspace: Path) -> set[str]:
+    """The submodule paths .gitmodules declares, or none if it cannot be read."""
+    try:
+        listed = subprocess.run(
+            ["git", "config", "-f", str(workspace / ".gitmodules"), "--get-regexp", r"\.path$"],
+            check=True, capture_output=True, text=True, timeout=30,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {line.split(None, 1)[1].strip() for line in listed.splitlines() if len(line.split(None, 1)) == 2}
 
 
 def nearest_kept_seed(prefix: str, revision: str) -> tuple[str, int] | None:
@@ -357,22 +438,28 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
     manifest = store / DERIVED / RECORD
     kept_record = json.loads(manifest.read_text()) if manifest.is_file() else None
     current = seed.warm.record(workspace) if kept_record is not None else {}
-    kept_changed = changed_inputs(current, kept_record) if kept_record is not None else None
-    if kept_changed is not None:
-        result["kept_changed"] = str(kept_changed)
+    kept_cost = cost(changed_paths(current, kept_record)) if kept_record is not None else None
+    if kept_cost is not None:
+        result.update(kept_changed=str(kept_cost[1]), kept_rebuilds_app=str(kept_cost[0]).lower())
     kept_seed = nearest_kept_seed(prefix, revision)
+    local_rebuilds_app = False
     if kept_seed:
         key, distance = kept_seed
         result.update(seed_key=key, seed_distance=str(distance), local="true")
-        if kept_changed is None:
+        if kept_cost is None:
             result.update(prefer="true", reason="kept DerivedData has no input record")
             return result
-        seed_changed = changed_inputs(current, json.loads((seed.cached(key) / seed.MANIFEST).read_text()))
-        result["seed_changed"] = str(seed_changed)
-        if seed_changed < kept_changed:
+        seed_cost = cost(changed_paths(current, json.loads((seed.cached(key) / seed.MANIFEST).read_text())))
+        result.update(seed_changed=str(seed_cost[1]), seed_rebuilds_app=str(seed_cost[0]).lower())
+        if seed_cost < kept_cost:
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
-            return result
-        result["reason"] = "the kept DerivedData has no more changed inputs than the seed this Mac keeps"
+            if not seed_cost[0] or max_distance is None:
+                return result
+            # It still recompiles the whole app. A newer seed in the bucket
+            # may not; checked below.
+            local_rebuilds_app = True
+        else:
+            result["reason"] = "the kept DerivedData has no more changed inputs than the seed this Mac keeps"
     if max_distance is None:
         result.setdefault("reason", "this Mac keeps no seed in this commit's history")
         return result
@@ -380,12 +467,26 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
     if distance is None:
         result.setdefault("reason", "no seed in this commit's history")
         return result
-    if kept_changed == 0:
+    downloaded = {"prefer": "true", "seed_key": exact, "seed_distance": str(distance), "local": "false"}
+    if local_rebuilds_app:
+        if distance < int(result["seed_distance"]) and bucket_seed_rebuilds_app(exact, workspace) is False:
+            result.update(downloaded, reason=f"the seed this Mac keeps recompiles the app; the seed {distance} commits behind does not")
+        return result
+    if kept_cost is not None and kept_cost[1] == 0:
         result["reason"] = "the kept DerivedData has no changed inputs"
+    elif distance <= max_distance and not (
+        kept_cost is not None and not kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is not False
+    ):
+        # A near seed that would recompile the app never replaces a kept build
+        # that would not; unknown counts as would.
+        result.update(downloaded, reason=f"seed {distance} commits behind, within {max_distance}"
+                      + ("" if kept_cost is not None else "; kept DerivedData has no input record"))
+    elif kept_cost is not None and kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is False:
+        # A download (about 250 s on a mini) costs less than recompiling the
+        # whole app (365 to 1,053 s on an owned mini on 2026-09-25).
+        result.update(downloaded, reason=f"the kept DerivedData recompiles the app; the seed {distance} commits behind does not")
     elif distance <= max_distance:
-        result.update(prefer="true", seed_key=exact, seed_distance=str(distance), local="false",
-                      reason=f"seed {distance} commits behind, within {max_distance}"
-                      + ("" if kept_changed is not None else "; kept DerivedData has no input record"))
+        result.setdefault("reason", f"the seed {distance} commits behind may recompile the app; the kept DerivedData does not")
     else:
         result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
     return result
