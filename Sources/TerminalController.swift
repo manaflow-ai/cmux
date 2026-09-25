@@ -2211,7 +2211,7 @@ class TerminalController {
                     authorizationGeneration, passwordAuthorization: &currentAuthorization
                 ) else {
                     return (
-                        response: Self.socketClientAccessDeniedResponse,
+                        response: Self.socketClientAccessDeniedResponse as String?,
                         passwordAuthorization: currentAuthorization
                     )
                 }
