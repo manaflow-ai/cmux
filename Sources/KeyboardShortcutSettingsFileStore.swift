@@ -822,12 +822,7 @@ final class CmuxSettingsFileStore {
         }
         applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
-        if let value = jsonInt(section["hookTimeoutMs"]),
-           AutomationCatalogSection.hookTimeoutMillisecondsRange.contains(value) {
-            snapshot.managedUserDefaults[AutomationCatalogSection().hookTimeoutMilliseconds.userDefaultsKey] = .int(value)
-        } else if section.keys.contains("hookTimeoutMs") {
-            logInvalid("automation.hookTimeoutMs", sourcePath: sourcePath)
-        }
+        applyIntegerSettings(AutomationSettingsFileMapping.integerSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         if let raw = jsonString(section["kiroNotificationLevel"]) {
             if KiroNotificationLevel(rawValue: raw) != nil {
                 snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)
@@ -1747,6 +1742,22 @@ final class CmuxSettingsFileStore {
         for setting in settings {
             if let raw = jsonString(section[setting.jsonKey]) {
                 snapshot.managedUserDefaults[setting.defaultsKey] = .string(raw)
+            }
+        }
+    }
+
+    func applyIntegerSettings(
+        _ settings: [SettingsFileIntegerMapping],
+        from section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        for setting in settings {
+            if let value = jsonInt(section[setting.jsonKey]),
+               setting.validRange?.contains(value) ?? true {
+                snapshot.managedUserDefaults[setting.defaultsKey] = .int(value)
+            } else if let invalidPath = setting.invalidPath, section.keys.contains(setting.jsonKey) {
+                logInvalid(invalidPath, sourcePath: sourcePath)
             }
         }
     }
