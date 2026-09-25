@@ -1032,7 +1032,7 @@ def idle_warm_runner(runners: Sequence[Mapping[str, Any]], root: str, tiers: Seq
                 continue
             name = str(runner.get("name") or "")
             names = runner_labels(runner)
-            if name in tier and root in names and runner_label(name) in names:
+            if name and name in tier and root in names and runner_label(name) in names:
                 return name
     return ""
 

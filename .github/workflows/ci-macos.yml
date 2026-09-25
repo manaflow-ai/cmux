@@ -127,9 +127,9 @@ on:
         required: false
         default: ""
         type: string
-      # Set only beside pr_root_runner with CI_OWNED_WARM on: the JSON names
-      # of the root runners warm for this run's merge base, which
-      # admission-placement prefers.
+      # Set only beside pr_root_runner with CI_OWNED_WARM on: JSON tiers of
+      # root runner names warm for this run (merge base first, then this
+      # pull request), which admission-placement prefers in that order.
       pr_admission_warm:
         required: false
         default: ""
