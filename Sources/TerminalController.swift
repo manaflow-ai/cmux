@@ -2210,7 +2210,7 @@ class TerminalController {
                 guard socketAuthorizationIsCurrent(
                     authorizationGeneration, passwordAuthorization: &currentAuthorization
                 ) else {
-                    return SocketLineProcessingResult(
+                    return (
                         response: Self.socketClientAccessDeniedResponse,
                         passwordAuthorization: currentAuthorization
                     )
