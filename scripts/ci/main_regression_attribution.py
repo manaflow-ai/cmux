@@ -87,6 +87,9 @@ MARKER_PREFIX = "<!-- main-regression-attribution"
 MARKER_RE = re.compile(r"<!-- main-regression-attribution pr=(\d+) tests=(\w+) range=(\S+) -->")
 # One line of JSON main_regression_bisect.py reads back from the issue.
 DATA_PREFIX = "<!-- main-regression-data "
+# A longer range is not bisected, and keeps the section well under GitHub's
+# comment size limit.
+MAX_BISECT_COMMITS = 256
 # Bounds on one report, so a long red streak cannot fan out into a comment storm.
 MAX_RANKED_PRS = 40
 MAX_COMMENTED_PRS = 5
@@ -342,8 +345,8 @@ def data_marker(
             }
             for test in list(failures)[:MAX_LISTED_TESTS]
         ],
-        "prs": {pr.merge_sha: pr.number for pr in prs},
-        "commits": commits,
+        "prs": {pr.merge_sha: pr.number for pr in prs if pr.merge_sha in commits},
+        "commits": commits if len(commits) <= MAX_BISECT_COMMITS else None,
     }
     return f"{DATA_PREFIX}{json.dumps(data, separators=(',', ':'))} -->"
 

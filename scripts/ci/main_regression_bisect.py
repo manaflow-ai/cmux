@@ -16,12 +16,15 @@ open for hours:
 2. Bisect. A reproduced failure with no suspect or several is bisected over
    the commits between the two full-suite runs that can change an app-host
    test (the section's data marker lists them): the test runs at the midpoint,
-   the window halves, and so on until one commit is left. A range with one
-   such commit needs no probe. A failure with one suspect is left at
-   "reproduced". At most MAX_ACTIVE_BISECTS run at once.
-3. Verdict. When one commit is left, the issue row and the pull request's
-   comment say "confirmed", with the passing and failing run links; other
-   suspects' comments say the bisect cleared them.
+   the window halves, and so on until one commit is left. A commit where the
+   test does not exist yet counts as passing. A failure with one suspect is
+   left at "reproduced". At most MAX_ACTIVE_BISECTS run at once.
+3. Verdict. The last commit left is itself probed unless it is the red run's
+   head, so a failure that only reproduces there (another runner pool, or a
+   cause outside the listed commits) ends unresolved instead of blaming it.
+   Then the issue row and the pull request's comment say "confirmed", with
+   the passing and failing run links; other suspects' comments say the bisect
+   cleared them.
 
 State lives in one comment on the tracking issue, as a hidden JSON marker the
 next invocation resumes from. Every dispatch is recorded there, and at most
@@ -63,7 +66,7 @@ MAX_ACTIVE_BISECTS = 2
 MAX_DISPATCHES_PER_INVOCATION = 4
 DEFAULT_MAX_DISPATCHES_PER_DAY = 24
 # A probe that errored (a runner or infrastructure failure, not the test) is
-# retried once before the item gives up.
+# retried once before the item gives up; any other result resets the count.
 MAX_PROBE_ERRORS = 2
 # An item still open this long after it was queued is dropped.
 ITEM_TTL = timedelta(days=3)
@@ -75,8 +78,15 @@ MAX_FINISHED_ITEMS = 20
 KEEP_SEEN_RUNS = 200
 DISPATCH_TIMEOUT_SECONDS = 8 * 60
 # The step that runs the selected tests, in app-host-test-rerun.yml and
-# test-e2e.yml. A failure anywhere else is not the test's verdict.
+# test-e2e.yml. A failure anywhere else is not the test's verdict...
 TEST_STEP = "Run selected tests"
+# ...except test-e2e.yml's selector resolution, which fails when the built
+# tests do not include the selector: the test does not exist at that commit.
+RESOLVE_STEP = "Resolve selectors against the built tests"
+# Kept under GitHub's 65,536-character comment limit with room for one more
+# dispatch's worth of state.
+STATE_LIMIT = 60_000
+FLAKY_TEXT = "likely flaky, not this pull request"
 
 OPEN_STATES = frozenset({"queued", "flake-check", "bisect-wait", "bisecting"})
 UPDATE_SEPARATOR = " · "
@@ -122,14 +132,20 @@ def hidden_json(body: str, prefix: str) -> list[dict]:
 
 
 def valid_data(data: Mapping[str, object]) -> bool:
-    """A data marker whose shas and test names are safe to dispatch."""
-    shas = [data.get("head"), data.get("prev"), *(data.get("commits") or [])]
-    tests = [entry.get("test") for entry in data.get("tests") or [] if isinstance(entry, dict)]
+    """A data marker whose shas are safe to dispatch; each test is checked on its own."""
+    commits = data.get("commits")
+    shas = [data.get("head"), data.get("prev"), *(commits or [])]
     return (
         isinstance(data.get("run_id"), int)
+        and (commits is None or isinstance(commits, list))
+        and isinstance(data.get("tests"), list)
         and all(isinstance(sha, str) and SHA_RE.match(sha) for sha in shas)
-        and all(isinstance(test, str) and TEST_RE.match(test) for test in tests)
     )
+
+
+def dispatchable(entry: object) -> bool:
+    """A test entry dispatch-focused-test.py can run: Suite/method, not a nested suite."""
+    return isinstance(entry, dict) and isinstance(entry.get("test"), str) and bool(TEST_RE.match(entry["test"]))
 
 
 def empty_state() -> dict:
@@ -213,7 +229,8 @@ def new_items(state: dict, runs: Mapping[int, Mapping[str, object]], now: dateti
             continue
         state["seen"].append(run_id)
         room = MAX_OPEN_ITEMS - sum(1 for item in state["items"] if item["state"] in OPEN_STATES)
-        for entry in list(data.get("tests") or [])[:max(0, min(room, MAX_CHECKS_PER_RUN))]:
+        tests = [entry for entry in data.get("tests") or [] if dispatchable(entry)]
+        for entry in tests[:max(0, min(room, MAX_CHECKS_PER_RUN))]:
             state["items"].append({
                 "run": run_id,
                 "run_url": data.get("run_url"),
@@ -240,13 +257,18 @@ class Event:
     item: dict
 
 
+def culprit_checked(item: dict, data: Mapping[str, object]) -> bool:
+    """Whether the window's last commit is known to fail: probed there, or it is the red run's head."""
+    culprit = points(data)[item["hi"]]
+    return culprit == data["head"] or (item["probes"].get(culprit) or {}).get("result") == "fail"
+
+
 def conclude(item: dict, data: Mapping[str, object]) -> Event:
-    """The verdict once the window is one commit wide."""
+    """The verdict once the window is one commit wide and its last commit fails."""
     window = points(data)
     culprit = window[item["hi"]]
     good = window[item["lo"]]
-    head_probe = item["probes"].get(str(data["head"])) or {}
-    culprit_probe = item["probes"].get(culprit) or head_probe
+    culprit_probe = item["probes"].get(culprit) or item["probes"][str(data["head"])]
     item["culprit"] = {
         "sha": culprit,
         "pr": (data.get("prs") or {}).get(culprit),
@@ -264,10 +286,21 @@ def conclude(item: dict, data: Mapping[str, object]) -> Event:
     return Event("confirmed", item)
 
 
+def settle(item: dict, data: Mapping[str, object]) -> Event | None:
+    if item["hi"] - item["lo"] <= 1 and culprit_checked(item, data):
+        return conclude(item, data)
+    item["note"] = f"bisecting: {item['hi'] - item['lo']} commits left"
+    return None
+
+
 def after_reproduced(item: dict, data: Mapping[str, object]) -> Event:
     """Decide what a reproduced failure needs next."""
     window = points(data)
-    head_url = item["probes"][str(data["head"])]["url"]
+    head_url = item["rerun_url"]
+    if data.get("commits") is None:
+        item["state"] = "reproduced"
+        item["note"] = f"reproduced ([rerun]({head_url})); too many commits in the range to bisect"
+        return Event("reproduced", item)
     if len(window) < 2:
         item["state"] = "unresolved"
         item["note"] = (
@@ -275,20 +308,24 @@ def after_reproduced(item: dict, data: Mapping[str, object]) -> Event:
         )
         return Event("unresolved", item)
     item["lo"], item["hi"] = 0, len(window) - 1
-    if len(window) == 2:
+    if len(window) == 2 and culprit_checked(item, data):
         return conclude(item, data)
-    if len(item["suspects"]) == 1:
+    if len(item["suspects"]) == 1 and len(window) > 2:
         item["state"] = "reproduced"
         item["note"] = f"reproduced ([rerun]({head_url}))"
         return Event("reproduced", item)
     item["state"] = "bisect-wait"
-    item["note"] = f"reproduced ([rerun]({head_url})); waiting to bisect {len(window) - 1} commits"
+    item["note"] = f"reproduced ([rerun]({head_url})); waiting to bisect {len(window) - 1} commit(s)"
     return Event("reproduced", item)
 
 
 def record_result(item: dict, data: Mapping[str, object], sha: str, result: str) -> Event | None:
     """Apply one finished probe to the item."""
     probe = item["probes"][sha]
+    if result == "absent":
+        # The test does not exist at this commit, so it is not failing there.
+        # At the red run's head that cannot be, so it is an error.
+        result = "pass" if item["state"] == "bisecting" else "error"
     probe["result"] = result
     item.pop("pending", None)
     if result == "error":
@@ -298,22 +335,29 @@ def record_result(item: dict, data: Mapping[str, object], sha: str, result: str)
             item["note"] = f"could not be rerun ([last run]({probe['url']}))"
             return Event("error", item)
         return None
+    item["errors"] = 0
     if item["state"] == "flake-check":
+        item["rerun_url"] = probe["url"]
         if result == "pass":
             item["state"] = "flaky"
             item["note"] = f"did not reproduce on a rerun at the same commit ([run]({probe['url']})); likely flaky"
             return Event("flaky", item)
         return after_reproduced(item, data)
     window = points(data)
-    mid = window.index(sha)
-    if result == "pass":
-        item["lo"] = mid
+    index = window.index(sha)
+    if result == "fail":
+        item["hi"] = index
+    elif index == item["hi"]:
+        item["state"] = "unresolved"
+        item["note"] = (
+            f"fails at the red run's head ([rerun]({item['rerun_url']})) but passes at `{short(sha)}` "
+            f"([run]({probe['url']})), the last commit in the range that changes the app or its tests; "
+            "the cause is outside those commits, or it only fails on the red run's runner"
+        )
+        return Event("unresolved", item)
     else:
-        item["hi"] = mid
-    if item["hi"] - item["lo"] <= 1:
-        return conclude(item, data)
-    item["note"] = f"bisecting: {item['hi'] - item['lo']} commits left"
-    return None
+        item["lo"] = index
+    return settle(item, data)
 
 
 def next_probe(item: dict, data: Mapping[str, object]) -> str | None:
@@ -323,7 +367,10 @@ def next_probe(item: dict, data: Mapping[str, object]) -> str | None:
     if item["state"] in ("queued", "flake-check"):
         return str(data["head"])
     if item["state"] == "bisecting":
-        return points(data)[(item["lo"] + item["hi"]) // 2]
+        window = points(data)
+        if item["hi"] - item["lo"] > 1:
+            return window[(item["lo"] + item["hi"]) // 2]
+        return window[item["hi"]]
     return None
 
 
@@ -352,14 +399,14 @@ def advance(
     runs: Mapping[int, Mapping[str, object]],
     *,
     poll: Callable[[int], str],
-    dispatch: Callable[[str, str, bool], tuple[int, str] | None],
+    dispatch: Callable[[str, str], tuple[int, str] | None],
     per_day: int,
     now: datetime,
 ) -> list[Event]:
     """One step for every open item: collect finished probes, start bisects, dispatch the next runs.
 
-    `poll(run_id)` answers pending, pass, fail or error. `dispatch(test, sha,
-    retry)` returns (run id, url), or None when the dispatch failed.
+    `poll(run_id)` answers pending, pass, fail, absent or error.
+    `dispatch(test, sha)` returns (run id, url), or None when it failed.
     """
     events: list[Event] = []
     new_items(state, runs, now)
@@ -392,8 +439,11 @@ def advance(
         sha = next_probe(item, runs[item["run"]])
         if sha is None or not budget.available():
             continue
+        if len(render_state(state, per_day)) > STATE_LIMIT:
+            print("::warning::The state comment is near GitHub's size limit; dispatching nothing more.", file=sys.stderr)
+            break
         budget.spend()
-        started = dispatch(item["test"], sha, sha in item["probes"])
+        started = dispatch(item["test"], sha)
         if started is None:
             item["errors"] = item.get("errors", 0) + 1
             if item["errors"] >= MAX_PROBE_ERRORS:
@@ -408,19 +458,27 @@ def advance(
         item["probes"][sha] = {"run_id": run_id, "url": url, "result": "pending"}
         item["pending"] = sha
     finished = [item for item in state["items"] if item["state"] not in OPEN_STATES]
+    for item in finished:
+        # The note and culprit carry every link a finished item still shows.
+        for key in ("probes", "pending", "lo", "hi", "errors"):
+            item.pop(key, None)
     keep = {id(item) for item in finished[-MAX_FINISHED_ITEMS:]}
     state["items"] = [item for item in state["items"] if item["state"] in OPEN_STATES or id(item) in keep]
     return events
 
 
 def classify(run: Mapping[str, object], failed_steps: Callable[[], list[str]]) -> str:
-    """pending, pass, fail (the test step failed) or error (anything else went wrong)."""
+    """pending, pass, fail (the test step failed), absent (no such test built) or error."""
     if run.get("status") != "completed":
         return "pending"
     if run.get("conclusion") == "success":
         return "pass"
-    if run.get("conclusion") == "failure" and TEST_STEP in failed_steps():
-        return "fail"
+    if run.get("conclusion") == "failure":
+        failed = failed_steps()
+        if TEST_STEP in failed:
+            return "fail"
+        if RESOLVE_STEP in failed:
+            return "absent"
     return "error"
 
 
@@ -477,7 +535,7 @@ def pr_updates(
                 listed += 1
                 body = annotate_pr_comment(comment.body, test, note)
                 if header_when_all and all(
-                    note in line for line in body.split("\n") if line.startswith("- `")
+                    FLAKY_TEXT in line for line in body.split("\n") if line.startswith("- `")
                 ):
                     body = annotate_pr_comment(body, test, note, header=header_when_all)
                 if body != comment.body:
@@ -487,15 +545,14 @@ def pr_updates(
     if event.kind == "flaky":
         edit_suspects(
             item["suspects"],
-            f"did not reproduce on a rerun at the same commit ([run]({item['probes'][str(data['head'])]['url']})); "
-            "likely flaky, not this pull request",
+            f"did not reproduce on a rerun at the same commit ([run]({item['rerun_url']})); {FLAKY_TEXT}",
             header_when_all="none of these failures reproduced on a rerun, so they look flaky. "
             "Nothing to do here unless you know otherwise.",
         )
     elif event.kind == "reproduced" and item["state"] == "reproduced":
         edit_suspects(
             item["suspects"],
-            f"reproduced on a rerun at the same commit ([run]({item['probes'][str(data['head'])]['url']}))",
+            f"reproduced on a rerun at the same commit ([run]({item['rerun_url']}))",
         )
     elif event.kind == "confirmed":
         culprit = item["culprit"]
@@ -595,12 +652,11 @@ def poll_run(repo: str, run_id: int) -> str:
         return "pending"
 
 
-def dispatch_run(test: str, sha: str, retry: bool) -> tuple[int, str] | None:
-    command = [sys.executable, str(DISPATCH_SCRIPT), f"cmuxTests/{test}", "--ref", sha]
-    if retry:
-        # The dispatcher refuses a selector that already failed at a commit;
-        # the earlier run here failed outside the test step.
-        command.append("--force")
+def dispatch_run(test: str, sha: str) -> tuple[int, str] | None:
+    # --force: the dispatcher refuses a selector that already failed at a
+    # commit, which is the question asked here; the state already keeps one
+    # run per item in flight.
+    command = [sys.executable, str(DISPATCH_SCRIPT), f"cmuxTests/{test}", "--ref", sha, "--force"]
     print(f"Dispatching {test} at {sha}", flush=True)
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=DISPATCH_TIMEOUT_SECONDS)
@@ -637,7 +693,7 @@ def command_advance(args: argparse.Namespace) -> int:
     events = advance(
         state, runs,
         poll=lambda run_id: poll_run(args.repo, run_id),
-        dispatch=dispatch_run if not args.dry_run else lambda test, sha, retry: None,
+        dispatch=dispatch_run if not args.dry_run else lambda test, sha: None,
         per_day=args.max_dispatches_per_day,
         now=now_utc(),
     )

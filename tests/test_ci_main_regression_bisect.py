@@ -42,9 +42,9 @@ class Harness:
         self.dispatched = []
         self.runs = {}
 
-    def dispatch(self, test, sha, retry):
+    def dispatch(self, test, sha):
         run_id = 1000 + len(self.dispatched)
-        self.dispatched.append((test, sha, retry))
+        self.dispatched.append((test, sha))
         self.runs[run_id] = sha
         return run_id, f"https://probe/{run_id}"
 
@@ -67,7 +67,7 @@ class StateMachineTests(unittest.TestCase):
         harness = Harness(lambda sha: "pass")
         state, runs = MODULE.empty_state(), {7: data()}
         events = drive(harness, state, runs)
-        self.assertEqual(harness.dispatched, [("S/x()", HEAD, False)])
+        self.assertEqual(harness.dispatched, [("S/x()", HEAD)])
         self.assertEqual([event.kind for event in events], ["flaky"])
         self.assertEqual(state["items"][0]["state"], "flaky")
         self.assertIn("did not reproduce", state["items"][0]["note"])
@@ -85,7 +85,7 @@ class StateMachineTests(unittest.TestCase):
         self.assertTrue(item["culprit"]["pass_url"].startswith("https://probe/"))
         self.assertEqual([event.kind for event in events], ["reproduced", "bisecting", "confirmed"])
         # One flake check, then log2(8) probes, never the endpoints.
-        probed = [sha for _, sha, _ in harness.dispatched]
+        probed = [sha for _, sha in harness.dispatched]
         self.assertEqual(probed[0], HEAD)
         self.assertEqual(len(probed), 4)
         self.assertNotIn(PREV, probed)
@@ -98,15 +98,64 @@ class StateMachineTests(unittest.TestCase):
         self.assertEqual(item["culprit"]["sha"], C[0])
         self.assertEqual(item["culprit"]["pass_url"], "https://run/prev")
 
-    def test_a_range_with_one_commit_that_matters_is_confirmed_without_a_bisect(self):
+    def test_a_range_whose_only_commit_is_the_head_is_confirmed_without_a_bisect(self):
         harness = Harness(lambda sha: "fail")
-        state, runs = MODULE.empty_state(), {7: data(tests=(("S/x()", [5]),), commits=[C[2]])}
+        state, runs = MODULE.empty_state(), {7: data(tests=(("S/x()", [5]),), commits=[HEAD])}
         events = drive(harness, state, runs)
         self.assertEqual([event.kind for event in events], ["confirmed"])
         self.assertEqual(len(harness.dispatched), 1)
         culprit = state["items"][0]["culprit"]
-        self.assertEqual((culprit["sha"], culprit["pr"]), (C[2], 100))
+        self.assertEqual((culprit["sha"], culprit["pr"]), (HEAD, 100))
         self.assertEqual(culprit["fail_url"], "https://probe/1000")  # the rerun at head
+
+    def test_a_single_commit_other_than_the_head_is_probed_before_it_is_confirmed(self):
+        harness = Harness(lambda sha: "fail")
+        state, runs = MODULE.empty_state(), {7: data(tests=(("S/x()", [5]),), commits=[C[2]])}
+        events = drive(harness, state, runs)
+        self.assertEqual([sha for _, sha in harness.dispatched], [HEAD, C[2]])
+        self.assertEqual(events[-1].kind, "confirmed")
+        self.assertEqual(state["items"][0]["culprit"]["fail_url"], "https://probe/1001")
+
+    def test_a_failure_only_the_red_runs_head_shows_is_unresolved_not_blamed(self):
+        # Fails at the head (another pool, or a cause outside the listed
+        # commits) and passes at every listed commit, including the last.
+        harness = Harness(lambda sha: "fail" if sha == HEAD else "pass")
+        state, runs = MODULE.empty_state(), {7: data()}
+        events = drive(harness, state, runs)
+        self.assertEqual(events[-1].kind, "unresolved")
+        self.assertIn(C[-1], [sha for _, sha in harness.dispatched])
+        self.assertNotIn("culprit", state["items"][0])
+
+    def test_a_commit_without_the_test_counts_as_passing(self):
+        # The test was added at C[2] and broken at C[5].
+        def outcome(sha):
+            if sha in C and C.index(sha) < 2:
+                return "absent"
+            return "fail" if sha == HEAD or (sha in C and C.index(sha) >= 5) else "pass"
+        harness = Harness(outcome)
+        state, runs = MODULE.empty_state(), {7: data()}
+        drive(harness, state, runs, steps=20)
+        self.assertEqual(state["items"][0]["culprit"]["sha"], C[5])
+
+    def test_a_missing_test_at_the_head_is_an_error(self):
+        harness = Harness(lambda sha: "absent")
+        state, runs = MODULE.empty_state(), {7: data()}
+        self.assertEqual([event.kind for event in drive(harness, state, runs)], ["error"])
+
+    def test_a_range_too_long_to_list_is_not_bisected(self):
+        harness = Harness(lambda sha: "fail")
+        runs = {7: {**data(), "commits": None}}
+        state = MODULE.empty_state()
+        events = drive(harness, state, runs)
+        self.assertEqual([event.kind for event in events], ["reproduced"])
+        self.assertIn("too many commits", state["items"][0]["note"])
+
+    def test_a_nested_suite_is_skipped_without_dropping_the_run(self):
+        harness = Harness(lambda sha: "pending")
+        state, runs = MODULE.empty_state(), {7: data(tests=(("Outer/Inner/t()", [1]), ("S/x()", [1])))}
+        harness.step(state, runs)
+        self.assertTrue(MODULE.valid_data(runs[7]))
+        self.assertEqual([item["test"] for item in state["items"]], ["S/x()"])
 
     def test_a_single_suspect_is_left_at_reproduced(self):
         harness = Harness(lambda sha: "fail")
@@ -122,12 +171,26 @@ class StateMachineTests(unittest.TestCase):
         events = drive(harness, state, runs)
         self.assertEqual([event.kind for event in events], ["unresolved"])
 
-    def test_an_errored_probe_is_retried_once_with_force_then_given_up(self):
+    def test_an_errored_probe_is_retried_once_then_given_up(self):
         harness = Harness(lambda sha: "error")
         state, runs = MODULE.empty_state(), {7: data()}
         events = drive(harness, state, runs)
-        self.assertEqual([retry for _, _, retry in harness.dispatched], [False, True])
+        self.assertEqual(len(harness.dispatched), 2)
         self.assertEqual([event.kind for event in events], ["error"])
+
+    def test_one_error_per_probe_does_not_end_a_bisect(self):
+        errored = set()
+
+        def outcome(sha):
+            if sha != HEAD and sha not in errored:
+                errored.add(sha)
+                return "error"
+            return "fail" if sha == HEAD or C.index(sha) >= 3 else "pass"
+        harness = Harness(outcome)
+        state, runs = MODULE.empty_state(), {7: data()}
+        drive(harness, state, runs, steps=30)
+        self.assertEqual(state["items"][0]["state"], "confirmed")
+        self.assertEqual(state["items"][0]["culprit"]["sha"], C[3])
 
     def test_pending_runs_hold_the_item(self):
         harness = Harness(lambda sha: "pending")
@@ -200,7 +263,7 @@ class StateMachineTests(unittest.TestCase):
     def test_a_failed_dispatch_spends_an_attempt(self):
         state, runs = MODULE.empty_state(), {7: data()}
         for _ in range(3):
-            MODULE.advance(state, runs, poll=lambda run_id: "pending", dispatch=lambda *a: None, per_day=24, now=NOW)
+            MODULE.advance(state, runs, poll=lambda run_id: "pending", dispatch=lambda test, sha: None, per_day=24, now=NOW)
         self.assertEqual(state["items"][0]["state"], "error")
 
 
@@ -212,6 +275,7 @@ class ClassifyTests(unittest.TestCase):
         failed = {"status": "completed", "conclusion": "failure"}
         self.assertEqual(MODULE.classify(failed, steps(["Run selected tests"])), "fail")
         self.assertEqual(MODULE.classify(failed, steps(["Build the app-host and UI test product"])), "error")
+        self.assertEqual(MODULE.classify(failed, steps(["Resolve selectors against the built tests"])), "absent")
         self.assertEqual(MODULE.classify({"status": "completed", "conclusion": "cancelled"}, steps([])), "error")
 
 
@@ -233,8 +297,11 @@ class MarkerTests(unittest.TestCase):
     def test_unsafe_data_is_refused(self):
         self.assertTrue(MODULE.valid_data(data()))
         self.assertFalse(MODULE.valid_data({**data(), "head": "main; rm -rf /"}))
-        self.assertFalse(MODULE.valid_data(data(tests=(("S/x() --force", [1]),))))
+        self.assertFalse(MODULE.valid_data({**data(), "commits": ["--force"]}))
         self.assertFalse(MODULE.valid_data({**data(), "run_id": "7"}))
+        self.assertFalse(MODULE.dispatchable({"test": "S/x() --force"}))
+        self.assertFalse(MODULE.dispatchable({"test": "-S/x()"}))
+        self.assertTrue(MODULE.dispatchable({"test": "S/x(label:)"}))
 
     def test_state_renders_and_parses_back(self):
         harness = Harness(lambda sha: "pending")
@@ -286,10 +353,18 @@ class EditTests(unittest.TestCase):
         self.assertEqual(list(edits), [11])
         self.assertIn("· flaky", edits[11])
 
-    def flaky_event(self, test="S/x()"):
-        item = {"run": 7, "test": test, "suspects": [1, 2], "note": "",
-                "probes": {HEAD: {"run_id": 1, "url": "https://probe/1", "result": "pass"}}}
+    def flaky_event(self, test="S/x()", suspects=(1, 2)):
+        item = {"run": 7, "test": test, "suspects": list(suspects), "note": "", "rerun_url": f"https://probe/{test}"}
         return MODULE.Event("flaky", item)
+
+    def test_the_all_flaky_header_waits_for_every_test_in_the_comment(self):
+        comments = {2: [MODULE.Comment(22, suspect_comment(2, ["S/x()", "T/y()"]))]}
+        edits, _ = MODULE.pr_updates(self.flaky_event(suspects=(2,)), data(), lambda pr: comments[pr])
+        self.assertNotIn("look flaky", edits[22])
+        comments[2] = [MODULE.Comment(22, edits[22])]
+        edits, _ = MODULE.pr_updates(self.flaky_event("T/y()", suspects=(2,)), data(), lambda pr: comments[pr])
+        self.assertIn("look flaky", edits[22].split("\n")[1])
+        self.assertEqual(edits[22].count("look flaky"), 1)
 
     def test_a_flaky_failure_clears_the_suspects_comments(self):
         comments = {

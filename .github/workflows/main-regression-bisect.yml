@@ -33,7 +33,7 @@ jobs:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/ci-main-full-suite.yml')) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # At most four dispatches, each bounded at eight minutes, plus reads.
-    timeout-minutes: 40
+    timeout-minutes: 45
     concurrency:
       group: main-regression-bisect
       cancel-in-progress: false

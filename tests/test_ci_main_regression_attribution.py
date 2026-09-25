@@ -265,6 +265,14 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(data["commits"], ["c" * 40])
         self.assertEqual(data["tests"][0], {"test": "S/x()", "suspects": [1, 2], "how": "changes code the suite names"})
         self.assertEqual(data["tests"][2]["suspects"], [])
+        self.assertEqual(data["prs"], {})  # neither merge commit is one the bisect probes
+        long = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=self.failures,
+            attributions=self.attributions, prs=[self.a, self.b], direct=[],
+            commits=["c" * 40] * (MODULE.MAX_BISECT_COMMITS + 1),
+        )
+        marker = [line for line in long.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
+        self.assertIsNone(json.loads(marker[len(MODULE.DATA_PREFIX):-3])["commits"])
         without = MODULE.issue_section(
             repo=REPO, run=run(), previous=self.previous, failures=self.failures,
             attributions=self.attributions, prs=[self.a, self.b], direct=[],
