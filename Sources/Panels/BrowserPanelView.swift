@@ -5907,8 +5907,9 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
 
         func setLocalInlineSlotHidden(_ hidden: Bool) {
+            let didBecomeHidden = localInlineSlotView?.isHidden == false && hidden
             localInlineSlotView?.isHidden = hidden
-            if hidden {
+            if didBecomeHidden && !isWindowPortalHosting {
                 notifyHostedWebKitHidden(reason: "slotHidden")
             }
         }
@@ -6054,10 +6055,16 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func prepareForWindowPortalHosting() {
+            let didBeginWindowPortalHosting = !isWindowPortalHosting
             isWindowPortalHosting = true
             cancelHostedWebKitPresentationRefresh()
             hostedInspectorDockConfigurationSyncScheduler.cancel()
-            notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
+            if didBeginWindowPortalHosting {
+                // SwiftUI can update this representable while the portal remains
+                // active. Only the transition out of local hosting should cycle
+                // WebKit's hidden lifecycle and schedule a reveal geometry nudge.
+                notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
+            }
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
             hostedInspectorFrontendWebView = nil
             lastHostedInspectorManualSideDockAllowed = nil
