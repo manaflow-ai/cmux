@@ -170,21 +170,21 @@ struct GhosttyDECCKMArrowKeyTests {
             switch protocolName {
             case "kitty":
                 negotiation = "\u{1B}[>1u"
-                expected = arrows + "\r\u{1B}[99;5u"
+                expected = arrows + "\r\u{1B}[99;5uC"
             case "kitty-events":
                 negotiation = "\u{1B}[>3u"
                 expected = "\u{1B}[A\u{1B}[1;1:3A\u{1B}[B\u{1B}[1;1:3B"
                     + "\u{1B}[D\u{1B}[1;1:3D\u{1B}[C\u{1B}[1;1:3C\r"
-                    + "\u{1B}[99;5u\u{1B}[99;5:3u"
+                    + "\u{1B}[99;5u\u{1B}[99;5:3uC\u{1B}[99;2:3u"
             case "kitty-all":
                 negotiation = "\u{1B}[>9u"
-                expected = arrows + "\u{1B}[13u\u{1B}[99;5u"
+                expected = arrows + "\u{1B}[13u\u{1B}[99;5u\u{1B}[99;2u"
             case "modifyOtherKeys":
                 negotiation = "\u{1B}[>4;2m"
-                expected = arrows + "\r\u{1B}[27;5;99~"
+                expected = arrows + "\r\u{1B}[27;5;99~\u{1B}[27;2;67~"
             default:
                 negotiation = ""
-                expected = arrows + "\r\u{03}"
+                expected = arrows + "\r\u{03}C"
             }
 
             let scriptURL = FileManager.default.temporaryDirectory
@@ -238,6 +238,7 @@ struct GhosttyDECCKMArrowKeyTests {
                 ("right", String(UnicodeScalar(NSRightArrowFunctionKey)!), String(UnicodeScalar(NSRightArrowFunctionKey)!), 124, []),
                 ("enter", "\r", "\r", 36, []),
                 ("ctrl-c", "\u{03}", "c", 8, [.control]),
+                ("shift-c", "C", "C", 8, [.shift]),
             ]
             for (name, characters, unmodified, code, mods) in keys {
                 if physicalInput {

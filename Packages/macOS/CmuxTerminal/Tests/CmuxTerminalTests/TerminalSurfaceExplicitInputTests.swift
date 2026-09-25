@@ -343,7 +343,8 @@ struct TerminalSurfaceExplicitInputTests {
         let text = name.contains("shift") ? base.uppercased() : base
         #expect(press.unshifted_codepoint == base.unicodeScalars.first!.value)
         #expect(press.text.map { String(cString: $0) } == text)
-        #expect(press.consumed_mods == 0, "Named modifiers must reach the protocol encoder")
+        let consumed = name.contains("shift") ? GHOSTTY_MODS_SHIFT : GHOSTTY_MODS_NONE
+        #expect(press.consumed_mods == consumed.rawValue, "Only modifiers used to translate text are consumed")
     }
 
     private func makeFixture(

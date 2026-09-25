@@ -606,6 +606,9 @@ extension TerminalSurface {
         } else {
             text = canonicalText
         }
+        if text != canonicalText {
+            keyEvent.consumed_mods = GHOSTTY_MODS_SHIFT
+        }
         let generation = runtimeSurfaceGeneration
 
         let handled: Bool
