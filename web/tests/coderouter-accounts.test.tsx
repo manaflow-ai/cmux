@@ -77,6 +77,7 @@ describe("coderouter accounts section", () => {
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [nativeCodexAccount] }}
         shared={{ kind: "ok", accounts: [codexAccount] }}
@@ -102,6 +103,7 @@ describe("coderouter accounts section", () => {
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [] }}
         native={{ kind: "ok", accounts: [] }}
         shared={{ kind: "ok", accounts: [] }}
@@ -131,11 +133,12 @@ describe("coderouter accounts section", () => {
     expect(html).toContain('name="apiKeyLabel"');
   });
 
-  test("hides management controls for members without account rights", () => {
+  test("hides management controls when the viewer cannot manage accounts or API keys", () => {
     const html = renderToStaticMarkup(
       <CoderouterAccountsSection
         teamId="team-1"
         canManage={false}
+        canManageApiKeys={false}
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [nativeCodexAccount] }}
         shared={{ kind: "ok", accounts: [codexAccount] }}
@@ -152,11 +155,12 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("Claude Code OAuth");
   });
 
-  test("hides the deployment notice from members who cannot manage accounts", () => {
+  test("hides the deployment notice from viewers who cannot manage accounts", () => {
     const render = (canManage: boolean) => renderToStaticMarkup(
       <CoderouterAccountsSection
         teamId="team-1"
         canManage={canManage}
+        canManageApiKeys={canManage}
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [nativeCodexAccount] }}
         shared={{ kind: "notConfigured" }}
@@ -171,6 +175,7 @@ describe("coderouter accounts section", () => {
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [] }}
         shared={{ kind: "error" }}
@@ -187,6 +192,7 @@ describe("coderouter accounts section", () => {
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [] }}
         shared={{ kind: "migrationPending" }}
