@@ -18,11 +18,8 @@ export function DocsVersionPicker({
 
   return (
     <div className="pt-6 pb-4" data-pagefind-ignore="all">
-      <div
-        role="group"
-        aria-label={`${releaseLabel} / ${nightlyLabel}`}
-        className="grid grid-cols-2 gap-0.5 rounded-lg border border-border p-0.5"
-      >
+      <fieldset className="grid min-w-0 grid-cols-2 gap-0.5 rounded-lg border border-border p-0.5">
+        <legend className="sr-only">{`${releaseLabel} / ${nightlyLabel}`}</legend>
         {options.map((option) => {
           const selected = option.value === channel;
           return (
@@ -47,7 +44,7 @@ export function DocsVersionPicker({
             </button>
           );
         })}
-      </div>
+      </fieldset>
     </div>
   );
 }
