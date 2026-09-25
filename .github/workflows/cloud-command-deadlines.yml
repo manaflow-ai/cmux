@@ -2,7 +2,7 @@ name: Cloud command deadlines
 on:
   pull_request:
     paths:
-      - Sources/Cloud/CloudTuiPersistent*.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Link/CloudTuiPersistent*.swift
       - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiManualIO*.swift
       - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiPersistentRequestBuilder.swift
       - Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift
@@ -11,7 +11,7 @@ on:
       - cmuxTests/CloudTuiManualIOConnectionTests.swift
       - tests/fixtures/cloud-command-deadlines/**
       - tests/run_cloud_command_deadline_tests.sh
-      - Sources/Mobile/MobileHostIdentity.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Environment/MobileHostIdentity.swift
       - Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxDeviceIDCanonicalization.swift
       - Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Concurrency/AtomicBooleanGate.swift
       - Packages/macOS/CmuxFoundation/Sources/CmuxFoundationAtomicsC/**
