@@ -23,6 +23,60 @@ struct TextBoxSelectionReplacementTests {
         #expect(continuation.replacement == "\n2. ")
     }
 
+    @Test("bullet list continuation preserves indentation and marker")
+    func bulletListContinuationPreservesIndentationAndMarker() throws {
+        let text = "  - First item"
+        let continuation = try #require(
+            TextBoxInputTextView.automaticListContinuation(
+                in: text,
+                at: (text as NSString).length
+            )
+        )
+
+        #expect(continuation.replacement == "\n  - ")
+    }
+
+    @Test("empty list item exits the list")
+    func emptyListItemExitsTheList() throws {
+        let text = "1. "
+        let continuation = try #require(
+            TextBoxInputTextView.automaticListContinuation(
+                in: text,
+                at: (text as NSString).length
+            )
+        )
+
+        #expect(continuation.replacementRange == NSRange(location: 0, length: (text as NSString).length))
+        #expect(continuation.replacement == "\n")
+    }
+
+    @Test("option-click cursors receive the same inserted text")
+    func multipleCursorsReceiveTheSameInsertedText() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.string = "one two"
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.addTextBoxCursor(at: 4)
+
+        textView.insertText("X", replacementRange: textView.selectedRange())
+
+        #expect(textView.string == "Xone Xtwo")
+    }
+
+    @Test("newline continues a numbered list in the editor")
+    func newlineContinuesNumberedListInEditor() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.string = "1. First"
+        textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+
+        textView.insertNewlineIgnoringFieldEditor(nil)
+
+        #expect(textView.string == "1. First\n2. ")
+    }
+
     @Test("stale parent refresh does not resurrect text replaced in the editor")
     func staleParentRefreshPreservesSelectionReplacement() throws {
         let staleExternalText = "hello world"
