@@ -41,6 +41,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Folder the Open Folder panel starts in. Empty keeps the active
+    /// workspace's directory. Supports `~` and `$VAR`.
+    public let defaultWorkspacePath = DefaultsKey<String>(
+        id: "app.defaultWorkspacePath",
+        defaultValue: "",
+        userDefaultsKey: "defaultWorkspacePath"
+    )
+
     public let workspaceInheritWorkingDirectory = DefaultsKey<Bool>(
         id: "app.workspaceInheritWorkingDirectory",
         defaultValue: true,
