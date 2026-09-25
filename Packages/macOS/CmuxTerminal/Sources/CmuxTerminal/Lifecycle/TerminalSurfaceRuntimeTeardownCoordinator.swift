@@ -145,23 +145,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     public nonisolated static func defaultDrainExternalHoverRing(
         _ surface: ghostty_surface_t
     ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
-        var buffer = [ghostty_external_hover_diag_entry_s](
-            repeating: ghostty_external_hover_diag_entry_s(), count: 64
-        )
-        var droppedCumulative: UInt64 = 0
-        let count: Int = buffer.withUnsafeMutableBufferPointer { buf in
-            Int(ghostty_surface_drain_external_hover_diagnostics(
-                surface, buf.baseAddress, buf.count, &droppedCumulative
-            ))
-        }
-        let entries = (0..<count).map { index -> ExternalHoverDiagEntryValue in
-            let raw = buffer[index]
-            return ExternalHoverDiagEntryValue(
-                event: raw.event, source: raw.source, reason: raw.reason,
-                verdict: raw.verdict, flags: raw.flags, seq: raw.seq
-            )
-        }
-        return (entries: entries, droppedCountCumulative: droppedCumulative)
+        GhosttyRuntimeCInterop.drainExternalHoverDiagnostics(surface)
     }
 
     @MainActor

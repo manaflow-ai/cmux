@@ -4419,7 +4419,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Seals the current ExternalHover generation before a native surface is
     /// closed, suspended, replaced, or this view is deallocated.
-    func retireExternalHoverLifetime() {
+    nonisolated func retireExternalHoverLifetime() {
         externalHoverOwnerCoordinator.retireLifetime()
     }
 

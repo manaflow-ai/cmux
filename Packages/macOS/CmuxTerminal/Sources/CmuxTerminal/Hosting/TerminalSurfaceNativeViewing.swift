@@ -13,7 +13,7 @@ public import GhosttyKit
 public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// Seals the ExternalHover token for the native runtime generation that
     /// is about to be torn down. The operation is synchronous.
-    func retireExternalHoverLifetime()
+    nonisolated func retireExternalHoverLifetime()
 
     /// The owning workspace id mirrored onto the view for focus routing.
     var tabId: UUID? { get set }
@@ -90,7 +90,7 @@ public extension TerminalSurfaceNativeViewing {
 
     /// Views outside a portal size themselves from their own bounds.
     var paneGeometryIsPortalOwned: Bool { false }
-    func retireExternalHoverLifetime() {}
+    nonisolated func retireExternalHoverLifetime() {}
 
     /// Leaves input synchronous for hosts without clipboard sequencing.
     ///

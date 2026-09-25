@@ -8,6 +8,29 @@ public import GhosttyKit
 @_silgen_name("ghostty_surface_clear_selection")
 private func cmux_ghostty_surface_clear_selection(_ surface: ghostty_surface_t) -> Bool
 
+// The ExternalHover diagnostics entry is part of cmux's libghostty fork but
+// is not present in the public GhosttyKit header. Keep this binding beside
+// the other header-less symbols and decode it into the package-owned value
+// type before returning to callers.
+private struct CmuxExternalHoverDiagnosticsEntry {
+    var event: UInt64 = 0
+    var source: UInt8 = 0
+    var reason: UInt8 = 0
+    var verdict: UInt8 = 0
+    var flags: UInt8 = 0
+    var seq: UInt32 = 0
+}
+
+// lint:allow free-function — @_silgen_name FFI declaration for the cmux
+// libghostty extension, whose symbol is absent from the public header.
+@_silgen_name("ghostty_surface_drain_external_hover_diagnostics")
+private func cmux_ghostty_surface_drain_external_hover_diagnostics(
+    _ surface: ghostty_surface_t,
+    _ outEntries: UnsafeMutableRawPointer?,
+    _ outCapacity: UInt,
+    _ outDroppedCountCumulative: UnsafeMutablePointer<UInt64>?
+) -> UInt
+
 /// The one sanctioned seam for libghostty symbols that are linked by name
 /// rather than imported through the GhosttyKit header.
 ///
@@ -58,6 +81,38 @@ public struct GhosttyRuntimeCInterop {
     @discardableResult
     public static func clearSelection(_ surface: ghostty_surface_t) -> Bool {
         cmux_ghostty_surface_clear_selection(surface)
+    }
+
+    /// Drains the native ExternalHover diagnostics ring through cmux's
+    /// header-less libghostty extension and decodes its fixed POD entries.
+    public static func drainExternalHoverDiagnostics(
+        _ surface: ghostty_surface_t,
+        capacity: Int = 64
+    ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
+        guard capacity > 0 else { return (entries: [], droppedCountCumulative: 0) }
+        var buffer = [CmuxExternalHoverDiagnosticsEntry](
+            repeating: CmuxExternalHoverDiagnosticsEntry(), count: capacity
+        )
+        var droppedCountCumulative: UInt64 = 0
+        let count = buffer.withUnsafeMutableBytes { rawBuffer in
+            cmux_ghostty_surface_drain_external_hover_diagnostics(
+                surface,
+                rawBuffer.baseAddress,
+                UInt(capacity),
+                &droppedCountCumulative
+            )
+        }
+        let entries = buffer.prefix(min(Int(count), buffer.count)).map { entry in
+            ExternalHoverDiagEntryValue(
+                event: entry.event,
+                source: entry.source,
+                reason: entry.reason,
+                verdict: entry.verdict,
+                flags: entry.flags,
+                seq: entry.seq
+            )
+        }
+        return (entries: entries, droppedCountCumulative: droppedCountCumulative)
     }
 
 }
