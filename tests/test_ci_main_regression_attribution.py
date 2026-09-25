@@ -266,13 +266,18 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(data["tests"][0], {"test": "S/x()", "suspects": [1, 2], "how": "changes code the suite names"})
         self.assertEqual(data["tests"][2]["suspects"], [])
         self.assertEqual(data["prs"], {})  # neither merge commit is one the bisect probes
+        merged = [pr(n) for n in range(MODULE.MAX_BISECT_COMMITS + 1)]
+        for each in merged:
+            each.merge_sha = f"{each.number:040x}"
         long = MODULE.issue_section(
             repo=REPO, run=run(), previous=self.previous, failures=self.failures,
-            attributions=self.attributions, prs=[self.a, self.b], direct=[],
-            commits=["c" * 40] * (MODULE.MAX_BISECT_COMMITS + 1),
+            attributions=self.attributions, prs=merged, direct=[],
+            commits=[each.merge_sha for each in merged],
         )
         marker = [line for line in long.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
-        self.assertIsNone(json.loads(marker[len(MODULE.DATA_PREFIX):-3])["commits"])
+        long_data = json.loads(marker[len(MODULE.DATA_PREFIX):-3])
+        self.assertIsNone(long_data["commits"])
+        self.assertEqual(long_data["prs"], {})
         without = MODULE.issue_section(
             repo=REPO, run=run(), previous=self.previous, failures=self.failures,
             attributions=self.attributions, prs=[self.a, self.b], direct=[],

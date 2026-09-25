@@ -330,6 +330,8 @@ def data_marker(
     prs: list[PullRequest],
     commits: list[str],
 ) -> str:
+    bisected = commits if len(commits) <= MAX_BISECT_COMMITS else None
+    listed = set(bisected or ())
     data = {
         "v": 1,
         "run_id": run.get("id"),
@@ -345,8 +347,8 @@ def data_marker(
             }
             for test in list(failures)[:MAX_LISTED_TESTS]
         ],
-        "prs": {pr.merge_sha: pr.number for pr in prs if pr.merge_sha in commits},
-        "commits": commits if len(commits) <= MAX_BISECT_COMMITS else None,
+        "prs": {pr.merge_sha: pr.number for pr in prs if pr.merge_sha in listed},
+        "commits": bisected,
     }
     return f"{DATA_PREFIX}{json.dumps(data, separators=(',', ':'))} -->"
 
