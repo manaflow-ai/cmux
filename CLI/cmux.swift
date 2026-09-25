@@ -15921,7 +15921,8 @@ struct CMUXCLI {
         // recovery. Keep transport headroom beyond that 27.5s app-side maximum when
         // --snapshot-after is requested.
         func sendBrowserAutomationRequest(method: String, params: [String: Any]) throws -> [String: Any] {
-            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 35 : 20
+            let filePreparationTimeout: TimeInterval = method == "browser.set_input_files" ? 10 : 0
+            let responseTimeout: TimeInterval = ((params["snapshot_after"] as? Bool) == true ? 35 : 20) + filePreparationTimeout
             return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
         }
 
@@ -16730,6 +16731,55 @@ struct CMUXCLI {
             }
             let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "set-input-files" {
+            let usage = String(
+                localized: "cli.browser.inputFiles.error.usage",
+                defaultValue: "set-input-files requires --selector <css> and either --file <path> (repeatable) or --clear"
+            )
+            var selector: String?
+            var paths: [String] = []
+            var clear = false
+            var snapshotAfter = false
+            var index = 0
+            while index < subArgs.count {
+                let argument = subArgs[index]
+                switch argument {
+                case "--selector", "--file":
+                    guard index + 1 < subArgs.count,
+                          !subArgs[index + 1].isEmpty,
+                          !subArgs[index + 1].hasPrefix("--") else {
+                        throw CLIError(message: usage)
+                    }
+                    let value = subArgs[index + 1]
+                    if argument == "--selector" {
+                        guard selector == nil, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            throw CLIError(message: usage)
+                        }
+                        selector = value
+                    } else {
+                        paths.append(URL(fileURLWithPath: (value as NSString).expandingTildeInPath).standardizedFileURL.path)
+                    }
+                    index += 2
+                case "--clear":
+                    clear = true
+                    index += 1
+                case "--snapshot-after":
+                    snapshotAfter = true
+                    index += 1
+                default:
+                    throw CLIError(message: usage)
+                }
+            }
+            guard let selector, clear != !paths.isEmpty else { throw CLIError(message: usage) }
+            var params: [String: Any] = [
+                "surface_id": try requireSurface(), "selector": selector, "files": paths
+            ]
+            if snapshotAfter { params["snapshot_after"] = true }
+            let payload = try sendBrowserAutomationRequest(method: "browser.set_input_files", params: params)
+            output(payload, fallback: String(localized: "common.ok", defaultValue: "OK"))
             return
         }
 
@@ -20217,6 +20267,7 @@ struct CMUXCLI {
               wait [--selector <css>] [--text <text>] [--url-contains <text>|--url <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>|--timeout <seconds>]
               click|dblclick|hover|focus|check|uncheck|scroll-into-view [--selector <css> | <css>] [--snapshot-after]
               type|fill [--selector <css> | <css>] [--text <text> | <text>] [--snapshot-after]
+              \(String(localized: "cli.browser.inputFiles.help", defaultValue: "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    Select local files (up to 128 files, 32 MiB total) or clear the selection. Directory uploads are unsupported."))
               press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]

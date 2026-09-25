@@ -556656,6 +556656,596 @@
                 }
             }
         }
+    },
+    "cli.browser.inputFiles.error.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files requires --selector <css> and either --file <path> (repeatable) or --clear"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب set-input-files الخيار --selector <css> مع --file <path> (يمكن تكراره) أو --clear"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files benötigt --selector <css> und entweder --file <path> (wiederholbar) oder --clear"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files requiere --selector <css> y --file <path> (repetible) o --clear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files nécessite --selector <css> et soit --file <path> (répétable), soit --clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files には --selector <css> と、--file <path>（複数指定可）または --clear が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files에는 --selector <css>와 --file <path>(반복 가능) 또는 --clear가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files 需要 --selector <css>，以及 --file <path>（可重复）或 --clear"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files 需要 --selector <css>，以及 --file <path>（可重複）或 --clear"
+          }
+        }
+      }
+    },
+    "cli.browser.inputFiles.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    Select local files (up to 128 files, 32 MiB total) or clear the selection. Directory uploads are unsupported."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    اختر ملفات محلية (حتى 128 ملفًا بإجمالي 32 MiB) أو امسح الاختيار. رفع المجلدات غير مدعوم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    Lokale Dateien auswählen (bis zu 128 Dateien, insgesamt 32 MiB) oder die Auswahl leeren. Ordner-Uploads werden nicht unterstützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    Selecciona archivos locales (hasta 128 archivos, 32 MiB en total) o borra la selección. No se admite subir carpetas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    Sélectionner des fichiers locaux (jusqu’à 128 fichiers, 32 MiB au total) ou effacer la sélection. L’envoi de dossiers n’est pas pris en charge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    ローカルファイルを選択（最大128個、合計32 MiB）するか、選択を解除します。ディレクトリのアップロードには対応していません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    로컬 파일을 선택하거나(최대 128개, 총 32 MiB) 선택을 지웁니다. 디렉터리 업로드는 지원되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    选择本地文件（最多 128 个文件，总计 32 MiB）或清除选择。不支持上传目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    選取本機檔案（最多 128 個檔案，總計 32 MiB）或清除選取。不支援上傳目錄。"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.invalidTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selector must match a file input without directory selection"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يطابق المحدد حقل إدخال ملفات لا يستخدم اختيار المجلدات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Selektor muss ein Dateieingabefeld ohne Ordnerauswahl treffen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El selector debe coincidir con un campo de archivos sin selección de carpetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sélecteur doit correspondre à un champ de fichier sans sélection de dossier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セレクターはディレクトリ選択を使わないファイル入力欄に一致する必要があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택자는 디렉터리 선택이 없는 파일 입력 요소와 일치해야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择器必须匹配未启用目录选择的文件输入字段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取器必須符合未啟用目錄選取的檔案輸入欄位"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.multipleRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file input does not allow multiple files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يسمح حقل إدخال الملفات هذا باختيار عدة ملفات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Dateieingabefeld erlaubt nicht mehrere Dateien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este campo de archivos no permite seleccionar varios archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce champ de fichier ne permet pas de sélectionner plusieurs fichiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイル入力欄では複数のファイルを選択できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일 입력 요소는 여러 파일을 허용하지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件输入字段不允许选择多个文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此檔案輸入欄位不允許選取多個檔案"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File upload preparation was cancelled"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إلغاء تجهيز الملفات للرفع"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Vorbereitung des Datei-Uploads wurde abgebrochen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se canceló la preparación de los archivos para subir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La préparation des fichiers à envoyer a été annulée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルのアップロード準備がキャンセルされました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 업로드 준비가 취소되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消准备上传文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消準備上傳檔案"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.invalidParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files requires a selector and a files array of absolute paths"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب set-input-files محددًا ومصفوفة files تحتوي على مسارات مطلقة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files benötigt einen Selektor und ein files-Array mit absoluten Pfaden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files requiere un selector y una matriz files de rutas absolutas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files nécessite un sélecteur et un tableau files de chemins absolus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files にはセレクターと絶対パスを含む files 配列が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files에는 선택자와 절대 경로로 구성된 files 배열이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files 需要选择器及包含绝对路径的 files 数组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-input-files 需要選取器及包含絕對路徑的 files 陣列"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.invalidSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select at most 128 files using absolute paths"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر ما يصل إلى 128 ملفًا باستخدام مسارات مطلقة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie höchstens 128 Dateien mit absoluten Pfaden aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona como máximo 128 archivos mediante rutas absolutas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez au maximum 128 fichiers avec des chemins absolus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絶対パスで最大128個のファイルを選択してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "절대 경로를 사용하여 최대 128개의 파일을 선택하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用绝对路径选择最多 128 个文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用絕對路徑選取最多 128 個檔案"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out preparing files for upload"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة تجهيز الملفات للرفع"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Vorbereiten der Dateien für den Upload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de preparación de los archivos para subir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le délai de préparation des fichiers à envoyer a été dépassé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロードするファイルの準備がタイムアウトしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업로드할 파일 준비 시간이 초과되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备上传文件超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備上傳檔案逾時"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The combined upload must be no larger than 32 MiB"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب ألا يتجاوز الحجم الإجمالي للملفات المرفوعة 32 MiB"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Uploads dürfen insgesamt nicht größer als 32 MiB sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tamaño total de los archivos para subir no debe superar los 32 MiB"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La taille totale des fichiers à envoyer ne doit pas dépasser 32 MiB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロードするファイルの合計サイズは32 MiB以下にしてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 업로드 크기는 32 MiB를 초과할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传文件的总大小不得超过 32 MiB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上傳檔案的總大小不得超過 32 MiB"
+          }
+        }
+      }
+    },
+    "browser.inputFiles.error.unreadableFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every upload path must be a readable regular file"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يشير كل مسار للرفع إلى ملف عادي قابل للقراءة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Upload-Pfad muss auf eine lesbare reguläre Datei verweisen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada ruta de subida debe apuntar a un archivo normal que se pueda leer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque chemin à envoyer doit désigner un fichier ordinaire lisible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各アップロードパスは読み取り可能な通常ファイルである必要があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 업로드 경로는 읽을 수 있는 일반 파일이어야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个上传路径都必须指向可读取的普通文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個上傳路徑都必須指向可讀取的一般檔案"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

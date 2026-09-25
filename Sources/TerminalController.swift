@@ -1674,7 +1674,7 @@ class TerminalController {
              "browser.design_mode.set", "browser.design_mode.status",
              "browser.snapshot", "browser.eval", "browser.wait", "browser.screenshot",
              "browser.click", "browser.dblclick", "browser.hover", "browser.focus",
-             "browser.type", "browser.fill", "browser.press", "browser.keydown", "browser.keyup",
+             "browser.type", "browser.fill", "browser.set_input_files", "browser.press", "browser.keydown", "browser.keyup",
              "browser.check", "browser.uncheck", "browser.select", "browser.scroll",
              "browser.scroll_into_view",
              "browser.get.text", "browser.get.html", "browser.get.value", "browser.get.attr",
@@ -8227,6 +8227,50 @@ class TerminalController {
         }
     }
 
+    private nonisolated func v2BrowserSetInputFiles(params: [String: Any]) -> V2CallResult {
+        guard v2BrowserSelector(params) != nil,
+              let paths = params["files"] as? [String] else {
+            return .err(code: "invalid_params", message: String(
+                localized: "browser.inputFiles.error.invalidParameters",
+                defaultValue: "set-input-files requires a selector and a files array of absolute paths"
+            ), data: nil)
+        }
+        // Read on the file-service actor, then use the existing socket-worker
+        // WebKit bridge. Neither file I/O nor a WebKit wait may hold the main actor.
+        var readTask: Task<Void, Never>?
+        let prepared: Result<String, BrowserInputFileService.Failure>? = socketAwaitCallback(timeout: 10) { finish in
+            readTask = Task {
+                finish(await BrowserInputFileService().prepare(paths: paths))
+            }
+        }
+        readTask?.cancel()
+        guard let prepared else {
+            return .err(code: "timeout", message: String(
+                localized: "browser.inputFiles.error.timeout",
+                defaultValue: "Timed out preparing files for upload"
+            ), data: nil)
+        }
+        switch prepared {
+        case .success(let filesJSON):
+            return v2BrowserSelectorAction(params: params, actionName: "set_input_files") { selectorLiteral in
+                v2BrowserControl.inputFilesScript(selectorLiteral: selectorLiteral, filesJSON: filesJSON)
+            }
+        case .failure(let failure):
+            let message: String
+            switch failure {
+            case .invalidSelection:
+                message = String(localized: "browser.inputFiles.error.invalidSelection", defaultValue: "Select at most 128 files using absolute paths")
+            case .tooLarge:
+                message = String(localized: "browser.inputFiles.error.tooLarge", defaultValue: "The combined upload must be no larger than 32 MiB")
+            case .unreadableFile:
+                message = String(localized: "browser.inputFiles.error.unreadableFile", defaultValue: "Every upload path must be a readable regular file")
+            case .cancelled:
+                message = String(localized: "browser.inputFiles.error.cancelled", defaultValue: "File upload preparation was cancelled")
+            }
+            return .err(code: "invalid_params", message: message, data: nil)
+        }
+    }
+
     private nonisolated func v2BrowserFill(params: [String: Any]) -> V2CallResult {
         // `fill` must allow empty strings so callers can clear existing input values.
         guard let text = v2RawString(params, "text") ?? v2RawString(params, "value") else {
@@ -9730,6 +9774,7 @@ class TerminalController {
         case "browser.focus": return v2BrowserFocusElement(params: params)
         case "browser.type": return v2BrowserType(params: params)
         case "browser.fill": return v2BrowserFill(params: params)
+        case "browser.set_input_files": return v2BrowserSetInputFiles(params: params)
         case "browser.press": return v2BrowserPress(params: params)
         case "browser.keydown": return v2BrowserKeyDown(params: params)
         case "browser.keyup": return v2BrowserKeyUp(params: params)
