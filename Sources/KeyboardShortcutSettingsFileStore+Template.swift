@@ -72,6 +72,7 @@ extension CmuxSettingsFileStore {
                     "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
                     "preferredEditor": "",
+                    "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
                     "filePreviewVimKeys": AppCatalogSection().filePreviewVimKeys.defaultValue,
                     "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,

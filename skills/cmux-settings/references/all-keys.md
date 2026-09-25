@@ -20,6 +20,7 @@ General app preferences from Settings > App.
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
 | `app.focusPaneOnFirstClick` | boolean | `true` | When cmux is inactive, the first click can activate and focus the clicked pane. |
 | `app.preferredEditor` | string | `""` | Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default. |
+| `app.defaultWorkspacePath` | string | `""` | Folder the Open Folder panel starts in, for example ~/code. Supports a leading ~. Leave empty to start in the active workspace's directory. |
 | `app.openSupportedFilesInCmux` | boolean | `true` | When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file. |
 | `app.filePreviewVimKeys` | boolean | `false` | Enable read-only Vim navigation in text file previews. |
 | `app.openMarkdownInCmuxViewer` | boolean | `true` | When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview. |
