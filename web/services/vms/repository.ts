@@ -3076,10 +3076,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     dbEffect("findUserVm", async () => {
       const db = cloudDb();
       const conditions = [
-        // A caller's personal rows can be listed alongside an implicitly resolved
-        // team scope. Keep those rows addressable by the same id routes while the
-        // predicate remains limited to this authenticated user.
-        accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId, includePersonal: true }),
+        accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
         eq(cloudVms.providerVmId, input.providerVmId),
         ne(cloudVms.status, "destroyed"),
       ];
