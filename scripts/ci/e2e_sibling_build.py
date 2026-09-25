@@ -30,6 +30,8 @@ BUILD_JOB = "build"
 # the same runner, so the product is adoptable once the step succeeds, however
 # long the tests take and whether or not they pass.
 PUBLISH_STEP = "Upload the compiled test product"
+# On an owned Mac the build job tests first and uploads after, under this name.
+PUBLISH_AFTER_TESTS_STEP = "Upload the compiled test product after the tests"
 UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
 # "<selectors> on <runner> @ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
 TITLE = re.compile(r" on (\S+) @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
@@ -70,7 +72,8 @@ def build_state(jobs: list[dict]) -> str:
         return "running"
     steps = job.get("steps")
     if isinstance(steps, list) and any(
-        isinstance(step, dict) and step.get("name") == PUBLISH_STEP and step.get("conclusion") == "success"
+        isinstance(step, dict) and step.get("name") in (PUBLISH_STEP, PUBLISH_AFTER_TESTS_STEP)
+        and step.get("conclusion") == "success"
         for step in steps
     ):
         return "success"

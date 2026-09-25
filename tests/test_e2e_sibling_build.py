@@ -75,6 +75,11 @@ class SiblingWaitTests(unittest.TestCase):
         tests_failed = [{"name": sibling.PUBLISH_STEP, "status": "completed", "conclusion": "success"},
                         {"name": "Run selected tests on the build runner", "status": "completed", "conclusion": "failure"}]
         self.assertTrue(Fake([run(90)], [("completed", "failure", tests_failed)]).wait())
+        # An owned Mac tests first and uploads after, whatever the tests did.
+        owned_failed = [{"name": sibling.PUBLISH_STEP, "status": "completed", "conclusion": "skipped"},
+                        {"name": "Run selected tests", "status": "completed", "conclusion": "failure"},
+                        {"name": sibling.PUBLISH_AFTER_TESTS_STEP, "status": "completed", "conclusion": "success"}]
+        self.assertTrue(Fake([run(90)], [("completed", "failure", owned_failed)]).wait())
 
     def test_a_failed_compile_is_not_waited_for_again(self) -> None:
         fake = Fake([run(90)], [("in_progress", None), ("completed", "failure")])
@@ -154,6 +159,7 @@ class WorkflowTests(unittest.TestCase):
     def test_the_publish_step_the_wait_watches_exists(self) -> None:
         names = [step.get("name") for step in self.jobs[sibling.BUILD_JOB]["steps"]]
         self.assertIn(sibling.PUBLISH_STEP, names)
+        self.assertIn(sibling.PUBLISH_AFTER_TESTS_STEP, names)
 
     def test_the_helper_comes_from_the_workflow_revision(self) -> None:
         checkout = self.jobs["sibling"]["steps"][0]

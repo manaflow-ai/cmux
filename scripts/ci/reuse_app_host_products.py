@@ -116,25 +116,29 @@ def names_compile_job(name: object, compile_name: str) -> bool:
 GATE_DECLINE_STEP = "Hold consumers behind the fast Linux gate"
 
 
-# test-e2e.yml's build job uploads its product with this step and then runs
-# the tests on the same runner. Once the step has succeeded the product is
-# complete, so a later dispatch may adopt it while those tests still run, or
-# after they fail.
+# test-e2e.yml's build job uploads its product with one of these steps: the
+# first before it runs the tests on the same runner, the second after them on
+# an owned Mac. Once either has succeeded the product is complete, so a later
+# dispatch may adopt it while those tests still run, or after they fail.
 PUBLISH_STEPS = {
-    ".github/workflows/test-e2e.yml": "Upload the compiled test product",
+    ".github/workflows/test-e2e.yml": (
+        "Upload the compiled test product",
+        "Upload the compiled test product after the tests",
+    ),
 }
 
 
-def compile_job_admitted(job: object, publish_step: str | None = None) -> bool:
-    """Whether a compile job produced its product: its `publish_step`
-    succeeded, or it completed and succeeded, or it failed only because the
+def compile_job_admitted(job: object, publish_step: str | tuple[str, ...] | None = None) -> bool:
+    """Whether a compile job produced its product: its `publish_step` (or
+    any of several) succeeded, or it completed and succeeded, or it failed only because the
     fast Linux gate declined its consumers."""
     if not isinstance(job, dict):
         return False
     steps = job.get("steps")
-    if publish_step and isinstance(steps, list) and any(
+    publish_steps = (publish_step,) if isinstance(publish_step, str) else (publish_step or ())
+    if publish_steps and isinstance(steps, list) and any(
         isinstance(step, dict)
-        and step.get("name") == publish_step
+        and step.get("name") in publish_steps
         and step.get("conclusion") == "success"
         for step in steps
     ):

@@ -186,6 +186,11 @@ allowed = {
     ("build", None, "Start the DerivedData seed download", ""),
     ("build", "seed", "Adopt the DerivedData seed", ""),
     ("build", None, "Forget the adopted-build inode override", ""),
+    # An owned Mac's kept build state, read only: any failure leaves the
+    # cache and seed downloads to run as they would anywhere else.
+    ("build", "owned-state", "Reuse this owned Mac's build state", ""),
+    ("build", "prefer-seed", "Prefer a near seed over this owned Mac's DerivedData", ""),
+    ("build", "owned-adopt", "Adopt this owned Mac's DerivedData", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
     # The git object seed: a miss leaves checkout to fetch everything, and a
     # checkout the seed breaks is retried without it by the next steps.

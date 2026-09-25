@@ -796,5 +796,171 @@ class Wiring(unittest.TestCase):
         self.assertTrue(self.step("Keep this owned Mac's build state")["if"].startswith("always()"))
 
 
+class E2EWiring(unittest.TestCase):
+    """test-e2e.yml's build reads the owned state admission keeps, and never writes it."""
+
+    def setUp(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        self.jobs = workflow["jobs"]
+        self.steps = self.jobs["build"]["steps"]
+        self.names = [step.get("name") for step in self.steps]
+        self.by_id = {step.get("id"): step for step in self.steps if step.get("id")}
+
+    def test_state_is_read_only_on_an_owned_runner(self):
+        owned = self.by_id["owned-state"]
+        self.assertIn(OWNED, owned["if"])
+        self.assertIn("steps.reuse.outputs.hit != 'true'", owned["if"])
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["prefer-seed"]["if"])
+        self.assertIn("vars.CI_OWNED_PREFER_SEED != ''", self.by_id["prefer-seed"]["if"])
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["owned-adopt"]["if"])
+        for step_id in ("owned-state", "prefer-seed", "owned-adopt"):
+            self.assertIs(self.by_id[step_id].get("continue-on-error"), True, step_id)
+            self.assertNotIn("uses", self.by_id[step_id], step_id)
+        # A dispatch builds any revision it names, so it must never become
+        # the next pull request's starting point: check, prefer and adopt
+        # only, in every job of the workflow.
+        import re
+        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        commands = re.findall(r"owned_build_state\.py\" ([a-z-]+)", text)
+        self.assertEqual(sorted(set(commands)), ["adopt", "check", "prefer"])
+        for word in ("keep", "save", "record", "warm-keys"):
+            self.assertNotRegex(text, rf"owned_build_state\.py\"? {word}\b")
+
+    def test_a_failed_adopt_starts_the_build_empty(self):
+        # adopt's copytree fallback leaves a partial tree when it fails, and
+        # the step continues on error, so the compile would trust it.
+        discard = self.steps[self.names.index("Discard a partly adopted DerivedData")]
+        self.assertEqual(discard["if"], "${{ steps.owned-adopt.outcome == 'failure' }}")
+        self.assertIn('rm -rf -- "$CMUX_DERIVED_DATA_PATH"', discard["run"])
+        self.assertIn("refusing to clear an unowned DerivedData path", discard["run"])
+        index = self.names.index
+        self.assertEqual(index("Adopt this owned Mac's DerivedData") + 1, index(discard["name"]))
+        self.assertLess(index(discard["name"]), index("Build the app-host and UI test product"))
+
+    def test_the_helper_comes_from_the_workflow_revision(self):
+        # An older tested revision's owned_build_state.py moved the kept state
+        # out of the store for a keep this job never runs.
+        run = self.by_id["owned-state"]["run"]
+        self.assertEqual(self.by_id["owned-state"]["env"]["WORKFLOW_SHA"], "${{ github.workflow_sha }}")
+        self.assertIn("raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/$name", run)
+        for step_id in ("owned-state", "prefer-seed", "owned-adopt"):
+            self.assertNotIn("scripts/ci/owned_build_state.py", str(self.by_id[step_id]), step_id)
+        # Naming it as scripts/ci/... in the build job would make the tested
+        # revision's copy part of the E2E product identity.
+        import product_input_identity as identity
+        block = identity._job_block(identity.Path(ROOT / ".github/workflows/test-e2e.yml").read_text(), "build")
+        self.assertNotIn("scripts/ci/owned_build_state.py", block)
+
+    def test_owned_packages_and_state_skip_the_downloads(self):
+        self.assertIn("steps.owned-state.outputs.packages != 'true'", self.by_id["swift-package-cache"]["if"])
+        for step in (self.by_id["seed"], self.step("Start the DerivedData seed download")):
+            self.assertIn("steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true'",
+                          step["if"])
+            # Empty off an owned Mac, so Blacksmith's seed steps see no local cache.
+            self.assertEqual(step["env"]["CMUX_SEED_LOCAL_CACHE"],
+                             "${{ vars.CI_OWNED_PREFER_SEED != '' && steps.owned-state.outputs.seeds || '' }}")
+            self.assertIn("steps.prefer-seed.outputs.seed_key", step["env"]["CMUX_SEED_EXACT"])
+        self.assertIn("steps.seed.outputs.hit != 'true'", self.by_id["owned-adopt"]["if"])
+        self.assertIn("steps.owned-adopt.outcome != 'skipped'",
+                      self.step("Forget the adopted-build inode override")["if"])
+
+    def step(self, name):
+        return self.steps[self.names.index(name)]
+
+    def test_order(self):
+        index = self.names.index
+        self.assertLess(index("Reuse a compiled product instead of building one"), index("Reuse this owned Mac's build state"))
+        self.assertLess(index("Reuse this owned Mac's build state"), index("Cache Swift packages"))
+        self.assertLess(index("Compute the DerivedData seed key"), index("Prefer a near seed over this owned Mac's DerivedData"))
+        self.assertLess(index("Prefer a near seed over this owned Mac's DerivedData"), index("Start the DerivedData seed download"))
+        self.assertLess(index("Resolve Swift packages"), index("Adopt this owned Mac's DerivedData"))
+        self.assertLess(index("Adopt the DerivedData seed"), index("Adopt this owned Mac's DerivedData"))
+        self.assertLess(index("Adopt this owned Mac's DerivedData"), index("Build the app-host and UI test product"))
+        self.assertIn('"$CMUX_CI_CANONICAL_SRC"', self.by_id["owned-adopt"]["run"])
+
+    def owned_state(self, root, kept_packages=True):
+        """Run the owned-state step against a temporary store; (code, outputs, store base)."""
+        import os
+        import subprocess
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        fleet, workspace, temp = base / "fleet", base / "workspace", base / "temp"
+        for directory in (fleet, workspace / "scripts/ci", temp, base / "bin"):
+            directory.mkdir(parents=True)
+        if kept_packages:
+            (fleet / "source-packages").mkdir()
+            (fleet / "source-packages" / "Package.resolved").write_text("kept")
+        fingerprint = workspace / "scripts/ci/compile-app-host-test-product.sh"
+        fingerprint.write_text("#!/bin/sh\necho fp\n")
+        fingerprint.chmod(0o755)
+        # Serve the helpers from this checkout and record what was asked for.
+        curl = base / "bin" / "curl"
+        curl.write_text(f"""#!/bin/sh
+while [ "$#" -gt 1 ]; do
+  case "$1" in -o) out="$2"; shift ;; esac
+  shift
+done
+echo "$1" >> "{base}/urls"
+cp "{ROOT}/scripts/ci/${{1##*/}}" "$out"
+""")
+        curl.chmod(0o755)
+        output = base / "output"
+        output.write_text("")
+        run = self.by_id["owned-state"]["run"].replace("/Users/Shared/cmux-build-fleet/ci", str(fleet))
+        env = {"PATH": f"{base / 'bin'}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output),
+               "RUNNER_TEMP": str(temp), "GITHUB_REPOSITORY": "manaflow-ai/cmux", "WORKFLOW_SHA": "w" * 40,
+               "CMUX_DERIVED_DATA_PATH": "/private/tmp/cmux-ci/derived-data-compile-admission", "HOME": str(base)}
+        if root is not None:
+            env["CMUX_CI_CANONICAL_ROOT"] = root
+        result = subprocess.run(["bash", "-e", "-c", run], cwd=workspace, env=env, capture_output=True, text=True)
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        urls = (base / "urls").read_text().split() if (base / "urls").exists() else []
+        return result, outputs, fleet, workspace, urls
+
+    def test_each_root_reads_its_own_state_and_the_macs_packages(self):
+        for root, suffix in ((None, ""), ("/private/tmp/cmux-ci", ""), ("/private/tmp/cmux-ci-2", "/cmux-ci-2")):
+            with self.subTest(root=root):
+                result, outputs, fleet, workspace, urls = self.owned_state(root)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(outputs["store"], f"{fleet}{suffix}")
+                self.assertEqual(outputs["seeds"], f"{fleet}{suffix}/seeds")
+                self.assertEqual(outputs["warm"], "false")
+                self.assertEqual(outputs["packages"], "true")
+                self.assertEqual((workspace / ".ci-source-packages/Package.resolved").read_text(), "kept")
+                # A clone: the Mac's packages stay where they were.
+                self.assertEqual((fleet / "source-packages/Package.resolved").read_text(), "kept")
+                self.assertTrue(urls)
+                for url in urls:
+                    self.assertTrue(url.startswith(f"https://raw.githubusercontent.com/manaflow-ai/cmux/{'w' * 40}/scripts/ci/"), url)
+                self.assertTrue(Path(outputs["tools"], "owned_build_state.py").is_file())
+
+    def test_an_unexpected_root_reads_nothing(self):
+        for root in ("/tmp/elsewhere", "/private/tmp/cmux-ci-x", "/private/tmp/cmux-ci/../x"):
+            with self.subTest(root=root):
+                result, outputs, _, workspace, urls = self.owned_state(root)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(outputs, {})
+                self.assertEqual(urls, [])
+                self.assertFalse((workspace / ".ci-source-packages").exists())
+
+    def test_the_adopt_and_prefer_lines_are_ones_the_script_accepts(self):
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "derived").mkdir()
+            env = {"PATH": "/usr/bin:/bin", "HOME": str(base), "OWNED_TOOLS": str(ROOT / "scripts/ci"),
+                   "OWNED_STORE": str(base / "store"), "CMUX_DERIVED_DATA_PATH": str(base / "derived"),
+                   "CMUX_CI_CANONICAL_SRC": str(base / "src"), "SEED_PREFIX": "p-", "TEST_REF": "base",
+                   "MAX_DISTANCE": "", "CMUX_SEED_LOCAL_CACHE": str(base / "store/seeds")}
+            for step_id in ("owned-adopt", "prefer-seed"):
+                script = self.by_id[step_id]["run"].replace("python3 ", f"{sys.executable} ")
+                result = subprocess.run(["bash", "-c", script], cwd=base, env=dict(env, GITHUB_OUTPUT=os.devnull),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{step_id}: {result.stderr[-400:]}")
+                self.assertNotIn("owned_build_state.py check STORE", result.stderr, step_id)
+
+
 if __name__ == "__main__":
     unittest.main()
