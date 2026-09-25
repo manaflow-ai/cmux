@@ -111,6 +111,22 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         )
     }
 
+    @Test("configured keepalives take precedence over batch defaults")
+    func configuredKeepalivesTakePrecedence() {
+        let arguments = configuration(
+            sshOptions: [
+                "ServerAliveInterval=60",
+                "ServerAliveCountMax=5",
+                "StrictHostKeyChecking=accept-new",
+            ]
+        ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+
+        #expect(arguments.contains(["-o", "ServerAliveInterval=60"]))
+        #expect(arguments.contains(["-o", "ServerAliveCountMax=5"]))
+        #expect(!arguments.contains(["-o", "ServerAliveInterval=20"]))
+        #expect(!arguments.contains(["-o", "ServerAliveCountMax=2"]))
+    }
+
     /// The stdio daemon transport appends its own positional remote command,
     /// which OpenSSH refuses while a host ssh_config `RemoteCommand` is in
     /// effect ("Cannot execute command-line and remote command.", issue
