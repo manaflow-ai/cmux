@@ -9,7 +9,7 @@ final class AgentRestoreEvidenceSubscription: @unchecked Sendable {
     private let continuation: AsyncStream<Void>.Continuation
     private let sources: [any DispatchSourceProtocol]
 
-    init(process: AgentPIDProcessIdentity?, paths: [String], deadline: DispatchTime = .now() + .seconds(8)) {
+    convenience init(process: AgentPIDProcessIdentity?, paths: [String], deadline: DispatchTime = .now() + .seconds(8)) {
         self.init(processes: process.map { [$0] } ?? [], paths: paths, deadline: deadline)
     }
 
