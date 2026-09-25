@@ -187,6 +187,45 @@ Embedded browser settings from Settings > Browser.
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
 
+## markdown
+
+Built-in Markdown viewer settings from Settings > Markdown.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `markdown.fontSize` | integer (8–96) | `15` | Default body font size, in points, for newly opened Markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0. |
+| `markdown.fontFamily` | string | `""` | Default body font family for newly opened Markdown viewers. Leave empty for the system Markdown font stack. |
+| `markdown.maxWidth` | integer (320–2400) | `980` | Default maximum reading column width, in CSS pixels, for newly opened Markdown viewers. |
+
+## fileEditor
+
+Built-in text editor settings used by text file previews.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `fileEditor.wordWrap` | boolean | `false` | Wrap long lines at the editor's right edge instead of scrolling horizontally. |
+| `fileEditor.syntaxHighlighting` | boolean | `true` | Color source tokens in the built-in file editor. |
+| `fileEditor.lineNumbers` | boolean | `true` | Show a line-number gutter in the built-in file editor. |
+| `fileEditor.indentGuides` | boolean | `true` | Draw vertical indent guides in the built-in file editor. |
+| `fileEditor.currentLineHighlight` | boolean | `true` | Highlight the caret's line when the selection is empty. |
+| `fileEditor.tabWidth` | integer (1–8) | `4` | Columns per tab stop for indent guides. |
+
+## fileExplorer
+
+Right-sidebar file explorer routing for file previews.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `fileExplorer.doubleClickAction` | `"preview"` or `"defaultEditor"` or `"preferredEditor"` | `"preview"` | What double-clicking a file in the file explorer does. `preview` opens the built-in cmux file preview; the editor choices use the macOS default app or `app.preferredEditor`. |
+
+## diffViewer
+
+Built-in diff viewer settings. See [the detailed diff configuration](../../../docs/configuration.md#diffviewdefaultlayout) for invocation overrides.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `diffViewer.defaultLayout` | `"unified"` or `"split"` | `"unified"` | Default layout for newly opened diff viewers. The toolbar choice persists and `cmux diff --layout` overrides this value for one invocation. |
+
 ## shortcuts
 
 Keyboard shortcut settings from Settings > Keyboard Shortcuts.

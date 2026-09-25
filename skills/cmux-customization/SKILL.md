@@ -1,11 +1,16 @@
 ---
 name: cmux-customization
-description: "Customize cmux for an end user. Use when changing cmux.json actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, or Ghostty-backed terminal preferences."
+description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux.json actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, or Ghostty-backed terminal preferences."
 ---
 
 # cmux Customization
 
 Keep the user's config intact, prefer schema-backed edits, and validate before reporting completion.
+
+For content viewers, start with [the viewer customization matrix](references/viewer-types.md).
+It maps each viewer to the settings, command, or external file that owns its
+knobs, including explicit fallbacks for viewer types whose template settings
+have not shipped yet.
 
 ## Choose the right surface
 
@@ -17,6 +22,12 @@ Keep the user's config intact, prefer schema-backed edits, and validate before r
 | Terminal rendering and terminal keybindings (fonts, themes, cursor style, copy-on-select, shell integration) | Ghostty config, usually `~/.config/ghostty/config` |
 | Workspace names, descriptions, colors, read state, sidebar metadata | cmux CLI, see [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) |
 | Feed event sources | `cmux hooks setup` |
+
+Viewer-specific JSON settings live in the global `cmux.json`: `browser.*`,
+`markdown.*`, `fileEditor.*`, `fileExplorer.*`, and `diffViewer.*`. Generic file
+preview routing also uses `app.openSupportedFilesInCmux` and
+`app.preferredEditor`. Right-sidebar tools are structural state and Dock
+configuration, not a `templates.rightSidebarTool` object.
 
 Project-local `.cmux/cmux.json` and `.cmux/dock.json` let worktree, SSH, review, dev, CI, and docs patterns travel with the repo; project actions and commands override global entries with the same ID or name. Global app preferences do not belong there.
 
@@ -53,6 +64,12 @@ Key surfaces in `cmux.json`: `actions` (reusable, can appear in Cmd+Shift+P, sur
 5. For actions, UI wiring, workspace layouts, notification hooks, and Dock controls, edit the JSONC by hand and preserve unrelated sections (`vault`, `rightSidebar`, `commands`, `actions`, `ui`, `notifications`).
 6. `cmux reload-config`.
 7. Verify the configured entrypoint exists: read back the shortcut binding, or confirm the action ID and where it should appear.
+
+For viewer changes, verify the exact path or command state from the matrix. If
+the requested viewer or knob is absent from the schema, explain that it is not
+supported yet instead of writing an unknown key. The `templates.<viewer>`
+surface proposed for future notes/Markdown/diff customization is not available
+until the schema and runtime implement it.
 
 ## Example: Command Palette action
 
