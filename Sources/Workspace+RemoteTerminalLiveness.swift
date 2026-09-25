@@ -381,6 +381,7 @@ extension Workspace {
 
     private func applyRemoteTerminalLaunchingPresentation() {
         guard remoteConfiguration != nil,
+              !remoteControllerIsParked,
               !remoteSessionIsWaitingForReconnect,
               !hasAuthoritativelyConnectedRemoteTerminal(
                   in: DockSplitStore.liveRemoteTerminalStores(

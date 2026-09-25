@@ -19,11 +19,10 @@ extension Workspace {
         guard remoteSessionController == nil else {
             return false
         }
-        // Disconnect publishes both states before its cleanup task starts;
-        // attach attempts must observe that terminal verdict during cleanup as
-        // well as after it finishes.
-        if remoteControllerConnectionState == .disconnected,
-           remoteConnectionState == .disconnected {
+        // A deferred first connection can also be disconnected. Only the
+        // explicit Disconnect action terminates waiting attaches, including
+        // those that arrive while its transport cleanup is still running.
+        if remoteConnectionWasDisconnected, remoteConfiguration != nil {
             return true
         }
         guard remoteSessionTransitionTask == nil else {
