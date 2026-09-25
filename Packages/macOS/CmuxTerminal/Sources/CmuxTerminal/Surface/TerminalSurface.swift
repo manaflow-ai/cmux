@@ -744,7 +744,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #endif
             callbackContext?.release()
             manualIOContext?.release()
-            teeLease?.release()
+            Task { @MainActor in teeLease?.release() }
             return
         }
 
@@ -753,7 +753,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
             manualIOContext?.release()
-            teeLease?.release()
+            Task { @MainActor in teeLease?.release() }
             return
         }
 #endif
