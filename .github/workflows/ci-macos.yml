@@ -1672,7 +1672,10 @@ jobs:
             test-without-building
 
       - name: Run five-tab renderer memory regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        # The test skips itself without CMUX_RENDERER_MEMORY_REGRESSION=1, so a
+        # changed-suites run of GhosttySurfaceOverlayTests has to run this step
+        # too, or the edited test passes as "skipped" (choose_ci_suite.py).
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run five-tab renderer memory regression|')) }}
         run: |
           # Use a dedicated app-host process so task_vm_info deltas only compare
           # one versus five real Ghostty renderers in this workload. The focused
