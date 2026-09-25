@@ -304,17 +304,21 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(workspaceID: workspaceId, windowID: windowId)
     }
 
+    /// Runs the same Focus Last toggle as the app's shortcut and History menu
+    /// (`TabManager.navigateToLastFocused()`), so repeated `workspace.last`
+    /// calls flip between the two most recent positions instead of walking
+    /// further back through history.
     func controlSelectLastWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        guard let before = tabManager.selectedTabId else { return .notFound }
+        guard tabManager.selectedTabId != nil else { return .notFound }
         if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
-        tabManager.navigateBack()
-        guard let after = tabManager.selectedTabId, after != before else { return .notFound }
+        guard tabManager.navigateToLastFocused(),
+              let after = tabManager.selectedTabId else { return .notFound }
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(workspaceID: after, windowID: windowId)
     }
