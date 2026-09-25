@@ -3,7 +3,7 @@ import OSLog
 
 extension TerminalController {
     /// Bounded durable tombstones and live workspace IDs for idempotent creates.
-    @MainActor final class WorkspaceCreateIdempotencyCache {
+    final class WorkspaceCreateIdempotencyCache {
         private struct AcceptanceRollbackEntry {
             let operationID: UUID
             let workspaceID: UUID?
