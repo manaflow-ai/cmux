@@ -16,8 +16,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
-    private let nameField = NSTextField(labelWithString: "")
-    private let descriptionView = SidebarRowTextView(lines: 2)
+    private let nameField = SidebarRowTextView(lines: 1)
+    private let descriptionView = SidebarRowTextView(lines: SidebarWorkspaceGroupHeaderMetrics.descriptionMaxLines)
     // Direct-draw badge (shared with workspace rows): NSTextField's
     // intrinsic insets shift single digits off the circle's optical center.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
@@ -184,7 +184,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.maximumNumberOfLines = model.wrapsWorkspaceTitles ? 8 : 1
+        nameField.maximumNumberOfLines = model.wrapsWorkspaceTitles ? SidebarWorkspaceGroupHeaderMetrics.wrappedTitleMaxLines : 1
         nameField.lineBreakMode = model.wrapsWorkspaceTitles ? .byWordWrapping : .byTruncatingTail
         nameField.cell?.truncatesLastVisibleLine = true
         nameField.textColor = model.isAnchorActive
@@ -194,9 +194,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         descriptionView.isHidden = model.anchorDescription?.isEmpty != false
         if let description = model.anchorDescription, !description.isEmpty {
             descriptionView.configurePlainText(
-                description.sidebarBoundedDisplayString(maxDisplayedLines: 2, maxDisplayedCharacters: 512),
+                description.sidebarBoundedDisplayString(
+                    maxDisplayedLines: SidebarWorkspaceGroupHeaderMetrics.descriptionMaxLines,
+                    maxDisplayedCharacters: SidebarWorkspaceGroupHeaderMetrics.descriptionMaxCharacters
+                ),
                 font: .systemFont(
-                    ofSize: GlobalFontMagnification.scaledSize(10.5 * model.fontScale, percent: percent)
+                    ofSize: GlobalFontMagnification.scaledSize(metrics.descriptionFontSize, percent: percent)
                 ),
                 color: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
             )
@@ -376,119 +379,30 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Layout
 
-    /// Deterministic row height; must stay in lockstep with `layout()`.
-    private static func contentHeights(
-        model: SidebarGroupHeaderRowModel,
-        width: CGFloat
-    ) -> (title: CGFloat, description: CGFloat) {
-        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
-        let percent = model.globalFontMagnificationPercent
-        let nameFont = NSFont.systemFont(
-            ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: .semibold
-        )
-        let nameLineHeight = ceil(nameFont.ascender - nameFont.descender + nameFont.leading)
-        let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
-        let contentPad = SidebarWorkspaceListMetrics.rowContentHorizontalPadding
-        let contentMaxX = width - outerPad - contentPad
-        let plusMinX = contentMaxX - metrics.plusFrame
-        var leadingX = outerPad
-        if model.isPinned {
-            leadingX += metrics.iconFrame + 4
-        }
-        leadingX += metrics.chevronFrame + 4
-        leadingX += metrics.iconFrame + 6
-
-        var badgeWidth: CGFloat = 0
-        if model.anchorUnreadCount > 0 {
-            let badgeFont = NSFont.systemFont(
-                ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
-                weight: .semibold
-            )
-            let badgeTextWidth = NSString(string: "\(model.anchorUnreadCount)")
-                .size(withAttributes: [.font: badgeFont]).width
-            badgeWidth = ceil(badgeTextWidth) + metrics.unreadHorizontalPadding * 2
-        }
-
-        let titleWidth = max(
-            1,
-            (plusMinX - 4) - leadingX - (badgeWidth > 0 ? badgeWidth + 6 : 0)
-        )
-        let descriptionWidth = max(1, contentMaxX - leadingX)
-        let titleHeight: CGFloat = {
-            guard model.wrapsWorkspaceTitles else { return nameLineHeight }
-            let rect = NSString(string: model.name).boundingRect(
-                with: NSSize(width: titleWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: nameFont]
-            )
-            return min(nameLineHeight * 8, max(nameLineHeight, ceil(rect.height)))
-        }()
-        let descriptionHeight: CGFloat = {
-            guard let description = model.anchorDescription, !description.isEmpty else { return 0 }
-            let descriptionFont = NSFont.systemFont(
-                ofSize: GlobalFontMagnification.scaledSize(10.5 * model.fontScale, percent: percent)
-            )
-            let boundedDescription = description.sidebarBoundedDisplayString(
-                maxDisplayedLines: 2,
-                maxDisplayedCharacters: 512
-            )
-            let rect = NSString(string: boundedDescription).boundingRect(
-                with: NSSize(width: descriptionWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: descriptionFont]
-            )
-            let lineHeight = ceil(descriptionFont.ascender - descriptionFont.descender + descriptionFont.leading)
-            return min(lineHeight * 2, max(lineHeight, ceil(rect.height)))
-        }()
-        return (titleHeight, descriptionHeight)
-    }
-
-    static func preferredHeight(model: SidebarGroupHeaderRowModel, width: CGFloat = 400) -> CGFloat {
-        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
-        let heights = Self.contentHeights(model: model, width: width)
-        let interlineSpacing: CGFloat = heights.description > 0 ? 2 : 0
-        let content = max(
-            metrics.chevronFrame,
-            metrics.iconFrame,
-            metrics.plusFrame,
-            heights.title + interlineSpacing + heights.description
-        )
-        return ceil(content + 10)
-    }
-
     override func layout() {
         super.layout()
         guard let model else { return }
-        // No implicit actions during manual layout (legacy parity —
-        // geometry snaps, never interpolates).
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        _ = layoutContent(model: model, width: bounds.width, apply: true)
+    }
+
+    /// Measures the configured text cells at their rendered widths, then optionally places them.
+    /// The height cache uses the same path as visible cells, including AppKit's text insets.
+    @discardableResult
+    func layoutContent(model: SidebarGroupHeaderRowModel, width: CGFloat, apply: Bool) -> CGFloat {
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
-        let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
-        backgroundView.frame = bgFrame
-        let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
-        let midY = bounds.height / 2
-        var x = bgFrame.minX
-
-        func centered(_ size: CGFloat) -> NSRect {
-            NSRect(x: x, y: midY - size / 2, width: size, height: size)
-        }
-
-        if !pinImageView.isHidden {
-            pinImageView.frame = centered(metrics.iconFrame)
-            x = pinImageView.frame.maxX + 4
-        }
-        chevronButton.frame = centered(metrics.chevronFrame)
-        x = chevronButton.frame.maxX + 4
-
-        let plusSide = metrics.plusFrame
-        plusButton.frame = NSRect(x: contentMaxX - plusSide, y: midY - plusSide / 2, width: plusSide, height: plusSide)
-
-        iconImageView.frame = centered(metrics.iconFrame)
-        x = iconImageView.frame.maxX + 6
+        let contentMaxX = width - outerPad - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+        var x = outerPad
+        let pinX = x
+        if model.isPinned { x += metrics.iconFrame + 4 }
+        let chevronX = x
+        x += metrics.chevronFrame + 4
+        let iconX = x
+        x += metrics.iconFrame + 6
+        let plusX = contentMaxX - metrics.plusFrame
 
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
@@ -499,53 +413,59 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 height: ceil(textSize.height) + metrics.unreadVerticalPadding * 2
             )
         }
+        let nameAvailable = max(1, plusX - 4 - x - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
+        let descriptionWidth = max(1, contentMaxX - x)
+        let titleHeight = nameField.measuredHeight(width: nameAvailable)
+        let descriptionHeight = descriptionView.measuredHeight(width: descriptionWidth)
+        let spacing = descriptionView.isHidden ? 0 : SidebarWorkspaceGroupHeaderMetrics.descriptionSpacing
+        let textHeight = titleHeight + spacing + descriptionHeight
+        let contentHeight = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, badgeSize.height, textHeight)
+        let height = ceil(contentHeight + 10)
+        guard apply else { return height }
 
-        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
-            - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
-        let nameSize = nameField.attributedStringValue.size()
-        // The field owns ALL remaining width (truncation only when genuinely
-        // out of space); the badge tracks the measured text width instead.
-        let heights = Self.contentHeights(model: model, width: bounds.width)
-        let titleHeight = heights.title
-        let descriptionHeight = descriptionView.isHidden ? 0 : heights.description
-        let contentHeight = titleHeight + (descriptionHeight > 0 ? 2 + descriptionHeight : 0)
-        let contentTop = midY - contentHeight / 2
+        let midY = height / 2
+        func centered(x: CGFloat, size: CGFloat) -> NSRect {
+            NSRect(x: x, y: midY - size / 2, width: size, height: size)
+        }
+        backgroundView.frame = NSRect(x: outerPad, y: 0, width: max(0, width - outerPad * 2), height: height)
+        pinImageView.frame = centered(x: pinX, size: metrics.iconFrame)
+        chevronButton.frame = centered(x: chevronX, size: metrics.chevronFrame)
+        iconImageView.frame = centered(x: iconX, size: metrics.iconFrame)
+        plusButton.frame = centered(x: plusX, size: metrics.plusFrame)
+
+        let contentTop = midY - textHeight / 2
         nameField.frame = NSRect(x: x, y: contentTop, width: nameAvailable, height: titleHeight)
         if !descriptionView.isHidden {
             descriptionView.frame = NSRect(
-                x: x,
-                y: nameField.frame.maxY + 2,
-                width: max(0, contentMaxX - x),
-                height: descriptionHeight
+                x: x, y: nameField.frame.maxY + spacing,
+                width: descriptionWidth, height: descriptionHeight
             )
         }
         if !unreadBadgeView.isHidden {
-            let badgeX = x + min(ceil(nameSize.width), nameAvailable) + 6
+            let nameWidth = ceil(nameField.attributedStringValue.size().width)
             unreadBadgeView.frame = NSRect(
-                x: badgeX,
+                x: x + min(nameWidth, nameAvailable) + 6,
                 y: contentTop + titleHeight / 2 - badgeSize.height / 2,
-                width: badgeSize.width,
-                height: badgeSize.height
+                width: badgeSize.width, height: badgeSize.height
             )
             unreadBadgeView.needsDisplay = true
         }
 
+        let indicatorBounds = NSRect(x: 0, y: 0, width: width, height: height)
         let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
-        topDropIndicator.position(in: bounds, at: topOffset)
-        let bottomInset = metrics.groupScopedBottomDropIndicatorLeadingInset
+        topDropIndicator.position(in: indicatorBounds, at: topOffset)
         bottomDropIndicator.position(
-            in: bounds,
-            at: bounds.height - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2,
-            leadingInset: bottomInset
+            in: indicatorBounds,
+            at: height - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2,
+            leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
         )
-
         let pillSize = hintPill.fittingPillSize()
         hintPill.frame = NSRect(
-            x: bounds.width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.shortcutHintXOffset),
+            x: width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.shortcutHintXOffset),
             y: 6 + ShortcutHintDebugSettings.clamped(model.shortcutHintYOffset),
-            width: pillSize.width,
-            height: pillSize.height
+            width: pillSize.width, height: pillSize.height
         )
+        return height
     }
 
     // MARK: Interaction

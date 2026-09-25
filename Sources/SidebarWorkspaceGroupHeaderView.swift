@@ -169,20 +169,20 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     appliesGlobalFontMagnification: true)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: SidebarWorkspaceGroupHeaderMetrics.descriptionSpacing) {
                     Text(name)
                         .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
                         .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
-                        .lineLimit(wrapsWorkspaceTitles ? 8 : 1)
+                        .lineLimit(wrapsWorkspaceTitles ? SidebarWorkspaceGroupHeaderMetrics.wrappedTitleMaxLines : 1)
                         .truncationMode(.tail)
                     if let anchorDescription, !anchorDescription.isEmpty {
                         Text(anchorDescription.sidebarBoundedDisplayString(
-                            maxDisplayedLines: 2,
-                            maxDisplayedCharacters: 512
+                            maxDisplayedLines: SidebarWorkspaceGroupHeaderMetrics.descriptionMaxLines,
+                            maxDisplayedCharacters: SidebarWorkspaceGroupHeaderMetrics.descriptionMaxCharacters
                         ))
-                        .cmuxFont(size: 10.5 * fontScale)
+                        .cmuxFont(size: metrics.descriptionFontSize)
                         .foregroundStyle(Color.secondary.opacity(0.95))
-                        .lineLimit(2)
+                        .lineLimit(SidebarWorkspaceGroupHeaderMetrics.descriptionMaxLines)
                         .truncationMode(.tail)
                     }
                 }

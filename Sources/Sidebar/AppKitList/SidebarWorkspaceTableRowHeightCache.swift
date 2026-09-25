@@ -27,6 +27,7 @@ final class SidebarWorkspaceTableRowHeightCache {
     private var entries: [SidebarWorkspaceRenderItemID: Entry] = [:]
     private let prototypeView = NSHostingView(rootView: AnyView(EmptyView()))
     private let prototypeRowView = SidebarWorkspaceRowTableCellView()
+    private let prototypeGroupView = SidebarGroupHeaderTableCellView()
     private var preparedColumnWidth: CGFloat?
 
     func suspendPresentation(retaining rowIds: Set<SidebarWorkspaceRenderItemID>) {
@@ -179,7 +180,8 @@ final class SidebarWorkspaceTableRowHeightCache {
         // Pure-AppKit rows have deterministic heights; never spin up the
         // hosted SwiftUI measurement path for them.
         if let headerModel = row.appKitGroupHeaderModel {
-            return SidebarGroupHeaderTableCellView.preferredHeight(model: headerModel, width: columnWidth)
+            prototypeGroupView.configurePresentation(model: headerModel)
+            return prototypeGroupView.layoutContent(model: headerModel, width: columnWidth, apply: false)
         }
         if let rowModel = row.appKitWorkspaceRowModel,
            let actions = row.appKitWorkspaceRowActions {

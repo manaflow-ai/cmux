@@ -46,6 +46,16 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     static let basePinnedIconFontSize: CGFloat = 9
     /// Group name point size at the default sidebar font size.
     static let baseNameFontSize: CGFloat = 11
+    /// Anchor description point size at the default sidebar font size.
+    static let baseDescriptionFontSize: CGFloat = 10.5
+    /// Maximum rendered lines for wrapped group names.
+    static let wrappedTitleMaxLines = 8
+    /// Maximum rendered lines for the anchor description.
+    static let descriptionMaxLines = 2
+    /// Input bound for the anchor description.
+    static let descriptionMaxCharacters = 512
+    /// Vertical gap between the group name and anchor description.
+    static let descriptionSpacing: CGFloat = 2
     /// Unread badge point size at the default sidebar font size.
     static let baseUnreadFontSize: CGFloat = 10
     /// Unread badge horizontal padding at the default sidebar font size.
@@ -73,6 +83,8 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var pinnedIconFontSize: CGFloat { Self.basePinnedIconFontSize * fontScale }
     /// Scaled group name point size.
     var nameFontSize: CGFloat { Self.baseNameFontSize * fontScale }
+    /// Scaled anchor description point size.
+    var descriptionFontSize: CGFloat { Self.baseDescriptionFontSize * fontScale }
     /// Scaled unread badge point size.
     var unreadFontSize: CGFloat { Self.baseUnreadFontSize * fontScale }
     /// Scaled unread badge horizontal padding.
