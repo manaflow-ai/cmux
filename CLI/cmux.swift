@@ -5202,7 +5202,7 @@ struct CMUXCLI {
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
-            if try runHooksNoSocketCommand(commandArgs: commandArgs) {
+            if try runHooksNoSocketCommand(commandArgs: commandArgs, jsonOutput: jsonOutput) {
                 return
             }
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
@@ -8316,7 +8316,7 @@ struct CMUXCLI {
             return true
         }
         switch first {
-        case "help", "--help", "-h", "setup", "install", "uninstall":
+        case "help", "--help", "-h", "setup", "status", "install", "uninstall":
             return true
         case "feed", "claude":
             return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
@@ -18574,6 +18574,7 @@ struct CMUXCLI {
         case "hooks":
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
+                   cmux hooks status [--agent <name>] [--json]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
@@ -18588,6 +18589,7 @@ struct CMUXCLI {
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
+              status             Show installed hooks and agent availability
               uninstall          Remove hooks for all supported agents
               <agent> install    Install one agent integration
               <agent> uninstall  Remove one agent integration
@@ -40560,7 +40562,7 @@ export default CMUXSessionRestore;
 
     // MARK: - Hooks namespace
 
-    private func runHooksNoSocketCommand(commandArgs: [String]) throws -> Bool {
+    private func runHooksNoSocketCommand(commandArgs: [String], jsonOutput: Bool = false) throws -> Bool {
         guard let first = commandArgs.first?.lowercased() else {
             print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
             return true
@@ -40576,6 +40578,47 @@ export default CMUXSessionRestore;
                 uninstall: false,
                 positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
             )
+            return true
+
+        case "status":
+            let filter = try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            let definitions: [AgentHookDef]
+            if let filter {
+                guard let definition = Self.agentDef(named: filter) else {
+                    throw CLIError(message: "Unknown hooks target: \(filter)")
+                }
+                definitions = [definition]
+            } else {
+                definitions = Self.agentDefs
+            }
+            let rows = definitions.map { definition -> [String: Any] in
+                let configPath = Self.hookConfigPath(for: definition)
+                return [
+                    "agent": definition.name,
+                    "display_name": definition.displayName,
+                    "installed": Self.isAgentHookInstalled(definition),
+                    "available": Self.isBinaryOnPath(definition.binaryName),
+                    "config_path": configPath,
+                ]
+            }
+            if jsonOutput {
+                print(jsonString(["agents": rows]))
+            } else {
+                print(String(localized: "cli.hooks.status.heading", defaultValue: "Agent hook status"))
+                for row in rows {
+                    let displayName = row["display_name"] as? String ?? row["agent"] as? String ?? ""
+                    let installed = row["installed"] as? Bool == true
+                    let available = row["available"] as? Bool == true
+                    let state = installed
+                        ? String(localized: "cli.hooks.status.installed", defaultValue: "installed")
+                        : String(localized: "cli.hooks.status.notInstalled", defaultValue: "not installed")
+                    let availability = available
+                        ? String(localized: "cli.hooks.status.available", defaultValue: "available")
+                        : String(localized: "cli.hooks.status.notOnPath", defaultValue: "CLI not found on PATH")
+                    let path = row["config_path"] as? String ?? ""
+                    print("  \(displayName): \(state) · \(availability) · \(path)")
+                }
+            }
             return true
 
         case "uninstall":
@@ -40632,6 +40675,23 @@ export default CMUXSessionRestore;
                 return false
             }
         }
+    }
+
+    private static func hookConfigPath(for definition: AgentHookDef) -> String {
+        URL(fileURLWithPath: definition.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(definition.configFile, isDirectory: false)
+            .path
+    }
+
+    private static func isAgentHookInstalled(_ definition: AgentHookDef) -> Bool {
+        let path = hookConfigPath(for: definition)
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8), !contents.isEmpty else {
+            return false
+        }
+        let markers = Self.hookMarkers(for: definition) + Self.feedHookMarkers(for: definition)
+        return markers.contains(where: contents.contains)
+            || contents.contains("cmux-\(definition.name)-")
+            || contents.contains("cmux_\(definition.name)_")
     }
 
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
@@ -40958,6 +41018,16 @@ export default CMUXSessionRestore;
         print("  \(bold)Email\(reset)\(subdued)               founders@manaflow.com\(reset)")
         print()
         print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
+        let hooksSetupHint = String(
+            localized: "cli.welcome.hooksSetup",
+            defaultValue: "Run cmux hooks setup to connect installed coding agents to cmux."
+        )
+        let hooksStatusHint = String(
+            localized: "cli.welcome.hooksStatus",
+            defaultValue: "Run cmux hooks status to check which agents are connected."
+        )
+        print("  \(subdued)\(hooksSetupHint)\(reset)")
+        print("  \(subdued)\(hooksStatusHint)\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
         print()

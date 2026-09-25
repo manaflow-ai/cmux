@@ -608,6 +608,7 @@
 		C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000016 /* CLIHookNoResponseTests.swift */; };
 		C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000051 /* CLIHookProcessRunner.swift */; };
 		C11757000000000000000052 /* CLIHookProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000051 /* CLIHookProcessRunner.swift */; };
+		C11757000000000000000064 /* CLIHooksSetupSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000065 /* CLIHooksSetupSurfaceTests.swift */; };
 		9C23A4FD07C6BBFEB282D230 /* CLIKiroFeedPermissionModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */; };
 		74346B19AC8D55243926D168 /* CLILegacyCodexRestoreLeaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */; };
 		A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */; };
@@ -4705,6 +4706,7 @@
 		A76110030000000000000002 /* CLIGrokNotificationNoiseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIGrokNotificationNoiseTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000016 /* CLIHookNoResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHookNoResponseTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000051 /* CLIHookProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHookProcessRunner.swift; sourceTree = "<group>"; };
+		C11757000000000000000065 /* CLIHooksSetupSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHooksSetupSurfaceTests.swift; sourceTree = "<group>"; };
 		537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIKiroFeedPermissionModeTests.swift"; sourceTree = "<group>"; };
 		1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLILegacyCodexRestoreLeaseTests.swift"; sourceTree = "<group>"; };
 		A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILegacyHookAliasTests.swift; sourceTree = "<group>"; };
@@ -8174,6 +8176,7 @@
 				C11757000000000000000023 /* CodexTeamsResumedBackfillTests.swift */,
 				C11757000000000000000024 /* CodexTerminalErrorNotificationTests.swift */,
 				C11757000000000000000025 /* KimiHookConfigLocationTests.swift */,
+				C11757000000000000000065 /* CLIHooksSetupSurfaceTests.swift */,
 			);
 			path = cmuxCLITests;
 			sourceTree = "<group>";
@@ -12822,6 +12825,7 @@
 				C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
+				C11757000000000000000064 /* CLIHooksSetupSurfaceTests.swift in Sources */,
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
 				C11757000000000000000032 /* CLISSHPTYResizeInputTests.swift in Sources */,

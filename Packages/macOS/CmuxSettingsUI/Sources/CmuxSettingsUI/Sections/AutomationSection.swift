@@ -85,6 +85,7 @@ public struct AutomationSection: View {
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
+            hooksSetupCard
             socketControlCard
             automationRulesCard
             claudeCodeCard
@@ -140,6 +141,48 @@ public struct AutomationSection: View {
                 socketPolicyResolution = socketPolicyResolver.resolve()
             }
         }
+    }
+
+    /// Thin native exposure of the existing JSON-backed automation engine.
+    @ViewBuilder
+    private var hooksSetupCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .action,
+                String(localized: "settings.automation.agentHooks", defaultValue: "Agent Hooks"),
+                subtitle: String(localized: "settings.automation.agentHooks.subtitle", defaultValue: "Connect Codex, Claude, Gemini, OpenCode, Amp, and Pi to cmux status, Feed, and notifications."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Button(String(localized: "settings.automation.agentHooks.setup", defaultValue: "Install detected hooks")) {
+                        hostActions.openAgentHooksSetup()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentHooksSetupButton")
+
+                    Button(String(localized: "settings.automation.agentHooks.status", defaultValue: "Check status")) {
+                        hostActions.openAgentHooksStatus()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentHooksStatusButton")
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.agentHooks.note", defaultValue: "Install detected agent hooks with one click, or run `cmux hooks setup --agent <name>` for one agent. Claude Code hooks are injected automatically by the cmux wrapper. Hook status and uninstall are available from the same terminal command."))
+            SettingsCardDivider()
+            Link(
+                String(localized: "settings.automation.agentHooks.docs", defaultValue: "Open agent hooks documentation"),
+                destination: URL(string: "https://cmux.com/docs/agent-integrations/oh-my-codex")!
+            )
+            .cmuxFont(.caption)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+            .accessibilityIdentifier("SettingsAgentHooksDocsLink")
+        }
+        .settingsSearchAnchors(["setting:automation:agent-hooks"])
+        .accessibilityIdentifier("SettingsAgentHooksCard")
     }
 
     /// Thin native exposure of the existing JSON-backed automation engine.

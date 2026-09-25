@@ -8,10 +8,12 @@ Claude Code is handled by the cmux Claude wrapper when Claude Code integration i
 cmux hooks setup
 cmux hooks setup <agent>
 cmux hooks setup --agent <agent>
+cmux hooks status
+cmux hooks status --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary. Use `cmux hooks status` to see which integrations are installed and which agent CLIs are available; add `--json` for scripts.
 
 ## Integrations
 

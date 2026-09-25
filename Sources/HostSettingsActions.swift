@@ -179,6 +179,46 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    func openAgentHooksSetup() {
+        openAgentHooksCommand("hooks setup --yes")
+    }
+
+    func openAgentHooksStatus() {
+        openAgentHooksCommand("hooks status")
+    }
+
+    private func openAgentHooksCommand(_ command: String) {
+        let cliURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            hostSettingsLogger.error("Agent hooks command unavailable: bundled cmux CLI missing")
+            return
+        }
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.activeTabManagerForCommands(),
+              let workspace = manager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) \(command) 2>/dev/null; exit\n"
+        do {
+            let terminal = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil,
+                initialInput: initialInput,
+                workingDirectory: nil,
+                at: .workspace(id: workspace.id, placement: .tab),
+                focus: true
+            )
+            if let windowID = appDelegate.windowId(for: manager) {
+                _ = appDelegate.focusMainWindow(windowId: windowID)
+            }
+            SurfacePaneFactory.focus(panelID: terminal.panelID, in: terminal.workspaceID)
+        } catch {
+            hostSettingsLogger.error("Failed to open agent hooks command")
+        }
+    }
+
     func notifyShortcutSettingsDidChange() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every

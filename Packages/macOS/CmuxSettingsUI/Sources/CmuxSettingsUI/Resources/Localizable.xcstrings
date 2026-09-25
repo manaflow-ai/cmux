@@ -4622,6 +4622,360 @@
           }
         }
       }
+    },
+    "settings.automation.agentHooks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Hooks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطافات الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Hooks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks d’agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 후크"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理挂钩"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式掛鉤"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.docs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open agent hooks documentation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح وثائق خطافات الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dokumentation zu Agent-Hooks öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir la documentación de los hooks de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir la documentation des hooks d’agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフックのドキュメントを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 후크 문서 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开代理挂钩文档"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟代理程式掛鉤文件"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install detected agent hooks with one click, or run `cmux hooks setup --agent <name>` for one agent. Claude Code hooks are injected automatically by the cmux wrapper. Hook status and uninstall are available from the same terminal command."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ثبّت خطافات الوكلاء المكتشفة بنقرة واحدة، أو شغّل `cmux hooks setup --agent <name>` لوكيل واحد. يضيف غلاف cmux خطافات Claude Code تلقائيًا. تتوفر حالة الخطافات وإلغاء تثبيتها من أمر الطرفية نفسه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installieren Sie erkannte Agent-Hooks mit einem Klick oder führen Sie `cmux hooks setup --agent <name>` für einen Agenten aus. Claude-Code-Hooks werden automatisch vom cmux-Wrapper eingefügt. Status und Deinstallation der Hooks sind über denselben Terminalbefehl verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instala los hooks de agentes detectados con un clic o ejecuta `cmux hooks setup --agent <name>` para un agente. El wrapper de cmux inyecta automáticamente los hooks de Claude Code. El estado y la desinstalación de los hooks están disponibles desde el mismo comando de terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installez les hooks d’agent détectés en un clic ou exécutez `cmux hooks setup --agent <name>` pour un agent. Les hooks Claude Code sont injectés automatiquement par le wrapper cmux. Le statut et la désinstallation des hooks sont disponibles avec la même commande de terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出されたエージェントフックをワンクリックでインストールするか、1つのエージェントには `cmux hooks setup --agent <name>` を実行します。Claude Code フックは cmux ラッパーが自動的に挿入します。同じターミナルコマンドからフックの状態確認とアンインストールができます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지된 에이전트 후크를 한 번에 설치하거나, 한 에이전트에 설치하려면 `cmux hooks setup --agent <name>`을 실행하세요. Claude Code 후크는 cmux 래퍼가 자동으로 주입합니다. 같은 터미널 명령에서 후크 상태 확인과 제거를 할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键安装检测到的代理挂钩，或运行 `cmux hooks setup --agent <name>` 为单个代理安装。cmux 包装器会自动注入 Claude Code 挂钩。可通过同一个终端命令查看挂钩状态并卸载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一鍵安裝偵測到的代理程式掛鉤，或執行 `cmux hooks setup --agent <name>` 為單一代理程式安裝。cmux 包裝器會自動注入 Claude Code 掛鉤。您可以從同一個終端機指令查看掛鉤狀態並解除安裝。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install detected hooks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت الخطافات المكتشفة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erkannte Hooks installieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar hooks detectados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer les hooks détectés"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出されたフックをインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감지된 후크 설치"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装检测到的挂钩"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝偵測到的掛鉤"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحقق من الحالة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status prüfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobar estado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier le statut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスを確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 확인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看狀態"
+          }
+        }
+      }
+    },
+    "settings.automation.agentHooks.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect Codex, Claude, Gemini, OpenCode, Amp, and Pi to cmux status, Feed, and notifications."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط Codex وClaude وGemini وOpenCode وAmp وPi بحالة cmux وموجز Feed والإشعارات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinden Sie Codex, Claude, Gemini, OpenCode, Amp und Pi mit cmux-Status, Feed und Benachrichtigungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta Codex, Claude, Gemini, OpenCode, Amp y Pi al estado, Feed y las notificaciones de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez Codex, Claude, Gemini, OpenCode, Amp et Pi au statut, au Feed et aux notifications de cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex、Claude、Gemini、OpenCode、Amp、Pi を cmux のステータス、Feed、通知に接続します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, Claude, Gemini, OpenCode, Amp, Pi를 cmux 상태, Feed 및 알림에 연결합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Codex、Claude、Gemini、OpenCode、Amp 和 Pi 连接到 cmux 的状态、Feed 和通知。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將 Codex、Claude、Gemini、OpenCode、Amp 和 Pi 連接到 cmux 的狀態、Feed 與通知。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
