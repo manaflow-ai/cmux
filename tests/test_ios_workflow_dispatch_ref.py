@@ -119,7 +119,7 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
 
         # The routing job checks out the workflow revision itself; every other
         # checkout is pinned to the one resolved 40-character commit SHA.
-        self.assertEqual(workflow.count(resolved_ref), 4)
+        self.assertEqual(workflow.count(resolved_ref), 6)
 
 
 def job_admitted(jobs, name, results, outputs, inputs, *, cancelled=False):
