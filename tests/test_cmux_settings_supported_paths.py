@@ -22,7 +22,8 @@ SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
 # descendant paths beneath these roots (for example shortcuts.bindings).
 SETTINGS_SECTIONS = (
     "app", "terminal", "notifications", "sidebar", "sidebarAppearance",
-    "workspaceColors", "automation", "browser", "shortcuts",
+    "workspaceColors", "automation", "browser", "markdown", "fileEditor",
+    "fileExplorer", "diffViewer", "shortcuts",
 )
 
 
@@ -119,6 +120,24 @@ class SupportedPathsTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("terminal.copyOnSelect", result.stdout.splitlines())
                 self.assertIn("browser.urlAllowlist", result.stdout.splitlines())
+                self.assertEqual(result.stderr, "")
+
+    def test_lists_viewer_settings_paths_in_both_layouts(self):
+        expected = (
+            "markdown.fontSize",
+            "markdown.fontFamily",
+            "markdown.maxWidth",
+            "fileEditor.wordWrap",
+            "fileEditor.syntaxHighlighting",
+            "fileExplorer.doubleClickAction",
+            "diffViewer.defaultLayout",
+        )
+        for layout in ("checkout", "installed"):
+            with self.subTest(layout=layout):
+                result = self.run_helper(self.helper(layout), "list-supported")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                actual = set(result.stdout.splitlines())
+                self.assertTrue(set(expected).issubset(actual), sorted(set(expected) - actual))
                 self.assertEqual(result.stderr, "")
 
 
