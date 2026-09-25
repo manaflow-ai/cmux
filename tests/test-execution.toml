@@ -1237,3 +1237,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_merge_receipt.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_bisect.py"
+lane = "linux-guard"
