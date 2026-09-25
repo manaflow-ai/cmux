@@ -25,10 +25,19 @@ struct CmuxMainWindowKeyViewLoopTests {
         #expect(!window.autorecalculatesKeyViewLoop)
     }
 
-    @Test
-    func tabAndBacktabNavigateBetweenHostedTextFields() throws {
+    @Test(arguments: [false, true])
+    func tabAndBacktabNavigateBetweenHostedTextFields(replacingFocusedHost: Bool) throws {
         let window = makeWindow()
         defer { window.close() }
+        if replacingFocusedHost {
+            let initialHost = MainWindowHostingView(rootView: TextField("Initial", text: .constant("")))
+            window.contentView = initialHost
+            window.makeKeyAndOrderFront(nil)
+            initialHost.layoutSubtreeIfNeeded()
+            let initialField = try #require(editableTextFields(in: initialHost).first)
+            #expect(window.makeFirstResponder(initialField))
+            _ = try #require(initialField.currentEditor())
+        }
         let host = MainWindowHostingView(rootView: VStack {
             TextField("First", text: .constant(""))
             TextField("Second", text: .constant(""))
