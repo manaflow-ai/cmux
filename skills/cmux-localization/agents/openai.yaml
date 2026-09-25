@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Localization"
+  short_description: "Localize and audit every cmux user-facing string change."
+  default_prompt: "Use this skill whenever changing cmux UI text, settings labels, menu items, shortcut metadata, schema/config text, docs, command/help output, alerts, tooltips, or web messages."

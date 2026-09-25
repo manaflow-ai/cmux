@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Shared Behavior"
+  short_description: "Keep multi-entrypoint behavior and optimistic updates on one shared path."
+  default_prompt: "Use this skill when changing behavior exposed through multiple cmux entrypoints, optimistic UI or CLI mutation flows, or tests that previously missed a user-visible bug."

@@ -1,0 +1,35 @@
+import SwiftUI
+
+/// Picker bound to the host's ``AccountFlow/selectedTeamID`` so the
+/// user can switch between teams without leaving Settings.
+@MainActor
+struct AccountTeamPicker: View {
+    let flow: AccountFlow
+
+    var body: some View {
+        SettingsCardRow(
+            String(localized: "settings.account.activeTeam", defaultValue: "Active Team"),
+            controlWidth: 196
+        ) {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { flow.selectedTeamID ?? "" },
+                    set: { newValue in
+                        Task {
+                            try? await flow.selectTeam(id: newValue.isEmpty ? nil : newValue)
+                        }
+                    }
+                )
+            ) {
+                Text(String(localized: "settings.account.activeTeam.none", defaultValue: "None")).tag("")
+                ForEach(flow.availableTeams) { team in
+                    Text(team.displayName).tag(team.id)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+        }
+    }
+}

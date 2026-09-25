@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 
 @MainActor
 func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDelegate) -> Bool {
@@ -17,7 +18,7 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
 
     guard let panel = (targetTabManager ?? appDelegate.tabManager)?.selectedTerminalPanel,
           panel.searchState != nil,
-          !browserResponderHasMarkedText(shortcutWindow?.firstResponder),
+          !shortcutResponderHasMarkedText(shortcutWindow?.firstResponder),
           terminalFindFieldOwnsResponder || appDelegate.allowsTerminalKeyboardFocus(
               workspaceId: panel.workspaceId,
               panelId: panel.id,
@@ -30,7 +31,7 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
     cmuxDebugLog("find.escape.close terminal panel=\(panel.id.uuidString.prefix(5))")
 #endif
     panel.hostedView.beginFindEscapeSuppression()
-    panel.searchState = nil
+    panel.surface.closeSearchFromExplicitInput()
     panel.hostedView.moveFocus()
     return true
 }

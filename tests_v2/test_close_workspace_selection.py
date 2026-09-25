@@ -48,6 +48,28 @@ def _by_index(workspaces: List[WorkspaceTuple], index: int) -> Optional[Workspac
     return next((w for w in workspaces if w[0] == index), None)
 
 
+def _wait_selected_id(
+    client: cmux, expected_id: str, timeout: float = 6.0, interval: float = 0.05
+) -> List[WorkspaceTuple]:
+    """
+    Poll list_workspaces until the selected workspace's id equals expected_id.
+
+    The selection update following a workspace close is asynchronous, so a fixed
+    sleep races the update under load. Returns the last-read workspace list once
+    the selection settles (or at the deadline, so callers still produce a precise
+    failure message from the stale state).
+    """
+    deadline = time.time() + timeout
+    after = client.list_workspaces()
+    while time.time() < deadline:
+        sel = _selected(after)
+        if sel is not None and sel[1] == expected_id:
+            return after
+        time.sleep(interval)
+        after = client.list_workspaces()
+    return after
+
+
 def _ensure_workspaces(client: cmux, count: int) -> List[str]:
     """
     Ensure at least `count` workspaces exist. Returns IDs of newly created workspaces.
@@ -83,9 +105,8 @@ def test_close_middle_selects_next(client: cmux) -> TestResult:
             return result
 
         client.close_workspace(sel[1])
-        time.sleep(0.2)
+        after = _wait_selected_id(client, below[1])
 
-        after = client.list_workspaces()
         sel_after = _selected(after)
         if sel_after is None:
             result.failure("No selected workspace after closing selected workspace")
@@ -131,9 +152,8 @@ def test_close_last_selects_previous(client: cmux) -> TestResult:
             return result
 
         client.close_workspace(sel[1])
-        time.sleep(0.2)
+        after = _wait_selected_id(client, above[1])
 
-        after = client.list_workspaces()
         sel_after = _selected(after)
         if sel_after is None:
             result.failure("No selected workspace after closing last selected workspace")

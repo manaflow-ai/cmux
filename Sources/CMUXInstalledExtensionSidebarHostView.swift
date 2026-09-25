@@ -1,4 +1,6 @@
-@_spi(CmuxHostTransport) import CMUXExtensionHostSupport
+import CmuxFoundation
+import CmuxNotifications
+@_spi(CmuxHostTransport) import CmuxSidebar
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import AppKit
 import ExtensionFoundation
@@ -131,12 +133,91 @@ private struct CMUXSidebarExtensionLimitedChoiceStore {
     }
 }
 
+@MainActor
+final class CMUXSidebarSnapshotCache {
+    private struct CachedUnreadState: Equatable {
+        let unreadCount: Int
+        let latestNotification: String?
+
+        init(workspace: CmuxSidebarWorkspace) {
+            unreadCount = workspace.unreadCount
+            latestNotification = workspace.latestNotification
+        }
+
+        init(summary: SidebarWorkspaceUnreadSummary) {
+            unreadCount = summary.unreadCount
+            latestNotification = summary.latestNotificationText
+        }
+
+        var isEmpty: Bool {
+            unreadCount == 0 && latestNotification == nil
+        }
+    }
+
+    private(set) var snapshot: CmuxSidebarSnapshot?
+    private var workspaceIndexByID: [UUID: Int] = [:]
+    private var unreadStateByWorkspaceID: [UUID: CachedUnreadState] = [:]
+
+    func replace(with next: CmuxSidebarSnapshot) -> CmuxSidebarSnapshot {
+        guard let current = snapshot else {
+            store(next)
+            return next
+        }
+        guard current != next else { return current }
+        var contentComparableNext = next
+        contentComparableNext.sequence = current.sequence
+        guard current != contentComparableNext else { return current }
+        var updated = next
+        updated.sequence = max(next.sequence, current.sequence &+ 1)
+        store(updated)
+        return updated
+    }
+
+    func applyUnread(_ unread: SidebarUnreadSnapshot) -> CmuxSidebarSnapshot? {
+        guard var next = snapshot else { return nil }
+        var candidateWorkspaceIDs = Set(unreadStateByWorkspaceID.keys)
+        candidateWorkspaceIDs.formUnion(unread.summaryByWorkspaceId.keys)
+        var changed = false
+        for workspaceID in candidateWorkspaceIDs {
+            guard let index = workspaceIndexByID[workspaceID] else { continue }
+            let state = CachedUnreadState(summary: unread.summary(forWorkspaceId: workspaceID))
+            guard unreadStateByWorkspaceID[workspaceID] != state else { continue }
+            next.workspaces[index].unreadCount = state.unreadCount
+            next.workspaces[index].latestNotification = state.latestNotification
+            if state.isEmpty {
+                unreadStateByWorkspaceID[workspaceID] = nil
+            } else {
+                unreadStateByWorkspaceID[workspaceID] = state
+            }
+            changed = true
+        }
+        guard changed else { return nil }
+        next.sequence &+= 1
+        snapshot = next
+        return next
+    }
+
+    private func store(_ next: CmuxSidebarSnapshot) {
+        snapshot = next
+        workspaceIndexByID = Dictionary(
+            uniqueKeysWithValues: next.workspaces.enumerated().map { ($1.id, $0) }
+        )
+        unreadStateByWorkspaceID = Dictionary(
+            uniqueKeysWithValues: next.workspaces.compactMap { workspace in
+                let state = CachedUnreadState(workspace: workspace)
+                return state.isEmpty ? nil : (workspace.id, state)
+            }
+        )
+    }
+}
+
 struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
     var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
     var snapshotUpdateToken: UInt64 = 0
+    let unreadSource: SidebarUnreadModel
     var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
     var onUseDefaultSidebar: @MainActor () -> Void = {}
 
@@ -157,6 +238,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var isShowingAccessReview = false
     @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
     @State private var hostReloadToken: UInt64 = 0
+    @State private var snapshotCache = CMUXSidebarSnapshotCache()
 
     var body: some View {
         Group {
@@ -172,7 +254,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             xpcHost.attach(
                                 connection: connection,
                                 bundleIdentifier: identity.bundleIdentifier,
-                                snapshotProvider: snapshotProvider,
+                                snapshotProvider: {
+                                    snapshotCache.replace(with: snapshotProvider())
+                                },
                                 actionHandler: actionHandler,
                                 onGrantChanged: { grant in
                                     effectiveGrant = grant
@@ -208,7 +292,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(String(localized: "sidebar.extensions.loading", defaultValue: "Loading sidebar extensions"))
-                        .font(.system(size: 12))
+                        .cmuxFont(size: 12)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -217,7 +301,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             } else {
                 VStack(spacing: 16) {
                     Image(systemName: "puzzlepiece.extension")
-                        .font(.system(size: 26, weight: .regular))
+                        .cmuxFont(size: 26, weight: .regular)
                         .foregroundStyle(.secondary)
                         .frame(width: 60, height: 60)
                         .background(
@@ -226,17 +310,17 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         )
                     VStack(spacing: 6) {
                         Text(emptyStateTitle)
-                            .font(.system(size: 14, weight: .semibold))
+                            .cmuxFont(size: 14, weight: .semibold)
                             .foregroundStyle(.primary)
                             .multilineTextAlignment(.center)
                         Text(errorText ?? emptyStateDetail)
-                            .font(.system(size: 12))
+                            .cmuxFont(size: 12)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                         if disabledExtensionCount > 0 || unapprovedExtensionCount > 0 {
                             Text(extensionAvailabilityDetail)
-                                .font(.system(size: 12))
+                                .cmuxFont(size: 12)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -252,14 +336,24 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             }
         }
         .task {
-            xpcHost.update(snapshotProvider: snapshotProvider, actionHandler: actionHandler)
+            _ = snapshotCache.replace(with: snapshotProvider())
+            xpcHost.update(
+                snapshotProvider: { snapshotCache.replace(with: snapshotProvider()) },
+                actionHandler: actionHandler
+            )
             await observeExtensionAvailability()
         }
-        .onChange(of: snapshotProvider().sequence) { _, _ in
-            xpcHost.sendSnapshotDidChange()
+        .background {
+            SidebarUnreadSnapshotObserver(source: unreadSource) { unreadSnapshot in
+                guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) else {
+                    return
+                }
+                xpcHost.sendSnapshotDidChange(snapshot)
+            }
         }
         .onChange(of: snapshotUpdateToken) { _, _ in
-            xpcHost.sendSnapshotDidChange()
+            let snapshot = snapshotCache.replace(with: snapshotProvider())
+            xpcHost.sendSnapshotDidChange(snapshot)
         }
         .onDisappear {
             xpcHost.invalidate()
@@ -418,13 +512,13 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: 18, weight: .medium))
+                    .cmuxFont(size: 18, weight: .medium)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .cmuxFont(size: 13, weight: .semibold)
                         .lineLimit(1)
                     Text(String(localized: "sidebar.extensions.details.runtime", defaultValue: "Secure extension connection"))
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -456,7 +550,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             } else if let blockedManifestReason {
                 Divider()
                 Text(blockedDetailText(reason: blockedManifestReason))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -502,12 +596,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func blockedExtensionView(reason: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 20, weight: .regular))
+                .cmuxFont(size: 20, weight: .regular)
                 .foregroundStyle(.secondary)
             Text(String(localized: "sidebar.extensions.blocked.title", defaultValue: "Extension Blocked"))
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
             Text(blockedDetailText(reason: reason))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             ViewThatFits(in: .horizontal) {
@@ -593,11 +687,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func detailRow(title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
-                .font(.system(size: 11, weight: .medium))
+                .cmuxFont(size: 11, weight: .medium)
                 .foregroundStyle(.secondary)
                 .frame(width: 64, alignment: .leading)
             Text(value)
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .textSelection(.enabled)
@@ -607,7 +701,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func permissionSection(effectiveGrant: CMUXSidebarExtensionEffectiveGrant) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "sidebar.extensions.details.permissions", defaultValue: "Permissions"))
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
             ForEach(effectiveGrant.manifest.readScopes, id: \.self) { scope in
                 permissionRow(
                     title: scope.displayName,
@@ -628,14 +722,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func permissionRow(title: String, detail: String, isGranted: Bool) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: isGranted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 11, weight: .medium))
+                .cmuxFont(size: 11, weight: .medium)
                 .foregroundStyle(isGranted ? .green : .secondary)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                 Text(detail)
-                    .font(.system(size: 10))
+                    .cmuxFont(size: 10)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -643,7 +737,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             Text(isGranted
                 ? String(localized: "sidebar.extensions.details.granted", defaultValue: "Granted")
                 : String(localized: "sidebar.extensions.details.pending", defaultValue: "Pending"))
-                .font(.system(size: 10, weight: .medium))
+                .cmuxFont(size: 10, weight: .medium)
                 .foregroundStyle(.secondary)
         }
     }
@@ -676,7 +770,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"),
                 systemImage: "puzzlepiece.extension"
             )
-            .font(.system(size: 12, weight: .semibold))
+            .cmuxFont(size: 12, weight: .semibold)
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -701,19 +795,19 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "sidebar.extensions.access.title", defaultValue: "Limited extension access"))
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
                 .foregroundStyle(.primary)
             Text(String.localizedStringWithFormat(
                 String(localized: "sidebar.extensions.access.detail", defaultValue: "%@ will not receive workspace data or run actions until you grant its requested access."),
                 effectiveGrant.manifest.displayName
             ))
-            .font(.system(size: 11))
+            .cmuxFont(size: 11)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(pendingPermissionDescriptions(effectiveGrant: effectiveGrant), id: \.self) { description in
                     Label(description, systemImage: "circle")
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
                         .labelStyle(.titleAndIcon)
                 }
@@ -760,22 +854,22 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: 22, weight: .medium))
+                    .cmuxFont(size: 22, weight: .medium)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String.localizedStringWithFormat(
                         String(localized: "sidebar.extensions.access.review.title", defaultValue: "Review access for %@"),
                         effectiveGrant.manifest.displayName
                     ))
-                    .font(.system(size: 15, weight: .semibold))
+                    .cmuxFont(size: 15, weight: .semibold)
                     Text(identity.bundleIdentifier)
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
             }
 
             Text(String(localized: "sidebar.extensions.access.review.detail", defaultValue: "CMUX will only share the following data and actions if you allow this request."))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -1120,9 +1214,18 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     func sendSnapshotDidChange() {
-        guard let extensionProxy, let snapshotProvider else { return }
+        guard let snapshotProvider else { return }
+        sendSnapshotDidChange(snapshotProvider())
+    }
+
+    func sendSnapshotDidChange(_ snapshot: CmuxSidebarSnapshot) {
+        guard let extensionProxy else { return }
         do {
-            extensionProxy.sidebarSnapshotDidChange(try CmuxSidebarXPCCodec.encodeSnapshot(filteredSnapshot(from: snapshotProvider)))
+            extensionProxy.sidebarSnapshotDidChange(
+                try CmuxSidebarXPCCodec.encodeSnapshot(
+                    snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
+                )
+            )
         } catch {
 #if DEBUG
             cmuxDebugLog("extension.sidebar.xpc.snapshot.encode.failed error=\(error.localizedDescription)")

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CMUXProjectModel
 import SwiftUI
@@ -31,7 +32,7 @@ struct ProjectPanelView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Label(panel.displayTitle, systemImage: "hammer.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                     .help(panel.projectURL.path)
                 schemePicker
                 configurationPicker
@@ -40,7 +41,7 @@ struct ProjectPanelView: View {
                     panel.reload()
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .semibold))
+                        .cmuxFont(size: 11, weight: .semibold)
                 }
                 .buttonStyle(.plain)
                 .help("Reload project")
@@ -48,9 +49,9 @@ struct ProjectPanelView: View {
             if let error = panel.lastLoadError, case .loaded = panel.loadState {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
+                        .cmuxFont(size: 10)
                     Text("Reload returned errors: \(error)")
-                        .font(.system(size: 10))
+                        .cmuxFont(size: 10)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer()
@@ -58,7 +59,7 @@ struct ProjectPanelView: View {
                         panel.lastLoadError = nil
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9))
+                            .cmuxFont(size: 9)
                     }
                     .buttonStyle(.plain)
                 }
@@ -150,7 +151,7 @@ struct ProjectPanelView: View {
             ForEach(ProjectPanelTab.allCases, id: \.self) { tab in
                 Button(action: { panel.activeTab = tab }) {
                     Text(tab.displayLabel)
-                        .font(.system(size: 11, weight: .medium))
+                        .cmuxFont(size: 11, weight: .medium)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
@@ -203,7 +204,7 @@ struct ProjectPanelStatusView: View {
             HStack {
                 Spacer()
                 Text(message)
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -226,13 +227,13 @@ struct ProjectEmptyDetailView: View {
         VStack(spacing: 6) {
             Spacer()
             Image(systemName: systemImage)
-                .font(.system(size: 28, weight: .light))
+                .cmuxFont(size: 28, weight: .light)
                 .foregroundStyle(.tertiary)
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
                 .foregroundStyle(.primary)
             Text(hint)
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
             Spacer()
         }

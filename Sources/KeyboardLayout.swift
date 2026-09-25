@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import GhosttyKit
 
 class KeyboardLayout {
     private enum ModifierTranslationMode {
@@ -61,6 +62,70 @@ class KeyboardLayout {
         return nil
     }
 
+    /// Selects the event AppKit should interpret for terminal text input.
+    ///
+    /// Ghostty's auto-detected Option-as-Alt mode must not suppress AppKit's
+    /// dead-key state. An explicit `macos-option-as-alt` value remains claimed
+    /// by Ghostty, so readline and Emacs keep receiving their Meta chords.
+    static func textInputEvent(
+        for event: NSEvent,
+        translatedEvent: NSEvent,
+        config: ghostty_config_t?
+    ) -> NSEvent {
+        textInputEvent(
+            for: event,
+            translatedEvent: translatedEvent,
+            isDeadKey: isDeadKey(
+                forKeyCode: event.keyCode,
+                modifierFlags: event.modifierFlags
+            ),
+            config: config
+        )
+    }
+
+    static func textInputEvent(
+        for event: NSEvent,
+        translatedEvent: NSEvent,
+        isDeadKey: Bool,
+        config: ghostty_config_t?
+    ) -> NSEvent {
+        guard !isOptionAsAltExplicitlyConfigured(in: config),
+              isDeadKey else {
+            return translatedEvent
+        }
+        return event
+    }
+
+    /// Returns whether the key starts a dead-key composition in the active layout.
+    static func isDeadKey(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+            return false
+        }
+        let layoutData = unsafeBitCast(layoutDataPointer, to: CFData.self)
+        guard let bytes = CFDataGetBytePtr(layoutData) else { return false }
+        let keyboardLayout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        var deadKeyState: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var length = 0
+        let status = UCKeyTranslate(
+            keyboardLayout, keyCode, UInt16(kUCKeyActionDisplay),
+            translationModifierKeyState(for: modifierFlags, mode: .textInput),
+            UInt32(LMGetKbdType()), 0, &deadKeyState, chars.count, &length, &chars
+        )
+        return status == noErr && deadKeyState != 0
+    }
+
+    private static func isOptionAsAltExplicitlyConfigured(in config: ghostty_config_t?) -> Bool {
+        guard let config else { return false }
+        var value: UnsafePointer<Int8>?
+        let key = "macos-option-as-alt"
+        return ghostty_config_get(config, &value, key, UInt(key.utf8.count))
+    }
+
     /// Translate a physical keyCode using the current input source exactly as
     /// text input would, including Option/Shift and without ASCII fallback.
     static func textInputCharacter(
@@ -78,6 +143,36 @@ class KeyboardLayout {
             lowercased: false
         )
     }
+
+    #if DEBUG
+    /// Translate a physical keyCode against a specific keyboard input source
+    /// exactly as text input would (Option/Shift applied, no ASCII fallback).
+    /// Resolves the source from all installed input sources, so layouts that
+    /// are not enabled on the host (e.g. German on a US machine) still
+    /// translate. Test-only seam for Option-composition regression coverage.
+    static func textInputCharacter(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        inputSourceID: String
+    ) -> String? {
+        guard let source = installedInputSource(forID: inputSourceID) else { return nil }
+        return characterFromInputSource(
+            source,
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags,
+            mode: .textInput,
+            lowercased: false
+        )
+    }
+
+    private static func installedInputSource(forID inputSourceID: String) -> TISInputSource? {
+        let filter = [kTISPropertyInputSourceID as String: inputSourceID] as CFDictionary
+        guard let list = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource] else {
+            return nil
+        }
+        return list.first
+    }
+    #endif
 
     /// Return the ASCII-normalized equivalent of `event.charactersIgnoringModifiers`,
     /// falling back through the ASCII-capable input source for non-Latin input methods.

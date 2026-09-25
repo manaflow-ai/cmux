@@ -20,12 +20,12 @@ describe("appearanceBackgroundColor", () => {
     expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 0.42 })).toBe("transparent");
   });
 
-  test("returns a solid fill for opaque themes", () => {
-    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 1 })).toBe("#102030");
+  test("returns transparent for opaque themes", () => {
+    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 1 })).toBe("transparent");
   });
 
-  test("clamps invalid opacity to opaque and paints a solid fill", () => {
-    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 2 })).toBe("#102030");
+  test("clamps invalid opacity to opaque but keeps surfaces transparent", () => {
+    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 2 })).toBe("transparent");
   });
 
   test("normalizes resolved opacity and metrics to rendered CSS values", () => {
@@ -85,5 +85,39 @@ describe("appearanceBackgroundColor", () => {
     expect(style.getPropertyValue("--cmux-diff-addition-fg-light")).toBe("#007a00");
     expect(style.getPropertyValue("--cmux-diff-deletion-fg-dark")).toBe("#ff8a80");
     expect(style.getPropertyValue("--cmux-diff-addition-fg-dark")).toBe("#a6e22e");
+  });
+
+  test("keeps the page surface transparent for opaque themes", () => {
+    dom = new JSDOM("<!doctype html><html><body></body></html>");
+    (globalThis as any).document = dom.window.document;
+
+    applyDiffViewerAppearance(resolveDiffViewerAppearance({
+      backgroundOpacity: 1,
+      themes: {
+        light: { background: "#feffff" },
+        dark: { background: "#272822" },
+      },
+    }));
+
+    const style = dom.window.document.documentElement.style;
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("transparent");
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-dark")).toBe("transparent");
+  });
+
+  test("keeps the surface fill transparent for transparent themes so the blurred backdrop shows", () => {
+    dom = new JSDOM("<!doctype html><html><body></body></html>");
+    (globalThis as any).document = dom.window.document;
+
+    applyDiffViewerAppearance(resolveDiffViewerAppearance({
+      backgroundOpacity: 0.6,
+      themes: {
+        light: { background: "#feffff" },
+        dark: { background: "#272822" },
+      },
+    }));
+
+    const style = dom.window.document.documentElement.style;
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("transparent");
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-dark")).toBe("transparent");
   });
 });

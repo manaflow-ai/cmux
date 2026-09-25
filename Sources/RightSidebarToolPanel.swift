@@ -1,10 +1,13 @@
 import AppKit
 import Combine
+import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import SwiftUI
 
 @MainActor
 final class RightSidebarToolPanel: Panel, ObservableObject {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
 
@@ -17,6 +20,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
+    private var rootSyncTask: Task<Void, Never>?
+    private var rootSyncGeneration: UInt64 = 0
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
@@ -25,7 +30,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     deinit {
-        // Explicit no-op so future teardown has a single home.
+        rootSyncTask?.cancel()
     }
 
     var fileExplorerStore: FileExplorerStore {
@@ -60,6 +65,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     var displayIcon: String? { mode.symbolName }
 
     func reattach(to workspace: Workspace) {
+        rootSyncGeneration &+= 1
+        rootSyncTask?.cancel()
+        rootSyncTask = nil
         self.workspace = workspace
         observeWorkspaceRootChanges(workspace)
         syncWorkspaceRoot(from: workspace)
@@ -81,7 +89,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock:
+        case .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -91,30 +99,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if workspace.isRemoteWorkspace {
-            let store = fileExplorerStore
-            Task { [weak workspace, weak store] in
-                guard let workspace, let store else { return }
-                do {
-                    let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
-                        inPane: paneId,
-                        filePaths: [localURL.path],
-                        focus: true,
-                        reuseExisting: true
-                    )
-                } catch {
-                    NSSound.beep()
-                }
-            }
-            return
-        }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true
-        )
+        FileExplorerPreviewCoordinator(store: fileExplorerStore).open(path: filePath, workspace: workspace,
+            pane: paneId, isCurrent: { [weak self, weak workspace] in
+                guard let self, let workspace else { return false }
+                return self.workspace === workspace
+            })
     }
 
     var isFocusedInWorkspace: Bool {
@@ -122,6 +111,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     func close() {
+        rootSyncGeneration &+= 1
+        rootSyncTask?.cancel(); rootSyncTask = nil
         fileExplorerContainerView = nil
         sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
@@ -139,7 +130,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock:
+        case .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -161,7 +152,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock:
+        case .feed, .dock, .machines, .customSidebar:
             return nil
         }
     }
@@ -169,14 +160,26 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+            workspace.currentDirectoryChangeRevisionPublisher()
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+
         )
         .sink { [weak self, weak workspace] _ in
-            Task { @MainActor in
-                guard let self, let workspace else { return }
+            guard let self, let workspace, self.rootSyncTask == nil else { return }
+            self.rootSyncGeneration &+= 1
+            let generation = self.rootSyncGeneration
+            self.rootSyncTask = Task { @MainActor [weak self, weak workspace] in
+                defer { if self?.rootSyncGeneration == generation { self?.rootSyncTask = nil } }
+                guard let self, let workspace,
+                      self.workspace === workspace,
+                      self.rootSyncGeneration == generation else { return }
                 self.syncWorkspaceRoot(from: workspace)
             }
         }
@@ -184,43 +187,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
-
-        if workspace.isRemoteWorkspace {
-            guard let configuration = workspace.remoteConfiguration,
-                  configuration.transport == .ssh else {
-                store.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
-            store.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: workspace.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: configuration.destination,
-                        port: configuration.port,
-                        identityFile: configuration.identityFile,
-                        sshOptions: configuration.sshOptions
-                    ),
-                    displayTarget: configuration.displayTarget,
-                    rootPath: workspace.currentDirectory,
-                    isAvailable: workspace.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
-            )
-            return
-        }
-
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !directory.isEmpty else {
-            store.applyWorkspaceRoot(.none)
-            return
-        }
-
-        store.applyWorkspaceRoot(.local(path: directory))
+        store.syncWorkspaceRoot(from: workspace)
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
-        guard !workspace.isRemoteWorkspace else {
+        guard !workspace.usesRemoteDirectoryProvenance else {
             store.setCurrentDirectoryIfChanged(nil)
             return
         }
@@ -235,7 +206,7 @@ struct RightSidebarToolPanelView: View {
     @EnvironmentObject private var tabManager: TabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
-    let appearance: PanelAppearance
+    let resolvedChromeBackgroundColor: NSColor
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity: Double = 0.0
@@ -244,7 +215,7 @@ struct RightSidebarToolPanelView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: appearance.backgroundColor))
+            .background(Color(nsColor: resolvedChromeBackgroundColor))
             .overlay {
                 WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
             }
@@ -282,13 +253,28 @@ struct RightSidebarToolPanelView: View {
                 store: panel.sessionIndexStore,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                },
+                onOpen: { entry in
+                    SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+                },
+                activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                onFocus: { entry in
+                    _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
                 }
             )
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock:
+        case .machines:
+            if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
+                MachinesPanelView(
+                    chromeBackgroundColor: resolvedChromeBackgroundColor,
+                    machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
+                    tabManager: tabManager
+                )
+            }
+        case .feed, .dock, .customSidebar:
             EmptyView()
         }
     }
@@ -323,7 +309,7 @@ struct RightSidebarToolPanelView: View {
     }
 }
 
-private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
+struct RightSidebarToolFocusAnchor: NSViewRepresentable {
     final class Coordinator {
         var onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
         weak var attachedView: RightSidebarToolFocusAnchorView?
@@ -367,7 +353,7 @@ private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
     }
 }
 
-fileprivate final class RightSidebarToolFocusAnchorView: NSView {
+final class RightSidebarToolFocusAnchorView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {

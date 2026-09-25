@@ -90,11 +90,14 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   const rootStyle = document.documentElement.style;
 
   // `--cmux-diff-bg` stays opaque: it is the base color the page blends against
-  // for text, borders, and floating overlays (menus). Transparency is owned by
-  // the native cmux window backdrop, not the page (matching the markdown and
-  // terminal panels), so the page never bakes opacity into its own fill.
+  // for text, borders, and floating overlays (menus).
   rootStyle.setProperty("--cmux-diff-bg-light", colorString(lightTheme.background, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
+  // The diff viewer page stays transparent. The native browser panel behind
+  // the WebView owns the themed fill for opaque terminal themes, while clear
+  // terminal themes can show the window backdrop through the same path.
+  rootStyle.setProperty("--cmux-diff-surface-fill-light", "transparent");
+  rootStyle.setProperty("--cmux-diff-surface-fill-dark", "transparent");
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-addition-fg-light", semanticPaletteColor(lightTheme, ["10", "2"], "#257a3e"));
@@ -108,13 +111,8 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 20)}px`);
 }
 
-export function appearanceBackgroundColor(color: unknown, appearance?: DiffViewerAppearance) {
-  // Transparent terminal themes let the cmux window backdrop show through, so
-  // code surfaces paint no fill. Opaque themes get a solid fill.
-  if (normalizedOpacity(appearance?.backgroundOpacity) < 0.999) {
-    return "transparent";
-  }
-  return colorString(color, "#000000");
+export function appearanceBackgroundColor(_color: unknown, _appearance?: DiffViewerAppearance) {
+  return "transparent";
 }
 
 export function readableColor(value: unknown, background: unknown, fallback: string | undefined): string {

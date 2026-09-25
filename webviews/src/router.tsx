@@ -45,3 +45,11 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     routeTree,
   });
 }
+
+type WebviewsRouter = ReturnType<typeof createWebviewsRouter>;
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: WebviewsRouter;
+  }
+}

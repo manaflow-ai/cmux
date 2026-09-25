@@ -1,26 +1,22 @@
 import Foundation
 import Darwin
-import os
 
-nonisolated struct CmuxTopProcessScopeCacheKey: Hashable {
+struct CmuxTopProcessScopeCacheKey: Hashable {
     let pid: Int
     let startSeconds: Int
     let startMicroseconds: Int
 }
 
-private nonisolated struct CmuxTopProcessScopeCacheValue {
-    let scope: CmuxTopProcessScope
+// Result of probing a single process for its cmux scope. `resolved` means the
+// probe completed (the scope may legitimately be absent) within this census.
+// `unavailable` means a transient failure (process exited mid-probe, pid reuse,
+// or a failed sysctl); later censuses retry rather than retaining an absent scope.
+enum CmuxTopProcessScopeProbeResult: Equatable {
+    case resolved(CmuxTopProcessScope?)
+    case unavailable
 }
 
-// CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
-// both async task-manager sampling and sync v2 system.top socket handling. Keep
-// this tiny lock isolated to dictionary reads/writes; procargs/sysctl work must
-// happen outside the critical section.
-private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
-    initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
-)
-
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func scopeCacheKey(from kinfo: kinfo_proc) -> CmuxTopProcessScopeCacheKey {
         let startTime = kinfo.kp_proc.p_un.__p_starttime
         return CmuxTopProcessScopeCacheKey(
@@ -38,58 +34,46 @@ nonisolated extension CmuxTopProcessSnapshot {
         )
     }
 
-    static func cachedCMUXScope(
-        for pid: Int,
-        cacheKey: CmuxTopProcessScopeCacheKey
-    ) -> CmuxTopProcessScope? {
-        if let cached = cmuxTopScopeCache.withLock({ cache in cache[cacheKey] }) {
-            return cached.scope
-        }
-
-        guard let scope = cmuxScope(for: pid, expectedCacheKey: cacheKey) else {
-            return nil
-        }
-
-        cmuxTopScopeCache.withLock { cache in
-            cache[cacheKey] = CmuxTopProcessScopeCacheValue(scope: scope)
-        }
-
-        return scope
-    }
-
-    static func pruneCMUXScopeCache(activeKeys: Set<CmuxTopProcessScopeCacheKey>) {
-        cmuxTopScopeCache.withLock { cache in
-            cache = cache.filter { activeKeys.contains($0.key) }
-        }
-    }
-
-    private static func cmuxScope(
+    // Scope belongs to this census only. A failed args read with a still-matching
+    // identity is a readable listing with unavailable scope (e.g. another user).
+    // An exit/reuse race is unavailable, and the next fresh census retries it.
+    // The post-read identity check prevents argv from a reused PID being attached
+    // to the older topology record.
+    static func cmuxScopeProbe(
         for pid: Int,
         expectedCacheKey: CmuxTopProcessScopeCacheKey
-    ) -> CmuxTopProcessScope? {
-        guard let currentProcess = kinfoProc(for: pid),
-              scopeCacheKey(from: currentProcess) == expectedCacheKey else {
-            return nil
-        }
+    ) -> CmuxTopProcessScopeProbeResult {
+        guard pid > 0, pid <= Int(Int32.max) else { return .unavailable }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0
         guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
               size > MemoryLayout<Int32>.size else {
-            return nil
+            // Sizing failed: permanent denial if still alive, else exit race.
+            return processMatchesKey(pid, expectedCacheKey) ? .resolved(nil) : .unavailable
         }
 
         var buffer = [UInt8](repeating: 0, count: size)
         let success = buffer.withUnsafeMutableBytes { rawBuffer in
             sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
         }
-        guard success else { return nil }
-        guard let currentProcess = kinfoProc(for: pid),
-              scopeCacheKey(from: currentProcess) == expectedCacheKey else {
-            return nil
+        guard success else {
+            return processMatchesKey(pid, expectedCacheKey) ? .resolved(nil) : .unavailable
+        }
+        guard processMatchesKey(pid, expectedCacheKey) else {
+            return .unavailable
         }
 
-        return cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size))))
+        return .resolved(cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size)))))
+    }
+
+    // True when `pid` is still the same process (same start time) as the key.
+    static func processMatchesKey(
+        _ pid: Int,
+        _ expectedCacheKey: CmuxTopProcessScopeCacheKey
+    ) -> Bool {
+        guard let process = kinfoProc(for: pid) else { return false }
+        return scopeCacheKey(from: process) == expectedCacheKey
     }
 
     static func cmuxScope(fromKernProcArgs bytes: [UInt8]) -> CmuxTopProcessScope? {
@@ -198,7 +182,7 @@ nonisolated extension CmuxTopProcessSnapshot {
     }
 }
 
-nonisolated extension CmuxTopProcessArguments {
+extension CmuxTopProcessArguments {
     func matchesCMUXScope(workspaceId: UUID, surfaceId: UUID) -> Bool {
         guard let scope = CmuxTopProcessSnapshot.cmuxScope(arguments: arguments, environment: environment) else {
             return false
