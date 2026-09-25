@@ -151,7 +151,7 @@ extension CMUXCLI {
         var stores: [[String: Any]] = []
 
         let decoder = JSONDecoder()
-        var goalClient = sessionsListGoalClient(
+        let goalClient = sessionsListGoalClient(
             processEnv: processEnv,
             socketPath: socketPath,
             explicitPassword: explicitPassword
