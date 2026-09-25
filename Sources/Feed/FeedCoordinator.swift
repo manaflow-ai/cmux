@@ -447,15 +447,16 @@ final class FeedCoordinator: @unchecked Sendable {
                     }
                     return accepted
                 }
-                guard let committedValue = result.commit({
+                var committedEvent: WorkstreamEvent?
+                guard result.commit({
                     guard case .accepted(let accepted, _) = FeedCoordinator.shared.acceptOnIngress(
                         event,
                         shouldProceed: result.isActive
                     ) else {
-                        return nil
+                        return
                     }
-                    return accepted
-                }), let committedEvent = committedValue else { return nil }
+                    committedEvent = accepted
+                }) != nil, let committedEvent else { return nil }
                 DispatchQueue.main.sync {
                     MainActor.assumeIsolated { onAcceptedOnMainActor(committedEvent) }
                 }

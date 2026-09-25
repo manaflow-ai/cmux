@@ -18,6 +18,7 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
 
     private let stateLock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
+    private let commitSemaphore = DispatchSemaphore(value: 0)
     private var state: State = .pending
 
     /// Claims execution after the ordered lane selects this delivery.
@@ -57,6 +58,7 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
         }
         state = .committed(value)
         stateLock.unlock()
+        commitSemaphore.signal()
         return value
     }
 
@@ -99,9 +101,15 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
             return value
         }
         if case .committing = state {
-            state = .timedOut
             stateLock.unlock()
-            return nil
+            // The authoritative mutation has started before the deadline.
+            // Wait for its value so a late completion cannot be reported as
+            // unavailable after the item was accepted.
+            commitSemaphore.wait()
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard case .committed(let value) = state else { return nil }
+            return value
         }
         if waitResult == .timedOut {
             state = .timedOut
