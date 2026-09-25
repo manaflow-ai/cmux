@@ -7,6 +7,47 @@ import Foundation
 /// (defined in BrowserFixtureInteractionUITests.swift).
 final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
 
+    func testExternalBrowserToolbarRejectsBlankPageAndClosesHandedOffTab() throws {
+        let app = try launchApp()
+        let surfaceID = try openBrowserSurface()
+        let button = app.buttons["BrowserOpenExternallyAndCloseButton"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        XCTAssertFalse(button.isEnabled, "A blank tab has no page to hand off")
+
+        let server = try BrowserRecoveryHTTPServer()
+        try server.start()
+        defer { server.stop() }
+        let url = "http://127.0.0.1:\(server.port)/external-handoff"
+        let navigation = try beginPendingSocketRequest(
+            method: "browser.navigate",
+            params: ["surface_id": surfaceID, "url": url],
+            responseTimeout: 15
+        )
+        defer { closePendingSocketRequest(navigation) }
+        try server.waitForRequest()
+        try server.releaseResponse()
+        let response = try XCTUnwrap(finishPendingSocketRequest(navigation))
+        XCTAssertEqual(response["ok"] as? Bool, true)
+        XCTAssertTrue(button.isEnabled)
+
+        button.click()
+        let closed = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] _, _ in
+                let response = self?.socketEnvelope(
+                    method: "browser.url.get",
+                    params: ["surface_id": surfaceID]
+                )
+                return response?["ok"] as? Bool == false
+            },
+            object: nil
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 10), .completed)
+        // A second request proves the page reached an external browser after
+        // the in-app view closed. Keep the local response available for it.
+        try server.waitForRequest()
+        try server.releaseResponse()
+    }
+
     /// Regression: browser.navigate used to acknowledge only that WKWebView.load
     /// was called. After a connection-refused error page, a slow recovered origin
     /// therefore returned `ok` while the old error-page DOM was still active.
