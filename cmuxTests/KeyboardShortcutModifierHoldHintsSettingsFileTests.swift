@@ -187,13 +187,35 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
             )
             defer {
                 KeyboardShortcutSettings.settingsFileStore = originalStore
-                KeyboardShortcutSettings.resetAll()
             }
 
+            let staleShortcut = try JSONEncoder().encode(
+                StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+            )
+            UserDefaults.standard.set(staleShortcut, forKey: shortcutKey)
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let workspace = manager.addWorkspace(select: true)
+            #expect(workspace.bonsplitController.surfaceNumberShortcutModifier?.symbol == "⌘")
+            #expect(workspace._dockSplit == nil)
             #expect(
                 KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier() ==
                     TabControlShortcutModifier(modifierFlags: [.command], symbol: "⌘")
             )
+
+            let dock = workspace.dockSplit
+            #expect(dock?.bonsplitController.surfaceNumberShortcutModifier?.symbol == "⌘")
+            for (binding, prefix) in [(["cmd+k", "ctrl+1"], "⌘K ⌃"), ([], nil), (["alt+1"], "⌥")] as [([String], String?)] {
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "shortcuts": ["selectSurfaceByNumber": binding]
+                ])
+                try data.write(to: settingsFileURL)
+                #expect(KeyboardShortcutSettings.settingsFileStore.reload())
+                let resolved = KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier()
+                workspace.updateSurfaceNumberShortcutModifier(resolved)
+                #expect(workspace.bonsplitController.surfaceNumberShortcutModifier?.symbol == prefix)
+                #expect(dock?.bonsplitController.surfaceNumberShortcutModifier?.symbol == prefix)
+                #expect(UserDefaults.standard.data(forKey: shortcutKey) == staleShortcut)
+            }
         }
     }
 

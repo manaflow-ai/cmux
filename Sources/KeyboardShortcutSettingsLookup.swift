@@ -161,12 +161,12 @@ extension KeyboardShortcutSettings {
     /// Bonsplit is intentionally independent of cmux's settings stores, so the
     /// executable supplies this resolved value instead of sharing persistence.
     @MainActor
-    static func resolvedSurfaceNumberShortcutModifier() -> TabControlShortcutModifier {
-        let shortcut = shortcutIfBound(for: .selectSurfaceByNumber) ?? .unbound
-        let stroke = shortcut.firstStroke
+    static func resolvedSurfaceNumberShortcutModifier() -> TabControlShortcutModifier? {
+        guard let shortcut = shortcutIfBound(for: .selectSurfaceByNumber) else { return nil }
+        let stroke = shortcut.secondStroke ?? shortcut.firstStroke
         return TabControlShortcutModifier(
             modifierFlags: stroke.modifierFlags,
-            symbol: stroke.modifierDisplayString
+            symbol: shortcut.numberedDigitHintPrefix
         )
     }
 }
