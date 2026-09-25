@@ -29,7 +29,7 @@ extension CMUXCLI {
         Usage: cmux review <subcommand> [options]
 
         Review a frozen diff; tools and repairs are disabled.
-        Running reviews requires a signed-in Codex CLI.
+        Running reviews requires a signed-in reviewer executable.
         Model claims still require executable verification.
 
           run --intent <task> [--base <ref>] [--reviewer <executable>]
