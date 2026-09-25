@@ -25,7 +25,9 @@ on:
         required: false
         default: both
         type: string
-    secrets: {}
+    secrets:
+      GLAEDA_ROUTE_APP_KEY:
+        required: true
 
 permissions:
   contents: write

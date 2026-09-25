@@ -2002,6 +2002,7 @@ jobs:
               echo ""
               echo "Assets, release metadata, and appcasts for \`$HEAD_SHA\` are published, but \`$CHANNEL_RELEASE_TAG\` was not advanced. The next eligible publication will retry the marker without republishing this commit."
             } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # Keep one open issue per failed publication boundary. A stale channel tag
   # leaves the assets, release metadata, and feeds available, so the incident
