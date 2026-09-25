@@ -29,7 +29,9 @@ import Testing
 struct AppDelegateSessionRestoreReadinessTests {
     @Test
     func signalIsFalseBeforeRestoreIsAttempted() {
+        let previousApp = AppDelegate.shared
         let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousApp }
         appDelegate.didAttemptStartupSessionRestore = false
         appDelegate.isApplyingSessionRestore = false
         // Pre-attempt / deferred-signing-secret window: nothing has decided to
@@ -39,7 +41,9 @@ struct AppDelegateSessionRestoreReadinessTests {
 
     @Test
     func signalIsFalseWhileRestoreIsInFlight() {
+        let previousApp = AppDelegate.shared
         let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousApp }
         appDelegate.didAttemptStartupSessionRestore = true
         appDelegate.isApplyingSessionRestore = true
         // restoreSessionSnapshot is mutating a tab manager in place; the tree is
@@ -49,7 +53,9 @@ struct AppDelegateSessionRestoreReadinessTests {
 
     @Test
     func signalIsTrueOnceRestoreHasSettled() {
+        let previousApp = AppDelegate.shared
         let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousApp }
         appDelegate.didAttemptStartupSessionRestore = true
         appDelegate.isApplyingSessionRestore = false
         // completeSessionRestoreOperation has cleared the in-flight flag: the
@@ -59,7 +65,9 @@ struct AppDelegateSessionRestoreReadinessTests {
 
     @Test
     func signalIsFalseWhenApplyingWithoutAttemptFlag() {
+        let previousApp = AppDelegate.shared
         let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousApp }
         appDelegate.didAttemptStartupSessionRestore = false
         appDelegate.isApplyingSessionRestore = true
         // Defensive: any restore-in-flight state must read FALSE regardless of
