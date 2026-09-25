@@ -3939,13 +3939,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if !panel.isSaving {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.isSaving, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview save", file: file, line: line)
+        if panel.isSaving {
+            XCTFail("Timed out waiting for file preview save", file: file, line: line)
+        }
     }
 
     private func waitForPanelPreviewMode(
@@ -3954,13 +3954,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if panel.previewMode == mode {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.previewMode != mode, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+        if panel.previewMode != mode {
+            XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+        }
     }
 
     private func waitForPanelTextContent(
@@ -3969,13 +3969,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if panel.textContent == content {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.textContent != content, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+        if panel.textContent != content {
+            XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+        }
     }
 
     private func closeWindow(_ window: NSWindow) {
