@@ -37,6 +37,26 @@ extension Workspace {
                 in: bonsplitController.treeSnapshot()
               ),
               let transactionID = UUID(uuidString: split.id) else { return }
+        let rootSplitInfo: (newPaneIsFirst: Bool, existingTree: ExternalTreeNode)? = {
+            switch split.first {
+            case .pane(let pane) where pane.id == newPane.id.uuidString:
+                return (true, split.second)
+            default:
+                guard case .pane(let pane) = split.second,
+                      pane.id == newPane.id.uuidString else { return nil }
+                return (false, split.first)
+            }
+        }()
+        if let rootSplitInfo, case .split = rootSplitInfo.existingTree {
+            applyProvisionalRootSplitGeometry(
+                split: split,
+                transactionID: transactionID,
+                existingTree: rootSplitInfo.existingTree,
+                newPaneIsFirst: rootSplitInfo.newPaneIsFirst,
+                newPane: newPane
+            )
+            return
+        }
         let originalTabs = bonsplitController.tabs(inPane: originalPane)
         let newTabs = bonsplitController.tabs(inPane: newPane)
         let originalTerminals = presentedTerminalHostedViews(forTabs: originalTabs)
@@ -93,6 +113,73 @@ extension Workspace {
 #endif
     }
 
+    /// Projects every terminal in an existing root tree into its new root-child frame.
+    private func applyProvisionalRootSplitGeometry(
+        split: ExternalSplitNode,
+        transactionID: UUID,
+        existingTree: ExternalTreeNode,
+        newPaneIsFirst: Bool,
+        newPane: PaneID
+    ) {
+        let existingPaneIds = bonsplitController.allPaneIds.filter {
+            splitTreeContainsPane($0.id.uuidString, in: existingTree)
+        }
+        let existingTerminals = existingPaneIds.flatMap { paneId in
+            presentedTerminalHostedViews(forTabs: bonsplitController.tabs(inPane: paneId))
+        }
+        let baseFrames = existingTerminals.compactMap { hostedView -> (GhosttySurfaceScrollView, NSRect)? in
+            let frame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(for: hostedView)
+                ?? Self.frameInWindow(of: hostedView)
+            return frame.map { (hostedView, $0) }
+        }
+        guard let treeFrame = baseFrames.map { $0.1 }.reduce(nil, { partial, frame in
+            partial.map { $0.union(frame) } ?? frame
+        }) else { return }
+
+        let newTabs = bonsplitController.tabs(inPane: newPane)
+        let request = SplitPaneGeometryProjection.Request(
+            orientation: split.orientation == SplitOrientation.horizontal.rawValue ? .horizontal : .vertical,
+            sourceIsFirst: !newPaneIsFirst,
+            dividerPosition: CGFloat(split.dividerPosition),
+            imposedFirstExtent: split.imposedFirstExtent.map { CGFloat($0) },
+            sourceContentFrame: treeFrame,
+            baseShowsTabBar: false,
+            sourceShowsTabBar: false,
+            newPaneShowsTabBar: bonsplitController.configuration.tabBarVisibility.showsTabBar(
+                tabCount: max(newTabs.count, 1)
+            )
+        )
+        guard let projection = SplitPaneGeometryProjection.project(
+            request,
+            chrome: SplitPaneGeometryProjection.Chrome(configuration: bonsplitController.configuration)
+        ) else { return }
+
+        for (hostedView, frame) in baseFrames {
+            TerminalWindowPortalRegistry.applyProvisionalPaneFrame(
+                Self.map(frame, from: treeFrame, to: projection.sourceContentFrame),
+                for: hostedView,
+                transactionID: transactionID
+            )
+        }
+        let newTerminals = presentedTerminalHostedViews(forTabs: newTabs)
+        for hostedView in newTerminals {
+            TerminalWindowPortalRegistry.applyProvisionalPaneFrame(
+                projection.newPaneContentFrame,
+                for: hostedView,
+                transactionID: transactionID
+            )
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "split.provisionalGeometry root=1 existingPanes=\(existingPaneIds.count) " +
+            "new=\(newPane.id.uuidString.prefix(5)) orientation=\(split.orientation) " +
+            "sourceIsFirst=\(request.sourceIsFirst ? 1 : 0) divider=\(String(format: "%.3f", split.dividerPosition)) " +
+            "tree=\(portalDebugFrame(treeFrame)) source=\(portalDebugFrame(projection.sourceContentFrame)) " +
+            "newPane=\(portalDebugFrame(projection.newPaneContentFrame)) sourceViews=\(baseFrames.count) newViews=\(newTerminals.count)"
+        )
+#endif
+    }
+
     /// Hands geometry back to the anchors of projections whose split no
     /// longer exists in the model: a split closed again before SwiftUI
     /// rendered it, or a layout replaced wholesale. Runs from bonsplit's
@@ -130,5 +217,17 @@ extension Workspace {
     private static func frameInWindow(of view: NSView) -> NSRect? {
         guard view.window != nil else { return nil }
         return view.convert(view.bounds, to: nil)
+    }
+
+    private static func map(_ frame: NSRect, from source: NSRect, to target: NSRect) -> NSRect {
+        guard source.width > 0, source.height > 0 else { return target }
+        let scaleX = target.width / source.width
+        let scaleY = target.height / source.height
+        return NSRect(
+            x: target.minX + (frame.minX - source.minX) * scaleX,
+            y: target.minY + (frame.minY - source.minY) * scaleY,
+            width: frame.width * scaleX,
+            height: frame.height * scaleY
+        )
     }
 }
