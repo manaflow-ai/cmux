@@ -311,6 +311,8 @@ class XcstringsTests(CatchUpCase):
         code, result = self.catch_up()
         self.assert_blocked(code, result, before, [self.PATH])
         self.assertIn("strings.a", result["blocking"][0]["reason"])
+        comment = MODULE.render_comment(result, "not-attempted", "main", "pr", "")
+        self.assertIn("both sides: `strings.a`", comment)
 
 
 class SchemaTests(CatchUpCase):

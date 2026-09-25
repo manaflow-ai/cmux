@@ -124,7 +124,6 @@ jobs:
                   state headRefName headRefOid baseRefName
                   isCrossRepository maintainerCanModify
                   headRepository { nameWithOwner }
-                  headRef { branchProtectionRule { id } }
                 }
               }
             }' --jq '.data.repository.pullRequest + {defaultBranch: .data.repository.defaultBranchRef.name}' > "$RUNNER_TEMP/pr.json"
@@ -136,7 +135,6 @@ jobs:
           cross="$(jq -r '.isCrossRepository' "$RUNNER_TEMP/pr.json")"
           editable="$(jq -r '.maintainerCanModify' "$RUNNER_TEMP/pr.json")"
           default_branch="$(jq -r '.defaultBranch' "$RUNNER_TEMP/pr.json")"
-          protected="$(jq -r '.headRef.branchProtectionRule != null' "$RUNNER_TEMP/pr.json")"
           if [[ "$state" != OPEN ]]; then
             echo "::notice::#$PR_NUMBER is $state; nothing to catch up."
             exit 0
@@ -150,7 +148,18 @@ jobs:
           if [[ -z "$head_repo" ]]; then
             refuse "The branch behind this pull request is gone (its fork was deleted), so there is nothing I can catch up."
           fi
-          # Never merge into, or push to, a shared branch of this repository.
+          # Never merge into, or push to, a shared branch of this repository:
+          # the default branch, classic protection, or any ruleset. Both REST
+          # reads need only contents read; an unreadable answer counts as
+          # protected.
+          protected=false
+          if [[ "$cross" != true ]]; then
+            classic="$(gh api "repos/$GITHUB_REPOSITORY/branches/$head_ref" --jq '.protected' || echo true)"
+            rules="$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$head_ref" --jq 'length' || echo 1)"
+            if [[ "$classic" != false || "$rules" != 0 ]]; then
+              protected=true
+            fi
+          fi
           if [[ "$cross" != true && ( "$head_ref" == "$default_branch" || "$protected" == true ) ]]; then
             refuse "This pull request comes from a protected branch of this repository, so catch-up leaves it alone. Merge the base by hand if you really mean it."
           fi

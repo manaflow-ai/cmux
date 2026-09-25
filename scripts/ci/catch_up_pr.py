@@ -369,7 +369,7 @@ class Resolver:
             self.block(path, f"string catalog could not be merged by key ({error.__class__.__name__})")
             return
         if conflicts:
-            shown = ", ".join(conflicts[:10]) + (f" and {len(conflicts) - 10} more" if len(conflicts) > 10 else "")
+            shown = ", ".join(code(key) for key in conflicts[:10]) + (f" and {len(conflicts) - 10} more" if len(conflicts) > 10 else "")
             self.block(path, f"same key changed on both sides: {shown}")
             return
         if list(reparsed.get("strings", {})) != planned:
@@ -552,7 +552,13 @@ def plain(text: str) -> str:
     text = str(text).replace("`", "'").replace("@", "@\u200b")
     for char in "\\[]()<>!*_~|#":
         text = text.replace(char, "\\" + char)
-    return " ".join(text.split())
+    return re.sub(r"\s+", " ", text)
+
+
+def reason(text: str) -> str:
+    """A reason may carry `code()` spans (key names); keep those, make the rest inert."""
+    parts = str(text).split("`")
+    return "".join(code(part) if index % 2 else plain(part) for index, part in enumerate(parts)).strip()
 
 
 def render_comment(result: dict, push: str, base_name: str, head_name: str, run_url: str) -> str:
@@ -564,7 +570,7 @@ def render_comment(result: dict, push: str, base_name: str, head_name: str, run_
         return f"This branch already has {base_label}, so there was nothing to catch up.{footer}"
     if status == "blocked":
         lines = [f"I tried to catch this branch up with {base_label}, but these files need a person:", ""]
-        lines += [f"- {code(item['path'])}: {plain(item['reason'])}" for item in result.get("blocking", [])[:20]]
+        lines += [f"- {code(item['path'])}: {reason(item['reason'])}" for item in result.get("blocking", [])[:20]]
         extra = len(result.get("blocking", [])) - 20
         if extra > 0:
             lines.append(f"- and {extra} more in the run log")
