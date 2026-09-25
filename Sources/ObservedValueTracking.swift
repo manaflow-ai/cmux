@@ -72,6 +72,9 @@ private final class ObservedValueCoordinator<Value: Equatable>: ObservedValueCan
 }
 
 /// Cancels one Observation tracking registration and releases its closures.
+// @unchecked Sendable is safe because the coordinator handoff is serialized
+// by `coordinatorStorage`, while coordinator callbacks are isolated to the
+// main actor.
 final class ObservationToken: @unchecked Sendable {
     // The lock only protects the one-time handoff of the coordinator from a
     // synchronous cancellation callback; domain state remains main-actor owned.
