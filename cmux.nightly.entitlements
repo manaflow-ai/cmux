@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- JavaScriptCore compiles custom-sidebar programs and syntax highlighting
+	     in the app process (including re-executed sidebar render workers).
+	     Keep MAP_JIT support; unrestricted executable memory and library
+	     validation opt-outs are unnecessary. See docs/hardened-runtime-audit.md. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
 	<key>com.apple.application-identifier</key>
 	<string>7WLXT3NR37.com.cmuxterm.app.nightly</string>
 	<key>com.apple.developer.team-identifier</key>

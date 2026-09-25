@@ -14,6 +14,53 @@ PREFIX = "com.apple.security.cs."
 
 @unittest.skipUnless(sys.platform == "darwin", "requires macOS codesign")
 class SignedEntitlementsTests(unittest.TestCase):
+    def test_bundle_audit_rejects_relaxations_in_main_and_nested_helpers(self):
+        for target, key in (
+            ("main", "disable-library-validation"),
+            ("main", "allow-unsigned-executable-memory"),
+            ("helper", "allow-jit"),
+            ("helper", "disable-library-validation"),
+            ("helper", "allow-unsigned-executable-memory"),
+            ("payload", "allow-unsigned-executable-memory"),
+        ):
+            with self.subTest(target=target, key=key), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                app = directory / "Fixture App.app"
+                main = app / "Contents/MacOS/fixture"
+                helper = app / "Contents/Resources/libexec/helper"
+                payload = app / "Contents/Resources/bin/cmux-tui-ssh/darwin-helper"
+                for binary in (main, helper, payload):
+                    binary.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile("/usr/bin/true", binary)
+                    binary.chmod(0o755)
+                (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
+                    "CFBundleExecutable": "fixture", "CFBundleIdentifier": "com.cmux.audit.fixture",
+                    "CFBundlePackageType": "APPL",
+                }))
+                empty = directory / "empty.plist"
+                empty.write_bytes(plistlib.dumps({}))
+                app_entitlements = directory / "app.plist"
+                app_entitlements.write_bytes(plistlib.dumps({PREFIX + "allow-jit": True}))
+                self.sign(helper, empty)
+                self.sign(payload, empty)
+                self.sign(app, app_entitlements)
+                command = [sys.executable, str(ROOT / "scripts/verify-hardened-runtime-entitlements.py"), str(app)]
+                before = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(before.returncode, 0, before.stderr)
+
+                bad = directory / "bad.plist"
+                bad.write_bytes(plistlib.dumps({PREFIX + key: True,
+                                               **({PREFIX + "allow-jit": True} if target == "main" else {})}))
+                if target == "main":
+                    self.sign(app, bad)
+                else:
+                    self.sign(helper if target == "helper" else payload, bad)
+                    self.sign(app, app_entitlements)
+                after = subprocess.run(command, capture_output=True, text=True)
+                self.assertNotEqual(after.returncode, 0)
+                self.assertIn("unsupported runtime relaxations", after.stderr)
+                self.assertIn(PREFIX + key, after.stderr)
+
     def test_production_app_signatures_preserve_jit_without_broad_relaxations(self):
         for channel in ("release", "nightly", "rc"):
             with self.subTest(channel=channel), tempfile.TemporaryDirectory() as temporary:
@@ -49,10 +96,7 @@ class SignedEntitlementsTests(unittest.TestCase):
         binary = directory / "signed-fixture"
         shutil.copyfile("/usr/bin/true", binary)
         binary.chmod(0o755)
-        subprocess.run([
-            "/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime",
-            "--timestamp=none", "--entitlements", str(entitlements), str(binary),
-        ], check=True, capture_output=True)
+        self.sign(binary, entitlements)
         subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(binary)],
                        check=True, capture_output=True)
         details = subprocess.run([
@@ -61,6 +105,12 @@ class SignedEntitlementsTests(unittest.TestCase):
         ], check=True, capture_output=True)
         self.assertIn(b"runtime", details.stderr)
         return plistlib.loads(details.stdout)
+
+    def sign(self, binary, entitlements):
+        subprocess.run([
+            "/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime",
+            "--timestamp=none", "--entitlements", str(entitlements), str(binary),
+        ], check=True, capture_output=True)
 
 
 if __name__ == "__main__":

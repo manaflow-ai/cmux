@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-</dict>
+<!-- Native CLI and Computer Use helpers do not compile JavaScript or load
+     third-party code in-process. Keep their hardened runtime fully enabled. -->
+<dict/>
 </plist>
