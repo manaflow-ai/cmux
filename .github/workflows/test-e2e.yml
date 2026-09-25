@@ -29,7 +29,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; on the 6vcpu macOS 26 default it takes the pool pull request CI would: an owned Mac with a free slot when CI_PR_POOL_OWNED is 1, else 12vcpu while it has headroom, else 6vcpu; glaeda-* are the owned Macs and record no video; tart-* choices use isolated VMs)"
+        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; on the 6vcpu macOS 26 default it takes the pool pull request CI would: an owned Mac with a free slot when CI_PR_POOL_OWNED is 1, else 12vcpu while it has headroom, else 6vcpu; glaeda-* are the owned Macs and record no video)"
         required: false
         default: "auto"
         type: choice
@@ -40,9 +40,6 @@ on:
           - blacksmith-12vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - glaeda-std-xcode-26.6
-          - tart-canary
-          - tart-dual
-          - tart-small
 
 # run-name and the concurrency group cannot read job outputs, so they spell
 # `auto` as the 6vcpu default even when the runner job routes the run to
@@ -141,9 +138,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto}; a re-run takes $retry_label)"
 
-      # ci-owned-pool-rescue.yml watches a run with this marker and re-runs a
-      # job an owned Mac leaves queued or refuses. Fail-safe: without it the
-      # run is only not watched.
+      # ci-owned-pool-rescue.yml, started by owned-pool-watch, watches a run
+      # with this marker and re-runs a job an owned Mac leaves queued or
+      # refuses. Fail-safe: without it the run is only not watched.
       - name: Mark a run on a persistent macOS pool
         id: marker
         if: ${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}
@@ -162,6 +159,28 @@ jobs:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
+
+  owned-pool-watch:
+    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `runner`
+    # job put it on an owned Mac; any other run creates no rescue workflow
+    # run. The only job here with actions: write; it runs no repository code.
+    # Fail-safe: if the dispatch fails the run is only not watched.
+    name: Watch owned pool jobs
+    needs: runner
+    if: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the persistent pool rescue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
 
   filter:
     # Seconds on Linux, and it rejects a malformed selector before either
@@ -395,25 +414,6 @@ jobs:
               fi
               ;;
           esac
-
-      - name: Validate Tart canary identity
-        if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-              exit 1
-              ;;
-          esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -825,25 +825,6 @@ jobs:
               ;;
           esac
 
-      - name: Validate Tart canary identity
-        if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-              exit 1
-              ;;
-          esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
-
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -1120,8 +1101,8 @@ jobs:
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
             # A persistent AVFoundation capture session prevents
-            # XCUIApplication from foregrounding a macOS app on both Warp and
-            # Tart. Capture independent JPEG frames instead, then assemble
+            # XCUIApplication from foregrounding a macOS app on self-hosted
+            # VMs. Capture independent JPEG frames instead, then assemble
             # them after XCTest exits. No recorder owns the display while the
             # app is activating.
             GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"

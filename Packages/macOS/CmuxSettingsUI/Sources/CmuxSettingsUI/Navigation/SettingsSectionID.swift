@@ -4,14 +4,16 @@ import Foundation
 /// Top-level navigation targets for the settings window.
 ///
 /// The cmux app exposes a fixed set of section panes. Each section gets
-/// its own SwiftUI view in `Sections/`; the sidebar lists them in
-/// declaration order, the search index filters across all of them.
+/// its own SwiftUI view in `Sections/`; visible sections appear in the
+/// taxonomy and the search index filters across them. Legacy raw-value
+/// aliases may remain here for deep-link compatibility without owning a pane.
 ///
 /// Adding a section means: add a case here, add its title and icon in
 /// the `SettingsSectionID` extension below, and add a view file in
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    /// Legacy raw-value target; the visible destination is ``mobile``.
     case computers
     case app
     case terminal

@@ -1,3 +1,5 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import Foundation
 import CmuxAppKitSupportUI
 import CmuxTerminal
@@ -353,6 +355,19 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+#if DEBUG
+    /// Installs `newConfig` as the app config and returns the previous one,
+    /// which the caller then owns. Tests change a setting on a clone through
+    /// this instead of re-loading into the live config, which is finalized.
+    func swapConfigForTesting(_ newConfig: ghostty_config_t) -> ghostty_config_t? {
+        if let app {
+            ghostty_app_update_config_without_surface_propagation(app, newConfig)
+        }
+        let previous = config
+        config = newConfig
+        return previous
+    }
+#endif
     /// Coalesce wakeup → tick dispatches.  The I/O thread may fire wakeup_cb
     /// thousands of times per second during bulk output.  We only need one
     /// pending tick on the main queue at any time.

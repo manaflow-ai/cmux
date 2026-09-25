@@ -1,5 +1,8 @@
 import AppKit
+import CmuxTerminal
 import Foundation
+import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -289,4 +292,77 @@ struct PortalRenderingAuthorityUnavailable: Error, CustomStringConvertible {
 /// pin key status pass or fail by test order instead of by behavior.
 final class KeyStatusTestWindow: NSWindow {
     override var isKeyWindow: Bool { true }
+}
+
+/// The cmuxTests bundle's NSPrincipalClass. XCTest creates it when the bundle
+/// loads, before the first test, and it restores `AppDelegate.shared` after
+/// every XCTest case.
+///
+/// `AppDelegate.init` installs the new delegate as `shared`, and hundreds of
+/// tests build a throwaway delegate without restoring the host's. Whichever
+/// test ran next in the same host inherited the leftover, and which tests
+/// share a host depends on the timing-based shard layout, so the resulting
+/// failures moved from run to run. `AppDelegate.init` also points the surface
+/// registry's weak route retirer at itself, so that is put back too. Swift
+/// Testing tests are not observed here; a Swift Testing suite that constructs
+/// `AppDelegate()` or reads `shared` across a suspension point takes
+/// `.exclusiveAppContext`, which serializes it with the other app-context tests
+/// and restores `shared` the same way.
+@objc(CmuxTestsPrincipal)
+final class CmuxTestsPrincipal: NSObject, XCTestObservation {
+    private var sharedAtStart: AppDelegate?
+
+    override init() {
+        super.init()
+        XCTestObservationCenter.shared.addTestObserver(self)
+    }
+
+    func testCaseWillStart(_ testCase: XCTestCase) {
+        sharedAtStart = AppDelegate.shared
+    }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        if AppDelegate.shared !== sharedAtStart {
+            AppDelegate.shared = sharedAtStart
+            if let sharedAtStart {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(sharedAtStart)
+            }
+        }
+        sharedAtStart = nil
+    }
+}
+
+/// Swift Testing counterpart of `CmuxTestsPrincipal`: runs each test in the
+/// suite inside `AppContextSerialGate`, so suites in parallel cannot swap
+/// `AppDelegate.shared` under each other at a suspension point, and then puts
+/// `shared` and the surface registry's route retirer back.
+struct ExclusiveAppContextTrait: SuiteTrait, TestTrait, TestScoping {
+    var isRecursive: Bool { true }
+
+    func scopeProvider(for test: Test, testCase: Test.Case?) -> Self? {
+        testCase == nil ? nil : self
+    }
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let sharedAtStart = AppDelegate.shared
+            defer {
+                if AppDelegate.shared !== sharedAtStart {
+                    AppDelegate.shared = sharedAtStart
+                    if let sharedAtStart {
+                        GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(sharedAtStart)
+                    }
+                }
+            }
+            try await function()
+        }
+    }
+}
+
+extension Trait where Self == ExclusiveAppContextTrait {
+    static var exclusiveAppContext: Self { Self() }
 }

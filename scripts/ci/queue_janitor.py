@@ -85,7 +85,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
-from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label  # noqa: E402
+from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -293,15 +293,16 @@ def marker_peaks(marker: tuple[str, int], owned_jobs: Sequence[Mapping[str, Any]
 
     ci.yml's marker names the pool label and every owned machine the run
     placed, root jobs and side lanes alike. Its root jobs' share is that peak
-    less the jobs it put on the pool label itself (the side lanes, which
-    start beside admission); a side lane not listed yet only reserves more.
+    less the jobs it put on the pool label itself or on its side label (the
+    side lanes, which start beside admission and take the side label when
+    the picker named one); a side lane not listed yet only reserves more.
     An E2E marker names the root label when the run took one, which is also
     one of the pool's machines.
     """
     pool, peak = marker
     if pool_label(pool) != pool:
         return [(pool, peak), (pool_label(pool), peak)]
-    side = sum(1 for job in owned_jobs if owned_label(job) == pool)
+    side = sum(1 for job in owned_jobs if owned_label(job) in (pool, side_label(pool)))
     return [(pool, peak)] + ([(root_label(pool), peak - side)] if root_label(pool) and peak > side else [])
 
 
@@ -380,6 +381,7 @@ POOL_SETTINGS_ENV = {
     "PR_POOL_OVERFLOW": "overflow",
     "PR_POOL_ORDER": "order",
     "PR_POOL_MAX_QUEUED": "max_queued",
+    "PR_POOL_QUEUE_ROUNDS": "queue_rounds",
 }
 
 
@@ -416,23 +418,30 @@ def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str
     return None
 
 
-def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
+def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]], *,
+                        light_retry: bool = False) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI, or of an E2E
-    or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
-    ios-screenshots.yml uploads the same marker), can (a
-    retry never takes one). Its other macOS jobs say nothing:
+    Only attempt 1 of a same-repository pull request run of CI, of main's
+    full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
+    E2E or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
+    ios-screenshots.yml uploads the same marker), can. While
+    CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
+    rescue's full re-run picks again and may take the light tier
+    (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
+    of failed jobs publishes none, so with the variable off attempt 2 costs
+    no listing. Later attempts never hold one. Its other macOS jobs say nothing:
     swift-package-tests always runs on a Blacksmith pool beside a run on an
     owned one.
     """
-    if (run.get("run_attempt") or 1) != 1:
+    if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
     path = str(run.get("path") or "")
     if run.get("event") == "workflow_dispatch":
-        return path.endswith(OWNED_DISPATCH_WORKFLOWS)
+        return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
+            path.endswith("/ci.yml") and run.get("head_branch") == "main")
     return run.get("event") == "pull_request" and path.endswith("/ci.yml")
 
 
@@ -1406,8 +1415,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         markers: dict[int, tuple[str, int]] = {}
         capability_markers: dict[int, tuple[str, int]] = {}
         if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
+            light_retry = os.environ.get("OWNED_LIGHT_RETRY", "").strip() == "1"
             for run in runs:
-                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
+                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]],
+                                                                        light_retry=light_retry):
                     try:
                         names = github.artifact_names(
                             run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-")

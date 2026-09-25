@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxAppKitSupportUI
 import CMUXMobileCore
 import CmuxFoundation
@@ -638,11 +639,6 @@ extension Workspace {
                     )
                 }
                 guard let effectiveRestorableAgent else { return nil }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
@@ -654,24 +650,22 @@ extension Workspace {
                 ) {
                     return true
                 }
-                guard let matchingObservation else { return false }
-                if let resumeBinding {
-                    return matchingObservation.wasRunningForSnapshot(
-                        effectiveRestorableAgent,
-                        binding: resumeBinding,
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
+                // Unknown liveness stays nil so the shell state and the caller's
+                // default (`agentWasRunning ?? true`) decide. The Computer Use
+                // merge (#13055) had turned it into false.
+                return (matchingObservation?.processLiveness ?? .unknown)
+                    .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
+                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
                     )
-                }
-                return matchingObservation.processLiveness.wasRunning(
-                    fallingBackTo: panelShellActivityStates[panelId],
-                    recordedProcessIdentities: matchingObservation.agentProcessIdentities,
-                    confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                    currentProcessIdentity: currentAgentProcessIdentity,
-                    processPresence: agentProcessPresence
-                ) ?? false
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
@@ -796,7 +790,7 @@ extension Workspace {
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .filePreview:
-            guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
+            guard let filePreviewPanel = panel as? FilePreviewPanel, filePreviewPanel.cloudPreviewLease == nil, filePreviewPanel.cloudPreviewRemotePath == nil else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
