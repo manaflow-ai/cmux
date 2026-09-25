@@ -23,17 +23,41 @@ def version_key(runtime):
     return tuple(parts)
 
 
+def sdk_version():
+    """The active Xcode's iOS Simulator SDK as (major, minor), or None."""
+    try:
+        out = subprocess.check_output(
+            ["xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return version_key({"version": out})[:2] or None
+
+
+def runtime_key_version(identifier: str):
+    # com.apple.CoreSimulator.SimRuntime.iOS-26-5 -> (26, 5)
+    tail = identifier.rsplit(".", 1)[-1]
+    if not tail.startswith("iOS-"):
+        return None
+    return version_key({"version": tail[4:].replace("-", ".")})[:2]
+
+
 def main() -> None:
     family = os.environ["DEVICE_FAMILY"]
     if family not in {"iphone", "ipad"}:
         raise SystemExit(f"Unsupported simulator family: {family}")
     requested_version = os.environ.get("IOS_VERSION", "")
     data = simctl_json("devices", "available")
+    # A runtime newer than the active Xcode's SDK (a beta someone installed on a
+    # shared Mac) still lists its devices as available, but xcodebuild cannot
+    # target them, so a default run keeps to runtimes the SDK covers.
+    sdk = None if requested_version else sdk_version()
     devices = [
         device
-        for runtime_devices in data.get("devices", {}).values()
+        for runtime_id, runtime_devices in data.get("devices", {}).items()
         for device in runtime_devices
         if device.get("isAvailable", True)
+        and (sdk is None or (runtime_key_version(runtime_id) or (0,)) <= sdk)
     ]
     prefix = "iPad" if family == "ipad" else "iPhone"
     preferred = (
@@ -57,6 +81,7 @@ def main() -> None:
                 or "iOS" in runtime.get("name", "")
                 or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
             )
+            and (sdk is None or version_key(runtime)[:2] <= sdk)
         ]
         device_types = [
             device_type
