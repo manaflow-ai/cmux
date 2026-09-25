@@ -84,12 +84,10 @@ enum CommandClickFileOpenRouter {
         for workspace: Workspace
     ) -> (tabManager: TabManager, configStore: CmuxConfigStore)? {
         guard let app = AppDelegate.shared else { return nil }
-        return app.mainWindowContexts.values.first(where: { context in
+        guard let context = app.mainWindowContexts.values.first(where: { context in
             context.tabManager.workspacesById[workspace.id] === workspace
-        }).flatMap { context in
-            guard let configStore = context.cmuxConfigStore else { return nil }
-            return (context.tabManager, configStore)
-        }
+        }), let configStore = context.cmuxConfigStore else { return nil }
+        return (context.tabManager, configStore)
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
