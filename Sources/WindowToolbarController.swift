@@ -40,10 +40,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            let change = GhosttyTitleChange(notification: notification)
-            // An advancing spinner cannot change the focused command text.
-            guard change?.isSpinnerFrameOnly != true else { return }
-            let changedWorkspaceId = change?.tabId
+            // Not gated on `isSpinnerFrameOnly`; see the matching observer in
+            // ContentView for why a spinner-bearing title can be a real change.
+            let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
             MainActor.assumeIsolated { [weak self] in
                 guard let self,
                       self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == true else { return }

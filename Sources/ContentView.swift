@@ -2807,10 +2807,12 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
-            let change = GhosttyTitleChange(notification: notification)
-            // An advancing spinner cannot change the titlebar text.
-            guard change?.isSpinnerFrameOnly != true else { return }
-            guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: change?.tabId) else { return }
+            // `isSpinnerFrameOnly` cannot gate this: a real label change made
+            // while a spinner is on screen ("✳ A" -> "✳ B") also has
+            // `title != stableTitle`, and this raw path is the titlebar's only
+            // refresh when coalescing is off. The refresh is coalesced and
+            // change-checked, so an advancing frame costs little here.
+            guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: GhosttyTitleChange(notification: notification)?.tabId) else { return }
             scheduleTitlebarTextRefresh()
         })
 

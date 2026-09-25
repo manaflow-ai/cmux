@@ -14,7 +14,9 @@ struct GhosttyTitleUpdate: Equatable, Sendable {
     let terminalLifecycleID: UUID
     let attachmentGeneration: UInt64
 
-    /// True when this update carries a new animation frame and nothing else.
+    /// True when `title` contains a standalone spinner frame. This alone does
+    /// not prove the label is unchanged ("✳ A" -> "✳ B" is also true here);
+    /// compare `stableTitle` with the previously applied one for that.
     var isSpinnerFrameOnly: Bool { title != stableTitle }
 
     init(
