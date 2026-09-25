@@ -75,10 +75,12 @@ Launch/resume, enabled-setting reconciliation, helper recovery, permission/TCC
 refresh, feature-flag refresh, passive workstream events, and unrelated tools
 only update state. Even when both grants are present and capture verification
 is incomplete, a refresh never opens or reopens onboarding. Retried/concurrent
-protected requests share the runtime claim and one window controller; dismissal
-keeps that claim until setup is explicitly resumed. Settings → cmux Computer
-Use offers **Finish Setup…**, **Grant…**, and **Open System Settings** to resume
-or select another permission step. Completed setup stays quiet unless fresh
+protected requests share the runtime claim and one window controller. Dismissal
+leaves the claim in place, so later requests and refreshes stay quiet; only
+disabling Computer Use, relaunching, or invalidating helper readiness resets it.
+To resume or select another permission step, use **Finish Setup…**,
+**Grant…**, or **Open System Settings** in Settings → cmux Computer Use, or the
+matching command palette action. Completed setup stays quiet unless fresh
 explicit intent needs setup again after readiness is invalidated.
 
 The Settings action uses the same onboarding flow: its first **Allow** action
