@@ -133,11 +133,11 @@ never split across pools, so the app-host product always meets the Xcode that
 linked it. The run takes the first pool in `CI_PR_POOL_ORDER` with fewer than
 `CI_PR_POOL_MAX_QUEUED` (default 3) jobs queued and no queued release or
 nightly job, or else the pool with the fewest queued jobs. The macOS 15 pool
-counts 12 more queued jobs than it has (`COLD_QUEUE_PENALTY`): the DerivedData
+counts 4 more queued jobs than it has (`COLD_QUEUE_PENALTY`): the DerivedData
 seed exists only for the lane's Xcode, so a run there compiles cold, 10 to 20
 minutes longer, while a queued job on a macOS 26 pool waits about a minute.
 It never has headroom, and it wins the fewest-queued fallback only when both
-macOS 26 pools are queued 12 deeper. From 17:25Z to 18:10Z on 2026-09-24,
+macOS 26 pools are queued 4 deeper. From 17:25Z to 18:10Z on 2026-09-24,
 before this rule, every PR admission overflowed there at 3 queued and compiled
 for 17 to 25 minutes against a 321 s seeded median.
 
@@ -238,6 +238,16 @@ rest to `retry_runner` (below). Products built on a mini are then tested on
 Blacksmith, which is sound only while both carry the same Xcode build: on
 2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
 reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
+
+A refused job goes back to the fleet once before Blacksmith. Attempt 2 may
+take the owned pool again where a job's `runs-on` reads
+`github.run_attempt == 2 && inputs.pr_refused_retry_runner` first. GitHub
+sends no `requested` event for a re-run, so the watch that re-ran the failed
+jobs follows attempt 2 itself, until its owned jobs have run past the
+120-second refusal window. A job refused, or queued past the budget, on
+attempt 2 gets its failed jobs re-run once more, keeping what passed, and
+attempt 3 and later always take `retry_runner` on Blacksmith, so a busy fleet
+costs at most one extra refusal and never loops.
 
 "Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
 the failed jobs read attempt 1's outputs, owned pool included, with no watcher

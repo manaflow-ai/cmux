@@ -67,6 +67,14 @@ class CLIProductRoutingTests(unittest.TestCase):
                                  and in_admission != "true")
                 self.assertEqual(gate(self.jobs["tests-build-and-lag"]["if"], **routes),
                                  macos == "true" and full_suite == "true")
+                # A cli-profile product has no app or app-host bundles, so no
+                # job that consumes them may run beside it.
+                profile = gate(self.workflow["env"]["CMUX_PRODUCT_PROFILE"], **routes)
+                app_host_consumer = any(
+                    gate(self.jobs[name]["if"], **routes)
+                    for name in ("app-host-unit-tests", "tests-build-and-lag"))
+                self.assertEqual(profile, "app-host" if app_host_consumer or (
+                    macos == "true" and admitted != "true") else "cli")
 
     def test_required_status_rejects_missing_targeted_cli_work(self):
         job = self.jobs["macos-status"]

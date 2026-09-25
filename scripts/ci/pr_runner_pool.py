@@ -131,12 +131,14 @@ SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
 # shard, and a CLI change cli-product-tests. A run takes an owned pool only
 # when its own peak (run_jobs) is free, so none of its jobs queues there. A
-# run whose peak is unknown is charged MAX_RUN_JOBS. A run replayed since the
-# snapshot is charged REPLAYED_RUN_JOBS, the peak of a compile-only run with
-# every side lane, which is what the default pull request policy runs: a
-# full-suite run among them is under-counted until the next snapshot, and a
-# job that then finds its mini busy is refused or queued, and moved to
-# Blacksmith by ci-owned-pool-rescue.yml.
+# run whose peak is unknown is charged MAX_RUN_JOBS. A run created since the
+# snapshot is looked up first (pull_request_routes_since): its marker gives
+# the owned pool and peak it took, and a finished `changes` job without one
+# means it took none. Only a run still picking is replayed and charged
+# REPLAYED_RUN_JOBS, the peak of a compile-only run with every side lane.
+# Charging every newer run that guess shut a 5-machine pool after two runs
+# while its minis sat idle (2026-09-24). A job that still finds its mini busy
+# is refused or queued, and moved to Blacksmith by ci-owned-pool-rescue.yml.
 APP_HOST_SHARDS = 7
 SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
@@ -156,8 +158,10 @@ DEFAULT_MAX_QUEUED = 3
 # (1,034 s and 1,537 s against a 321 s median on 2026-09-24). A queued job on
 # a 10-machine pool of about 10-minute admissions waits about a minute, so
 # the cold pool counts this many extra queued jobs: it is taken only when
-# every seeded pool is queued that much deeper.
-COLD_QUEUE_PENALTY = 12
+# every seeded pool is queued that much deeper. At 12 it sat idle while both
+# macOS 26 pools held 7 to 8 queued jobs waiting 17 to 21 minutes
+# (2026-09-24 23:33Z), longer than the cold compile costs, so it is 4.
+COLD_QUEUE_PENALTY = 4
 # Concurrent jobs one Blacksmith macOS pool ran at most, measured 2026-09-24:
 # 10 or 11 on each 6vcpu pool while jobs queued behind them.
 POOL_CAPACITY = 10
@@ -168,6 +172,15 @@ SNAPSHOT_BRANCH = "main"
 CI_WORKFLOW = "ci.yml"
 MAX_SNAPSHOT_MINUTES = 45
 PAGE_SIZE = 100
+# The marker ci.yml's changes job uploads when it puts a run on an owned pool.
+OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)-(?P<pool>.+)")
+# The job that runs this picker; once it finishes, a run without a marker is off the owned pools.
+ROUTING_JOB = "changes"
+# The changes job step that is skipped exactly when the pick was not an owned pool.
+MARKER_STEP = "Mark a run on a persistent macOS pool"
+# Newer runs looked up one by one (two requests at most each); any past this
+# many are replayed as unknown.
+ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
 
 
@@ -200,6 +213,21 @@ class Choice:
     # For a persistent runner only: the Blacksmith pool (the lane's own Xcode)
     # a re-run of failed jobs takes instead, since it reuses this run's pick.
     retry_runner: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class Routed:
+    """Pull request runs created since the snapshot and still in flight.
+
+    `owned` maps an owned pool to the machines the runs it took there need at
+    their peak, read from each run's marker. `ephemeral` counts runs whose
+    pick already finished without a marker, so they hold no owned machine.
+    `unknown` counts runs whose pick this one cannot see yet; they are
+    replayed and charged REPLAYED_RUN_JOBS on an owned pool they could take.
+    """
+    unknown: int = 0
+    owned: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    ephemeral: int = 0
 
 
 def flag(value: str | None) -> bool:
@@ -355,20 +383,23 @@ def cold(label: str) -> bool:
     return bool(POOLS.get(label))
 
 
-def owned_free(counts: Mapping[str, int], added_runs: int) -> int:
+def owned_free(counts: Mapping[str, int], added_runs: int, taken_since: int = 0) -> int:
     """Machines of an owned pool still free once `added_runs` more runs took theirs.
 
     Taken is the larger of the jobs the janitor saw and what the runs holding
     the pool will need at their peak, so a run whose later jobs do not exist
-    yet still counts them. Each run replayed since the snapshot is charged
-    REPLAYED_RUN_JOBS, since its own peak is unknown here.
+    yet still counts them. `taken_since` is the known peak of the runs that
+    took the pool since the snapshot, from their markers. Each run replayed
+    since the snapshot is charged REPLAYED_RUN_JOBS, since its own peak is
+    unknown here.
     """
     taken = max(counts["running"] + counts["queued"], counts.get("committed", 0))
-    return counts.get("capacity", 0) - taken - added_runs * REPLAYED_RUN_JOBS
+    return counts.get("capacity", 0) - taken - taken_since - added_runs * REPLAYED_RUN_JOBS
 
 
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
-         max_queued: int, jobs: int = MAX_RUN_JOBS) -> tuple[str, bool]:
+         max_queued: int, jobs: int = MAX_RUN_JOBS,
+         taken: Mapping[str, int] | None = None) -> tuple[str, bool]:
     """The rule itself: first usable pool with headroom, else the fewest queued.
 
     An owned pool has headroom only while every job of this run gets a machine
@@ -382,7 +413,7 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
               for label in usable}
     for label in usable:
         if persistent(label):
-            if owned_free(load[label], added[label]) >= max(1, jobs):
+            if owned_free(load[label], added[label], (taken or {}).get(label, 0)) >= max(1, jobs):
                 return label, True
         elif not cold(label) and queued[label] < max_queued:
             return label, True
@@ -397,6 +428,8 @@ def decide(
     now: dt.datetime,
     xcode_pins: Mapping[str, str],
     routed_since: int = 0,
+    owned_since: Mapping[str, int] | None = None,
+    ephemeral_since: int = 0,
     auto_xcode: bool = False,
     placed: Mapping[str, int] | None = None,
     choose_from: Sequence[str] | None = None,
@@ -415,6 +448,9 @@ def decide(
     is this run's peak machine count, which an owned pool must have free.
     Replayed runs are placed as if they needed one machine (so any that could
     have taken an owned pool is assumed to) and charged REPLAYED_RUN_JOBS there.
+    `owned_since` is what runs since the snapshot took on each owned pool, by
+    their markers, and `ephemeral_since` counts runs whose pick finished off
+    the owned pools; those are replayed over the Blacksmith pools only.
     """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")
@@ -449,16 +485,24 @@ def decide(
     skipped = [label for label in limits.order if label not in usable]
     note = f"; skipped {', '.join(skipped)} (reserved, no Xcode pin, or owned without slots or a fresh snapshot)" if skipped else ""
     added = {label: max(0, int((placed or {}).get(label) or 0)) for label in usable}
-    for _ in range(max(0, routed_since)):
-        earlier, _ = pick(load, added, usable, limits.max_queued, jobs=1)
+    taken = {label: max(0, int((owned_since or {}).get(label) or 0)) for label in usable if persistent(label)}
+    ephemeral = [label for label in usable if not persistent(label)]
+    for _ in range(max(0, ephemeral_since) if ephemeral else 0):
+        earlier, _ = pick(load, added, ephemeral, limits.max_queued, jobs=1)
         added[earlier] += 1
-    label, headroom = pick(load, added, candidates, limits.max_queued, jobs)
+    for _ in range(max(0, routed_since)):
+        earlier, _ = pick(load, added, usable, limits.max_queued, jobs=1, taken=taken)
+        added[earlier] += 1
+    label, headroom = pick(load, added, candidates, limits.max_queued, jobs, taken=taken)
     if persistent(label) and not headroom:
         return Choice("", "", "every owned pool this run may take is busy, and no other pool is in the order")
     replayed = sum(added.values())
     replay = f" after replaying {replayed} newer run(s)" if replayed else ""
+    if any(taken.values()):
+        replay += " and counting " + ", ".join(f"{count} machine(s) newer runs took on {pool_label}"
+                                               for pool_label, count in taken.items() if count)
     if headroom and persistent(label):
-        free = owned_free(load[label], added[label])
+        free = owned_free(load[label], added[label], taken.get(label, 0))
         why = (f"first pool in order with headroom ({free} of {load[label]['capacity']} owned machines free, "
                f"this run needs {max(1, jobs)}){replay}")
     elif headroom:
@@ -498,7 +542,7 @@ def choose(
     owned_slots: str | None = None,
     jobs: int = MAX_RUN_JOBS,
     fetch: Callable[[], Mapping[str, Any] | None],
-    count_routed: Callable[[str], int] = lambda since: 0,
+    count_routed: Callable[[str], "int | Routed"] = lambda since: 0,
     now: dt.datetime,
     run_attempt: int = 1,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
@@ -548,14 +592,38 @@ def choose(
         routed = count_routed(str(snapshot["generated_at"]))
     except Exception as error:  # noqa: BLE001 - every failure keeps the default
         return Choice("", "", f"could not count runs since the snapshot ({error})"), snapshot
+    if not isinstance(routed, Routed):
+        routed = Routed(unknown=int(routed))
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
-                    routed_since=routed, auto_xcode=fork, owned_slots={} if fork else slots(owned_slots),
-                    jobs=jobs)
+                    routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
+                    auto_xcode=fork, owned_slots={} if fork else slots(owned_slots), jobs=jobs)
     if fork and choice.runner:
         choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
     if retry and choice.runner:
         choice = dataclasses.replace(choice, reason=f"retry attempt {run_attempt}; {choice.reason}")
     return choice, snapshot
+
+
+def may_hold_owned_pool(run: Mapping[str, Any]) -> bool:
+    """Only attempt 1 of a same-repository pull request run can take an owned pool.
+
+    The same rule as queue_janitor.may_hold_owned_pool: a fork runs its own
+    ci.yml and could upload any marker, so its markers are never read.
+    """
+    if int(run.get("run_attempt") or 1) != 1:
+        return False
+    head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
+    return head is not None and head == base
+
+
+def run_marker(artifacts: Sequence[Any], run: Mapping[str, Any]) -> tuple[str, int] | None:
+    """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None."""
+    for artifact in artifacts:
+        match = OWNED_MARKER.fullmatch(str((artifact or {}).get("name") or "")) if isinstance(artifact, Mapping) else None
+        if (match and not artifact.get("expired") and int(match["run"]) == run.get("id")
+                and int(match["attempt"]) == int(run.get("run_attempt") or 1) and persistent(match["pool"])):
+            return match["pool"], min(max(1, int(match["jobs"])), MAX_RUN_JOBS)
+    return None
 
 
 def count_in_flight(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None) -> int:
@@ -639,6 +707,56 @@ class GitHub:
         runs = self.get(f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or []
         return [run for run in runs if isinstance(run, Mapping)]
 
+    def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None) -> Routed:
+        """Where the pull request runs since `since` went, so they are not all guessed.
+
+        A fork run or a retry attempt never takes an owned pool, so it is off
+        them without a lookup (and a fork's own marker is never trusted). For
+        the rest, a marker names the owned pool and peak the run took; a
+        finished `changes` job whose marker step was skipped means the pick
+        was not an owned pool. Any other run (still picking, a lost marker
+        upload, a failed lookup, or past ROUTE_LOOKUPS) is replayed.
+        """
+        runs = [run for run in self.runs_since(CI_WORKFLOW, since, event="pull_request")
+                if run.get("id") != exclude_run_id and run.get("status") != "completed"]
+        owned: dict[str, int] = {}
+        ephemeral = unknown = looked_up = 0
+        for run in runs:
+            if not may_hold_owned_pool(run):
+                ephemeral += 1
+                continue
+            if looked_up >= ROUTE_LOOKUPS:
+                unknown += 1
+                continue
+            looked_up += 1
+            try:
+                route = self.run_route(run)
+            except Exception:  # noqa: BLE001 - one unreadable run is only replayed
+                route = None
+            if isinstance(route, tuple):
+                owned[route[0]] = owned.get(route[0], 0) + route[1]
+            elif route == "ephemeral":
+                ephemeral += 1
+            else:
+                unknown += 1
+        return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral)
+
+    def run_route(self, run: Mapping[str, Any]) -> tuple[str, int] | str | None:
+        """(owned pool, peak), "ephemeral", or None while this run's pick is unknown."""
+        artifacts = self.get(f"/actions/runs/{run['id']}/artifacts?per_page={PAGE_SIZE}").get("artifacts") or []
+        marker = run_marker(artifacts, run)
+        if marker is not None:
+            return marker
+        jobs = self.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={PAGE_SIZE}").get("jobs") or []
+        for job in jobs:
+            if not isinstance(job, Mapping) or job.get("name") != ROUTING_JOB or job.get("status") != "completed":
+                continue
+            steps = [step for step in job.get("steps") or []
+                     if isinstance(step, Mapping) and step.get("name") == MARKER_STEP]
+            if steps and all(step.get("conclusion") == "skipped" for step in steps):
+                return "ephemeral"
+        return None
+
     def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:
         """CI pull request runs created at or after `since` and still in flight (one request).
 
@@ -695,7 +813,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def count_routed(since: str) -> int:
         if args.snapshot:
             return 0
-        return client().pull_request_runs_since(since, exclude_run_id=int(run_id) if run_id.isdigit() else None)
+        return client().pull_request_routes_since(since, exclude_run_id=int(run_id) if run_id.isdigit() else None)
 
     # The changes job's routing, when the step runs after it; without it every
     # run is charged the most machines any run can hold.

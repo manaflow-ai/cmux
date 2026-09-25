@@ -104,6 +104,19 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Which schemes the producer builds, and the profile the product's identity
+  # records. A purely CLI-routed change only feeds cli-product-tests, which
+  # needs the cmux-cli product and its test bundle -- not the app, and not the
+  # app-host or numeric-locale bundles.
+  #
+  # macOS routing keeps the full product while anything needs it: the app-host
+  # shards consume it, and admission is also the check that proves the app
+  # itself still compiles. Once an earlier run has admitted these inputs and
+  # no app-host shard is routed, a CLI route only needs the cli product.
+  # Producer and consumer must agree here, so it is declared once for every job
+  # -- a consumer recomputing a different profile's identity simply declines
+  # the artifact, which would silently cost a compile instead of reusing one.
+  CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
 
 jobs:
   macos-compile-admission:
@@ -114,6 +127,9 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
+    # The cli clause above still compiles when an earlier run already admitted
+    # these inputs. CMUX_PRODUCT_PROFILE then selects the cli product, one
+    # scheme, so it no longer buys a full app build.
     # Pull requests and main's full-suite dispatch (ci-main-full-suite.yml)
     # compile on the pool and Xcode seed-derived-data.yml builds with, so both
     # can adopt its DerivedData seed below. Merge groups and dispatches on
@@ -631,7 +647,13 @@ jobs:
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          python3 scripts/swift_warning_budget.py --log "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log"
+          # The build writes one log per scheme, and the profile's first scheme
+          # is the one whose warnings the budget covers (cmux for app-host,
+          # cmux-cli-tests for a CLI-only product).
+          first_scheme="$(python3 scripts/ci/product_input_identity.py schemes | awk '{print $1}')"
+          log="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/$first_scheme-build.log"
+          test -s "$log" || { echo "::error::missing Swift warning log $log" >&2; exit 1; }
+          python3 scripts/swift_warning_budget.py --log "$log"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
