@@ -160,6 +160,8 @@ class FocusedLauncherTests(unittest.TestCase):
             "gh": FAKE_GH,
             "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
             "sleep": "#!/bin/sh\nexit 0\n",
+            # No shared waiter daemon unless a test says so: --wait falls back to gh.
+            "glaeda-gh": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAUNCHER_TEST_DIR/glaeda.calls"\nexit "${LAUNCHER_GLAEDA_STATUS:-3}"\n',
         }.items():
             path = self.bin / name
             path.write_text(source)
@@ -403,6 +405,18 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("123", watch)
         self.assertNotIn("999", watch)
 
+    def test_wait_uses_the_shared_waiter_when_it_answers(self):
+        result = self.launch("cmuxTests/ExampleTests", "--wait", LAUNCHER_GLAEDA_STATUS="1")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("wait run manaflow-ai/cmux/123", (self.root / "glaeda.calls").read_text())
+        self.assertFalse([call for call in self.calls() if call[:2] == ["run", "watch"]], "gh must not poll")
+
+    def test_wait_falls_back_to_a_slow_poll_when_the_waiter_is_down(self):
+        result = self.launch("cmuxTests/ExampleTests", "--wait", LAUNCHER_WATCH_STATUS="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        polled = next(call for call in self.calls() if call[:2] == ["run", "watch"])
+        self.assertEqual(polled[-2:], ["--interval", "300"])
+
     def test_rejects_invalid_selectors_before_dispatch(self):
         for selector in ("", "cmuxTests/", "cmuxTests/Example/extra/method", "cmuxTests/A\ndispatch_id=bad", "cmuxTests/A;echo bad"):
             with self.subTest(selector=selector):
@@ -625,7 +639,7 @@ class FocusedLauncherTests(unittest.TestCase):
             LAUNCHER_PRIOR_RUNS=self._live(), LAUNCHER_WATCH_STATUS="1",
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn(["run", "watch", "--repo", "manaflow-ai/cmux", "777", "--exit-status"],
+        self.assertIn(["run", "watch", "--repo", "manaflow-ai/cmux", "777", "--exit-status", "--interval", "300"],
                       self.calls())
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
