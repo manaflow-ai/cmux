@@ -13,16 +13,16 @@ extension MobilePairedMac {
 @MainActor
 extension MobileShellComposite {
     /// The effective connection method for one pairing: its own stored choice,
-    /// else automatic. Legacy app-wide preferences have no authority.
+    /// else Iroh. Legacy app-wide preferences have no authority.
     public func connectionMethod(for mac: MobilePairedMac) -> MobileConnectionMethod {
-        mac.storedConnectionMethod ?? .automatic
+        mac.storedConnectionMethod ?? .iroh
     }
 
     /// The effective connection method for a pairing identified by device and
     /// optional tag. With a nil tag this resolves the device's first stored
     /// pairing, matching the legacy device-level call sites. An explicit tag
     /// never falls back to a sibling build's row: methods are chosen per
-    /// build, so an unstored tagged pairing uses automatic instead of
+    /// build, so an unstored tagged pairing uses Iroh instead of
     /// inheriting whichever sibling happens to be stored first.
     public func connectionMethod(
         forMacDeviceID macDeviceID: String,
@@ -34,7 +34,7 @@ extension MobileShellComposite {
                 && (instanceTag == nil || $0.instanceTag == instanceTag)
         } ?? (instanceTag == nil ? pairedMacs.first { $0.macDeviceID == canonical } : nil)
         return match.map(connectionMethod(for:))
-            ?? .automatic
+            ?? .iroh
     }
 
     /// Persist the per-Computer connection method and, when the change affects
@@ -94,11 +94,8 @@ extension MobileShellComposite {
     ///
     /// A pinned dial never uses Iroh's transport: it reaches the Mac with
     /// Network.framework QUIC at exactly these addresses and authenticates the
-    /// Mac's device key. Direct pins the user-enabled addresses. Tailscale Only
-    /// pins the Tailscale endpoints the user authorized with a pairing code,
-    /// when the pairing knows the Mac's device key; a pairing without one keeps
-    /// the legacy raw Tailscale route. Automatic is the only method that uses
-    /// Iroh relays and discovery.
+    /// Mac's device key. Direct pins the user-enabled addresses (a Tailscale
+    /// address is one of them); Iroh places no pin.
     ///
     /// An empty array means the method is pinned with nothing dialable:
     /// callers must fail closed and never substitute another path. Entries
@@ -125,10 +122,7 @@ extension MobileShellComposite {
                     port: entry.port.flatMap { UInt16(exactly: $0) }
                 )
             }
-        case .tailscale:
-            guard pairing.routes.contains(where: { $0.kind == .iroh }) else { return nil }
-            return Self.tailscaleDirectQuicCandidates(from: pairing.legacyTailscaleRoutes ?? [])
-        case .automatic:
+        case .iroh:
             return nil
         }
     }

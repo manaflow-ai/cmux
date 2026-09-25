@@ -78,8 +78,6 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
-    /// Whether Tailscale still needs its one-time Mac authorization.
-    var tailscalePairingRequired = false
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
@@ -945,7 +943,6 @@ struct WorkspaceListView: View {
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
-            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut,
             hasLiveTransportPath: store?.workspaceListHasLiveTransportPath ?? false

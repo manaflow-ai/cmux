@@ -10,14 +10,11 @@ struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
-    let connectionMethod: MobileConnectionMethod
     let keepAwakeOffer: OnboardingKeepAwakeOffer?
-    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onEnablePush: () async -> Bool
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
     let onRetryConnection: () -> Void
-    let onStartTailscalePairing: () -> Void
     let onSetKeepAwake: (Bool) async -> Bool
     let onComplete: () -> Void
 
@@ -33,28 +30,22 @@ struct OnboardingFlowView: View {
         context: OnboardingContext,
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
-        connectionMethod: MobileConnectionMethod = .automatic,
         keepAwakeOffer: OnboardingKeepAwakeOffer? = nil,
-        onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onEnablePush: @escaping () async -> Bool,
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onRetryConnection: @escaping () -> Void,
-        onStartTailscalePairing: @escaping () -> Void,
         onSetKeepAwake: @escaping (Bool) async -> Bool = { _ in false },
         onComplete: @escaping () -> Void
     ) {
         self.context = context
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
-        self.connectionMethod = connectionMethod
         self.keepAwakeOffer = keepAwakeOffer
-        self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onEnablePush = onEnablePush
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
         self.onRetryConnection = onRetryConnection
-        self.onStartTailscalePairing = onStartTailscalePairing
         self.onSetKeepAwake = onSetKeepAwake
         self.onComplete = onComplete
         _stage = State(initialValue: initialStage)
@@ -101,8 +92,7 @@ struct OnboardingFlowView: View {
         OnboardingSceneChrome(
             stage: stage,
             isAuthenticated: isAuthenticated,
-            connectionPhase: connectionPhase,
-            connectionMethod: connectionMethod
+            connectionPhase: connectionPhase
         )
     }
 
@@ -120,8 +110,6 @@ struct OnboardingFlowView: View {
         case .connect:
             OnboardingConnectionView(
                 phase: connectionPhase,
-                connectionMethod: connectionMethod,
-                onSelectConnectionMethod: selectConnectionMethod,
                 keepAwakeOffer: keepAwakeOffer,
                 onSetKeepAwake: setKeepAwake
             )
@@ -225,22 +213,14 @@ struct OnboardingFlowView: View {
     private func finishOrRetry() {
         switch connectionPhase {
         case .idle:
-            if connectionMethod == .tailscale {
-                startTailscalePairing()
-            } else {
-                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
-                onRetryConnection()
-            }
+            diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
+            onRetryConnection()
         case .searching:
             break
         case .fallback:
-            if connectionMethod == .tailscale {
-                startTailscalePairing()
-            } else {
-                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
-                analytics.capture("ios_onboarding_connection_retried", eventProperties)
-                onRetryConnection()
-            }
+            diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
+            analytics.capture("ios_onboarding_connection_retried", eventProperties)
+            onRetryConnection()
         case .ready:
             diagnosticLog?.recordAppEvent(.onboardingCompleted)
             analytics.capture("ios_onboarding_completed", eventProperties)
@@ -251,18 +231,10 @@ struct OnboardingFlowView: View {
     /// Push's secondary action declines the opt-in without touching the OS.
     /// Once Enable is in flight the pending system alert owns the decision, so
     /// a racing Not Now tap is ignored rather than recorded as a contradictory
-    /// intent. On Connect, Tailscale's secondary action retries discovery;
-    /// Auto-Connect has no secondary manual-pairing action.
+    /// intent. Connect has no secondary manual-pairing action.
     private func handleSecondary() {
-        if stage == .push {
-            guard !isPushEnableInFlight else { return }
-            declinePush()
-            return
-        }
-        guard connectionMethod == .tailscale, connectionPhase == .fallback else { return }
-        diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
-        analytics.capture("ios_onboarding_connection_retried", eventProperties)
-        onRetryConnection()
+        guard stage == .push, !isPushEnableInFlight else { return }
+        declinePush()
     }
 
     private func setKeepAwake(_ enabled: Bool) async {
@@ -274,33 +246,6 @@ struct OnboardingFlowView: View {
             properties["enabled"] = .bool(!enabled)
             analytics.capture("ios_onboarding_keep_awake_reverted", properties)
         }
-    }
-
-    private func selectConnectionMethod(_ method: MobileConnectionMethod) {
-        guard method != connectionMethod else { return }
-        diagnosticLog?.recordAppEvent(.onboardingConnectionMethodChanged)
-        var properties = eventProperties
-        properties["connection_method"] = .string(method.rawValue)
-        analytics.capture("ios_onboarding_connection_method_selected", properties)
-        let shouldStartTailscalePairing =
-            method == .tailscale && connectionPhase == .ready
-        withAnimation(.smooth(duration: 0.25)) {
-            onSelectConnectionMethod(method)
-        }
-        // A ready Iroh connection must not turn a Tailscale selection into an
-        // accidental onboarding completion. Pair the newly selected route now,
-        // while leaving the existing ready state untouched for other changes.
-        if shouldStartTailscalePairing {
-            startTailscalePairing()
-        }
-    }
-
-    private func startTailscalePairing() {
-        diagnosticLog?.recordAppEvent(.onboardingPairingStarted)
-        var properties = eventProperties
-        properties["source"] = .string("tailscale_choice")
-        analytics.capture("ios_onboarding_pairing_started", properties)
-        onStartTailscalePairing()
     }
 
     private func finishBeforeAuthentication() {

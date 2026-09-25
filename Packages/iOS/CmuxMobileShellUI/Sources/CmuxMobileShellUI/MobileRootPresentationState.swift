@@ -54,7 +54,6 @@ struct MobileRootPresentationState: Equatable {
     enum Action: Equatable {
         case presentAutoConnectMigrationIfIdle
         case useAutoConnect
-        case setUpTailscale(status: MobileTailscaleSetupStatus)
         case presentSettings
         case dismissSettings(presentAutoConnectMigration: Bool)
         case presentComputers
@@ -74,7 +73,6 @@ struct MobileRootPresentationState: Equatable {
         case none
         case acknowledgeAutoConnectMigration
         case useAutoConnect
-        case setUpTailscale(requiresPairing: Bool)
         case finishPairing
         case retryAutoConnectMigration
     }
@@ -122,21 +120,6 @@ struct MobileRootPresentationState: Equatable {
             guard presentation == .autoConnectMigrationIntroduction else { return .none }
             presentation = nil
             return .useAutoConnect
-
-        case let .setUpTailscale(status):
-            guard presentation == .autoConnectMigrationIntroduction else { return .none }
-            switch status {
-            case .pairingRequired:
-                presentation = .pairing(.scanner(entry: .autoConnectMigration))
-                return .setUpTailscale(requiresPairing: true)
-            case .authorized, .loadingAuthorization, .notSelected:
-                // Selecting Tailscale while authorization is still being
-                // resolved must not open a scanner based on a stale false
-                // authorization flag. The shell will promote the setup banner
-                // if the authoritative result later requires pairing.
-                presentation = nil
-                return .setUpTailscale(requiresPairing: false)
-            }
 
         case .presentSettings:
             guard presentation == nil else { return .none }

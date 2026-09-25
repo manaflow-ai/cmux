@@ -868,9 +868,7 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-        // Direct and Tailscale Only supply a Direct QUIC address allowlist.
-        // A Tailscale pairing without the Mac's device key has none and keeps
-        // its authorized raw Tailscale route below.
+        // Direct supplies the Direct QUIC address allowlist; Iroh has none.
         let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
         switch resolvedMethod {
         case .direct:
@@ -879,11 +877,7 @@ extension MobileShellComposite {
                 instanceTag: instanceTagExpectation.expectedTag,
                 knownPairing: knownPairing
             ) ?? []
-        case .tailscale:
-            methodPinnedCandidates = routes.contains(where: { $0.kind == .iroh })
-                ? Self.tailscaleDirectQuicCandidates(from: legacyTailscaleRoutes)
-                : nil
-        case .automatic:
+        case .iroh:
             methodPinnedCandidates = nil
         }
         if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
@@ -895,13 +889,7 @@ extension MobileShellComposite {
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: resolvedMethod == .tailscale
-                ? Self.TailscaleRouteRequirement(
-                    macDeviceID: pairedMacDeviceID,
-                    grantRoutes: legacyTailscaleRoutes
-                )
-                : nil,
-            legacyTailscaleCompatibility: resolvedMethod == .automatic
+            legacyTailscaleCompatibility: resolvedMethod == .iroh
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes

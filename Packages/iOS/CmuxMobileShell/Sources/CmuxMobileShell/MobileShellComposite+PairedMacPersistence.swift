@@ -172,10 +172,27 @@ extension MobileShellComposite {
                         now: Date()
                     )
                 }
-                if !userAuthorizedTailscaleRoutes.isEmpty {
-                    // The user just proved control of this Mac by entering its
-                    // pairing code; record the device-local grant so later
-                    // preference-ordered dials use the evidence path.
+                if !userAuthorizedTailscaleRoutes.isEmpty,
+                   ticket.routes.contains(where: { $0.kind == .iroh }) {
+                    // The code named the Mac's device key: its Tailscale
+                    // endpoints become Direct addresses, verified by that key.
+                    let current = scopedMacs.first {
+                        MacPairingKey($0) == MacPairingKey(macDeviceID: ticket.macDeviceID, instanceTag: instanceTag)
+                    }?.directAddresses ?? []
+                    let merged = MobilePairedMacStore.appendingTailscaleAddresses(
+                        from: userAuthorizedTailscaleRoutes, to: current)
+                    if merged != current {
+                        try? await pairedMacStore.setDirectAddresses(
+                            macDeviceID: ticket.macDeviceID,
+                            instanceTag: instanceTag,
+                            rawJSON: MobilePairedMac.encodeDirectAddresses(merged),
+                            stackUserID: stackUserID,
+                            teamID: scope?.teamID
+                        )
+                    }
+                } else if !userAuthorizedTailscaleRoutes.isEmpty {
+                    // A pre-Iroh Mac: record the device-local grant so the
+                    // Iroh method's compatibility can still dial it.
                     do {
                         try await pairedMacStore.authorizeUserTailscaleRoutes(
                             macDeviceID: ticket.macDeviceID,

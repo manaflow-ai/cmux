@@ -213,8 +213,6 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
-    /// Whether Tailscale still needs its one-time Mac authorization.
-    var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
@@ -1276,8 +1274,7 @@ struct WorkspaceShellView: View {
             isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             cancelRefresh: cancelRefreshWorkspaces,
             signOut: signOut,
-            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
-            tailscalePairingRequired: tailscalePairingRequired,
+            reconnect: reconnectClosure,
             showAddDevice: showAddDevice,
             showComputers: showComputers,
             showPairingScanner: showPairingScanner,
@@ -1330,7 +1327,6 @@ struct WorkspaceShellView: View {
             isRecoveringConnection: store.isRecoveringConnection,
             isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             connectionStatus: listConnectionStatus,
-            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut,
             hasLiveTransportPath: store.workspaceListHasLiveTransportPath

@@ -24,10 +24,6 @@ struct CMUXMobileRootView: View {
     /// Optional so previews and hosts without the app root still render.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
-    /// Optional environment models do not reliably invalidate this root when a
-    /// child sheet mutates them. Mirror the store's existing change stream so
-    /// capability closures are rebuilt for the newly selected method.
-    @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     @Environment(\.mobileLocalDataEraser) private var localDataEraser
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -76,7 +72,6 @@ struct CMUXMobileRootView: View {
     @State private var didExceedStartupRestoringGate = false
     /// One owner for the setup requirement's loading and required phases.
     /// Durable readiness remains in the shell store.
-    @State private var tailscaleSetupPrompt = MobileTailscaleSetupPromptState()
     #if os(macOS)
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
@@ -328,15 +323,6 @@ struct CMUXMobileRootView: View {
             presentAutoConnectMigrationIfEligible()
             #endif
         }
-        .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
-            guard let connectionMethodStore else {
-                connectionMethodObservationToken = nil
-                return
-            }
-            for await method in connectionMethodStore.changes() {
-                connectionMethodObservationToken = method
-            }
-        }
         .task {
             // Auth launch restore can publish `isAuthenticated` and finish
             // `isRestoringSession` in one main-actor turn. SwiftUI is allowed
@@ -346,9 +332,6 @@ struct CMUXMobileRootView: View {
             // barrier; the coordinator still serializes this with the normal
             // lifecycle callbacks, so it cannot start a duplicate dial.
             await finishAuthenticationBootstrapAndConnect()
-        }
-        .onChange(of: store.tailscaleSetupStatus, initial: true) { _, status in
-            tailscaleSetupPrompt.apply(.shellStatusChanged(status))
         }
         .onDisappear {
             cancelOpenURLTask(failure: .cancelled)
@@ -606,7 +589,6 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
-                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
                     setupHelpPresentation: childSheetPresentation(
@@ -628,7 +610,6 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
-                    tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
                     taskComposerPresentation: childSheetPresentation(
@@ -711,11 +692,6 @@ struct CMUXMobileRootView: View {
                 useAutoConnect: {
                     handleRootPresentation(.useAutoConnect)
                 },
-                setUpTailscale: {
-                    handleRootPresentation(.setUpTailscale(
-                        status: store.tailscaleSetupStatusWhenSelected
-                    ))
-                },
                 showsLayoutProbe: showsAutoConnectMigrationLayoutProbe
             )
         case .settings:
@@ -748,7 +724,6 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
-            startTailscalePairing: showPairingScanner,
             // Swaps the root sheet's content from Settings to Computers in
             // place; the presentation state machine allows this transition.
             showComputers: showComputers,
@@ -840,8 +815,6 @@ struct CMUXMobileRootView: View {
                 diagnosticLog?.recordAppEvent(.autoConnectMigrationPresented)
             case .useAutoConnect:
                 diagnosticLog?.recordAppEvent(.autoConnectMigrationAccepted)
-            case .setUpTailscale:
-                diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
             case .sheetDidRequestDismissal
                 where previousPresentation == .autoConnectMigrationIntroduction:
                 diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
@@ -855,13 +828,7 @@ struct CMUXMobileRootView: View {
         case .acknowledgeAutoConnectMigration:
             autoConnectMigrationStore?.acknowledge()
         case .useAutoConnect:
-            connectionMethodStore?.method = .automatic
-            autoConnectMigrationStore?.acknowledge()
-        case let .setUpTailscale(requiresPairing):
-            connectionMethodStore?.method = .tailscale
-            tailscaleSetupPrompt.apply(
-                .selectedTailscale(requiresPairing: requiresPairing)
-            )
+            connectionMethodStore?.method = .iroh
             autoConnectMigrationStore?.acknowledge()
         case .finishPairing:
             finishPairingPresentation()
@@ -990,14 +957,11 @@ struct CMUXMobileRootView: View {
             context: .firstRun,
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
             keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
-            onStartTailscalePairing: showOnboardingPairingScanner,
             onSetKeepAwake: { [store] enabled in
                 await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
             },
@@ -1018,14 +982,11 @@ struct CMUXMobileRootView: View {
             connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
                 ? .fallback
                 : .searching,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             // The deterministic preview must never raise the OS alert.
             onEnablePush: { true },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
-            onStartTailscalePairing: showOnboardingPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -1251,11 +1212,6 @@ struct CMUXMobileRootView: View {
         presentPairing(.scanner(entry: .settingsReplay))
     }
 
-    private func showOnboardingPairingScanner() {
-        guard currentlyAllowsManualPairing else { return }
-        presentPairing(.scanner(entry: .onboardingFallback))
-    }
-
     /// An external attach ticket can require compatibility approval under any
     /// connection method. Its presentation contains no manual pairing controls.
     private func showAttachVersionApproval() {
@@ -1279,13 +1235,9 @@ struct CMUXMobileRootView: View {
 
     private var allowsManualPairing: Bool {
         #if os(iOS)
-        // The stream value is only an invalidation token. Read the authoritative
-        // store synchronously so the migration transition can expose pairing in
-        // the same render that selects Tailscale. Tailscale is "selected"
-        // wherever it applies: the app default OR any Computer's own method
-        // (`tailscaleSetupStatus` covers both).
-        _ = connectionMethodObservationToken
-        return store.tailscaleSetupStatus != .notSelected
+        // Pairing codes are entered from a Computer's Direct addresses
+        // (Add Tailscale Connection), not from the root.
+        return false
         #else
         return true
         #endif
@@ -1296,7 +1248,7 @@ struct CMUXMobileRootView: View {
     /// a newly selected method yet.
     private var currentlyAllowsManualPairing: Bool {
         #if os(iOS)
-        store.tailscaleSetupStatus != .notSelected
+        allowsManualPairing
         #else
         true
         #endif

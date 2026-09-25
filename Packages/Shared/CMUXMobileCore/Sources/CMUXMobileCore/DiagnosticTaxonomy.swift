@@ -881,7 +881,9 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 /// The user's configured connection method, mirrored from the settings picker
 /// without account, address, or grant details.
 public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
-    case automatic = 0
+    case iroh = 0
+    /// The former Tailscale Only method, folded into Direct. Kept so older
+    /// diagnostic reports still decode; no longer recorded.
     case tailscale = 1
     case direct = 2
 }

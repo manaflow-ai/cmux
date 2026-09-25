@@ -3395,7 +3395,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
         var attemptedAutomaticIroh = false
-        var strictTailscaleFailure = false
+        var strictDirectFailure = false
         var lastDialOutcome: StoredMacReconnectOutcome = .failed(.noRoute)
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
@@ -3409,13 +3409,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            // The identity route carries every method: Automatic dials it over
-            // Iroh, while Direct and Tailscale Only pin it to Direct QUIC at
-            // their allowlisted addresses (`connectStoredMacOutcome`).
+            // The identity route carries every method: Iroh dials it with
+            // discovery and relays, while Direct pins it to Direct QUIC at the
+            // Computer's addresses (`connectStoredMacOutcome`).
             let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
-            // An explicit Tailscale selection never falls back to a refreshed
-            // route set or another saved Mac when its pinned dial fails.
-            let candidateUsesStrictTailscale = connectionMethod(for: mac) == .tailscale
+            // Direct never falls back to a refreshed route set or another
+            // saved Mac when its pinned dial fails.
+            let candidateUsesStrictDirect = connectionMethod(for: mac) == .direct
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
             }
@@ -3453,7 +3453,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             }
             if connectionState != .connected,
-               !candidateUsesStrictTailscale,
+               !candidateUsesStrictDirect,
                !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
@@ -3486,14 +3486,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             if connectionState == .connected { break }
-            if candidateUsesStrictTailscale && candidateOwnsForegroundSelection {
-                // An explicit Tailscale selection owns this reconnect pass.
-                // Do not promote another saved Mac or discover an Iroh peer
-                // after its authorized Tailscale route fails.
+            if candidateUsesStrictDirect && candidateOwnsForegroundSelection {
+                // An explicit Direct selection owns this reconnect pass. Do
+                // not promote another saved Mac or discover an Iroh peer after
+                // its pinned addresses fail.
                 if connectionError == nil {
                     applyOperationalError(MobileShellConnectionError.insecureManualRoute)
                 }
-                strictTailscaleFailure = true
+                strictDirectFailure = true
                 break
             }
         }
@@ -3504,7 +3504,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
         if connectionState != .connected,
-           !strictTailscaleFailure,
+           !strictDirectFailure,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
@@ -3627,14 +3627,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Visible store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
     /// Every scoped SQLite row, including hidden rows, for route refresh and hidden presentation.
-    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = [] {
-        didSet {
-            hasStoredUsableTailscaleAuthorization = Self
-                .hasUsableTailscaleAuthorization(in: storedPairedMacsIncludingHidden)
-        }
-    }
-    /// Cached local Tailscale readiness for the current paired-Mac snapshot.
-    var hasStoredUsableTailscaleAuthorization = false
+    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = []
     /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
     public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Monotonic token so overlapping same-scope loads cannot publish an older
@@ -10201,11 +10194,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
                     instanceTag: instanceTagExpectation.expectedTag
                 ) ?? []
-            case .tailscale:
-                methodPinnedDialCandidates = ticket.routes.contains(where: { $0.kind == .iroh })
-                    ? Self.tailscaleDirectQuicCandidates(from: legacyTailscaleRoutes)
-                    : nil
-            case .automatic:
+            case .iroh:
                 methodPinnedDialCandidates = nil
             }
         }
@@ -11042,26 +11031,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if ticketMethod == .direct {
             return supportedRoutes.filter { $0.kind == .iroh }
         }
-        if ticketMethod == .tailscale {
-            let authorizedTailscale = supportedRoutes.filter { route in
-                Self.legacyTailscaleAuthorizationEvidence(
-                    for: route,
-                    macDeviceID: ticket.macDeviceID,
-                    persistedRoutes: legacyTailscaleRoutes
-                ) != nil
-                    || Self.userTailscalePairingAuthorization(
-                        for: route,
-                        authorizations: userTailscalePairingAuthorizations
-                    ) != nil
-            }
-            return authorizedTailscale
-        }
-        // An Automatic pairing created before Iroh shipped may still carry the
+        // An Iroh pairing created before Iroh shipped may still carry the
         // one device-local migration grant that makes its exact raw Tailscale
         // endpoint usable. Preserve that compatibility route through this
         // second policy gate, but only while the ticket has no Iroh identity;
-        // once Iroh is present Automatic must stay on the authenticated lane.
-        if ticketMethod == .automatic,
+        // once Iroh is present the method must stay on the authenticated lane.
+        if ticketMethod == .iroh,
            !supportedRoutes.contains(where: { $0.kind == .iroh }),
            let pairedMacDeviceID,
            !legacyTailscaleRoutes.isEmpty {
@@ -11076,8 +11051,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return authorizedLegacyTailscale
             }
         }
-        // The Iroh method is just as strict as Tailscale Only: no raw
-        // host/port fallback, ever. Debug loopback rides alongside Iroh as
+        // The Iroh method is strict: no raw host/port fallback, ever. Debug loopback rides alongside Iroh as
         // the dev-build convenience (compiled out of production route sets):
         // it is the same-machine lane, not a cross-method fallback, and an
         // Iroh endpoint advertising no relays and no direct addresses must

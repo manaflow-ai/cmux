@@ -634,74 +634,14 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene, timeout: 8)
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
-        let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
-        let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
-        XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
-        XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
-        tap(tailscaleMethod, in: app)
-        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
-        let tailscaleDescription = app.staticTexts.matching(
-            NSPredicate(
-                format: "label == %@",
-                "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
-            )
-        ).firstMatch
-        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
-        // The choice is exclusive: selecting one method must deselect the other.
-        XCTAssertTrue(tailscaleMethod.isSelected)
-        XCTAssertFalse(automaticMethod.isSelected)
-        let tailscaleRetry = app.buttons["MobileOnboardingSecondaryButton"]
-        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
-        XCTAssertTrue(tailscaleRetry.label.contains("Check Again"))
-        tap(automaticMethod, in: app)
+        // Iroh is the only onboarding method; the connect page has no picker.
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
-        XCTAssertTrue(automaticMethod.isSelected)
-        XCTAssertFalse(tailscaleMethod.isSelected)
+        XCTAssertFalse(element("MobileOnboardingConnectionMethodPicker").exists)
+        let resumedRetry = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(resumedRetry.waitForExistence(timeout: 4))
+        XCTAssertTrue(resumedRetry.label.contains("Check Again"))
         XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
-        tap(tailscaleMethod, in: app)
-        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
-
-        let scanPairingCodeButton = app.buttons["MobileOnboardingPrimaryButton"]
-        XCTAssertTrue(scanPairingCodeButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(scanPairingCodeButton.label.contains("Scan Pairing Code"))
-        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
-        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
-        XCTAssertTrue(scanPairingCodeButton.isHittable)
-        recordChromeReferenceFrames()
-        assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Connect over Tailscale"],
-            visual: element("MobileOnboardingConnectionPreview"),
-            additionalContent: [
-                tailscaleDescription,
-                element("MobileOnboardingConnectionMethodPicker"),
-            ],
-            includeFooter: true
-        )
         capture("onboarding-04-resumed-connect")
-
-        scanPairingCodeButton.tap()
-
-        let scannerPreview = element("MobilePairingScannerPreview")
-        let scannerGuidance = element("MobilePairingScannerGuidance")
-        let scannerCancel = app.buttons["MobileScannerCancelButton"]
-        XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
-        XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
-        XCTAssertEqual(
-            scannerGuidance.label,
-            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Mobile Pairing and scan its code here."
-        )
-        XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
-        capture("onboarding-05-scanner-fallback")
-
-        scannerCancel.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["MobilePairingView"].waitForExistence(timeout: 4))
-        XCTAssertFalse(scanPairingCodeButton.isHittable)
-        XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
-        capture("onboarding-06-scanner-cancelled")
-        app.buttons["MobilePairingCancelButton"].tap()
-        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
-        tap(automaticMethod, in: app)
-        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
 
         app.terminate()
         XCUIDevice.shared.orientation = .landscapeRight
@@ -768,7 +708,6 @@ final class cmuxUITests: XCTestCase {
                 app.staticTexts[
                     "Use the same cmux account on both devices. Your Mac connects automatically."
                 ],
-                element("MobileOnboardingConnectionMethodPicker"),
             ]
         )
         capture("onboarding-09-connect-compact-height")
@@ -917,160 +856,6 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
         XCTAssertFalse(element("MobileOnboardingConnectScene").exists)
-    }
-
-    /// A migrating BETA install sees the minimum Mac versions once. Choosing
-    /// Tailscale cannot leave an unusable selection behind: without a local
-    /// pairing grant it opens the scanner and keeps the setup guidance in the
-    /// empty state without a blocking banner.
-    @MainActor
-    func testAutoConnectMigrationIntroductionPersistsTailscaleAndAutoConnectAcrossRelaunches() throws {
-        let fixtureID = UUID().uuidString
-        let environment = [
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
-            "CMUX_UITEST_SCANNER_PREVIEW": "1",
-        ]
-        let app = launchApp(mockData: true, environment: environment)
-        defer { app.terminate() }
-
-        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
-        XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
-        XCTAssertFalse(
-            app.descendants(matching: .any)["MobileAutoConnectMigrationViewportProbe"].exists
-        )
-        XCTAssertEqual(migrationTitle.label, "Check cmux on your Mac")
-        XCTAssertTrue(app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "0.64.20 or later")
-        ).firstMatch.exists)
-        XCTAssertTrue(app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "0.64.17 still works over Tailscale")
-        ).firstMatch.exists)
-
-        let autoConnectButton = app.buttons["MobileAutoConnectMigrationUseAutoConnect"]
-        let tailscaleButton = app.buttons["MobileAutoConnectMigrationSetUpTailscale"]
-        XCTAssertTrue(autoConnectButton.exists)
-        XCTAssertTrue(tailscaleButton.isHittable)
-        tailscaleButton.tap()
-
-        let scannerPreview = app.descendants(matching: .any)["MobilePairingScannerPreview"]
-        XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
-        let scannerGuidance = app.descendants(matching: .any)["MobilePairingScannerGuidance"]
-        XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
-        XCTAssertTrue(scannerGuidance.label.contains("cmux 0.64.17"))
-        XCTAssertTrue(scannerGuidance.label.contains("Connect iPhone/iPad"))
-        let scannerCancel = app.buttons["MobileScannerCancelButton"]
-        XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
-        scannerCancel.tap()
-        XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 4))
-        app.buttons["MobilePairingCancelButton"].tap()
-
-        let tailscaleDescription = app.descendants(matching: .any)[
-            "MobileDisconnectedEmptyDescription"
-        ]
-        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
-        XCTAssertTrue(tailscaleDescription.label.contains("Install Tailscale"))
-        XCTAssertTrue(
-            tailscaleDescription.label.contains(
-                "To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect."
-            )
-        )
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
-                .waitForNonExistence(timeout: 2)
-        )
-        let emptyStateScan = app.buttons["MobileDisconnectedScanPairingCode"]
-        XCTAssertTrue(waitForHittable(emptyStateScan, timeout: 4))
-        emptyStateScan.tap()
-        let emptyStateScanner = app.descendants(matching: .any)["MobilePairingScannerPreview"]
-        XCTAssertTrue(emptyStateScanner.waitForExistence(timeout: 4))
-        app.buttons["MobileScannerCancelButton"].tap()
-        XCTAssertTrue(emptyStateScanner.waitForNonExistence(timeout: 4))
-        app.terminate()
-
-        let relaunched = launchApp(mockData: true, environment: environment)
-        defer { relaunched.terminate() }
-        XCTAssertFalse(
-            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
-                .waitForExistence(timeout: 2)
-        )
-        let relaunchedDescription = relaunched.descendants(matching: .any)[
-            "MobileDisconnectedEmptyDescription"
-        ]
-        XCTAssertTrue(relaunchedDescription.waitForExistence(timeout: 8))
-        for requiredFragment in [
-            "cmux 0.64.20 or later",
-            "same cmux account",
-            "keep cmux running on the Mac",
-            "both devices are online",
-            "will not appear automatically",
-        ] {
-            XCTAssertTrue(
-                relaunchedDescription.label.contains(requiredFragment),
-                "Auto-Connect empty-state copy is missing after relaunch: \(requiredFragment)"
-            )
-        }
-        XCTAssertTrue(relaunchedDescription.label.contains("Install Tailscale"))
-        XCTAssertTrue(
-            relaunchedDescription.label.contains(
-                "To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect."
-            )
-        )
-        XCTAssertTrue(
-            relaunched.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
-                .waitForNonExistence(timeout: 2)
-        )
-        let settings = relaunched.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 8))
-        settings.tap()
-        let retainedPicker = relaunched.descendants(matching: .any)["MobileSettingsConnectionMethod"]
-        XCTAssertTrue(retainedPicker.waitForExistence(timeout: 4))
-        XCTAssertTrue(retainedPicker.isHittable)
-        retainedPicker.tap()
-        let retainedTailscale = relaunched.descendants(matching: .any)[
-            "MobileSettingsConnectionMethodTailscale"
-        ]
-        XCTAssertTrue(retainedTailscale.waitForExistence(timeout: 4))
-        XCTAssertTrue(retainedTailscale.isSelected)
-
-        let automatic = relaunched.descendants(matching: .any)[
-            "MobileSettingsConnectionMethodAutomatic"
-        ]
-        XCTAssertTrue(automatic.waitForExistence(timeout: 4))
-        automatic.tap()
-        relaunched.terminate()
-
-        let secondRelaunch = launchApp(mockData: true, environment: environment)
-        defer { secondRelaunch.terminate() }
-        XCTAssertFalse(
-            secondRelaunch.staticTexts["MobileAutoConnectMigrationTitle"]
-                .waitForExistence(timeout: 2)
-        )
-        let secondSettings = secondRelaunch.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(secondSettings.waitForExistence(timeout: 8))
-        secondSettings.tap()
-        let secondPicker = secondRelaunch.descendants(matching: .any)[
-            "MobileSettingsConnectionMethod"
-        ]
-        XCTAssertTrue(secondPicker.waitForExistence(timeout: 4))
-        XCTAssertTrue(secondPicker.isHittable)
-        secondPicker.tap()
-        let retainedAutomatic = secondRelaunch.descendants(matching: .any)[
-            "MobileSettingsConnectionMethodAutomatic"
-        ]
-        XCTAssertTrue(retainedAutomatic.waitForExistence(timeout: 4))
-        XCTAssertTrue(retainedAutomatic.isSelected)
-
-        let settingsTailscale = secondRelaunch.descendants(matching: .any)[
-            "MobileSettingsConnectionMethodTailscale"
-        ]
-        XCTAssertTrue(settingsTailscale.waitForExistence(timeout: 4))
-        settingsTailscale.tap()
-        XCTAssertTrue(
-            secondRelaunch.descendants(matching: .any)["MobilePairingScannerPreview"]
-                .waitForExistence(timeout: 4),
-            "Selecting Tailscale without a local grant must start its scanner."
-        )
     }
 
     /// Continuing acknowledges the notice without changing the default method,
@@ -1389,7 +1174,7 @@ final class cmuxUITests: XCTestCase {
     /// Japanese standard text must expose the complete Settings action in its
     /// declared bottom-padded slot on first render, without requiring a swipe.
     @MainActor
-    func testAutoConnectMigrationJapaneseLandscapeStartsTailscaleSetupWithoutScrolling() throws {
+    func testAutoConnectMigrationJapaneseLandscapeReachesFinalActionWithoutScrolling() throws {
         defer { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .landscapeLeft
 
@@ -1413,7 +1198,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 8))
         XCTAssertEqual(title.label, "Macのcmuxを確認")
 
-        let settingsButton = app.buttons["MobileAutoConnectMigrationSetUpTailscale"]
+        let settingsButton = app.buttons["MobileAutoConnectMigrationUseAutoConnect"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 4))
         let settingsFrame = try XCTUnwrap(
             waitForUsableFrame(of: settingsButton, timeout: 4)
@@ -1435,9 +1220,8 @@ final class cmuxUITests: XCTestCase {
             .tap()
 
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobilePairingScannerPreview"]
-                .waitForExistence(timeout: 4),
-            "The complete Tailscale action must occupy its initial 24-point bottom-padded slot."
+            title.waitForNonExistence(timeout: 4),
+            "The final action must occupy its initial 24-point bottom-padded slot."
         )
     }
 
@@ -1471,9 +1255,8 @@ final class cmuxUITests: XCTestCase {
 
             let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
             let body = app.staticTexts["MobileAutoConnectMigrationBody"]
-            let guidance = app.staticTexts["MobileAutoConnectMigrationGuidance"]
             let continueButton = app.buttons["MobileAutoConnectMigrationUseAutoConnect"]
-            let finalButton = app.buttons["MobileAutoConnectMigrationSetUpTailscale"]
+            let finalButton = app.buttons["MobileAutoConnectMigrationUseAutoConnect"]
             let probes = app.descendants(matching: .any).matching(
                 identifier: "MobileAutoConnectMigrationViewportProbe"
             )
@@ -1490,7 +1273,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(title.waitForExistence(timeout: 8))
             XCTAssertTrue(viewportProbe.waitForExistence(timeout: 4))
             XCTAssertEqual(probes.count, 1)
-            for element in [title, body, guidance, continueButton, finalButton] {
+            for element in [title, body, continueButton] {
                 XCTAssertTrue(element.waitForExistence(timeout: 4))
             }
             XCTAssertTrue(window.exists)
@@ -1498,9 +1281,7 @@ final class cmuxUITests: XCTestCase {
             let localizedElements = [
                 ("title", title),
                 ("body", body),
-                ("guidance", guidance),
                 ("Continue action", continueButton),
-                ("Settings action", finalButton),
             ]
 
             func visibleViewportFrame(
@@ -1801,19 +1582,11 @@ final class cmuxUITests: XCTestCase {
                 named: "the Auto-Connect explanation"
             )
             try reveal(
-                app.staticTexts["MobileAutoConnectMigrationGuidance"],
-                named: "the Tailscale guidance"
-            )
-            try reveal(
                 app.buttons["MobileAutoConnectMigrationUseAutoConnect"],
                 named: "Use Auto-Connect"
             )
-            try reveal(
-                app.buttons["MobileAutoConnectMigrationSetUpTailscale"],
-                named: "Set Up Tailscale"
-            )
 
-            let finalButton = app.buttons["MobileAutoConnectMigrationSetUpTailscale"]
+            let finalButton = app.buttons["MobileAutoConnectMigrationUseAutoConnect"]
             for _ in 0..<8 {
                 let viewportFrame = try visibleViewportFrame(timeout: 2)
                 let finalButtonFrame = try XCTUnwrap(

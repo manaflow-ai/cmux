@@ -31,7 +31,6 @@ enum WorkspaceListConnectionChrome: Equatable {
         isRecoveringConnection: Bool,
         isRecoveringWorkspaceList: Bool = false,
         connectionStatus: MobileMacConnectionStatus,
-        tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
         initialConnectionTimedOut: Bool = false,
         hasLiveTransportPath: Bool = false
@@ -40,11 +39,6 @@ enum WorkspaceListConnectionChrome: Equatable {
             self = .recoveryBanner
         } else if isRecoveringWorkspaceList {
             self = .statusLine(.reconnecting)
-        } else if hasStore && tailscalePairingRequired && !hasLiveTransportPath {
-            // Keep the workspace content visible while directing the user to
-            // the scanner from the existing reconnect action. Tailscale setup
-            // guidance belongs in the empty state, not in blocking chrome.
-            self = .statusLine(.notConnected)
         } else if isInitialConnectionLoading || initialConnectionTimedOut {
             self = .macStatusRow
         } else if connectionStatus == .reconnecting || (hasStore && isRecoveringConnection) {

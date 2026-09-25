@@ -18,9 +18,9 @@ struct MacComputerDetailView: View {
     /// routes lead the routes section. `nil` when opened without a row.
     var focusedRouteKind: CmxAttachTransportKind? = nil
     /// Presents the Add Tailscale Connection sheet STACKED on this detail
-    /// (never replacing the Computers sheet): choosing Tailscale for this
-    /// Computer without a usable grant offers it under the picker, and
-    /// dismissing it lands back here. The scanner is one tap away inside.
+    /// (never replacing the Computers sheet). Scanning the Mac's Tailscale
+    /// pairing code adds its Tailscale address to this Computer's Direct
+    /// addresses; dismissing lands back here.
     @State private var showsAddTailscaleConnection = false
     /// Whether the Tailscale pairing sheet adds the first route or replaces
     /// the route already shown for this Computer.
@@ -113,9 +113,9 @@ struct MacComputerDetailView: View {
             connectionSection
             macPowerSection
             routesSection
-            // Iroh-scoped per-Mac networking. Hidden for Tailscale/Direct
-            // Computers, whose methods never dial Iroh paths.
-            if selectedMethod == .automatic, let irohSettingsModel {
+            // Iroh-scoped per-Mac networking. Hidden for Direct Computers,
+            // which never dial Iroh paths.
+            if selectedMethod == .iroh, let irohSettingsModel {
                 privateAddressesSection(irohSettingsModel)
             }
             identitySection
@@ -253,10 +253,6 @@ struct MacComputerDetailView: View {
                     }
                 }
             )
-        }
-        .onChange(of: computerHasUsableTailscaleAuthorization) { _, authorized in
-            // Pairing landed a grant for this Computer: the sheet's job is done.
-            if authorized { showsAddTailscaleConnection = false }
         }
         .task {
             guard let irohSettingsController else { return }
@@ -455,10 +451,10 @@ struct MacComputerDetailView: View {
     // MARK: - Connection configuration
 
     /// This Computer's own networking configuration: the connection method it
-    /// dials (Iroh or Tailscale) and its private network addresses. Both are
+    /// dials (Iroh or Direct) and its private network addresses. Both are
     /// per (device, build) and local to this iPhone.
     private var selectedMethod: MobileConnectionMethod {
-        pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
+        pairedMac.map { store.connectionMethod(for: $0) } ?? .iroh
     }
 
     /// The Settings connection-method UI, moved here verbatim (same picker
@@ -481,14 +477,8 @@ struct MacComputerDetailView: View {
                     "mobile.settings.connectionMethod.automatic",
                     defaultValue: "Iroh"
                 ))
-                .tag(MobileConnectionMethod.automatic)
+                .tag(MobileConnectionMethod.iroh)
                 .accessibilityIdentifier("MobileComputerConnectionMethodIroh")
-                Text(L10n.string(
-                    "mobile.settings.connectionMethod.tailscale",
-                    defaultValue: "Tailscale Only"
-                ))
-                .tag(MobileConnectionMethod.tailscale)
-                .accessibilityIdentifier("MobileComputerConnectionMethodTailscale")
                 Text(L10n.string(
                     "mobile.connections.method.direct",
                     defaultValue: "Direct"
@@ -497,38 +487,6 @@ struct MacComputerDetailView: View {
                 .accessibilityIdentifier("MobileComputerConnectionMethodDirect")
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
-            // Tailscale Only with no authorized route for THIS computer is
-            // undialable until a Tailscale connection is added once. The
-            // choice never auto-opens anything; it hints the consequence and
-            // offers the add-connection sheet right under the picker for when
-            // the user wants it.
-            if (pendingConnectionMethod ?? selectedMethod) == .tailscale,
-               !computerHasUsableTailscaleAuthorization {
-                Label {
-                    Text(L10n.string(
-                        "mobile.connections.tailscaleUnauthorizedWarning",
-                        defaultValue: "No authorized Tailscale route yet — this computer stays disconnected until you add a Tailscale connection."
-                    ))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
-                .accessibilityIdentifier("MobileComputerTailscaleUnauthorizedWarning")
-                Button {
-                    presentTailscalePairing(.tailscaleSetup)
-                } label: {
-                    Label(
-                        L10n.string(
-                            "mobile.connections.tailscale.add",
-                            defaultValue: "Add Tailscale Connection"
-                        ),
-                        systemImage: "plus.circle"
-                    )
-                }
-                .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
-            }
         } footer: {
             Text(connectionMethodFooterText)
         }
@@ -631,6 +589,20 @@ struct MacComputerDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileComputerDirectAddressAdd")
+            // A Tailscale address comes from the Mac's pairing code, which
+            // also carries the Mac's identity key.
+            Button {
+                presentTailscalePairing(.tailscaleSetup)
+            } label: {
+                Label(
+                    L10n.string(
+                        "mobile.connections.tailscale.add",
+                        defaultValue: "Add Tailscale Connection"
+                    ),
+                    systemImage: "plus.circle"
+                )
+            }
+            .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
         } header: {
             Text(L10n.string(
                 "mobile.connections.direct.title",
@@ -742,40 +714,23 @@ struct MacComputerDetailView: View {
         }
     }
 
-    /// Whether THIS Computer already has a Tailscale route this iPhone is
-    /// authorized to dial (grant matching an advertised route).
-    private var computerHasUsableTailscaleAuthorization: Bool {
-        guard let pairedMac else { return false }
-        return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
-    }
-
     private var connectionMethodFooterText: String {
         switch pendingConnectionMethod ?? selectedMethod {
         case .direct:
             return L10n.string(
                 "mobile.settings.connectionMethod.directFooter",
-                defaultValue: "Dials this computer's encrypted Iroh identity using the addresses you enable below — for LAN, WireGuard, or any network where it's reachable. No relay discovery, no other computers' routes."
+                defaultValue: "Connects only to the addresses you enable below, such as a LAN, Tailscale, or WireGuard address, and verifies this computer's identity. No relays and no discovery."
             )
-        case .automatic:
+        case .iroh:
             return L10n.string(
                 "mobile.settings.connectionMethod.automaticFooter",
                 defaultValue: "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
-            )
-        case .tailscale:
-            return L10n.string(
-                "mobile.settings.connectionMethod.tailscaleFooter",
-                defaultValue: """
-                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
-                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
-                authorization exists.
-                """
             )
         }
     }
 
     /// Persist the per-Computer method. The pending value moves the picker
-    /// immediately; the store reload reconciles it. Choosing Tailscale never
-    /// auto-opens the scanner — the inline warning and Scan row carry that.
+    /// immediately; the store reload reconciles it.
     private func applyConnectionMethod(_ method: MobileConnectionMethod) {
         guard method != (pendingConnectionMethod ?? selectedMethod) else { return }
         pendingConnectionMethod = method

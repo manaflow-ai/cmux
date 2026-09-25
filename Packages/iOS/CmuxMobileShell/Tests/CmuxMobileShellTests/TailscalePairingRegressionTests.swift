@@ -96,6 +96,38 @@ import Testing
         ])
     }
 
+    /// Entering such a code saves its Tailscale endpoint as one of the
+    /// Computer's Direct addresses instead of a raw-TCP grant.
+    @Test func codeNamingTheMacDeviceKeySavesTheTailscaleEndpointAsADirectAddress() async throws {
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac")
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let store = makeStore(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory, now: { Self.fixedNow }, supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            pairedMacStore: pairedMacStore
+        )
+        store.pairingCode = currentQRCode()
+            + "&i=\(String(repeating: "a", count: 64))&d=test-mac"
+
+        await store.connectPairingInput()
+
+        #expect(store.connectionState == MobileConnectionState.connected)
+        let saved = try #require(try await pairedMacStore.activeMac(stackUserID: "phone-user"))
+        #expect(saved.directAddresses == [
+            MobilePairedMacDirectAddress(address: host, port: port, label: "Tailscale"),
+        ])
+        #expect(saved.legacyTailscaleRoutes == nil)
+    }
+
     @Test func replacementScanCanExplicitlyAuthorizeTailscaleForDirectMac() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
@@ -264,7 +296,7 @@ import Testing
         try await pairedMacStore.setConnectionMethod(
             macDeviceID: "test-mac",
             instanceTag: "default",
-            rawValue: MobileConnectionMethod.tailscale.rawValue,
+            rawValue: MobileConnectionMethod.direct.rawValue,
             stackUserID: "phone-user"
         )
         #expect(try await pairedMacStore.removeRouteIfAuthorized(

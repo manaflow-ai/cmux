@@ -1,13 +1,10 @@
 #if os(iOS)
 import CmuxMobileShell
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct OnboardingConnectionView: View {
     let phase: OnboardingConnectionPhase
-    let connectionMethod: MobileConnectionMethod
-    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     var keepAwakeOffer: OnboardingKeepAwakeOffer?
     var onSetKeepAwake: (Bool) async -> Void = { _ in }
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -33,15 +30,8 @@ struct OnboardingConnectionView: View {
         }
     }
 
-    /// Keep the connection choice available for the whole connect page. A
-    /// successful automatic connection is not a commitment to Iroh; people
-    /// may still switch to Tailscale before leaving onboarding.
-    private var showsMethodPicker: Bool {
-        true
-    }
-
     /// The Keep Mac Awake ask appears once the Mac is connected and its state
-    /// is known, below the always-available method picker.
+    /// is known.
     private var visibleKeepAwakeOffer: OnboardingKeepAwakeOffer? {
         phase == .ready ? keepAwakeOffer : nil
     }
@@ -60,12 +50,6 @@ struct OnboardingConnectionView: View {
                 HStack(alignment: .center, spacing: density.sectionSpacing) {
                     OnboardingConnectionPreview(phase: phase, density: density)
                         .frame(maxWidth: .infinity)
-                    OnboardingConnectionMethodPicker(
-                        method: connectionMethod,
-                        density: density,
-                        onSelect: onSelectConnectionMethod
-                    )
-                    .frame(maxWidth: .infinity)
                 }
                 if let visibleKeepAwakeOffer {
                     OnboardingKeepAwakeCard(
@@ -79,13 +63,6 @@ struct OnboardingConnectionView: View {
         } else {
             VStack(spacing: density.sectionSpacing) {
                 OnboardingConnectionPreview(phase: phase, density: density)
-                if showsMethodPicker {
-                    OnboardingConnectionMethodPicker(
-                        method: connectionMethod,
-                        density: density,
-                        onSelect: onSelectConnectionMethod
-                    )
-                }
                 if let visibleKeepAwakeOffer {
                     OnboardingKeepAwakeCard(
                         offer: visibleKeepAwakeOffer,
@@ -105,12 +82,6 @@ struct OnboardingConnectionView: View {
                 defaultValue: "Your Mac is connected"
             )
         }
-        if connectionMethod == .tailscale {
-            return L10n.string(
-                "mobile.onboarding.connect.tailscaleTitle",
-                defaultValue: "Connect over Tailscale"
-            )
-        }
         return L10n.string(
             "mobile.onboarding.connect.title",
             defaultValue: "Your Mac connects automatically"
@@ -124,25 +95,6 @@ struct OnboardingConnectionView: View {
                 defaultValue: "Open any workspace and respond when an agent needs you."
             )
             return "\(connectedCopy) \(MobilePairingCopy().enableOnMacShort)"
-        }
-        if connectionMethod == .tailscale {
-            if let requiredMacVersion {
-                let connectionCopy = String(
-                    format: L10n.string(
-                        "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat",
-                        defaultValue: "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
-                    ),
-                    requiredMacVersion
-                )
-                return "\(connectionCopy) \(MobilePairingCopy().enableOnMacShort)"
-            }
-            // Versionless fallback (below-tier app versions, previews): no
-            // stale hardcoded floor; the policy-driven branch above names one.
-            let connectionCopy = L10n.string(
-                "mobile.onboarding.connect.tailscaleBody",
-                defaultValue: "Install Tailscale on both devices and join the same network, then scan the pairing code once."
-            )
-            return "\(connectionCopy) \(MobilePairingCopy().enableOnMacShort)"
         }
         if let requiredMacVersion {
             let connectionCopy = String(

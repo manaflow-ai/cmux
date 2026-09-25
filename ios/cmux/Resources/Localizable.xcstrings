@@ -76311,55 +76311,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dials this computer's encrypted Iroh identity using the addresses you enable below — for LAN, WireGuard, or any network where it's reachable. No relay discovery, no other computers' routes."
+            "value": "Connects only to the addresses you enable below, such as a LAN, Tailscale, or WireGuard address, and verifies this computer's identity. No relays and no discovery."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "以下で有効にしたアドレスを使って、このコンピュータの暗号化されたIroh IDにダイヤルします。LAN、WireGuardなど到達可能なあらゆるネットワークで使えます。リレー探索や他のコンピュータのルートは使いません。"
+            "value": "以下で有効にしたアドレス（LAN、Tailscale、WireGuardなど）にのみ接続し、このコンピュータのIDを検証します。リレーや探索は使いません。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wählt die verschlüsselte Iroh-Identität dieses Computers mithilfe der unten aktivierten Adressen – für LAN, WireGuard oder jedes Netzwerk, in dem er erreichbar ist. Keine Relay-Erkennung, keine Routen anderer Computer."
+            "value": "Verbindet sich nur mit den unten aktivierten Adressen, etwa einer LAN-, Tailscale- oder WireGuard-Adresse, und prüft die Identität dieses Computers. Keine Relays und keine Erkennung."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compose l'identité Iroh cryptée de cet ordinateur à l'aide des adresses que vous activez ci-dessous – pour LAN, WireGuard ou tout réseau où il est accessible. Pas de découverte de relais, pas de routes d'autres ordinateurs."
+            "value": "Se connecte uniquement aux adresses que vous activez ci-dessous, comme une adresse LAN, Tailscale ou WireGuard, et vérifie l'identité de cet ordinateur. Aucun relais ni aucune découverte."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتصل بهوية Iroh المشفرة لهذا الكمبيوتر باستخدام العناوين التي تقوم بتمكينها أدناه - لشبكة LAN أو WireGuard أو أي شبكة يمكن الوصول إليها. لا يوجد اكتشاف للتتابع ولا توجد مسارات لأجهزة الكمبيوتر الأخرى."
+            "value": "يتصل فقط بالعناوين التي تفعّلها أدناه، مثل عنوان LAN أو Tailscale أو WireGuard، ويتحقق من هوية هذا الكمبيوتر. بدون خوادم ترحيل وبدون اكتشاف."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marca la identidad cifrada de Iroh de esta computadora utilizando las direcciones que habilita a continuación: para LAN, WireGuard o cualquier red donde sea accesible. Sin descubrimiento de retransmisiones, ni rutas de otras computadoras."
+            "value": "Se conecta solo a las direcciones que actives abajo, como una dirección LAN, Tailscale o WireGuard, y verifica la identidad de esta computadora. Sin relés ni descubrimiento."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用您在下方啟用的位址（適用於 LAN、WireGuard 或任何可存取的網路）撥打此電腦的加密 Iroh 身分。沒有中繼發現，沒有其他計算機的路由。"
+            "value": "僅連線至您在下方啟用的位址（例如 LAN、Tailscale 或 WireGuard 位址），並驗證這台電腦的身分。不使用中繼，也不進行探索。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用您在下面启用的地址（对于 LAN、WireGuard 或任何可访问的网络）拨打此计算机的加密 Iroh 身份。没有中继发现，没有其他计算机的路由。"
+            "value": "仅连接到您在下方启用的地址（例如 LAN、Tailscale 或 WireGuard 地址），并验证这台电脑的身份。不使用中继，也不进行发现。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "LAN, WireGuard 또는 연결할 수 있는 모든 네트워크에 대해 아래에서 활성화한 주소를 사용하여 이 컴퓨터의 암호화된 Iroh ID에 전화를 겁니다. 릴레이 검색도 없고 다른 컴퓨터의 경로도 없습니다."
+            "value": "아래에서 활성화한 주소(LAN, Tailscale, WireGuard 주소 등)에만 연결하고 이 컴퓨터의 신원을 확인합니다. 릴레이나 검색은 사용하지 않습니다."
           }
         }
       }
