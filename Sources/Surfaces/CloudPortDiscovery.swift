@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns a machine's scan demand and last successful inventory independently of its workspace event feed.
