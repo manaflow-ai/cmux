@@ -70,6 +70,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// `MarkdownMaxWidthSettings`.
     @Published private(set) var maxContentWidth: Double
 
+    /// The effective shared markdown template. It follows `cmux.json` live.
+    @Published private(set) var template: CmuxPanelTemplate
+
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
@@ -157,12 +160,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        let template = CmuxPanelTemplateStore.resolvedMarkdown(filePath: filePath)
+        let templateSize = template.fontSize ?? defaultSize
+        let templateFamily = template.font ?? defaultFamily
+        let templateMaxWidth = template.viewport?.maxWidth ?? defaultMaxWidth
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
-        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
-        self.fontFamily = defaultFamily
-        self.maxContentWidth = defaultMaxWidth
+        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? templateSize)
+        self.fontFamily = templateFamily
+        self.maxContentWidth = MarkdownMaxWidthSettings.clamp(templateMaxWidth)
+        self.template = template
         self.followedFontSize = defaultSize
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
@@ -276,6 +284,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     private func adoptTypographyDefaultsIfFollowing() {
         guard !isClosed else { return }
+        template = CmuxPanelTemplateStore.resolvedMarkdown(filePath: filePath)
         // Only viewers still tracking the default follow the change.
         guard abs(fontSize - followedFontSize) < 0.01,
               fontFamily == followedFontFamily,

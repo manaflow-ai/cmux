@@ -153,6 +153,33 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    /// Parses the shared structured-text template overrides. They are kept as
+    /// one encoded value per panel so an arbitrary CSS/extension payload can
+    /// hot-reload without adding a new UserDefaults key for every template
+    /// field.
+    func parseTemplatesSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let panels: [(String, String)] = [
+            ("markdown", CmuxPanelTemplateStore.markdownKey),
+            ("notes", CmuxPanelTemplateStore.notesKey),
+            ("diff", CmuxPanelTemplateStore.diffKey),
+        ]
+        for (panel, defaultsKey) in panels {
+            guard let raw = section[panel] else { continue }
+            guard let dictionary = raw as? [String: Any],
+                  let data = try? JSONSerialization.data(withJSONObject: dictionary),
+                  let template = try? JSONDecoder().decode(CmuxPanelTemplate.self, from: data),
+                  let encoded = CmuxPanelTemplateStore.encoded(template) else {
+                logInvalid("templates.\(panel)", sourcePath: sourcePath)
+                continue
+            }
+            snapshot.managedUserDefaults[defaultsKey] = .string(encoded)
+        }
+    }
+
     func parseMobileSection(
         _ section: [String: Any],
         sourcePath: String,

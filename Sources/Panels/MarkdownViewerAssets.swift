@@ -30,12 +30,14 @@ final class MarkdownViewerAssets {
         localizedStringsJSON = MarkdownViewerAssets.localizedStringsJSON()
     }
 
-    func shellHTML(isDark: Bool) -> String {
+    func shellHTML(isDark: Bool, template: CmuxPanelTemplate = .markdownDefault) -> String {
         _ = isDark
+        let cssOverlay = template.cssOverlay ?? ""
         return shellTemplate
             .replacingOccurrences(of: "{{githubMarkdownCSS}}", with: githubMarkdownCSS)
             .replacingOccurrences(of: "{{highlightLightCSS}}", with: highlightLightCSS)
             .replacingOccurrences(of: "{{highlightDarkCSS}}", with: highlightDarkCSS)
+            .replacingOccurrences(of: "{{cmuxTemplateCSS}}", with: cssOverlay)
             .replacingOccurrences(of: "{{markedJS}}", with: markedJS)
             .replacingOccurrences(of: "{{highlightJS}}", with: highlightJS)
             .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigationJS)

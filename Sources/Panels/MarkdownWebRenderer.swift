@@ -22,6 +22,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let fontFamily: String
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
+    /// Shared template overrides loaded from `cmux.json`.
+    let template: CmuxPanelTemplate
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
     /// Called after the renderer view is attached to a window. A panel can
@@ -54,6 +56,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
+            context.coordinator.setTemplate(template)
             return webView
         }
 
@@ -101,6 +104,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setTemplate(template)
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
@@ -116,6 +120,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setTemplate(template)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -168,6 +173,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
+        private var lastTemplate: CmuxPanelTemplate = .markdownDefault
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -259,6 +265,48 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             applyMaxContentWidth()
         }
 
+        /// Applies template CSS and persistent header/footer extensions.
+        func setTemplate(_ template: CmuxPanelTemplate) {
+            guard lastTemplate != template else { return }
+            lastTemplate = template
+            applyTemplate()
+        }
+
+        private func applyTemplate() {
+            guard let webView else { return }
+            let template = lastTemplate
+            let header = template.headerExtensions ?? ""
+            let footer = template.footerExtensions ?? ""
+            let payload: [String: String] = [
+                "header": header,
+                "footer": footer,
+                "cssOverlay": template.cssOverlay ?? "",
+                "theme": template.theme ?? "",
+                "lightTheme": template.lightTheme ?? "",
+                "darkTheme": template.darkTheme ?? "",
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            let viewport = template.viewport
+            let padding = Int((viewport?.padding ?? 32).rounded())
+            let alignment = viewport?.alignment?.rawValue ?? "leading"
+            let maxWidth = Int((viewport?.maxWidth ?? lastMaxContentWidth).rounded())
+            let css = """
+            (function(payload) {
+              if (window.__cmuxSetMarkdownTemplate) { window.__cmuxSetMarkdownTemplate(payload); }
+              var content = document.getElementById('content');
+              if (!content) { return; }
+              content.style.lineHeight = '\(min(4, max(0.5, template.lineHeight ?? 1.5)))';
+              content.style.maxWidth = '\(maxWidth)px';
+              content.style.marginLeft = '\(alignment == "center" ? "auto" : "0")';
+              content.style.marginRight = '\(alignment == "center" ? "auto" : "0")';
+              content.style.paddingLeft = '\(padding)px';
+              content.style.paddingRight = '\(padding)px';
+            })((json));
+            """
+            webView.evaluateJavaScript(css, completionHandler: nil)
+        }
+
         private func applyMaxContentWidth() {
             guard let webView else { return }
             let width = Int(MarkdownMaxWidthSettings.clamp(lastMaxContentWidth).rounded())
@@ -298,7 +346,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
-            let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
+            let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark, template: lastTemplate)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
             NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
@@ -740,6 +788,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // so it MUST be re-applied after every shell (re)load.
             applyFontFamily()
             applyMaxContentWidth()
+            applyTemplate()
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:

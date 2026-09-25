@@ -38,6 +38,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let browser = BrowserCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
     public let markdown = MarkdownCatalogSection()
+    /// Shared markdown and diff panel template overrides.
+    public let templates = TemplatesCatalogSection()
     /// Settings for the freeform canvas workspace layout (the `canvas.*` keys).
     public let canvas = CanvasCatalogSection()
     /// Settings for the built-in plain-text file editor (the `fileEditor.*` keys).

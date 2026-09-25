@@ -12,6 +12,9 @@
 <style id="hljs-dark" disabled>
 {{highlightDarkCSS}}
 </style>
+<style id="cmux-template-overlay">
+{{cmuxTemplateCSS}}
+</style>
 <style>
 :root { color-scheme: light dark; }
 html, body {
@@ -1838,10 +1841,36 @@ html { scroll-behavior: smooth; }
     openMarkdownCandidate(rawPath);
   }, true);
 
+  var cmuxTemplateHeader = '';
+  var cmuxTemplateFooter = '';
+  window.__cmuxSetMarkdownTemplate = function(template) {
+    template = template || {};
+    cmuxTemplateHeader = typeof template.header === 'string' ? template.header : '';
+    cmuxTemplateFooter = typeof template.footer === 'string' ? template.footer : '';
+    var overlay = document.getElementById('cmux-template-overlay');
+    if (overlay) { overlay.textContent = typeof template.cssOverlay === 'string' ? template.cssOverlay : ''; }
+    var root = document.documentElement;
+    if (root) {
+      if (typeof template.lightTheme === 'string' && template.lightTheme.trim()) {
+        root.setAttribute('data-light-theme', template.lightTheme.trim());
+      }
+      if (typeof template.darkTheme === 'string' && template.darkTheme.trim()) {
+        root.setAttribute('data-dark-theme', template.darkTheme.trim());
+      }
+    }
+    var mode = typeof template.theme === 'string' ? template.theme.trim().toLowerCase() : '';
+    if (contentEl && (mode === 'light' || mode === 'dark')) {
+      contentEl.setAttribute('data-theme', mode);
+      if (root) { root.style.colorScheme = mode; }
+    }
+  };
+
   window.__cmuxRenderMarkdown = function(md) {
     try {
       headingSlugCounts = Object.create(null);
-      var documentParts = extractFrontmatter(md || '');
+      var source = cmuxTemplateHeader + (cmuxTemplateHeader ? '\n\n' : '')
+        + (md || '') + (cmuxTemplateFooter ? '\n\n' : '') + cmuxTemplateFooter;
+      var documentParts = extractFrontmatter(source);
       var html = renderFrontmatter(documentParts.frontmatter)
         + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
       var didReplaceContent = contentEl.innerHTML !== html;
