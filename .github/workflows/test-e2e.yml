@@ -73,8 +73,8 @@ jobs:
     # back. Any error reading the queue stays on 6vcpu, and
     # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the
     # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
-    # (glaeda-*) with a free slot in CI_OWNED_POOL_SLOTS comes first, as for
-    # pull requests. A job an owned Mac leaves queued or refuses is re-run by
+    # (glaeda-*) comes first while its job starts within CI_PR_POOL_QUEUE_ROUNDS
+    # job lengths and no later than on Blacksmith, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -113,6 +113,7 @@ jobs:
           LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
@@ -126,6 +127,7 @@ jobs:
             --overflow "$LARGE_POOL_OVERFLOW" \
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" \
+            --queue-rounds "$POOL_QUEUE_ROUNDS" \
             --owned "$POOL_OWNED" \
             --owned-slots "$OWNED_SLOTS" \
             --pr-xcode-app "$PR_XCODE_APP" \
