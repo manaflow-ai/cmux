@@ -2340,6 +2340,7 @@ struct TextBoxInputContainer: View {
                     onForwardKey: forwardKey(_:),
                     onForwardControl: forwardControl(_:),
                     onPaste: handlePaste(_:into:),
+                    onDrop: handleDrop(_:into:),
                     onInsertFileURLs: insertSelectedFileURLs(_:into:),
                     onChooseFiles: chooseFiles,
                     onContentChanged: markContentChanged,
@@ -2968,6 +2969,7 @@ struct TextBoxInputView: NSViewRepresentable {
     let onForwardKey: (TextBoxTerminalKey) -> Void
     let onForwardControl: (String) -> Void
     let onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool
+    let onDrop: (NSPasteboard, TextBoxInputTextView) -> Bool
     let onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool
     let onChooseFiles: () -> Void
     let onContentChanged: () -> Void
@@ -2995,6 +2997,7 @@ struct TextBoxInputView: NSViewRepresentable {
         onForwardKey: @escaping (TextBoxTerminalKey) -> Void,
         onForwardControl: @escaping (String) -> Void,
         onPaste: @escaping (NSPasteboard, TextBoxInputTextView) -> Bool,
+        onDrop: @escaping (NSPasteboard, TextBoxInputTextView) -> Bool,
         onInsertFileURLs: @escaping ([URL], TextBoxInputTextView) -> Bool,
         onChooseFiles: @escaping () -> Void,
         onContentChanged: @escaping () -> Void,
@@ -3021,6 +3024,7 @@ struct TextBoxInputView: NSViewRepresentable {
         self.onForwardKey = onForwardKey
         self.onForwardControl = onForwardControl
         self.onPaste = onPaste
+        self.onDrop = onDrop
         self.onInsertFileURLs = onInsertFileURLs
         self.onChooseFiles = onChooseFiles
         self.onContentChanged = onContentChanged
@@ -3061,7 +3065,7 @@ struct TextBoxInputView: NSViewRepresentable {
         )
         textView.textContainerInset = TextBoxLayout.textInset
         textView.textContainer?.lineFragmentPadding = 0
-        textView.registerForDraggedTypes([.fileURL])
+        textView.registerForDraggedTypes(Array(TextBoxInputTextView.dragTypes))
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -3123,6 +3127,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onForwardKey = onForwardKey
         textView.onForwardControl = onForwardControl
         textView.onPaste = onPaste
+        textView.onDrop = onDrop
         textView.onInsertFileURLs = onInsertFileURLs
         textView.onChooseFiles = onChooseFiles
         textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
@@ -3303,6 +3308,19 @@ struct TextBoxInputView: NSViewRepresentable {
 }
 
 final class TextBoxInputTextView: NSTextView {
+    static let dragTypes: Set<NSPasteboard.PasteboardType> = PasteboardFileURLReader
+        .fileURLPasteboardTypes
+        .union([
+            .string,
+            .URL,
+            .png,
+            .tiff,
+            NSPasteboard.PasteboardType(UTType.jpeg.identifier),
+            NSPasteboard.PasteboardType(UTType.gif.identifier),
+            NSPasteboard.PasteboardType(UTType.heic.identifier),
+            NSPasteboard.PasteboardType(UTType.heif.identifier),
+        ])
+
     fileprivate private(set) var isHandlingDidChangeText = false
 
     var terminalTitle = ""
@@ -3323,6 +3341,7 @@ final class TextBoxInputTextView: NSTextView {
     var onForwardKey: (TextBoxTerminalKey) -> Void = { _ in }
     var onForwardControl: (String) -> Void = { _ in }
     var onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool = { _, _ in false }
+    var onDrop: (NSPasteboard, TextBoxInputTextView) -> Bool = { _, _ in false }
     var onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool = { _, _ in false }
     var onChooseFiles: () -> Void = {}
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
@@ -4016,20 +4035,21 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        fileURLs(from: sender.draggingPasteboard).isEmpty ? [] : .copy
+        Self.dragTypes.isDisjoint(with: Set(sender.draggingPasteboard.types ?? [])) ? [] : .copy
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        !fileURLs(from: sender.draggingPasteboard).isEmpty
+        !Self.dragTypes.isDisjoint(with: Set(sender.draggingPasteboard.types ?? []))
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender.draggingPasteboard)
-        guard !urls.isEmpty else { return false }
-
         let point = convert(sender.draggingLocation, from: nil)
         setSelectedRange(NSRange(location: insertionIndex(for: point), length: 0))
-        return onInsertFileURLs(urls, self)
+        if !urls.isEmpty {
+            return onInsertFileURLs(urls, self)
+        }
+        return onDrop(sender.draggingPasteboard, self)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

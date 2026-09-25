@@ -17,6 +17,7 @@ extension TextBoxInputTextView {
         using preparationService: TerminalImageTransferPreparationService,
         pasteboardService: TerminalPasteboardService = GhosttyApp
             .terminalPasteboard,
+        mode: TerminalImageTransferMode = .paste,
         onPrepared: @escaping PreparedPasteHandler
     ) -> Bool {
         let placeholderID = UUID()
@@ -67,7 +68,7 @@ extension TextBoxInputTextView {
                 pasteboard: pasteboard
             )
             let preparedContent = await preparationService
-                .prepareComposer(request: request)
+                .prepareComposer(request: request, mode: mode)
             guard let self else {
                 preparationService.cleanupTransferredTemporaryFiles(
                     preparedContent

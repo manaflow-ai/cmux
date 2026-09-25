@@ -6,14 +6,16 @@ private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 private let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
 @MainActor
-final class TmuxWorkspacePaneOverlayHostingView<Content: View>: NSHostingView<Content> {}
+final class TmuxWorkspacePaneOverlayHostingView<Content: View>: NSHostingView<Content> {
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+}
 
 @MainActor
 final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private weak var window: NSWindow?
     private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
     private let model = TmuxWorkspacePaneOverlayModel()
-    private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
+    private let hostingView: TmuxWorkspacePaneOverlayHostingView<TmuxWorkspacePaneOverlayView>
     private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
@@ -36,7 +38,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
 
     init(window: NSWindow) {
         self.window = window
-        self.hostingView = NSHostingView(
+        self.hostingView = TmuxWorkspacePaneOverlayHostingView(
             rootView: TmuxWorkspacePaneOverlayView(
                 unreadRects: [],
                 flashRect: nil,

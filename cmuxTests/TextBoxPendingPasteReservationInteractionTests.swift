@@ -62,7 +62,7 @@ struct TextBoxPendingPasteReservationInteractionTests {
         let draggingInfo = MockDraggingInfo(pasteboard: pasteboard)
         let textView = TextBoxInputTextView(frame: .zero)
         var pasteForwarded = false
-        textView.onPaste = { _, _ in
+        textView.onDrop = { _, _ in
             pasteForwarded = true
             return true
         }

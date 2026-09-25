@@ -93,12 +93,13 @@ actor TerminalImageTransferPreparationService {
     }
 
     func prepareComposer(
-        request: TerminalPasteboardReadRequest
+        request: TerminalPasteboardReadRequest,
+        mode: TerminalImageTransferMode = .paste
     ) async -> TextBoxPastePreparedContent {
         let outcome = await submit(
             TerminalPastePreparationRequest(
                 pasteboard: request,
-                mode: .paste,
+                mode: mode,
                 destination: .composer
             )
         )
