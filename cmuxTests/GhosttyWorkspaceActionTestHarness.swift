@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminal
 import GhosttyKit
 import Testing
@@ -18,10 +19,18 @@ final class GhosttyWorkspaceActionTestHarness {
     let windowID = UUID()
     let sourceWorkspaceID: UUID
     private let previousManager: TabManager?
+    private let defaultsName = "cmux.tests.ghostty-host-actions.\(UUID().uuidString)"
+    private let defaults: UserDefaults
 
     init() throws {
         app = try #require(AppDelegate.shared)
-        manager = TabManager(autoWelcomeIfNeeded: false)
+        defaults = try #require(UserDefaults(suiteName: defaultsName))
+        CloseTabWarningStore(defaults: defaults).setWarnsBeforeClosingTab(true)
+        manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: UserDefaultsSettingsClient(defaults: defaults),
+            closeTabWarningDefaults: defaults
+        )
         sourceWorkspaceID = try #require(manager.selectedTabId)
         previousManager = app.tabManager
         window = NSWindow(
@@ -45,6 +54,7 @@ final class GhosttyWorkspaceActionTestHarness {
         manager.finalizeAllWorkspacesForWindowClose()
         app.tabManager = previousManager
         window.close()
+        defaults.removePersistentDomain(forName: defaultsName)
     }
 
     func startTerminal() async throws -> TerminalSurface {

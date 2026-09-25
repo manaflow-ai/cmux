@@ -997,6 +997,7 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadGhosttyHostKeybindDefaults(fallbackConfig)
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
@@ -1106,7 +1107,7 @@ class GhosttyApp {
         #endif
     }
 
-    private func loadInlineGhosttyConfig(
+    func loadInlineGhosttyConfig(
         _ contents: String,
         into config: ghostty_config_t,
         prefix: String,
@@ -1238,6 +1239,7 @@ class GhosttyApp {
         conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
         hasUserGhosttyCommand = false
+        loadGhosttyHostKeybindDefaults(config)
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
@@ -1329,43 +1331,6 @@ class GhosttyApp {
         cmuxDebugLog("ghostty.vsync.disable reason=noActiveDisplays")
 #endif
     }
-
-    private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
-        // cmux owns these split, close, and workspace font-size shortcuts through
-        // KeyboardShortcutSettings.
-        // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
-        // can reach the focused terminal instead of running actions outside the
-        // remappable shortcut layer.
-        loadInlineGhosttyConfig(
-            """
-            keybind = super+d=unbind
-            keybind = super+shift+d=unbind
-            keybind = super+w=unbind
-            keybind = super+alt+w=unbind
-            keybind = super+shift+w=unbind
-            keybind = super+ctrl+==unbind
-            \(Self.numberedWorkspaceGhosttyUnbinds)
-            """,
-            into: config,
-            prefix: "cmux-owned-keybind-overrides",
-            logLabel: "cmux-owned keybind overrides"
-        )
-    }
-
-    /// Unbinds Ghostty's built-in `super+1…8 = goto_tab` / `super+9 = last_tab`
-    /// fallbacks so the numbered "Select Workspace 1…9" shortcut is owned solely
-    /// by `KeyboardShortcutSettings`.
-    ///
-    /// Without this, a `⌘1–9` remapped away in Settings still falls through to the
-    /// focused terminal and Ghostty performs `goto_tab`, so the rebind looks
-    /// hardcoded (https://github.com/manaflow-ai/cmux/issues/5189). Ghostty registers
-    /// each digit under both its Unicode form (`super+1`) and its physical-key form
-    /// (`super+digit_1`), so both are unbound here.
-    private static let numberedWorkspaceGhosttyUnbinds: String = {
-        (1...9).flatMap { digit in
-            ["keybind = super+\(digit)=unbind", "keybind = super+digit_\(digit)=unbind"]
-        }.joined(separator: "\n")
-    }()
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges
     /// and has not already provided an explicit multi-entry `font-family`
@@ -3127,6 +3092,13 @@ class GhosttyApp {
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
+        if let hostAction = GhosttyHostAction(action) {
+            // The C ABI requires the performability result before returning.
+            return performOnMain {
+                guard let app = AppDelegate.shared else { hostAction.reportUnavailable(); return false }
+                return GhosttyHostActionHandler(app: app, ghostty: self).perform(hostAction, target: target)
+            }
+        }
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
                 action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
@@ -3183,6 +3155,7 @@ class GhosttyApp {
                 return true
             }
 
+            GhosttyHostAction.reportUnhandled(action.tag)
             return false
         }
         let callbackContext = Self.callbackContext(from: ghostty_surface_userdata(target.target.surface))
@@ -3544,6 +3517,7 @@ class GhosttyApp {
                 return TerminalLinkOpenCoordinator().open(request)
             }
         default:
+            GhosttyHostAction.reportUnhandled(action.tag)
             return false
         }
     }
