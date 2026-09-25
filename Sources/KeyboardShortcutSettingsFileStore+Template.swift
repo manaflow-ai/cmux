@@ -94,6 +94,7 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "adaptiveDefaultTheme": SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue,
+                    "prefixProgramTitlesWithDirectory": SettingCatalog().terminal.prefixProgramTitlesWithDirectory.defaultValue,
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "sessionContentMaxWidth": false,

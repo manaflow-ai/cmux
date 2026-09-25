@@ -87,6 +87,21 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `terminal.prefixProgramTitlesWithDirectory`
+
+When enabled, program-set terminal titles include the terminal's current
+directory basename. A title such as `✳ Claude Code` in `~/src/app` becomes
+`✳ app / Claude Code`; shell prompt titles beginning with `~` and titles that
+already identify the directory are left unchanged. The default is `false`.
+
+```json
+{
+  "terminal": {
+    "prefixProgramTitlesWithDirectory": true
+  }
+}
+```
+
 ## `terminal.agentHibernation`
 
 Routine Agent Hibernation is opt-in. cmux hibernates idle background agent

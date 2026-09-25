@@ -114,6 +114,10 @@ import Testing
 
         #expect(workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code"))
         #expect(workspace.panelTitle(panelId: panelID) == "✳ app / Claude Code")
+        #expect(Workspace.titlePrefixedWithDirectoryName("app", directory: "/tmp/app") == "app")
+        #expect(Workspace.titlePrefixedWithDirectoryName("app: shell", directory: "/tmp/app") == "app: shell")
+        #expect(Workspace.titlePrefixedWithDirectoryName("~/src/app", directory: "/tmp/app") == "~/src/app")
+        #expect(Workspace.titlePrefixedWithDirectoryName("✳ app / Claude Code", directory: "/tmp/app") == "✳ app / Claude Code")
     }
 
     @Test func panelProvenanceMirrorsWorkspaceRules() throws {

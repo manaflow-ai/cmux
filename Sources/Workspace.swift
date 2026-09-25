@@ -2736,6 +2736,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
     private let settings: any SettingsReading
 
+    /// Whether newly received program titles should identify their directory.
+    var prefixesProgramTitlesWithDirectory: Bool {
+        settings.value(for: SettingCatalog().terminal.prefixProgramTitlesWithDirectory)
+    }
+
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 

@@ -556656,6 +556656,74 @@
                 }
             }
         }
+    },
+    "settings.terminal.prefixProgramTitlesWithDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Directory in Program Titles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログラムタイトルにディレクトリを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.prefixProgramTitlesWithDirectory.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix program-set terminal titles with the current directory name."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログラムが設定するターミナルタイトルの前に現在のディレクトリ名を付けます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.prefixProgramTitlesWithDirectory.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program-set terminal titles show without a directory prefix."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログラムが設定するターミナルタイトルにディレクトリ名を付けません。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.prefix-program-titles-with-directory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory program title directory folder basename working directory cwd terminal tab workspace agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory プログラム タイトル ディレクトリ フォルダ 作業ディレクトリ ターミナル タブ ワークスペース エージェント"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

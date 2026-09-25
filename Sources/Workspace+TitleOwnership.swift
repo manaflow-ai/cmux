@@ -134,11 +134,15 @@ extension Workspace {
         let admitted = panels[panelId]?.panelType == .terminal
             ? AutomaticTerminalTitle(candidate)?.value : candidate
         guard let admitted else { return false }
-        let trimmed = admitted.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
-        guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
+        let rawTrimmed = admitted.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawTrimmed.isEmpty, panels[panelId] != nil else { return false }
+        guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: rawTrimmed) else {
             return false
         }
+        let prefixedTitle = remote == nil && prefixesProgramTitlesWithDirectory
+            ? Self.titlePrefixedWithDirectoryName(rawTrimmed, directory: panelDirectories[panelId])
+            : rawTrimmed
+        let trimmed = AutomaticTerminalTitle(prefixedTitle)?.value ?? rawTrimmed
         var didMutate = false
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
@@ -188,6 +192,34 @@ extension Workspace {
         }
 #endif
         return didMutate
+    }
+
+    /// Prefixes a program-set terminal title with the directory basename.
+    ///
+    /// A leading status glyph remains at the front, while shell prompt titles
+    /// beginning with `~` and titles that already identify the directory stay
+    /// unchanged.
+    nonisolated static func titlePrefixedWithDirectoryName(_ title: String, directory: String?) -> String {
+        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty else { return title }
+        let name = (directory as NSString).lastPathComponent
+        guard !name.isEmpty, name != "/" else { return title }
+
+        var marker = ""
+        var body = Substring(title)
+        if let first = title.first,
+           !first.isLetter, !first.isNumber, !first.isASCII,
+           title.dropFirst().first == " " {
+            marker = "\(first) "
+            body = title.dropFirst(2)
+        }
+        guard body != name,
+              !body.hasPrefix("\(name):"),
+              !body.hasPrefix("\(name) / "),
+              !body.hasPrefix("~") else {
+            return title
+        }
+        return "\(marker)\(name) / \(body)"
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {

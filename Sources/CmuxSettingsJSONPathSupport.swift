@@ -242,6 +242,11 @@ enum TerminalSettingsFileMapping {
             defaultsKey: terminal.textEditingGestures.userDefaultsKey,
             invalidPath: terminal.textEditingGestures.id
         ),
+        .init(
+            jsonKey: "prefixProgramTitlesWithDirectory",
+            defaultsKey: terminal.prefixProgramTitlesWithDirectory.userDefaultsKey,
+            invalidPath: terminal.prefixProgramTitlesWithDirectory.id
+        ),
     ]
 }
 

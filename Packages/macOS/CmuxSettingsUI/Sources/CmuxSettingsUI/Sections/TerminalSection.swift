@@ -25,6 +25,7 @@ public struct TerminalSection: View {
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
+    @State private var prefixProgramTitlesWithDirectory: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -52,6 +53,7 @@ public struct TerminalSection: View {
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _prefixProgramTitlesWithDirectory = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.prefixProgramTitlesWithDirectory))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -88,6 +90,7 @@ public struct TerminalSection: View {
             copyOnSelect,
             textEditingGestures,
             adaptiveDefaultTheme,
+            prefixProgramTitlesWithDirectory,
             autoResume,
             hibernation,
             idleSeconds,
@@ -307,6 +310,34 @@ public struct TerminalSection: View {
                 .accessibilityIdentifier(
                     "SettingsTerminalAdaptiveDefaultThemeToggle"
                 )
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.prefixProgramTitlesWithDirectory"),
+                String(
+                    localized: "settings.terminal.prefixProgramTitlesWithDirectory",
+                    defaultValue: "Keep Directory in Program Titles"
+                ),
+                subtitle: prefixProgramTitlesWithDirectory.current
+                    ? String(
+                        localized: "settings.terminal.prefixProgramTitlesWithDirectory.subtitleOn",
+                        defaultValue: "Prefix program-set terminal titles with the current directory name."
+                    )
+                    : String(
+                        localized: "settings.terminal.prefixProgramTitlesWithDirectory.subtitleOff",
+                        defaultValue: "Program-set terminal titles show without a directory prefix."
+                    )
+            ) {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { prefixProgramTitlesWithDirectory.current },
+                        set: { prefixProgramTitlesWithDirectory.set($0) }
+                    )
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalDirectoryTitlePrefixToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
