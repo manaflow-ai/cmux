@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -1372,17 +1373,44 @@ class Wiring(unittest.TestCase):
         self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
 
 
-class LocalKeep(unittest.TestCase):
-    def test_keeps_eight_seeds_with_room_and_two_on_a_short_disk(self):
-        import collections
-        usage = collections.namedtuple("usage", "total used free")
-        with unittest.mock.patch.object(seed.shutil, "disk_usage", return_value=usage(0, 0, 200 * 1024**3)):
-            self.assertEqual(seed.local_keep(Path("/")), seed.LOCAL_KEEP)
-        with unittest.mock.patch.object(seed.shutil, "disk_usage", return_value=usage(0, 0, 50 * 1024**3)):
-            self.assertEqual(seed.local_keep(Path("/")), seed.LOCAL_KEEP_LOW_DISK)
-        with unittest.mock.patch.object(seed.shutil, "disk_usage", side_effect=OSError("gone")):
-            self.assertEqual(seed.local_keep(Path("/")), seed.LOCAL_KEEP_LOW_DISK)
-        self.assertGreater(seed.LOCAL_KEEP, seed.LOCAL_KEEP_LOW_DISK)
+class PruneLocal(unittest.TestCase):
+    """Kept seeds use the disk: only the count cap or a short disk prunes them."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cache = Path(self.tmp.name)
+        now = time.time()
+        for index in range(10):  # s0 newest ... s9 oldest, all past the grace period
+            path = self.cache / f"s{index}"
+            path.mkdir()
+            old = now - seed.PRUNE_GRACE_SECONDS - 60 * (index + 1)
+            os.utime(path, (old, old))
+
+    def left(self):
+        return sorted(entry.name for entry in self.cache.iterdir())
+
+    def test_a_roomy_disk_keeps_every_seed_under_the_cap(self):
+        with mock.patch.object(seed, "free_bytes", return_value=seed.LOCAL_KEEP_MIN_FREE_BYTES + 1):
+            seed.prune_local(self.cache)
+        self.assertEqual(len(self.left()), 10)
+        with mock.patch.object(seed, "free_bytes", return_value=seed.LOCAL_KEEP_MIN_FREE_BYTES + 1), \
+             mock.patch.object(seed, "LOCAL_KEEP", 4):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(), ["s0", "s1", "s2", "s3"])
+
+    def test_a_short_disk_drops_the_oldest_until_there_is_room(self):
+        frees = iter([0, 0, 0, seed.LOCAL_KEEP_MIN_FREE_BYTES])
+        with mock.patch.object(seed, "free_bytes", side_effect=lambda _: next(frees)):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(), [f"s{index}" for index in range(7)])
+
+    def test_the_newest_two_the_spared_and_the_recent_always_stay(self):
+        recent = self.cache / "s8"
+        os.utime(recent)
+        with mock.patch.object(seed, "free_bytes", return_value=0):
+            seed.prune_local(self.cache, spare=self.cache / "s5")
+        self.assertEqual(self.left(), ["s0", "s5", "s8"])  # touching s8 made it one of the newest two
 
 
 if __name__ == "__main__":

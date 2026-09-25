@@ -106,19 +106,18 @@ ANCESTOR_LIMIT = 50
 # Fallbacks go in this order after a runner's own width.
 SEEDED_JOB_WIDTHS = (12, 6, 14)
 USER_AGENT = "cmux-ci-seed-derived-data"
-# Seeds each canonical root keeps in its CMUX_SEED_LOCAL_CACHE, newest first
-# (roots do not share seeds: the keys carry the root). main takes about 25
-# merges an hour and a seed takes about 15 minutes, so the newest seed is
-# usually 5 to 8 commits behind a pull request's base, and a job whose base is
-# older needs an older seed. With only 2 kept, most jobs found none near their
-# base and fell back to the previous pull request's build (345 changed inputs
-# in run 36121897936). A seed is about 8 GB, so 6 per root is about 48 GB, or
-# 96 GB on a two-root mini; the runner minis had 175 to 280 GB free. Under
-# LOCAL_KEEP_MIN_FREE_BYTES free, keep 2, which stays clear of the admission
-# floor of 25 + 25 GiB per build slot at up to 4 slots.
-LOCAL_KEEP = 6
+# Seeds each canonical root keeps in its CMUX_SEED_LOCAL_CACHE (roots do not
+# share seeds: the keys carry the root). The disk is there to use: a kept seed
+# clones in 14 to 42 s where a download takes 180 to 280 s, and main moves 5 to
+# 8 commits per seed, so every seed within ANCESTOR_LIMIT commits of a job's
+# base can be its cheapest start. Keep up to LOCAL_KEEP, newest first, and
+# drop the oldest only while free space is under LOCAL_KEEP_MIN_FREE_BYTES,
+# which sits above both glaeda-disk's pressure line (25% of a 460 GB mini,
+# about 115 GiB) and the admission floor (25 + 25 GiB per slot, 125 GiB at 4
+# slots), never below the newest LOCAL_KEEP_LOW_DISK.
+LOCAL_KEEP = 48
 LOCAL_KEEP_LOW_DISK = 2
-LOCAL_KEEP_MIN_FREE_BYTES = 150 * 1024**3
+LOCAL_KEEP_MIN_FREE_BYTES = 130 * 1024**3
 # A seed touched this recently may be mid-clone by a job; the prune spares it.
 PRUNE_GRACE_SECONDS = 600
 # owned_build_state.py `check` records here which seeds this root adopts.
@@ -319,17 +318,32 @@ def age(path: Path) -> float:
         return 0.0
 
 
-def local_keep(cache: Path) -> int:
-    """How many seeds CACHE keeps: LOCAL_KEEP, or LOCAL_KEEP_LOW_DISK on a short disk."""
+def free_bytes(cache: Path) -> int:
+    """Free space on CACHE's volume; 0 when it cannot be read, so the prune stays conservative."""
     try:
-        free = shutil.disk_usage(cache).free
+        return shutil.disk_usage(cache).free
     except OSError:
-        return LOCAL_KEEP_LOW_DISK
-    return LOCAL_KEEP if free >= LOCAL_KEEP_MIN_FREE_BYTES else LOCAL_KEEP_LOW_DISK
+        return 0
+
+
+def prune_local(cache: Path, spare: Path | None = None) -> None:
+    """Drop the oldest kept seeds past LOCAL_KEEP, or while the disk is short.
+
+    The newest LOCAL_KEEP_LOW_DISK always stay, and so does any seed touched in
+    the last PRUNE_GRACE_SECONDS (a job may be cloning it) and SPARE.
+    """
+    entries = [entry for entry in cache.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
+    kept = sorted(entries, key=age)  # newest first
+    for index in range(len(kept) - 1, LOCAL_KEEP_LOW_DISK - 1, -1):
+        old = kept[index]
+        if index < LOCAL_KEEP and free_bytes(cache) >= LOCAL_KEEP_MIN_FREE_BYTES:
+            break
+        if old != spare and age(old) > PRUNE_GRACE_SECONDS:
+            shutil.rmtree(old, ignore_errors=True)
 
 
 def keep_local(cache: Path, incoming: Path, key: str) -> None:
-    """Rename INCOMING into the cache as KEY, then keep only the newest LOCAL_KEEP.
+    """Rename INCOMING into the cache as KEY, then prune the oldest (prune_local).
 
     A complete copy of KEY that appeared meanwhile (a job stashed it during a
     prefetch) stays: a job may be cloning it, so INCOMING goes instead.
@@ -345,15 +359,11 @@ def keep_local(cache: Path, incoming: Path, key: str) -> None:
     for stale in cache.glob(".*.incoming-*"):
         if stale != incoming and age(stale) > PRUNE_GRACE_SECONDS:
             shutil.rmtree(stale, ignore_errors=True)
-    entries = [entry for entry in cache.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
-    kept = sorted(entries, key=age)
-    for old in kept[local_keep(cache):]:
-        if age(old) > PRUNE_GRACE_SECONDS:
-            shutil.rmtree(old, ignore_errors=True)
+    prune_local(cache, spare=cache / key)
 
 
 def stash(derived: Path, key: str) -> None:
-    """Keep a copy of the seed just adopted, and only the newest LOCAL_KEEP."""
+    """Keep a copy of the seed just adopted, and prune the oldest (prune_local)."""
     cache = local_cache()
     if cache is None or not key or "/" in key or key.startswith(".") or cached(key):
         return
