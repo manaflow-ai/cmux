@@ -92,6 +92,18 @@ import Testing
         )
         let initial = factory.makeSnapshot()
 
+        // The detail publisher has a separate debounce window. A title arriving
+        // during it must keep the published details, rather than sampling these
+        // pending values early through a full rebuild.
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/pending-detail")
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "pending-detail", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelID,
+            number: 6547,
+            label: "Pending detail",
+            url: try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/6547")),
+            status: .merged
+        )
         workspace.applyAutomaticTitle("Renamed by the terminal")
         let refreshed = factory.makeSummarySnapshot(from: initial)
 
@@ -100,6 +112,34 @@ import Testing
         #expect(refreshed.compactDirectoryCandidates == initial.compactDirectoryCandidates)
         #expect(refreshed.pullRequestRows == initial.pullRequestRows)
         #expect(refreshed.finderDirectoryPath == initial.finderDirectoryPath)
+        #expect(refreshed.taskStatusInput.inferred == initial.taskStatusInput.inferred)
+        let detailRefresh = factory.makeSnapshot()
+        #expect(detailRefresh.branchDirectoryLines != initial.branchDirectoryLines)
+        #expect(detailRefresh.pullRequestRows != initial.pullRequestRows)
+        #expect(detailRefresh.finderDirectoryPath != initial.finderDirectoryPath)
+    }
+
+    @Test @MainActor
+    func summaryRefreshRebuildsDetailsWhenPresentationSettingsChanged() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/sidebar-summary-settings")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "feature/sidebar", isDirty: false)
+        let suiteName = "sidebar-summary-settings-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let initial = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        ).makeSnapshot()
+        defaults.set(true, forKey: "sidebarHideAllDetails")
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        )
+
+        #expect(factory.makeSummarySnapshot(from: initial) == factory.makeSnapshot())
     }
 
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
