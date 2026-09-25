@@ -426,10 +426,13 @@ def pool_load_snapshot(
                 seen[runner_pool(job)] = seen.get(runner_pool(job), 0) + 1
         marker = (markers or {}).get(run.get("id"))
         # A run whose owned jobs all finished holds no owned machine, even while
-        # its Blacksmith jobs (per-job placement) keep it in flight. Before its
-        # first owned job exists, the marker still reserves its peak.
+        # its Blacksmith jobs (per-job placement) keep it in flight. Shard jobs
+        # exist only after admission finishes, so the marker keeps reserving its
+        # peak until that many owned jobs have completed.
         owned_jobs = [job for job in jobs_by_run.get(run.get("id"), ()) if is_macos_job(job) and owned_label(job)]
-        released = bool(owned_jobs) and all(job.get("status") == "completed" for job in owned_jobs)
+        done = sum(1 for job in owned_jobs if job.get("status") == "completed")
+        released = (bool(owned_jobs) and done == len(owned_jobs)
+                    and (not marker or done >= marker[1]))
         if marker and run.get("status") != "completed" and not released:
             seen[marker[0]] = max(seen.get(marker[0], 0), marker[1])
         for label, count in seen.items():

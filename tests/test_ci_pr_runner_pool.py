@@ -378,8 +378,13 @@ class JanitorSnapshot(unittest.TestCase):
                                                "oldest_queued_minutes": 0, "committed": 4})
         self.assertEqual(owned_choice(snap, machines=6, order=f"{mini},{LARGE}").runner, LARGE)
         self.assertEqual(owned_choice(snap, machines=7, order=f"{mini},{LARGE}").runner, mini)
+        # Shards exist only after admission: one finished owned job of a peak
+        # of 4 still reserves the peak.
+        early = [self.job(mini, "completed"), self.job(LARGE, "in_progress")]
+        snap = janitor.pool_load_snapshot([runs[0]], {1: early}, now=NOW, markers={1: (mini, 4)})
+        self.assertEqual(snap["pools"][mini]["committed"], 4)
         # Its owned jobs done, a run still busy on Blacksmith frees its minis.
-        done = [self.job(mini, "completed"), self.job(LARGE, "in_progress")]
+        done = [*(self.job(mini, "completed") for _ in range(4)), self.job(LARGE, "in_progress")]
         snap = janitor.pool_load_snapshot([runs[0]], {1: done}, now=NOW, markers={1: (mini, 4)})
         self.assertEqual(snap["pools"].get(mini, {}).get("committed", 0), 0)
         # One owned job still running keeps the whole peak reserved.
