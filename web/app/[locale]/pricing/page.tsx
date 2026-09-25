@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { connection } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { cache, Suspense, type ReactNode } from "react";
@@ -612,7 +613,23 @@ type PlanSnapshot = {
   billingManagement: "stripe" | "none";
 };
 
+/**
+ * Personalization only. A Hexclave or billing outage must leave the public
+ * pricing page intact, so any failure renders the signed-out plan state.
+ */
 async function currentPlanSnapshot(): Promise<PlanSnapshot> {
+  try {
+    return await readPlanSnapshot();
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("Pricing personalization failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return unknownPlan;
+  }
+}
+
+async function readPlanSnapshot(): Promise<PlanSnapshot> {
   if (!isStackConfigured()) {
     return {
       authenticated: false,

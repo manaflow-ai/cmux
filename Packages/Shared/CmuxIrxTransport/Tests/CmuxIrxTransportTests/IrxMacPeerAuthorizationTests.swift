@@ -14,10 +14,10 @@ struct IrxMacPeerAuthorizationTests {
             environment: "development", projectID: "project", teamID: "team", userID: user)
     }
 
-    private func record(device: String, endpoint: String, enabled: Bool = true,
+    private func record(device: String, endpoint: String, enabled: Bool = true, hosting: Bool = true,
                         user: String = "owner", tag: String = "feature", revoked: Bool = false) -> V2DeviceRecord {
         let descriptor = V2DeviceDescriptor(endpointID: endpoint, identity: identity(device: device, user: user, tag: tag),
-            identityGeneration: 1, metadata: V2DeviceMetadata(appVersion: "1", capabilities: ["cmux.mac-devices.v1", "cmux.mac-host.v1"],
+            identityGeneration: 1, metadata: V2DeviceMetadata(appVersion: "1", capabilities: ["cmux.mac-devices.v1"] + (hosting ? ["cmux.mac-host.v1"] : []),
                 displayName: "Mac", pairingEnabled: enabled, platform: .mac, relayURLs: ["https://relay.test"]))
         return V2DeviceRecord(descriptor: descriptor, deviceRecordID: recordID, revision: 1, revoked: revoked)
     }
@@ -46,13 +46,22 @@ struct IrxMacPeerAuthorizationTests {
         #expect(authority.authorizedPeer(endpointID: endpoint) == nil)
     }
 
+    @Test("Mac host authorization does not depend on iOS pairing")
+    func acceptsMacOnlyHostPermission() throws {
+        let state = cache(peer: record(device: device, endpoint: endpoint, enabled: false))
+        let selected = try IrxMacPeerAuthorization(deviceID: device, tag: "feature", endpointID: endpoint)
+            .resolve(cache: state, localIdentity: state.identity, now: Date(timeIntervalSince1970: 1001))
+        #expect(selected.descriptor.metadata.pairingEnabled == false)
+        #expect(selected.descriptor.metadata.capabilities.contains("cmux.mac-host.v1"))
+    }
+
     @Test("Remote identities and disabled hosts fail closed")
     func rejectsUntrustedPeer() throws {
         let intent = IrxMacPeerAuthorization(deviceID: device, tag: "feature", endpointID: endpoint)
         let invalid = [
             record(device: device, endpoint: endpoint, tag: "other"),
             record(device: device, endpoint: endpoint, user: "other"),
-            record(device: device, endpoint: endpoint, enabled: false),
+            record(device: device, endpoint: endpoint, hosting: false),
             record(device: device, endpoint: endpoint, revoked: true),
             record(device: local, endpoint: endpoint)
         ]

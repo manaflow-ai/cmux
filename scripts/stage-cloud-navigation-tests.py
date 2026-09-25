@@ -46,9 +46,10 @@ def main():
                          "staged_sha256": hashlib.sha256(content.encode()).hexdigest()})
 
     for name in ["CloudTreeTerminalNavigationCoordinator", "CloudTerminalNavigationCatalog",
-                 "CloudTerminalNavigationHost", "CloudTerminalNavigationScheduling",
                  "SurfaceResourceGroup+CloudNavigation"]:
         stage(f"Sources/Cloud/{name}.swift")
+    for name in ["CloudTerminalNavigationHost", "CloudTerminalNavigationScheduling"]:
+        stage(f"Packages/macOS/CmuxCloud/Sources/CmuxCloud/Link/{name}.swift")
     stage("Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/SurfaceMachineID.swift", "enum SurfaceMachineID:")
     for kind, name in [("enum", "SurfaceResourceKind"),
                        ("enum", "SurfaceLifecycle"), ("struct", "SurfaceAgentBadge"),
