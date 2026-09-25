@@ -1109,6 +1109,7 @@
 		B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */; };
 		C51A75000000000000000001 /* CMUXCLI+JSONOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */; };
 		489F4CF9B768C42D87B5EB2F /* CMUXCLI+KimiHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A3D532FF0A00E20DA31667F /* CMUXCLI+KimiHooks.swift */; };
+		D96231000000000000000002 /* CMUXCLI+Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96231000000000000000001 /* CMUXCLI+Localization.swift */; };
 		C0DE10651000000000000005 /* CMUXCLI+LocalTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000015 /* CMUXCLI+LocalTmux.swift */; };
 		C0DE10651000000000000007 /* CMUXCLI+LocalTmuxAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000017 /* CMUXCLI+LocalTmuxAttachment.swift */; };
 		C0DE10651000000000000006 /* CMUXCLI+LocalTmuxLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000016 /* CMUXCLI+LocalTmuxLifecycle.swift */; };
@@ -5235,6 +5236,7 @@
 		B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+InstallPreview.swift"; sourceTree = "<group>"; };
 		C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+JSONOutput.swift"; sourceTree = "<group>"; };
 		7A3D532FF0A00E20DA31667F /* CMUXCLI+KimiHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+KimiHooks.swift"; sourceTree = "<group>"; };
+		D96231000000000000000001 /* CMUXCLI+Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Localization.swift"; sourceTree = "<group>"; };
 		C0DE10651000000000000015 /* CMUXCLI+LocalTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalTmux.swift"; sourceTree = "<group>"; };
 		C0DE10651000000000000017 /* CMUXCLI+LocalTmuxAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalTmuxAttachment.swift"; sourceTree = "<group>"; };
 		C0DE10651000000000000016 /* CMUXCLI+LocalTmuxLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+LocalTmuxLifecycle.swift"; sourceTree = "<group>"; };
@@ -10980,6 +10982,7 @@
 				C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */,
 				C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
+				D96231000000000000000001 /* CMUXCLI+Localization.swift */,
 				D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */,
 				D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */,
 				CBF07000000000000000001 /* CMUXCLI+SSHStartupScripts.swift */,
@@ -15553,6 +15556,7 @@
 				B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
 				C51A75000000000000000001 /* CMUXCLI+JSONOutput.swift in Sources */,
 				489F4CF9B768C42D87B5EB2F /* CMUXCLI+KimiHooks.swift in Sources */,
+				D96231000000000000000002 /* CMUXCLI+Localization.swift in Sources */,
 				C0DE10651000000000000005 /* CMUXCLI+LocalTmux.swift in Sources */,
 				C0DE10651000000000000007 /* CMUXCLI+LocalTmuxAttachment.swift in Sources */,
 				C0DE10651000000000000006 /* CMUXCLI+LocalTmuxLifecycle.swift in Sources */,
