@@ -5623,6 +5623,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let trustedInternalNavigation = BrowserURLAllowlistPolicy
             .trustedInternalSchemes
             .contains(originalURL.scheme?.lowercased() ?? "")
+            || ChromeExtensionsManagerPage.isManagerPageURL(originalURL)
         if trustedInternalNavigation, originalURL.isFileURL {
             beginTrustedLocalFileNavigation(originalURL)
         } else {
