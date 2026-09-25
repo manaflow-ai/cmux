@@ -16,7 +16,7 @@ The final output should be small enough that every surfaced finding deserves att
 1. Spawn a review subagent with the task intent, the base and head SHAs, and the exact diff. Ask for correctness first (regressions, broken edge cases, lifecycle, races, data loss), then repository rules. Do not pass it your own reasoning.
 2. Fix the concrete findings and push.
 3. When the fixes were non-trivial, run a quick second subagent pass on the updated diff.
-4. Merge once the checks that judge the change pass (`CLAUDE.md`, "Merge fast, not blind").
+4. Merge once the checks that judge the change pass (`CLAUDE.md`, "Merge fast, not blind") and, for app/runtime/UI changes, the user approved after dogfood or gave a direct merge directive.
 
 Review runs as subagents in the current agent runtime, not as a second model or an external review service. Use the full protocol below for high-risk changes (security, persistence, concurrency, data loss) or when the user asks for a deep review.
 
