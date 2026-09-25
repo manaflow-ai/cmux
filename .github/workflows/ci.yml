@@ -621,8 +621,8 @@ jobs:
         id: macos-pool
         # Fail-safe: any error leaves the outputs empty, which is today's route.
         # Main's full-suite dispatch (ci-main-full-suite.yml) is routed too,
-        # onto an owned pool only and only when its whole run fits with
-        # CI_OWNED_MAIN_RESERVE machines left for pull requests
+        # onto the owned pools only, placed like a pull request unless
+        # CI_OWNED_MAIN_RESERVE holds machines back for pull requests
         # (pr_runner_pool.py, "Main's full suite"); ci-macos.yml already reads
         # these outputs for a workflow_dispatch on main.
         continue-on-error: true
@@ -649,7 +649,7 @@ jobs:
           OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
           # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
-          # Machines and root runners main's dispatch leaves free (default 4).
+          # Machines and root runners main's dispatch leaves free (default 0).
           OWNED_MAIN_RESERVE: ${{ vars.CI_OWNED_MAIN_RESERVE }}
           CMUX_CI_XCODE_APP_PR: ${{ (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
