@@ -166,6 +166,19 @@ struct FileExplorerStoreTests {
     // MARK: - Basic loading
 
     @Test
+    func configuredExcludePatternsHideMatchingRelativePaths() {
+        let root = "/tmp/project"
+        let patterns = [".git", "node_modules", "**/*.pyc", "Sources/Generated"]
+
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/.git", rootPath: root, patterns: patterns))
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/packages/node_modules", rootPath: root, patterns: patterns))
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/lib/cache/module.pyc", rootPath: root, patterns: patterns))
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/Sources/Generated", rootPath: root, patterns: patterns))
+        #expect(!FileExplorerExcludeMatcher.matches(path: "/tmp/project/.env", rootPath: root, patterns: patterns))
+        #expect(!FileExplorerExcludeMatcher.matches(path: "/tmp/project/Sources/Generated.swift", rootPath: root, patterns: patterns))
+    }
+
+    @Test
     func testLoadRootPopulatesNodes() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([

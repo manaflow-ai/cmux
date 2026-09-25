@@ -50,6 +50,18 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(config.commands[0].workspace)
     }
 
+    func testDecodeFileBrowserExcludePatterns() throws {
+        let config = try decode("""
+        {
+          "fileBrowser": {
+            "exclude": [".git", "**/*.pyc", "node_modules"]
+          }
+        }
+        """)
+
+        XCTAssertEqual(config.fileBrowser?.exclude, [".git", "**/*.pyc", "node_modules"])
+    }
+
     func testDecodeSimpleCommandWithAllFields() throws {
         let json = """
         {
