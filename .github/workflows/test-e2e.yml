@@ -652,8 +652,9 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: |
           set -euo pipefail
-          # Builds cmux, cmux-unit and cmux-numeric-locale, so one product
-          # serves both cmuxTests and cmuxUITests dispatches.
+          # Builds the app-host profile (cmux, cmux-unit, cmux-cli-tests;
+          # numeric locale reuses cmux-unit), so one product serves both
+          # cmuxTests and cmuxUITests dispatches.
           started="$(python3 -c 'import time; print(time.monotonic())')"
           scripts/ci/compile-app-host-test-product.sh canonical-build \
             "$CMUX_DERIVED_DATA_PATH" \
