@@ -32,7 +32,7 @@ mock.module("@base-ui-components/react/dialog", () => ({
   },
 }));
 
-const { CoderouterAccountsSection } = await import(
+const { CoderouterAccountsSection, requestNativeAccountTransfer } = await import(
   "../app/[locale]/dashboard/components/coderouter-accounts"
 );
 
@@ -70,6 +70,93 @@ const nativeCodexAccount = {
   cooldownUntil: null,
   activeSessions: 3,
 };
+
+const otherTeams = [{ id: "team-2", name: "Team Two" }];
+
+function renderTransferCase(input: {
+  readonly canManage?: boolean;
+  readonly transferTeams?: readonly { id: string; name: string }[];
+  readonly claudeAccounts?: readonly (typeof claudeAccount)[];
+  readonly nativeAccounts?: readonly (typeof nativeCodexAccount)[];
+}) {
+  return renderToStaticMarkup(
+    <CoderouterAccountsSection
+      teamId="team-1"
+      teamName="Team One"
+      canManage={input.canManage ?? true}
+      canManageApiKeys={false}
+      transferTeams={input.transferTeams}
+      claude={{ kind: "ok", accounts: input.claudeAccounts ?? [] }}
+      native={{ kind: "ok", accounts: input.nativeAccounts ?? [nativeCodexAccount] }}
+      shared={{ kind: "ok", accounts: [] }}
+    />,
+  );
+}
+
+describe("coderouter account transfer", () => {
+  test("offers Transfer on a manageable native account when another team exists", () => {
+    const html = renderTransferCase({ transferTeams: otherTeams });
+    expect(html.match(/>Transfer</g)).toHaveLength(1);
+    // The dialog stays closed until the viewer asks for it.
+    expect(html).not.toContain("Transfer account");
+  });
+
+  test("hides Transfer when the viewer belongs to no other team", () => {
+    expect(renderTransferCase({ transferTeams: [] })).not.toContain(">Transfer<");
+    expect(renderTransferCase({})).not.toContain(">Transfer<");
+  });
+
+  test("hides Transfer for Claude accounts", () => {
+    const html = renderTransferCase({
+      transferTeams: otherTeams,
+      claudeAccounts: [claudeAccount],
+      nativeAccounts: [],
+    });
+    expect(html).toContain("Claude Code OAuth");
+    expect(html).toContain(">Remove<");
+    expect(html).not.toContain(">Transfer<");
+  });
+
+  test("hides Transfer when the viewer cannot manage accounts", () => {
+    const html = renderTransferCase({ canManage: false, transferTeams: otherTeams });
+    expect(html).toContain("lawrence@example.com");
+    expect(html).not.toContain(">Transfer<");
+  });
+
+  test("posts the chosen destination team from the selected source team", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const send = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ accountId: "native-1" }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const result = await requestNativeAccountTransfer(
+      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
+      send,
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("/api/coderouter/accounts/native-1/transfer");
+    expect(calls[0].init.method).toBe("POST");
+    expect(new Headers(calls[0].init.headers).get("x-cmux-team-id")).toBe("team-1");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ destinationTeamId: "team-2" });
+  });
+
+  test("reports the failing status so the dialog can explain it", async () => {
+    const send = (async () => new Response("{}", { status: 409 })) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(
+      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
+      send,
+    )).toEqual({ ok: false, status: 409 });
+
+    const offline = (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(
+      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
+      offline,
+    )).toEqual({ ok: false, status: null });
+  });
+});
 
 describe("coderouter accounts section", () => {
   test("lists Claude upstream and shared Codex accounts in one table", () => {

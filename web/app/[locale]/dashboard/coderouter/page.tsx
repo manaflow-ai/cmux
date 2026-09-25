@@ -100,6 +100,8 @@ async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageP
 
 type CoderouterAuthorization = {
   readonly selectedTeam: DashboardTeam;
+  /** Every team the viewer can open here, the selected one included. */
+  readonly teams: readonly DashboardTeam[];
   readonly accessToken: string;
   readonly userId: string;
 };
@@ -137,7 +139,12 @@ export async function CoderouterOverviewContent({
     redirect("/dashboard");
   }
 
-  const { selectedTeam, accessToken, userId } = authorization.value;
+  const { selectedTeam, teams, accessToken, userId } = authorization.value;
+  // The transfer route accepts only another team where the viewer manages
+  // accounts, so the destination list uses the same rule.
+  const transferTeams = teams
+    .filter((candidate) => candidate.id !== selectedTeam.id && candidate.manageAccounts)
+    .map((candidate) => ({ id: candidate.id, name: candidate.name }));
   const [tPage, sharedAccounts, metrics, claudeAccounts, nativeAccounts, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     withPrioritySpan(
@@ -183,9 +190,11 @@ export async function CoderouterOverviewContent({
       <CoderouterAccountsSection
         key={selectedTeam.id}
         teamId={selectedTeam.id}
+        teamName={selectedTeam.name}
         viewerUserId={userId}
         canManage={selectedTeam.manageAccounts}
         canManageApiKeys={selectedTeam.manageApiKeys}
+        transferTeams={transferTeams}
         claude={claudeAccounts}
         native={nativeAccounts}
         shared={sharedAccounts}
@@ -267,6 +276,7 @@ async function resolveCoderouterAuthorization(
       kind: "authorized",
       value: {
         selectedTeam,
+        teams,
         accessToken,
         userId: authenticated.user.id,
       },
