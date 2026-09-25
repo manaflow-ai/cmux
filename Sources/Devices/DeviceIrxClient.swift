@@ -295,14 +295,24 @@ actor DeviceIrxClient {
         let connection = try await context.supervisor.dial(address: address, credentials: credentials)
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
-            let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)
-            let latest = try intent.resolve(cache: await context.control.snapshot().cache,
-                localIdentity: context.localDevice.descriptor.identity, now: now())
-            guard latest.deviceRecordID == target.deviceRecordID,
-                  latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
-                  await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
+            // Post-admit binding recheck. On the direct-path lane it runs
+            // inside performClient before NAT traversal is authorized, so a
+            // dial that went stale during admission never discloses direct
+            // candidates; on the relay-only lane it runs here, exactly once
+            // either way (recordBinding has a side effect).
+            let recheckBinding: @Sendable () async throws -> Void = {
+                let latest = try intent.resolve(cache: await context.control.snapshot().cache,
+                    localIdentity: context.localDevice.descriptor.identity, now: now())
+                guard latest.deviceRecordID == target.deviceRecordID,
+                      latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
+                      await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
+            }
+            let (admit, control) = try await IrxAdmission().performClient(
+                connection: connection, journal: journal,
+                authorizesDirectPaths: context.allowsDirectPaths,
+                preAuthorization: recheckBinding)
+            if !context.allowsDirectPaths { try await recheckBinding() }
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
-            if context.allowsDirectPaths { await connection.authorizeDirectPaths() }
             return IrxClientSession(connection: connection, admit: admit, control: control, establishedAt: now())
         } catch {
             await connection.close(code: .userRequested, origin: .local)

@@ -131,11 +131,18 @@ public struct IrxHello: Codable, Equatable, Sendable {
     public var v: Int
     public var proto: String
     public var grant: String?
+    /// NAT-traversal authorization barrier capability. `true` means the
+    /// client will authorize NAT traversal for this connection and then send
+    /// ``IrxClientReady`` right after reading an admit that acks the barrier.
+    /// Absent on legacy hellos and on relay-only/direct-only dials, where the
+    /// server admits without waiting (the pre-barrier behavior).
+    public var natBarrier: Bool?
 
-    public init(grant: String? = nil) {
+    public init(grant: String? = nil, natBarrier: Bool? = nil) {
         v = IrxProtocol().version
         proto = IrxProtocol().alpn
         self.grant = grant
+        self.natBarrier = natBarrier
     }
 }
 
@@ -149,11 +156,31 @@ public struct IrxAdmit: Codable, Equatable, Sendable {
     /// Milliseconds the client waits for a pong before declaring death.
     public var keepaliveDeadlineMs: Int
 
-    public init(session: String) {
+    /// Acks the hello's ``IrxHello/natBarrier`` offer. When `true` the server
+    /// holds admission open until the client's ``IrxClientReady`` proves the
+    /// client authorized NAT traversal first, so the server's direct-path
+    /// candidate advertisement can never reach a not-yet-authorized client
+    /// (which would discard it unrecoverably). Absent for legacy clients.
+    public var natBarrier: Bool?
+
+    public init(session: String, natBarrier: Bool? = nil) {
         v = IrxProtocol().version
         self.session = session
         keepaliveIntervalMs = Int(IrxProtocol().keepaliveInterval.components.seconds) * 1000
         keepaliveDeadlineMs = Int(IrxProtocol().keepaliveDeadline.components.seconds) * 1000
+        self.natBarrier = natBarrier
+    }
+}
+
+/// Client -> server: sent on the control stream right after an admit that
+/// acked the NAT barrier, once the client has completed its NAT-traversal
+/// authorization attempt. Ordering, not success: the frame is sent even when
+/// the client's authorization call failed, so the server never deadlocks.
+public struct IrxClientReady: Codable, Equatable, Sendable {
+    public var v: Int
+
+    public init() {
+        v = IrxProtocol().version
     }
 }
 
