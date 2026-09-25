@@ -54,6 +54,11 @@ class MergeMainError(Exception):
     pass
 
 
+def say(line: str) -> None:
+    # Flushed: the guard runner writes to the same stdout between these lines.
+    print(line, flush=True)
+
+
 def git(repo: Path, *args: str, check: bool = True) -> str:
     completed = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
     if check and completed.returncode != 0:
@@ -114,7 +119,7 @@ def read_results(path: Path) -> dict:
 
 
 def run_guards(repo: Path, command: GuardCommand, base: str, all_groups: bool,
-               output: Callable[[str], None] = print) -> GuardRun:
+               output: Callable[[str], None] = say) -> GuardRun:
     """Run the branch's guards on the merged tree; failures come back unlabeled."""
     with tempfile.TemporaryDirectory(prefix="merge-main-") as scratch:
         results_path = Path(scratch) / "guards.json"
@@ -242,7 +247,7 @@ class Options:
 
 
 def merge_main(options: Options, source: last_green_base.VerdictSource | None = None,
-               guard_command: GuardCommand | None = None, output: Callable[[str], None] = print,
+               guard_command: GuardCommand | None = None, output: Callable[[str], None] = say,
                stamps: Path | None = None) -> int:
     repo = options.repo
     if not options.dry_run and git(repo, "status", "--porcelain", "--untracked-files=no"):
