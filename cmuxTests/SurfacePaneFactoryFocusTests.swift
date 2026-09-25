@@ -242,6 +242,21 @@ import SwiftUI
         let store = harness.workspace.cloudPaneCreationFailureStore
         let sourcePanelID = try #require(harness.workspace.focusedPanelId)
         let source = try #require(harness.workspace.terminalPanel(for: sourcePanelID))
+        // A new window inherits persisted geometry and chrome from earlier
+        // tests in the same app host, which can leave the terminal narrower
+        // than the card's 100pt floor (seen at 124pt in a 640pt window). The
+        // card is sized to `pane width - 24`, so give the pane room first.
+        // Restore before tearDown closes the window so any persisted geometry
+        // later tests inherit stays what it was.
+        let originalFrame = window.frame
+        defer { window.setFrame(originalFrame, display: false) }
+        window.setFrame(NSRect(x: 0, y: 0, width: 1280, height: 800), display: true)
+        let resizeDeadline = ContinuousClock.now + .seconds(3)
+        while source.hostedView.bounds.width < 300, ContinuousClock.now < resizeDeadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            try await Task.sleep(for: .milliseconds(10))
+        }
         let request = store.beginRequest()
         harness.workspace.presentCloudPaneCreationFailure(
             machine: .cloud("overlay-test"),

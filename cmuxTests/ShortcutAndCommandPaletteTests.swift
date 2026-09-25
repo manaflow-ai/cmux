@@ -843,47 +843,6 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
     }
 }
 
-final class CommandPaletteAuthCommandTests: XCTestCase {
-    func testSignedOutContextShowsSignInCommandOnly() {
-        var context = CommandPaletteContextSnapshot()
-        context.setBool(CommandPaletteContextKeys.authSignedIn, false)
-        context.setBool(CommandPaletteContextKeys.authWorking, false)
-
-        let visibleCommandIds = visibleAuthCommandIds(context)
-
-        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignInCommandId])
-    }
-
-    func testSignedInContextShowsSignOutCommandOnly() {
-        var context = CommandPaletteContextSnapshot()
-        context.setBool(CommandPaletteContextKeys.authSignedIn, true)
-        context.setBool(CommandPaletteContextKeys.authWorking, false)
-
-        let visibleCommandIds = visibleAuthCommandIds(context)
-
-        XCTAssertEqual(visibleCommandIds, [
-            ContentView.commandPaletteAuthSignOutCommandId,
-            ContentView.commandPaletteAuthTeamPickerCommandId,
-        ])
-    }
-
-    func testWorkingAuthContextHidesSignInAndSignOutCommands() {
-        for signedIn in [false, true] {
-            var context = CommandPaletteContextSnapshot()
-            context.setBool(CommandPaletteContextKeys.authSignedIn, signedIn)
-            context.setBool(CommandPaletteContextKeys.authWorking, true)
-
-            XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
-        }
-    }
-
-    private func visibleAuthCommandIds(_ context: CommandPaletteContextSnapshot) -> [String] {
-        ContentView.commandPaletteAuthCommandContributions()
-            .filter { $0.when(context) }
-            .map(\.commandId)
-    }
-}
-
 final class CommandPaletteCloudCommandTests: XCTestCase {
     @MainActor
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {

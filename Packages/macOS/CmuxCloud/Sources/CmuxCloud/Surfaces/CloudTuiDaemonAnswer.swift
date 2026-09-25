@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 /// What a failed cmux-tui CLI invocation says about the daemon.

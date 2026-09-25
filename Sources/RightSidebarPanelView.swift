@@ -209,6 +209,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
+            else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
@@ -452,7 +453,7 @@ struct RightSidebarPanelView: View {
                     }
                 )
                     .onAppear {
-                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexStore.currentDirectory)
                     }
             case .feed:
                 FeedPanelView(
@@ -465,7 +466,8 @@ struct RightSidebarPanelView: View {
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     devicesModel: devicesModel,
-                    tabManager: tabManager
+                    tabManager: tabManager,
+                    teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation
                 )
             case .customSidebar:
                 customSidebarPanel
@@ -525,10 +527,6 @@ struct RightSidebarPanelView: View {
         Task { await client.shutdown() }
     }
 
-    private var sessionIndexDirectory: String? {
-        sessionIndexStore.currentDirectory
-    }
-
     /// Renders this window's own Dock (created lazily on first show); no
     /// window ever defers to a Dock rendered elsewhere.
     @ViewBuilder
@@ -552,7 +550,7 @@ struct RightSidebarPanelView: View {
     private func selectMode(_ mode: RightSidebarMode) {
         fileExplorerState.mode = mode
         if fileExplorerState.mode == .sessions {
-            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexStore.currentDirectory)
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()
             }
