@@ -419,8 +419,8 @@ def test_non_package_changes_leave_the_package_test_lane_unrouted() -> None:
 
 
 def test_lane_wide_inputs_do_not_turn_the_lane_into_a_full_sweep() -> None:
-    # select_package_tests.py fails open for these: each one selects all 33
-    # packages, which on a pull request is the 30-minute sweep under another
+    # select_package_tests.py fails open for these: each one selects every
+    # package, which on a pull request is the 30-minute sweep under another
     # name. Over the last 200 merged pull requests, routing them would have
     # queued 34 full runs. They keep their coverage from the push to main.
     for path in (
@@ -452,8 +452,32 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     assert module.classify_files([
         "Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift"
     ]).swift_packages is True
+    # These macOS packages had test targets but were missing from the list too.
+    for name in (
+        "CmuxAppKitSupportUI",
+        "CmuxCanvas",
+        "CmuxCloudBannerCore",
+        "CmuxCloudImagePaste",
+        "CmuxCloudTunnelCore",
+        "CMUXDebugLog",
+        "CmuxExtensionKit",
+        "CmuxFeedback",
+        "CmuxLiveEval",
+        "CmuxPanes",
+        "CmuxPhonePush",
+        "CMUXProjectModel",
+        "CmuxSidebar",
+        "CmuxSidebarInterpreterService",
+        "CmuxSimulator",
+        "CmuxSwiftRender",
+        "CmuxSwiftRenderUI",
+        "CmuxTestSupport",
+        "CmuxUpdaterUI",
+        "CmuxWindowing",
+    ):
+        assert name in packages, name
     for name in packages:
-        assert (ROOT / "Packages").glob(f"*/{name}/Package.swift"), name
+        assert any((ROOT / "Packages").glob(f"*/{name}/Package.swift")), name
 
 
 def test_package_lane_does_not_widen_any_other_area() -> None:
@@ -784,6 +808,43 @@ def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -
     assert "      - name: Reject stale pull request rerun" in remote_text
 
 
+def test_stale_run_check_ignores_github_api_errors() -> None:
+    """An API error is not a head SHA.
+
+    On a rate limit `gh api --jq` prints the error body on stdout and exits
+    non-zero; `|| true` kept that body as the "current head", so compile
+    admission refused its own current run as stale (#14486, job 108058643725).
+    """
+    head = "cf20bda57151addcf63748168bd553ce32065b85"
+    error = '{"message": "API rate limit exceeded for installation.", "status": "403"}'
+    steps = (
+        (MACOS_WORKFLOW, "macos-compile-admission", {"RUN_ID": "1"}),
+        (REMOTE_DAEMON_WORKFLOW, "remote-daemon-admission", {"RUN_HEAD_SHA": head}),
+    )
+    for workflow, job, extra in steps:
+        script = workflow_job_step_script(job, "Reject stale pull request rerun", workflow)
+        for pulls_output, pulls_status, expected in (
+            (error, 1, 0),      # API error: continue with normal CI
+            (head, 0, 0),       # current run
+            ("0" * 40, 0, 1),   # a newer head really is stale
+        ):
+            with tempfile.TemporaryDirectory() as directory:
+                fake = Path(directory) / "gh"
+                fake.write_text(
+                    "#!/bin/bash\n"
+                    'case "$2" in\n'
+                    f"  */pulls/*) echo '{pulls_output}'; exit {pulls_status} ;;\n"
+                    f"  *) echo '{head}' ;;\n"
+                    "esac\n",
+                    encoding="utf-8",
+                )
+                fake.chmod(0o755)
+                env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                       "GITHUB_REPOSITORY": "manaflow-ai/cmux", "PR_NUMBER": "1", **extra}
+                run = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                assert run.returncode == expected, (job, pulls_output, run.stdout, run.stderr)
+
+
 def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
     script = workflow_job_step_script("changes", "Route standalone project workflows")
     script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
@@ -865,10 +926,11 @@ def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
         gh = root / "gh"
         gh.write_text('#!/bin/sh\n[ "$CURRENT_HEAD" != unavailable ] || exit 1\nprintf "%s\\n" "$CURRENT_HEAD"\n')
         gh.chmod(0o755)
-        for current, expected in (("head", 0), ("newer-head", 1), ("unavailable", 0)):
+        head, newer = "a" * 40, "b" * 40
+        for current, expected in ((head, 0), (newer, 1), ("unavailable", 0)):
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                    "GITHUB_REPOSITORY": "example/repo", "PR_NUMBER": "1",
-                   "RUN_HEAD_SHA": "head", "CURRENT_HEAD": current}
+                   "RUN_HEAD_SHA": head, "CURRENT_HEAD": current}
             result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
             assert result.returncode == expected, (current, result.stderr)
 
@@ -2463,7 +2525,7 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
         "agent_session_web=true",
         "cli=true",
         # The package lane is the exception to fail-open: selecting it for an
-        # unrecognized path means all 33 packages, which is the sweep this
+        # unrecognized path means every package, which is the sweep this
         # routing exists to avoid. Main still runs it on the merged commit.
         "swift_packages=false",
         "release_build=true",
@@ -5425,9 +5487,11 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert identity.PRODUCT_PROFILES["app-host"] == (
         "cmux",
         "cmux-unit",
-        "cmux-numeric-locale",
         "cmux-cli-tests",
     )
+    # The numeric-locale gate reuses the cmux-unit xctestrun instead of paying
+    # for another build-for-testing; see scripts/ci/app_host_test_products.py.
+    assert "cmux-numeric-locale" not in compile_script
     assert identity.PRODUCT_PROFILES["cli"] == ("cmux-cli-tests",)
     # Every profile must be distinguishable in the identity, or one profile's
     # product answers another profile's cache lookup.
@@ -5974,8 +6038,9 @@ def test_product_restore_receipt_binds_immutable_product_identity() -> None:
     script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
     for field in (
         '"repository": os.environ["GITHUB_REPOSITORY"]',
-        '"artifact_id": int(os.environ["ARTIFACT_ID"])',
-        '"provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"]',
+        # test-e2e.yml's owned build restores its own archive before it uploads.
+        '"artifact_id": int(os.environ["ARTIFACT_ID"]) if os.environ.get("ARTIFACT_ID") else None',
+        '"provider_digest": os.environ.get("ARTIFACT_PROVIDER_DIGEST") or None',
         '"archive_sha256": os.environ["EXPECTED_SHA256"]',
         '"product_contract": os.environ["CMUX_PRODUCT_CONTRACT"]',
         '"source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"]',
@@ -6055,12 +6120,21 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
     # swift-package-tests links the Release Ghostty CLI helper with Zig, which
-    # Zig 0.15.2 cannot do on macOS 26, so it stays on the macos-15 pool on
-    # every event and keeps the unconditional macos-15 pins. Moving it onto the
-    # pull-request lane would hand MACOS_RUNNER_PR a job it must not move.
+    # Zig 0.15.2 cannot do on macOS 26, so it defaults to the macos-15 pool on
+    # every event with the macos-15 pin. Moving it onto the pull-request lane
+    # would hand MACOS_RUNNER_PR a job it must not move. The one exception is
+    # an owned Mac the picker placed it on (no helper build in that run),
+    # which takes the lane's pin.
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
-    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}" in package_block
+    assert (
+        "CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name == github.repository && "
+        "contains(inputs.pr_owned_jobs, ' swift-package ') && "
+        "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
+        "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
+        "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
+    ) in package_block
     assert (
         "CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}"
         in package_block
@@ -6088,7 +6162,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert 'kill -9 "$VDISPLAY_PID"' in runtime_block
     assert "scripts/ci/virtual-display-lock.sh reap-strays" in runtime_block
     assert runtime_block.rfind("scripts/ci/virtual-display-lock.sh reap-strays") < runtime_block.rfind("scripts/ci/virtual-display-lock.sh release")
-    assert "timeout-minutes: 40" in package_block
+    assert "timeout-minutes: 60" in package_block
     assert "CMUX_CI_HELPER_XCODE_APP" in package_block
     assert "/Applications/Xcode_16.4.app" not in package_block
     assert "Select helper Xcode" in package_block
