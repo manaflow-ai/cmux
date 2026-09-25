@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -40,6 +41,11 @@ VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
 OVERFLOW_ENV = "CMUX_" + pool.OVERFLOW_VARIABLE
 ORDER_ENV = "CMUX_" + pool.ORDER_VARIABLE
 MAX_QUEUED_ENV = "CMUX_" + pool.MAX_QUEUED_VARIABLE
+QUEUE_ROUNDS_ENV = "CMUX_" + pool.QUEUE_ROUNDS_VARIABLE
+OWNED_ENV = "CMUX_" + pool.OWNED_VARIABLE
+SLOTS_ENV = "CMUX_" + pool.SLOTS_VARIABLE
+PR_XCODE_ENV = "CMUX_" + pool.PR_XCODE_VARIABLE
+OWNED_UI_ENV = "CMUX_" + pool.OWNED_UI_VARIABLE
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -54,15 +60,14 @@ RUNNERS = (
     "blacksmith-6vcpu-macos-26",
     "blacksmith-12vcpu-macos-26",
     "blacksmith-6vcpu-macos-latest",
-    "tart-canary",
-    "tart-dual",
-    "tart-small",
+    "glaeda-std-xcode-26.6",
 )
 # An unpinned run takes whichever macOS 26 pool pull request CI would, by
 # preference and queue depth. The rule lives in e2e_runner_pool.py, which
 # test-e2e.yml runs too. Because the choice depends on the queue at dispatch
 # time, not on the commit, the in-flight guards below look on both pools.
-OVERFLOW_POOLS = pool.E2E_POOLS
+OVERFLOW_POOLS = pool.E2E_POOLS + tuple(
+    label for label in RUNNERS if pool.pr_runner_pool.persistent(label))
 # GitHub rejects a concurrency group longer than this as a workflow file
 # issue: the run is created with no jobs and no message saying why.
 MAX_CONCURRENCY_GROUP = 400
@@ -367,7 +372,7 @@ def default_runner() -> str | None:
     return literal.group(1) if literal else None
 
 
-def routed_runner(default: str | None) -> str | None:
+def routed_runner(default: str | None, test_target: str | None = None) -> str | None:
     """The pool an unpinned dispatch runs on now; see e2e_runner_pool.
 
     Only called when a dispatch is about to happen, so a run reused from the
@@ -381,10 +386,18 @@ def routed_runner(default: str | None) -> str | None:
         limits=pool.settings(
             repository_variable(pool.ORDER_VARIABLE, ORDER_ENV),
             repository_variable(pool.MAX_QUEUED_VARIABLE, MAX_QUEUED_ENV),
+            repository_variable(pool.OWNED_VARIABLE, OWNED_ENV)
+            if test_target in (None, "cmuxTests")
+            or (repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV) or "").strip() == "1" else "",
+            repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
+            # Unset is pull request CI's default rounds, as test-e2e.yml passes it.
+            repository_variable(pool.QUEUE_ROUNDS_VARIABLE, QUEUE_ROUNDS_ENV) or "",
         ),
         measure=lambda: pool.measure_load(GhApi(), now=now),
         now=now,
         log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
+        owned_slots=pool.pr_runner_pool.slots(repository_variable(pool.SLOTS_VARIABLE, SLOTS_ENV),
+                                              repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV)),
     )
 
 
@@ -392,7 +405,8 @@ def candidate_runners(runner: str | None, pinned: bool) -> tuple[str, ...]:
     """Every pool a dispatch with this runner could land on.
 
     A pinned runner is exact. An unpinned dispatch on the 6vcpu default may
-    overflow to the 12vcpu pool, so a run on either one already answers it.
+    overflow to the 12vcpu pool or an owned Mac, so a run on any of them
+    already answers it.
     Empty means the default could not be established.
     """
     if runner is None:
@@ -681,10 +695,27 @@ def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None,
         run = find_run(commit, only_testing, dispatch_id, cancel_event=cancel_event, workflow=RERUN_WORKFLOW)
     print(f"Run: {run['url']}", flush=True)
     if wait:
-        return subprocess.run([
-            "gh", "run", "watch", "--repo", REPO, str(run["databaseId"]), "--exit-status",
-        ], cwd=ROOT).returncode
+        return watch_run(run["databaseId"])
     return 0
+
+
+def watch_run(run_id: int) -> int:
+    """Wait for a run's verdict: 0 success, nonzero otherwise.
+
+    Every agent shares one GitHub account and its API quota, and parallel
+    `gh run watch` loops (3 s default) emptied it on 2026-09-25. glaeda-gh, where
+    installed, answers from one shared poller at no per-waiter cost; its 0 and 1
+    are the verdict, anything else (timeout, daemon down) falls back to polling
+    at a 300 s interval.
+    """
+    glaeda = shutil.which("glaeda-gh")
+    if glaeda:
+        code = subprocess.run([glaeda, "wait", "run", f"{REPO}/{run_id}", "--timeout", "14400"], cwd=ROOT).returncode
+        if code in (0, 1, 130):  # a verdict, or an interrupt: never fall back to polling then
+            return code
+    return subprocess.run([
+        "gh", "run", "watch", "--repo", REPO, str(run_id), "--exit-status", "--interval", "300",
+    ], cwd=ROOT).returncode
 
 
 def main() -> int:
@@ -822,10 +853,7 @@ def main() -> int:
                 )
                 print(f"Run: {live['url']}", flush=True)
                 if args.wait:
-                    return subprocess.run([
-                        "gh", "run", "watch", "--repo", REPO, str(live["databaseId"]),
-                        "--exit-status",
-                    ], cwd=ROOT).returncode
+                    return watch_run(live["databaseId"])
                 return 0
 
         # Refuse per entry: one already-red selector makes the whole batch a
@@ -866,7 +894,7 @@ def main() -> int:
         if status is not None:
             return status
 
-    runner = args.runner if pinned else routed_runner(default)
+    runner = args.runner if pinned else routed_runner(default, test_target)
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {
@@ -896,10 +924,7 @@ def main() -> int:
         )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:
-        return subprocess.run([
-            "gh", "run", "watch", "--repo", REPO, str(run["databaseId"]),
-            "--exit-status",
-        ], cwd=ROOT).returncode
+        return watch_run(run["databaseId"])
     return 0
 
 

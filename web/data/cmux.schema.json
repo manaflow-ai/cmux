@@ -533,6 +533,11 @@
           "default": "",
           "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
         },
+        "defaultWorkspacePath": {
+          "type": "string",
+          "default": "",
+          "description": "Folder the Open Folder panel starts in, for example ~/code. Supports a leading ~. Leave empty to start in the active workspace's directory."
+        },
         "openSupportedFilesInCmux": {
           "type": "boolean",
           "default": true,
@@ -918,7 +923,7 @@
               "hostPattern": {
                 "type": ["string", "null"],
                 "minLength": 1,
-                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. Omit the key or set it to null for a catch-all (a blank string is rejected)."
+                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. When the session sets a HostName (for example through a ProxyCommand or broker), the rule also matches against that resolved host. Omit the key or set it to null for a catch-all (a blank string is rejected)."
               },
               "command": {
                 "type": "string",

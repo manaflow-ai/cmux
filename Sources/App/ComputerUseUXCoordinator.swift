@@ -13,9 +13,11 @@ final class ComputerUseUXCoordinator {
     private let showInMenuBarKey: JSONKey<Bool>
     private let liveSettingRepository: ComputerUseLiveSettingRepository
     private let runtimeService: ComputerUseRuntimeService
+    private let liveAgentIndex: SharedLiveAgentIndex
     private let userDefaults: UserDefaults
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
+    private let ownsSurface: @MainActor (UUID, UUID?) -> Bool
     private let liveSessionProjection: ComputerUseLiveSessionProjection
     private let activityLifecycle = ComputerUseActivityLifecycle()
 
@@ -49,7 +51,8 @@ final class ComputerUseUXCoordinator {
         userDefaults: UserDefaults,
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
         featureEnabled: @escaping @MainActor () -> Bool,
-        onboardingCoordinator: ComputerUseOnboardingCoordinator? = nil
+        onboardingCoordinator: ComputerUseOnboardingCoordinator? = nil,
+        ownsSurface: @escaping @MainActor (UUID, UUID?) -> Bool = { _, _ in false }
     ) {
         self.stateRepository = stateRepository
         self.stateDirectoryURL = stateDirectoryURL
@@ -58,18 +61,15 @@ final class ComputerUseUXCoordinator {
         self.showInMenuBarKey = showInMenuBarKey
         self.liveSettingRepository = liveSettingRepository
         self.runtimeService = runtimeService
+        self.liveAgentIndex = liveAgentIndex
         self.userDefaults = userDefaults
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
+        self.ownsSurface = ownsSurface
         self.liveSessionProjection = ComputerUseLiveSessionProjection(
             liveAgentIndex: liveAgentIndex
         )
         self.onboardingCoordinator = onboardingCoordinator
-        runtimeService.helperBuildReplacedHandler = { [userDefaults] in
-            ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(
-                in: userDefaults
-            )
-        }
     }
 
     deinit {
@@ -78,18 +78,25 @@ final class ComputerUseUXCoordinator {
     }
 
     static func isComputerUseToolInvocation(_ event: WorkstreamEvent) -> Bool {
+        computerUseToolName(event) != nil
+    }
+
+    private static func computerUseToolName(_ event: WorkstreamEvent) -> String? {
         guard event.hookEventName == .preToolUse,
               let toolName = event.toolName?.lowercased()
         else {
-            return false
+            return nil
         }
         // Accept the canonical MCP server spelling and the separator variants
         // emitted by different MCP clients. There is one cmux-cua contract;
         // legacy driver/server names are intentionally not recognized.
-        return toolName.hasPrefix("mcp__cmux-cua__")
-            || toolName.hasPrefix("mcp__cmux_cua__")
-            || toolName.hasPrefix("cmux-cua.")
-            || toolName.hasPrefix("cmux_cua.")
+        for prefix in ["mcp__cmux-cua__", "mcp__cmux_cua__", "cmux-cua.", "cmux_cua."] {
+            if toolName.hasPrefix(prefix) {
+                let name = String(toolName.dropFirst(prefix.count))
+                return name.isEmpty ? nil : name
+            }
+        }
+        return nil
     }
 
     func install(
@@ -104,8 +111,7 @@ final class ComputerUseUXCoordinator {
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
         runtimeService.setInitialOnboardingCompletion(
             userDefaults.bool(
-                forKey: ComputerUseOnboardingWindowController
-                    .directCaptureReadyDefaultsKey
+                forKey: ComputerUseOnboardingWindowController.directCaptureReadyDefaultsKey
             )
         )
         enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository, runtimeService] in
@@ -124,7 +130,7 @@ final class ComputerUseUXCoordinator {
             ) {
                 guard !Task.isCancelled else { return }
                 guard let event = notification.object as? WorkstreamEvent else { continue }
-                self?.handleWorkstreamEvent(event)
+                await self?.handleWorkstreamEvent(event)
             }
         }
 
@@ -267,9 +273,8 @@ final class ComputerUseUXCoordinator {
         watchTarget.start()
         watchTargetController = watchTarget
 
-        // Starting or restoring a supported agent stays quiet. Workstream
-        // events are used only for live-session/cursor bookkeeping; they never
-        // present permission onboarding.
+        // Starting or restoring an agent stays quiet. Only its first functional
+        // Computer Use invocation can request setup through the shared coordinator.
     }
 
     func teardown() {
@@ -293,8 +298,8 @@ final class ComputerUseUXCoordinator {
         runtimeService.stopForTermination()
     }
 
-    /// Presents onboarding only for a deliberate Settings permission/setup
-    /// action. No workstream event is allowed to call this entrypoint.
+    /// Explicit Settings actions can resume setup or select another permission
+    /// step after automatic first-use presentation has been dismissed.
     @discardableResult
     func presentOnboardingFromSettings(
         startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint = .overview
@@ -307,8 +312,7 @@ final class ComputerUseUXCoordinator {
     ) {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
-            runtimeService: runtimeService,
-            userDefaults: userDefaults
+            runtimeService: runtimeService
         )
         onboardingWindowController = controller
         controller.present(startingAt: startingPoint)
@@ -327,12 +331,54 @@ final class ComputerUseUXCoordinator {
         return coordinator
     }
 
-    func handleWorkstreamEvent(_ event: WorkstreamEvent) {
+    func handleWorkstreamEvent(_ event: WorkstreamEvent) async {
         let isComputerUseInvocation = Self.isComputerUseToolInvocation(event)
+        let toolName = Self.computerUseToolName(event)
         let isCompletion =
             event.hookEventName == .stop
                 || event.hookEventName == .sessionEnd
         guard isComputerUseInvocation || isCompletion else { return }
+        let isFunctionalInvocation = isComputerUseInvocation
+            && toolName != "check_permissions"
+            && featureEnabled()
+            && runtimeService.desiredEnabled
+        let surfaceID = event.surfaceId.flatMap(UUID.init(uuidString:))
+        let hasValidSurface = surfaceID != nil
+        let ownsLocalSurface = surfaceID.map {
+            ownsSurface($0, event.workspaceId.flatMap(UUID.init(uuidString:)))
+        } == true
+        if isComputerUseInvocation,
+           toolName != "check_permissions",
+            hasValidSurface,
+            ownsLocalSurface,
+            runtimeService.acceptsNewLaunches {
+            guard !runtimeService.computerUseDisabledByPolicy else { return }
+            if !runtimeService.desiredEnabled {
+                // Enable first so startup restores an existing scoped record or
+                // invalidates it for a replaced helper before the presentation
+                // decision is made.
+                try? await configStore.set(true, for: enabledKey)
+                await runtimeService.setEnabled(true)
+            }
+            // Recheck authoritative helper-owned TCC status before claiming
+            // first-use presentation; revocation can happen while onboarding
+            // is closed and no permission-event stream is being consumed.
+            _ = await runtimeService.refreshHelperStatus()
+            // Authenticated hook ingress has already established ownership of a
+            // live local terminal. Agent process indexing may lag the first
+            // hook, so it is used only for session bookkeeping below.
+            if runtimeService.requestAutomaticOnboarding() {
+                _ = ensureOnboardingCoordinator().requestFromToolInvocation()
+            }
+        }
+        if isFunctionalInvocation,
+           ownsLocalSurface,
+           runtimeService.onboardingRequired {
+            // A valid-surface hook may precede the initial agent-index scan.
+            // Await its authoritative refresh before resolving the session.
+            guard await liveAgentIndex.indexRefreshingNow() != nil,
+                  !Task.isCancelled else { return }
+        }
         let resolvedDriverSessionID = liveSessionProjection.driverSessionID(
                 surfaceID: event.surfaceId,
                 agentSessionID: event.sessionId,

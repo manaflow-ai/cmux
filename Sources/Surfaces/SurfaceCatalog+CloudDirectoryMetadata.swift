@@ -2,17 +2,33 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
-    /// Retain stale or not-yet-confirmed graphs for diagnostics without presenting their cwd as
-    /// current in the tree or CLI. A Cloud terminal's directory counts only once the machine's
-    /// accepted state is current; a requested launch directory or a stale graph is withheld.
+    /// Returns the last accepted cwd for a stale Cloud terminal, when its identity still exists.
+    ///
+    /// A stale graph is useful display state, but a resource row can also contain an optimistic
+    /// requested cwd. Read the cached value from the accepted graph so that a request, a retired
+    /// provider, or a resource whose identity disappeared cannot become a displayed path.
+    private func acceptedStaleCloudDirectory(for resource: SurfaceResource) -> String? {
+        guard resource.kind == .terminal,
+              resource.machine.cloudMachineID != nil,
+              cloudStateObservations[resource.machine]?.freshness == .stale,
+              let directory = cloudStates[resource.machine]?.lookupIndex.terminal(id: resource.id.key)?.cwd else {
+            return nil
+        }
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Retain stale graphs for diagnostics while presenting a previously accepted cwd as a
+    /// cached value. A requested launch directory or a stale graph with no accepted cwd remains
+    /// unavailable.
     func resourceForPresentation(_ resource: SurfaceResource) -> SurfaceResource {
         // Cloud VM freshness is tracked in `cloudStateObservations`; device
         // mirrors receive their directory from the synced workspace record and
         // intentionally have no CloudVM observation to consult.
-        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
-              cloudStateObservations[resource.machine]?.freshness != .current else { return resource }
+        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil else { return resource }
+        guard cloudStateObservations[resource.machine]?.freshness != .current else { return resource }
         var result = resource
-        result.detail = nil
+        result.detail = acceptedStaleCloudDirectory(for: resource)
         return result
     }
 
@@ -63,9 +79,12 @@ extension SurfaceCatalog {
             let directory: String?
             if machine.deviceInstance != nil {
                 directory = resource?.kind == .terminal ? resource?.detail : nil
+            } else if let resource, resource.kind == .terminal {
+                directory = current
+                    ? cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd
+                    : acceptedStaleCloudDirectory(for: resource)
             } else {
-                directory = current && resource?.kind == .terminal
-                    ? cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd : nil
+                directory = nil
             }
             if let directory, workspace.reportedPanelDirectory(panelId: projection.panelID) == directory { continue }
             workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: directory)

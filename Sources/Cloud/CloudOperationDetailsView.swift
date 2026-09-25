@@ -1,8 +1,11 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
 struct CloudOperationDetailsView: View {
     let operations: [CloudOperationSnapshot]
+    /// The device links' history; nil when My Devices is not composed (debug labs).
+    var devices: DeviceLinkDiagnostics? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -11,7 +14,7 @@ struct CloudOperationDetailsView: View {
                     .font(.headline)
                 Spacer()
                 Button(String(localized: "cloud.diagnostics.copy", defaultValue: "Copy Diagnostics")) {
-                    CloudErrorCopy.copy(CloudDiagnosticReport.text(operations: operations))
+                    CloudErrorCopy.copy(CloudDiagnosticReport.text(operations: operations, devices: devices?.reportText()))
                 }
                 .accessibilityIdentifier("CloudDiagnosticsCopy")
             }
@@ -19,6 +22,10 @@ struct CloudOperationDetailsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    if let devices {
+                        DeviceLinkDiagnosticsSection(diagnostics: devices)
+                        Divider()
+                    }
                     if operations.isEmpty {
                         Text(String(localized: "cloud.diagnostics.empty", defaultValue: "No Cloud activity recorded in this session."))
                             .foregroundStyle(.secondary)

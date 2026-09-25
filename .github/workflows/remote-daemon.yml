@@ -14,6 +14,38 @@ on:
         required: false
         default: ""
         type: string
+      # Set only when pr_runner is persistent (an owned Mac pool): the
+      # Blacksmith pool on the same Xcode that a re-run of failed jobs takes,
+      # because such a re-run reuses attempt 1's pick (pr_runner_pool.py).
+      pr_retry_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent: the owned label again, for
+      # attempt 2 of a job in pr_owned_jobs. ci-owned-pool-rescue.yml re-runs
+      # the failed jobs of a run whose owned job was refused, and that re-run
+      # reuses attempt 1's outputs, so it tries the fleet once more before
+      # Blacksmith. A full re-run (a stuck job) picks again and gets none.
+      pr_refused_retry_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent: the jobs of attempt 1 that take
+      # it, as " <key> <key> ". Every other job takes pr_retry_runner, so a
+      # run can use the owned machines that are free and overflow the rest
+      # (pr_runner_pool.py, CI_PR_POOL_OWNED_SPLIT).
+      pr_owned_jobs:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent with a root count and machines
+      # beyond its root runners: the pool's side label
+      # (glaeda-side-<class>-xcode-<version>). The macOS tests take it in
+      # place of pr_runner, so they never hold a mini's root runner.
+      pr_side_runner:
+        required: false
+        default: ""
+        type: string
   push:
     branches: [main]
     paths:
@@ -35,7 +67,7 @@ concurrency:
 
 jobs:
   remote-daemon-admission:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       pull-requests: read
@@ -49,6 +81,8 @@ jobs:
         run: |
           set -euo pipefail
           current_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
+          # An API error (rate limit, outage) prints its body on stdout; only a SHA is a head.
+          [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || current_head=""
           if [ -z "$RUN_HEAD_SHA" ] || [ -z "$current_head" ]; then
             echo "Could not resolve run/PR head identity; continuing with normal CI."
             exit 0
@@ -60,7 +94,7 @@ jobs:
 
   remote-daemon-tests:
     needs: remote-daemon-admission
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -87,7 +121,7 @@ jobs:
     # Plain `go test` with no Xcode or GUI: any Mac will do. Follow the same
     # lanes as the other pull-request macOS jobs instead of pinning the
     # contended macOS 26 pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' remote-daemon ') && (inputs.pr_side_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' remote-daemon ')) && inputs.pr_retry_runner || inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

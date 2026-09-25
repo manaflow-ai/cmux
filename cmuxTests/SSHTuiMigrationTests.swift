@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCore
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
@@ -94,6 +95,26 @@ struct SSHTuiMigrationTests {
         #expect(restored.relayPort == nil)
         #expect(restored.foregroundAuthToken == nil)
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
+    }
+
+    @Test("Legacy persistent SSH snapshots are not claimed by the TUI owner")
+    func legacySnapshotDoesNotBecomeTuiSession() throws {
+        let legacy = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "fixture@host",
+            preserveAfterTerminalExit: true, relayPort: 1234, persistentDaemonSlot: "legacy-owned")
+        #expect(legacy.tuiSSHConfiguration(agentSocketPath: nil) == nil)
+        let blocked = try #require(legacy.workspaceConfiguration())
+        #expect(blocked.terminalStartupCommand == nil)
+        #expect(blocked.sessionSnapshot() == legacy)
+        #expect(blocked.scopedToOwnerWorkspace(UUID()).sessionSnapshot() == legacy)
+        #expect(blocked.withSSHControlMasterLeaseGeneration(UUID()).sessionSnapshot() == legacy)
+
+    }
+
+    @Test("Managed SSH snapshot serialization records its session owner")
+    func managedSnapshotRecordsOwner() throws {
+        let snapshot = try #require(configuration().sessionSnapshot())
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        #expect(object["sshSessionOwner"] as? String == "cmux-tui")
     }
 
     @MainActor

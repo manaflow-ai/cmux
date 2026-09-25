@@ -222,6 +222,32 @@ import Testing
         #expect(observer.terminalThemesBySurfaceID[surfaceID] == nil)
         #expect(observer.terminalConfigThemesBySurfaceID[surfaceID] == nil)
     }
+
+    @MainActor
+    @Test func viewportChangeClearsCachedRenderGridBaseline() throws {
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        defer { observer.stop() }
+        let surfaceID = UUID()
+        let seeded = try MobileTerminalRenderGridFrame(
+            surfaceID: surfaceID.uuidString,
+            stateSeq: 1,
+            columns: 80,
+            rows: 9,
+            rowSpans: [],
+            terminalTheme: .monokai,
+            terminalConfigTheme: .monokai,
+            anchor: .screen
+        )
+        observer.adoptReplayBaseline(seeded, surfaceID: surfaceID)
+        #expect(observer.terminalThemesBySurfaceID[surfaceID] != nil)
+        #expect(observer.terminalConfigThemesBySurfaceID[surfaceID] != nil)
+
+        observer.noteTerminalViewportChanged(surfaceID: surfaceID)
+
+        #expect(observer.terminalThemesBySurfaceID[surfaceID] == nil)
+        #expect(observer.terminalConfigThemesBySurfaceID[surfaceID] == nil)
+    }
 }
 
 private final class ThemeInvalidationTestClock: Clock, @unchecked Sendable {

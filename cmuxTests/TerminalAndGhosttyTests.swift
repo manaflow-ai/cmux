@@ -3052,7 +3052,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
-    private func makeWindow() -> NSWindow {
+    func makeWindow() -> NSWindow {
         let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -3107,7 +3107,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
-    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+    func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while ProcessInfo.processInfo.systemUptime < deadline {
             if condition() {
@@ -3118,7 +3118,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         return condition()
     }
 
-    private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
+    func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
         var drained = false
         DispatchQueue.main.async {
             drained = true
@@ -3126,7 +3126,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
     }
 
-    private func waitForRuntimeSurface(
+    func waitForRuntimeSurface(
         _ surface: TerminalSurface,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
@@ -3677,63 +3677,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
-    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let livePortalWorkspace = try makeAuthorizedPortalTabId()
-        defer { livePortalWorkspace.tearDown() }
-
-        let surface = TerminalSurface(
-            tabId: livePortalWorkspace.id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        hostedView.setVisibleInUI(true)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertNotNil(
-            surface.surface,
-            "Expected runtime surface before measuring visibility-restore redraws"
-        )
-
-        hostedView.setActive(false)
-        hostedView.setVisibleInUI(false)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        surface.resetDebugForceRefreshCount()
-        hostedView.setVisibleInUI(true)
-        drainMainQueue()
-        // The visibility-restore redraw is scheduled through a main-actor task, which
-        // `drainMainQueue` (GCD) does not drain; wait for it before counting.
-        _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= 1 }
-
-        XCTAssertEqual(
-            surface.debugForceRefreshCount(),
-            1,
-            "Restoring panel visibility should force a redraw even when focus recovery is inactive"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
-    }
-
     func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() throws {
 #if DEBUG
         let window = makeWindow()
@@ -4254,6 +4197,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     func testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles() throws {
 #if DEBUG
+        // Skips outside its dedicated CI step, which sets the variable. A pull
+        // request that edits this test runs that step too (choose_ci_suite.py).
         guard ProcessInfo.processInfo.environment["CMUX_RENDERER_MEMORY_REGRESSION"] == "1" else {
             throw XCTSkip("Runs in the isolated renderer-memory CI invocation")
         }
@@ -4314,7 +4259,13 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let sampler = TaskVMInfoMemoryPressureFootprintSampler()
         let sampleNoiseAllowance: UInt64 = 8 * 1_024 * 1_024
 
-        func settledFootprint(_ description: String) throws -> UInt64 {
+        func sampleFootprint(
+            _ description: String
+        ) throws -> (median: UInt64, settled: Bool) {
+            // Freed malloc pages stay in the physical footprint until the
+            // allocator returns them. That is allocator caching, not renderer
+            // retention, so return them before every measurement.
+            _ = malloc_zone_pressure_relief(nil, 0)
             let deadline = ProcessInfo.processInfo.systemUptime + 4
             var recent: [UInt64] = []
             while ProcessInfo.processInfo.systemUptime < deadline {
@@ -4334,7 +4285,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                    let minimum = recent.min(),
                    let maximum = recent.max(),
                    maximum - minimum <= sampleNoiseAllowance {
-                    return recent.sorted()[recent.count / 2]
+                    return (recent.sorted()[recent.count / 2], true)
                 }
             }
             guard !recent.isEmpty else {
@@ -4342,12 +4293,13 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             }
             let minimum = recent.min() ?? 0
             let maximum = recent.max() ?? 0
-            XCTAssertLessThanOrEqual(
-                maximum - minimum,
-                sampleNoiseAllowance,
-                "Physical footprint did not settle for \(description)"
-            )
-            return recent.sorted()[recent.count / 2]
+            return (recent.sorted()[recent.count / 2], maximum - minimum <= sampleNoiseAllowance)
+        }
+
+        func settledFootprint(_ description: String) throws -> UInt64 {
+            let sample = try sampleFootprint(description)
+            XCTAssertTrue(sample.settled, "Physical footprint did not settle for \(description)")
+            return sample.median
         }
 
         let hiddenSurfaces = Array(surfaces.dropFirst())
@@ -4367,7 +4319,35 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         // Holding it fixed is also the stricter test: cumulative retention
         // across cycles now shows up as a rising ratio, where advancing the
         // baseline measured only each cycle's increment and hid a steady leak.
-        let oneRendererBaseline = try settledFootprint("one-renderer baseline")
+        //
+        // The baseline follows the same asynchronous release as every cycle
+        // target below: the four initial evictions only publish unrealize
+        // requests. Measured at once it read 232 MB where the same one
+        // renderer later settled at 210 MB, and a baseline inflated by memory
+        // still being freed left cycle 2's five-renderer peak inside the
+        // noise allowance, failing the "must distinguish" guard. Sample until
+        // settled readings stop falling, within the same bounded window, and
+        // keep the lowest. A pending release can plateau through one whole
+        // settle window, so require two non-falling readings in a row.
+        let baselineDescription = "one-renderer baseline"
+        let baselineDeadline = ProcessInfo.processInfo.systemUptime + 20
+        var settledBaseline: UInt64?
+        var nonFallingReadings = 0
+        repeat {
+            let sample = try sampleFootprint(baselineDescription)
+            guard sample.settled else { continue }
+            if let previous = settledBaseline {
+                nonFallingReadings = previous <= sample.median + sampleNoiseAllowance
+                    ? nonFallingReadings + 1
+                    : 0
+            }
+            settledBaseline = min(settledBaseline ?? sample.median, sample.median)
+            if nonFallingReadings >= 2 { break }
+        } while ProcessInfo.processInfo.systemUptime < baselineDeadline
+        guard let oneRendererBaseline = settledBaseline else {
+            XCTFail("Physical footprint did not settle for \(baselineDescription)")
+            return
+        }
 
         for cycle in 1...3 {
             for surface in hiddenSurfaces {
@@ -4393,8 +4373,42 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 "Cycle \(cycle) must leave only the visible tab's renderer realized"
             )
 
-            let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
             let realizedDelta = fiveRendererPeak - oneRendererBaseline
+            let retentionLimit = 0.45
+            let allowedTarget = oneRendererBaseline + sampleNoiseAllowance
+                + UInt64(Double(realizedDelta) * retentionLimit)
+
+            // `releaseRenderer()` only publishes an unrealize request. The
+            // renderer thread applies it later, drains outstanding frame
+            // leases, and keeps compositor-owned IOSurfaces alive until the
+            // queued layer clear finishes (docs/ghostty-fork.md). On a loaded
+            // headless CI runner a plateau of not-yet-released memory can hold
+            // still for the whole seven-sample settle window, which read as
+            // retention: cycle 2 targets of 241-243 MB over a 206-210 MB
+            // baseline, with the next cycle's target back down to 225 MB.
+            //
+            // Keep sampling while the target is unsettled or over the limit,
+            // for a bounded window, and judge the lowest settled footprint.
+            // Only settled windows count, so a transient dip cannot pass the
+            // test. Memory the renderers still hold after the window is real
+            // retention and still fails.
+            let targetDescription = "cycle \(cycle) one-renderer target"
+            let reclaimStart = ProcessInfo.processInfo.systemUptime
+            let reclaimDeadline = reclaimStart + 20
+            let firstTarget = try sampleFootprint(targetDescription)
+            var targetFootprint = firstTarget.median
+            var targetSettled = firstTarget.settled
+            while !targetSettled || targetFootprint > allowedTarget,
+                  ProcessInfo.processInfo.systemUptime < reclaimDeadline {
+                let sample = try sampleFootprint(targetDescription)
+                guard sample.settled else { continue }
+                targetFootprint = targetSettled
+                    ? min(targetFootprint, sample.median)
+                    : sample.median
+                targetSettled = true
+            }
+            XCTAssertTrue(targetSettled, "Physical footprint did not settle for \(targetDescription)")
+            let reclaimWait = ProcessInfo.processInfo.systemUptime - reclaimStart
 
             let retainedDelta = targetFootprint > oneRendererBaseline
                 ? targetFootprint - oneRendererBaseline
@@ -4407,13 +4421,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
                 "five=\(fiveRendererPeak) target=\(targetFootprint) " +
                 "realized_delta=\(realizedDelta) noise_allowance=\(sampleNoiseAllowance) " +
+                "reclaim_wait=\(String(format: "%.2f", reclaimWait))s " +
                 "retained_ratio=\(normalizedRetainedRatio)"
             )
             XCTAssertLessThanOrEqual(
                 normalizedRetainedRatio,
-                0.45,
+                retentionLimit,
                 "Cycle \(cycle) cumulative retention above the one-renderer baseline "
-                + "exceeds 45% of the five-renderer delta"
+                + "exceeds \(Int(retentionLimit * 100))% of the five-renderer delta"
             )
         }
 
@@ -5619,6 +5634,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // background coordinator, and a shell still writing output would keep
         // the io threads (and the tee callback) running into the next test.
         for surface in trackedSurfaces.reversed() {
+            killShellProcesses(of: surface)
             surface.releaseSurfaceForTesting()
         }
         trackedSurfaces.removeAll()
@@ -6381,10 +6397,36 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
         realizeWindowLayout(window)
 
+        // AppKit keeps the last event it dequeued as NSApp.currentEvent, and
+        // that can be an appKitDefined event of another window. A drag must
+        // still scope to the window hosting its terminals.
+        let otherWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 120)
+        )
+        if let staleEvent = NSEvent.otherEvent(
+            with: .appKitDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: otherWindow.windowNumber,
+            context: nil,
+            subtype: 0,
+            data1: 0,
+            data2: 0
+        ) {
+            NSApp.postEvent(staleEvent, atStart: true)
+            _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        }
+        XCTAssertEqual(NSApp.currentEvent?.type, .appKitDefined)
+
         store.bonsplitController.noteDividerDragSession(true)
         XCTAssertTrue(
             TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
             "Dock split drags should enter the same window-scoped terminal resize transaction"
+        )
+        XCTAssertFalse(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: otherWindow),
+            "A stale non-pointer event must not scope the drag to its window"
         )
         store.bonsplitController.noteDividerDragSession(false)
         XCTAssertFalse(

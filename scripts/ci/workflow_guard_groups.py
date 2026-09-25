@@ -87,13 +87,18 @@ PATH_OWNERS = {
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
     "scripts/ci/main_full_suite.py": frozenset(("ci",)),
+    # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
+    # these by path; the receipt test also reads its workflow and fixtures.
+    "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
+    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
+    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
-    "scripts/ci/nightly_mini_route.py": frozenset(("preflight",)),
-    "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
@@ -154,7 +159,8 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("cmuxTests/", "cmuxUITests/", "ios/cmuxUITests/",
+    if path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                        "cmuxUITests/", "ios/cmuxUITests/",
                         "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path
