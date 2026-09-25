@@ -22,11 +22,14 @@ extension DockSplitStore {
         agentRuntimeByPanelId.removeAll()
         agentNeedsInputAttention.replace(with: [])
         restoredTerminalScrollbackByPanelId.removeAll()
-        restoredAgentLifecycle.removeAllSessionRestores()
+        terminalStartupRestoreCoordinator.removeAllRestores()
+        clearDeferredAgentResumeRestores()
         surfaceResumeBindingsByPanelId.removeAll()
+        surfaceResumeRestoreClaimsByPanelId.removeAll()
         managedAgentResumeBindingsByPanelId.removeAll()
         invalidatedCachedTransferAgentSessionPanelIds.removeAll()
         replacedCachedTransferAgentSessionPanelIds.removeAll()
+        manualUnreadPanelIds.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

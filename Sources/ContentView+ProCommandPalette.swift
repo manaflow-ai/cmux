@@ -42,7 +42,7 @@ extension ContentView {
 #if DEBUG
             cmuxDebugLog("palette.pro.upgrade.invoke")
 #endif
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .commandPalette)
         }
         registry.register(commandId: Self.commandPaletteProWelcomeChecklistCommandId) {
 #if DEBUG

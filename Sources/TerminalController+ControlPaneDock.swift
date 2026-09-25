@@ -49,12 +49,17 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
             initialDividerPosition: initialDividerPosition,
             preferredProfileID: preferredProfileID,
-            focus: focus
+            preloadInitialNavigationInBackground: kind == .browser,
+            focus: false
         )
         guard let newPanelId else {
             return .createFailed
+        }
+        if focus {
+            dock.focusPanelFromDockInteraction(newPanelId, window: nil)
         }
         let paneUUID = dock.paneId(forPanelId: newPanelId)?.id
         return .createdDock(

@@ -32,6 +32,7 @@ extension TabManager {
         insertionIndexOverride: Int? = nil,
         focusIntent: PanelFocusIntent? = nil
     ) -> Workspace? {
+        guard !isFinalizedForWindowClose else { return nil }
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         let capturedSelectedTabId = sourceWorkspace?.id
@@ -83,7 +84,8 @@ extension TabManager {
             applyCreationWorkspaceCustomization(
                 to: newWorkspace,
                 explicitTitle: title,
-                explicitTitleSource: titleSource
+                explicitTitleSource: titleSource,
+                repairInitialTabTitle: false
             )
             wireClosedBrowserTracking(for: newWorkspace)
 

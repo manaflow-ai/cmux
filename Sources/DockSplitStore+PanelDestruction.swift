@@ -10,6 +10,9 @@ extension DockSplitStore {
 
     @discardableResult
     func discardPanelStateAndClose(panelId: UUID) -> (any Panel)? {
+        if panels[panelId] is BrowserPanel {
+            removeBrowserOpenTabSuggestion(panelId: panelId)
+        }
         cancelDockReactGrabTask(targetingPanelId: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
@@ -18,9 +21,16 @@ extension DockSplitStore {
             forTabId: workspaceId,
             surfaceId: panelId
         )
-        TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId])
+        TerminalController.shared.cleanupSurfaceState(
+            surfaceIds: [panelId],
+            workspaceID: workspaceId
+        )
         removeDetachedSurfaceTransfer(forPanelID: panelId)
+        terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
+            panelID: panelId
+        )
         clearSessionRestoreState(panelId: panelId)
+        manualUnreadPanelIds.remove(panelId)
 
         guard let panel = panels.removeValue(forKey: panelId) else { return nil }
         if let terminalPanel = panel as? TerminalPanel {

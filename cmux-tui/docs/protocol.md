@@ -1,14 +1,27 @@
-# Raw control protocol v11
+# Raw control protocol v12
 
 This is the private implementation interface for cmux frontends and
-compatibility adapters. New applications should use
+compatibility adapters. New applications should use the public resource API,
+not this socket protocol:
 [`cmux.protocol/2`](../spec/resource-api-v2.md), the
 [noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
-High-level packages expose protocol v11 only through their `raw` namespace.
+High-level packages expose protocol v12 only through their `raw` namespace.
 
-As of protocol v11, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+Protocol v12 and resource API v2 are separate version domains. They use
+different messages, identifiers, and negotiation. A resource API client does
+not connect to this socket directly, and a raw client does not become a
+resource API client by reporting `protocol: 12`.
+
+As of protocol v12, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
+
+PTY relay clients must use the `pty_error` contract and terminal lookup rule in
+[transports.md](../spec/transports.md#pty-lifecycle-errors-and-terminal_gone).
+`terminal_gone` is definitive only after a successful workspace listing proves
+that the requested resource is absent. A closed or saturated control connection
+is not proof that the terminal is gone; retry only after a new authenticated
+transport generation is established.
 
 For shell use, prefer the noun-first public CLI, such as
 `cmux workspace list --json`.
@@ -23,7 +36,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":11,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -153,7 +166,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v11. It rejects protocol-v10 servers because v11 changes terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v11 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
+The remote TUI requires protocol v12. It rejects protocol-v11 servers because v12 adds lifecycle readiness to the strict identify response. Protocol v11 changed terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v12 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server. Protocol v10 requires `surface` on every `set-client-sizing` request and moves `size_participating` into each `list-clients.sizes` entry.
 
@@ -162,12 +175,16 @@ Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-
 When several clients display one terminal, their size reports are passive
 viewport hints until one exact client and terminal view claim geometry
 authority. Only that owner can resize the canonical PTY grid; every other view
-crops, pans, or scales it locally. Releasing or disconnecting the owner freezes
-the current grid until another explicit claim. Browser surfaces retain the
-legacy smallest-participating-size reducer because each browser has one live
-tab. A client releases its report when that view becomes hidden. Input and
-mux-driven redraws never claim geometry or reassert an idle viewport. See the
-canonical [`Sizing`](../spec/commands.md#sizing) contract.
+crops, pans, or scales it locally. Releasing or disconnecting the owner, or a
+refused owner resize, fences the old owner and freezes the current grid. A
+replacement report and claim must come from a newly attached client; the core
+server does not elect a survivor across sockets because the wire contract has
+no generation token for that hand-off.
+Browser surfaces retain the legacy smallest-participating-size reducer because
+each browser has one live tab. A client releases its report when that view
+becomes hidden. Input and mux-driven redraws never claim geometry or reassert an
+idle viewport. See the canonical [`Sizing`](../spec/commands.md#sizing)
+contract.
 
 Provider-aware clients require `provider-managed-workspace-authority-v2` before exposing provider-owned workspace lifecycle controls. The server starts with provider ownership fixed for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
 

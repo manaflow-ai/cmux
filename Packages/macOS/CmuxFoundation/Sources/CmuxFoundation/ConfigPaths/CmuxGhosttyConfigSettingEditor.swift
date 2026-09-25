@@ -27,6 +27,8 @@ public struct CmuxGhosttyConfigSettingEditor {
     /// The largest surface-tab-bar font size cmux allows.
     public static let maxSurfaceTabBarFontSize = 14.0
 
+    private let configLines = CmuxConfigLines()
+
     public init() {}
 
     /// Clamps a sidebar font size to its allowed range, substituting the default
@@ -98,7 +100,7 @@ public struct CmuxGhosttyConfigSettingEditor {
     /// The last value assigned to `key` in a Ghostty config body, or `nil`.
     public func parsedValue(for key: String, in contents: String) -> String? {
         var latestValue: String?
-        for line in contents.components(separatedBy: .newlines) {
+        for line in configLines.split(contents) {
             guard let setting = parsedSetting(in: line), setting.key == key else {
                 continue
             }
@@ -109,11 +111,13 @@ public struct CmuxGhosttyConfigSettingEditor {
 
     /// Returns `contents` with every assignment to `key` replaced by `value`,
     /// appending a new assignment when the key is absent.
+    ///
+    /// The config's own line-ending style is preserved: a CRLF config stays
+    /// CRLF, and a rewrite neither strands a `"\r"` on a line nor appends a
+    /// blank one. See ``CmuxConfigLines``.
     public func updatedContents(_ contents: String, setting key: String, value: String) -> String {
-        var lines = contents.components(separatedBy: "\n")
-        if contents.hasSuffix("\n") {
-            lines.removeLast()
-        }
+        let lineEnding = configLines.lineEnding(of: contents)
+        var lines = configLines.split(contents)
         if lines.count == 1, lines[0].isEmpty {
             lines = []
         }
@@ -130,7 +134,7 @@ public struct CmuxGhosttyConfigSettingEditor {
         if !didReplace {
             lines.append("\(key) = \(value)")
         }
-        return lines.joined(separator: "\n") + "\n"
+        return configLines.joined(lines, lineEnding: lineEnding)
     }
 
     /// Writes `value` for `key` to the config at `url`, following symlinks and

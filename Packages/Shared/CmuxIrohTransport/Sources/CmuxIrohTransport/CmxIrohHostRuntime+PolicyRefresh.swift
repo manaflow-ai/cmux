@@ -7,13 +7,11 @@ extension CmxIrohHostRuntime {
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64
     ) async throws -> ResolvedPolicy {
-        try await revokePendingBeforeRegistration()
-        try requireCurrent(revision)
         var failureCount = 0
         while true {
             try requireCurrent(revision)
             do {
-                return try await resolvePolicyAfterPendingRevocations(
+                return try await resolvePolicyAfterAuthenticatedRegistration(
                     engine: engine,
                     expectedEndpointID: expectedEndpointID,
                     revision: revision,
@@ -21,6 +19,8 @@ extension CmxIrohHostRuntime {
                 )
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let failure as CmxIrohPostRegistrationRevocationFailure {
+                throw failure.underlying
             } catch {
                 try requireCurrent(revision)
                 guard CmxIrohTrustBrokerClientError
@@ -48,25 +48,30 @@ extension CmxIrohHostRuntime {
         revision: UInt64,
         allowCachedFallback: Bool
     ) async throws -> ResolvedPolicy {
-        try await revokePendingBeforeRegistration()
-        try requireCurrent(revision)
-        return try await resolvePolicyAfterPendingRevocations(
-            engine: engine,
-            expectedEndpointID: expectedEndpointID,
-            revision: revision,
-            allowCachedFallback: allowCachedFallback
-        )
+        do {
+            return try await resolvePolicyAfterAuthenticatedRegistration(
+                engine: engine,
+                expectedEndpointID: expectedEndpointID,
+                revision: revision,
+                allowCachedFallback: allowCachedFallback
+            )
+        } catch let failure as CmxIrohPostRegistrationRevocationFailure {
+            throw failure.underlying
+        }
     }
 
-    private func revokePendingBeforeRegistration() async throws {
-        try await pendingRevocations.revokePending(
+    private func reconcilePendingAfterRegistration(
+        activeBindingID: String
+    ) async throws -> Bool {
+        try await pendingRevocations.reconcilePending(
             accountID: configuration.accountID,
             beforeRegisteringTag: configuration.tag,
+            activeBindingID: activeBindingID,
             using: broker
         )
     }
 
-    private func resolvePolicyAfterPendingRevocations(
+    private func resolvePolicyAfterAuthenticatedRegistration(
         engine: CmxConnectivityEngine,
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64,
@@ -117,9 +122,19 @@ extension CmxIrohHostRuntime {
         }
         try requireCurrent(revision)
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
+        let revokedPendingBinding: Bool
+        do {
+            revokedPendingBinding = try await reconcilePendingAfterRegistration(
+                activeBindingID: registration.binding.bindingID
+            )
+        } catch {
+            throw CmxIrohPostRegistrationRevocationFailure(underlying: error)
+        }
+        try requireCurrent(revision)
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration.discovery,
+            if !revokedPendingBinding,
+               let embedded = registration.discovery,
                registration.embeddedDiscoveryComplete {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration.revision,
@@ -181,7 +196,9 @@ extension CmxIrohHostRuntime {
         try requireCurrent(revision)
         lastRegistrationRefreshState = CmxIrohRegistrationPublicationState(
             payload: payload,
-            now: now()
+            now: now(),
+            minimumPublicationSpacing: registration.minimumPublicationSpacingSeconds
+                ?? CmxIrohRegistrationPublicationState.defaultMinimumPublicationSpacing
         )
         return ResolvedPolicy(
             registration: registration,
@@ -228,6 +245,7 @@ extension CmxIrohHostRuntime {
         return try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
             tag: configuration.tag,
             platform: .mac,
             displayName: configuration.displayName,
@@ -269,7 +287,7 @@ extension CmxIrohHostRuntime {
         }
         guard allowFallback,
               CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error),
+                .preservesVerifiedStateDuringRefresh(error),
               let cached = configuration.cachedHostPolicy else {
             throw error
         }
@@ -304,6 +322,7 @@ extension CmxIrohHostRuntime {
     ) throws {
         guard binding.deviceID == configuration.deviceID,
               binding.appInstanceID == configuration.appInstanceID,
+              binding.clientNamespace == configuration.clientNamespace,
               binding.tag == configuration.tag,
               binding.platform == .mac,
               binding.endpointID == endpointID,
@@ -322,6 +341,7 @@ extension CmxIrohHostRuntime {
         let binding = policy.binding
         guard binding.deviceID == configuration.deviceID,
               binding.appInstanceID == configuration.appInstanceID,
+              binding.clientNamespace == configuration.clientNamespace,
               binding.tag == configuration.tag,
               binding.platform == .mac,
               binding.endpointID == endpointID,
@@ -428,6 +448,38 @@ extension CmxIrohHostRuntime {
         }
     }
 
+    /// Arms one refresh at the end of the publication spacing window. The
+    /// renewal task slot is reused: a later successful publication replaces
+    /// the deferral with a normal renewal, and sign-out cancels both.
+    func scheduleDeferredPublication(at deadline: Date, revision: UInt64) {
+        registrationRenewalTask?.cancel()
+        registrationRenewalTask = nil
+        guard lifecyclePhase.ownsNetworkOperation,
+              lifecycleRevision == revision else { return }
+        registrationRenewalTask = Task { [weak self] in
+            await self?.runDeferredPublication(
+                revision: revision,
+                deadline: deadline
+            )
+        }
+    }
+
+    private func runDeferredPublication(
+        revision: UInt64,
+        deadline: Date
+    ) async {
+        do {
+            try await registrationClock.sleep(until: deadline)
+        } catch {
+            return
+        }
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              !Task.isCancelled else { return }
+        scheduleRegistrationRefresh(revision: revision)
+        await registrationRefreshTask?.value
+    }
+
     private func runRegistrationRenewal(
         revision: UInt64,
         firstDeadline: Date
@@ -528,10 +580,20 @@ extension CmxIrohHostRuntime {
                     engine: connectivityEngine,
                     expectedEndpointID: endpointID
                 )
-                guard state.requiresPublication(
+                switch state.publicationDecision(
                     after: lastRegistrationRefreshState,
                     now: now()
-                ) else {
+                ) {
+                case .publish:
+                    break
+                case .unchanged:
+                    completedSuccessfully = true
+                    return
+                case let .deferred(until):
+                    // Reachability changed inside the spacing window. Publish
+                    // the latest snapshot once the window closes instead of
+                    // on every observed-address change.
+                    scheduleDeferredPublication(at: until, revision: revision)
                     completedSuccessfully = true
                     return
                 }
@@ -586,7 +648,7 @@ extension CmxIrohHostRuntime {
             guard lifecyclePhase == .active,
                   lifecycleRevision == revision else { return }
             guard CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error) else {
+                .preservesVerifiedStateDuringRefresh(error) else {
                 lifecyclePhase = .stopping
                 lifecycleRevision &+= 1
                 let failureRevision = lifecycleRevision

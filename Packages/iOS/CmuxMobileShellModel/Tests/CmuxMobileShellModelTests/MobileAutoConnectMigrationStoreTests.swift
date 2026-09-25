@@ -47,7 +47,7 @@ import Testing
     }
 
     @Test(arguments: ["automatic", "tailscale", "unknown"])
-    func anyPersistedConnectionMethodMakesUpgradeIneligible(_ rawMethod: String) {
+    func completedUpgradeRemainsEligibleAfterAConnectionChoice(_ rawMethod: String) {
         let defaults = makeDefaults()
         defaults.set(
             MobileOnboardingProgress.complete.rawValue,
@@ -55,7 +55,24 @@ import Testing
         )
         defaults.set(rawMethod, forKey: MobileConnectionMethodStore.methodKey)
 
-        #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .ineligible)
+        #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .pending)
+    }
+
+    @Test(arguments: MobileAutoConnectMigrationResolution.allCases)
+    func priorIntroductionResolutionDoesNotSuppressMacVersionNotice(
+        _ priorResolution: MobileAutoConnectMigrationResolution
+    ) {
+        let defaults = makeDefaults()
+        defaults.set(
+            priorResolution.rawValue,
+            forKey: MobileAutoConnectMigrationStore.legacyResolutionKey
+        )
+        defaults.set(
+            MobileOnboardingProgress.complete.rawValue,
+            forKey: MobileOnboardingStore.progressKey
+        )
+
+        #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .pending)
     }
 
     @Test(arguments: MobileAutoConnectMigrationResolution.allCases)
@@ -100,12 +117,14 @@ import Testing
         #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .pending)
     }
 
-    @Test func acknowledgementPersistsAndDoesNotChooseAConnectionMethod() {
+    @Test(arguments: ["automatic", "tailscale", "unknown"])
+    func acknowledgementPersistsWithoutChangingSavedConnectionMethod(_ rawMethod: String) {
         let defaults = makeDefaults()
         defaults.set(
             MobileOnboardingProgress.complete.rawValue,
             forKey: MobileOnboardingStore.progressKey
         )
+        defaults.set(rawMethod, forKey: MobileConnectionMethodStore.methodKey)
         let store = MobileAutoConnectMigrationStore(defaults: defaults)
 
         store.acknowledge()
@@ -114,7 +133,7 @@ import Testing
         #expect(
             MobileAutoConnectMigrationStore(defaults: defaults).resolution == .acknowledged
         )
-        #expect(defaults.object(forKey: MobileConnectionMethodStore.methodKey) == nil)
+        #expect(defaults.string(forKey: MobileConnectionMethodStore.methodKey) == rawMethod)
     }
 
     @Test func acknowledgementCannotPromoteAnIneligibleInstall() {

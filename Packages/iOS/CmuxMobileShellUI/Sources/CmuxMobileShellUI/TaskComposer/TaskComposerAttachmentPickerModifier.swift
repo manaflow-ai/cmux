@@ -10,6 +10,7 @@ struct TaskComposerAttachmentPickerModifier: ViewModifier {
     @Binding var isFileImporterPresented: Bool
     let remainingCount: Int
     let selectedPhotos: ([PhotosPickerItem]) -> Void
+    let dismissedPhotos: () -> Void
     let selectedFiles: (Result<[URL], any Error>) -> Void
 
     func body(content: Content) -> some View {
@@ -18,7 +19,9 @@ struct TaskComposerAttachmentPickerModifier: ViewModifier {
                 isPresented: $isPhotoPickerPresented,
                 selection: $photoSelection,
                 maxSelectionCount: max(remainingCount, 1),
-                matching: .images
+                // Leave the filter unset so every supported Photos library
+                // asset remains selectable.
+                matching: nil
             )
             .fileImporter(
                 isPresented: $isFileImporterPresented,
@@ -29,6 +32,10 @@ struct TaskComposerAttachmentPickerModifier: ViewModifier {
             .onChange(of: photoSelection) { _, items in
                 guard !items.isEmpty else { return }
                 selectedPhotos(items)
+            }
+            .onChange(of: isPhotoPickerPresented) { wasPresented, isPresented in
+                guard wasPresented, !isPresented else { return }
+                dismissedPhotos()
             }
     }
 }
