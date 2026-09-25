@@ -16404,7 +16404,13 @@ struct TabItemView: View, Equatable {
                             Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
                                 .buttonStyle(.plain)
                                 .tint(pullRequestForegroundColor)
-                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltipGeneric", defaultValue: "Open pull request"))
+                                .safeHelp(
+                                    String(
+                                        format: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open %1$@ #%2$lld"),
+                                        pullRequest.label,
+                                        Int64(pullRequest.number)
+                                    )
+                                )
                                 .accessibilityIdentifier("SidebarPullRequestRow")
                         } else {
                             rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
