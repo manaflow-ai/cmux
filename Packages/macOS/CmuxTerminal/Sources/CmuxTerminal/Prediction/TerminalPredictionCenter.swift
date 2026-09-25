@@ -30,6 +30,11 @@ public final class TerminalPredictionCenter {
     /// Consulted only when prediction starts for a surface, because the
     /// engine otherwise learns the mode from switches in output it sees.
     private var alternateScreenReaders: [UUID: @MainActor () -> Bool] = [:]
+    /// Surfaces whose alternate-screen mode has not been read since
+    /// prediction started for them. The read serializes the viewport, so it
+    /// waits for the surface's first keystroke instead of running for every
+    /// surface at once when the setting is turned on.
+    private var surfacesAwaitingSeed: Set<UUID> = []
     private var isEnabled = false
 
     /// Fires at the earliest moment a drawn glyph ages out. A terminal that
@@ -85,9 +90,10 @@ public final class TerminalPredictionCenter {
     ///
     /// - Parameters:
     ///   - isAlternateScreen: Reads whether the terminal is in the alternate
-    ///     screen right now. Called when prediction starts for this surface
-    ///     (here while the setting is on, or when it is turned on), so a
-    ///     full-screen app that was already open is not predicted inside.
+    ///     screen right now. Called at the first keystroke after prediction
+    ///     starts for this surface (registered while the setting is on, or
+    ///     the setting turned on), so a full-screen app that was already open
+    ///     is not predicted inside.
     ///   - redraw: Called on the main actor whenever the drawn set changed.
     public func register(
         surfaceID: UUID,
@@ -97,15 +103,21 @@ public final class TerminalPredictionCenter {
         engines[surfaceID] = TerminalPredictionEngine(isEnabled: isEnabled)
         redrawHandlers[surfaceID] = redraw
         alternateScreenReaders[surfaceID] = isAlternateScreen
-        if isEnabled { seedAlternateScreen(surfaceID: surfaceID) }
+        if isEnabled { surfacesAwaitingSeed.insert(surfaceID) }
     }
 
     /// Output from before prediction started was never scanned, so the mode
-    /// comes from the terminal. Anything teed since arrives after this and
-    /// applies on top of it.
-    private func seedAlternateScreen(surfaceID: UUID) {
-        guard let read = alternateScreenReaders[surfaceID] else { return }
-        engines[surfaceID]?.seedAlternateScreen(read())
+    /// comes from the terminal. Output teed and not yet drained applies on
+    /// top of it.
+    ///
+    /// The read can find a stale surface and tear it down, which unregisters
+    /// it synchronously, so it runs before any access to `engines` and
+    /// callers recheck the engine afterwards.
+    private func seedAlternateScreenIfNeeded(surfaceID: UUID) {
+        guard surfacesAwaitingSeed.remove(surfaceID) != nil,
+              let read = alternateScreenReaders[surfaceID] else { return }
+        let isActive = read()
+        engines[surfaceID]?.seedAlternateScreen(isActive)
     }
 
     /// Stops predicting for a surface whose runtime is gone.
@@ -122,6 +134,7 @@ public final class TerminalPredictionCenter {
         // With the engine gone `expiring` returns nothing, so this redraw
         // hides any glyph still drawn over a view that outlives its runtime.
         alternateScreenReaders.removeValue(forKey: surfaceID)
+        surfacesAwaitingSeed.remove(surfaceID)
         redrawHandlers.removeValue(forKey: surfaceID)?()
     }
 
@@ -159,7 +172,7 @@ public final class TerminalPredictionCenter {
         for surfaceID in engines.keys {
             engines[surfaceID]?.isEnabled = enabled
             if enabled {
-                seedAlternateScreen(surfaceID: surfaceID)
+                surfacesAwaitingSeed.insert(surfaceID)
             } else {
                 // A fresh engine has no pending glyphs and no stale echo run.
                 engines[surfaceID] = TerminalPredictionEngine(isEnabled: false)
@@ -178,6 +191,8 @@ public final class TerminalPredictionCenter {
     /// whose effect on the screen is not knowable.
     public func typed(printableASCII byte: UInt8?, surfaceID: UUID) {
         guard isEnabled, engines[surfaceID] != nil else { return }
+        seedAlternateScreenIfNeeded(surfaceID: surfaceID)
+        guard engines[surfaceID] != nil else { return }
         if engines[surfaceID]?.typed(printableASCII: byte, at: now) == true {
             redrawHandlers[surfaceID]?()
         }
@@ -188,6 +203,8 @@ public final class TerminalPredictionCenter {
     /// the remote has not echoed, or withdraws when there is none.
     public func typedBackspace(surfaceID: UUID) {
         guard isEnabled, engines[surfaceID] != nil else { return }
+        seedAlternateScreenIfNeeded(surfaceID: surfaceID)
+        guard engines[surfaceID] != nil else { return }
         if engines[surfaceID]?.typedBackspace(at: now) == true {
             redrawHandlers[surfaceID]?()
         }
