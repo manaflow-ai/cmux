@@ -3112,6 +3112,10 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.textColor = foregroundColor
         textView.backgroundColor = .clear
         textView.insertionPointColor = foregroundColor
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.34),
+            .foregroundColor: foregroundColor
+        ]
         textView.terminalTitle = terminalTitle
         textView.completionRootDirectory = completionRootDirectory
         textView.onSubmit = onSubmit
@@ -3303,7 +3307,76 @@ struct TextBoxInputView: NSViewRepresentable {
 }
 
 final class TextBoxInputTextView: NSTextView {
+    struct ListContinuation: Equatable {
+        let replacementRange: NSRange
+        let replacement: String
+    }
+
+    static func automaticListContinuation(in text: String, at location: Int) -> ListContinuation? {
+        let nsText = text as NSString
+        guard location >= 0, location <= nsText.length else { return nil }
+
+        let prefix = nsText.substring(to: location) as NSString
+        let newline = prefix.range(of: "\n", options: .backwards)
+        let lineStart = newline.location == NSNotFound ? 0 : NSMaxRange(newline)
+        let linePrefix = nsText.substring(with: NSRange(location: lineStart, length: location - lineStart))
+        let lineEndRange = nsText.range(
+            of: "\n",
+            options: [],
+            range: NSRange(location: location, length: nsText.length - location)
+        )
+        let lineEnd = lineEndRange.location == NSNotFound ? nsText.length : lineEndRange.location
+        guard location == lineEnd else { return nil }
+        let patterns: [(pattern: String, ordered: Bool)] = [
+            (#"^([ \t]*)([-+*])([ \t]+)(.*)$"#, false),
+            (#"^([ \t]*)([0-9]+)([.)])([ \t]+)(.*)$"#, true)
+        ]
+
+        for (pattern, ordered) in patterns {
+            guard let expression = try? NSRegularExpression(pattern: pattern),
+                  let match = expression.firstMatch(
+                      in: linePrefix,
+                      range: NSRange(location: 0, length: (linePrefix as NSString).length)
+                  ) else {
+                continue
+            }
+
+            func capture(_ index: Int) -> String {
+                let range = match.range(at: index)
+                guard range.location != NSNotFound else { return "" }
+                return (linePrefix as NSString).substring(with: range)
+            }
+
+            let indentation = capture(1)
+            let marker = capture(2)
+            let punctuation = ordered ? capture(3) : marker
+            let separator = ordered ? capture(4) : capture(3)
+            let content = ordered ? capture(5) : capture(4)
+            let prefixRange = NSRange(location: lineStart, length: location - lineStart)
+            if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return ListContinuation(replacementRange: prefixRange, replacement: "\n")
+            }
+
+            let continuationMarker: String
+            if let number = Int(marker) {
+                continuationMarker = String(number + 1) + punctuation
+            } else {
+                continuationMarker = marker
+            }
+            return ListContinuation(
+                replacementRange: NSRange(location: location, length: 0),
+                replacement: "\n\(indentation)\(continuationMarker)\(separator)"
+            )
+        }
+        return nil
+    }
+
     fileprivate private(set) var isHandlingDidChangeText = false
+
+    /// Additional selections are drawn by the text view because AppKit only permits
+    /// zero-length selections when there is a single selected range.
+    private var additionalSelectionRanges: [NSRange] = []
+    private var isApplyingMultipleSelectionEdit = false
 
     var terminalTitle = ""
     var completionRootDirectory: String? {
@@ -3450,6 +3523,7 @@ final class TextBoxInputTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
+            clearAdditionalTextBoxSelections()
             dismissMentionCompletions()
             layer?.borderColor = textColor?.withAlphaComponent(0.24).cgColor
             if preserveAttachmentFocusOnNextResign,
@@ -3485,6 +3559,22 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        if !isApplyingMultipleSelectionEdit,
+           activeInsertTextDepth == 0,
+           !hasMarkedText(),
+           let ranges = activeEditingRanges(),
+           ranges.count > 1,
+           let replacement = attributedReplacement(for: insertString) {
+            if performMultipleSelectionEdit(
+                ranges: ranges,
+                replacements: Array(repeating: replacement, count: ranges.count),
+                primaryRange: selectedRange()
+            ) {
+                onMarkedTextStateChanged(hasMarkedText())
+                return
+            }
+        }
+
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
         let isOuterInsertText = activeInsertTextDepth == 0
         if isOuterInsertText {
@@ -3503,6 +3593,211 @@ final class TextBoxInputTextView: NSTextView {
             didChangeText()
         }
         onMarkedTextStateChanged(hasMarkedText())
+    }
+
+    /// Adds a caret at a UTF-16 location while retaining the primary selection.
+    func addTextBoxCursor(at location: Int) {
+        let length = attributedString().length
+        guard location >= 0, location <= length else { return }
+        let primary = selectedRange()
+        guard primary.length == 0
+            || location < primary.location
+            || location >= NSMaxRange(primary) else {
+            return
+        }
+        guard !additionalSelectionRanges.contains(where: {
+            $0.length > 0 && location >= $0.location && location < NSMaxRange($0)
+        }) else {
+            return
+        }
+        let candidate = NSRange(location: location, length: 0)
+        guard candidate != selectedRange(),
+              !additionalSelectionRanges.contains(candidate) else { return }
+        additionalSelectionRanges.append(candidate)
+        additionalSelectionRanges.sort { $0.location < $1.location }
+        needsDisplay = true
+    }
+
+    private func clearAdditionalTextBoxSelections() {
+        guard !additionalSelectionRanges.isEmpty else { return }
+        additionalSelectionRanges.removeAll(keepingCapacity: false)
+        needsDisplay = true
+    }
+
+    private func activeEditingRanges() -> [NSRange]? {
+        let primary = selectedRange()
+        guard isValidSelectedRange(primary) else { return nil }
+
+        var candidates = [primary] + additionalSelectionRanges.filter(isValidSelectedRange)
+        candidates.sort {
+            if $0.location == $1.location { return $0.length < $1.length }
+            return $0.location < $1.location
+        }
+
+        var result: [NSRange] = []
+        for candidate in candidates where !result.contains(candidate) {
+            if candidate.length == 0,
+               result.contains(where: {
+                   $0.length > 0
+                       && candidate.location >= $0.location
+                       && candidate.location < NSMaxRange($0)
+               }) {
+                continue
+            }
+            if candidate.length > 0 {
+                result.removeAll {
+                    $0.length == 0
+                        && $0.location >= candidate.location
+                        && $0.location < NSMaxRange(candidate)
+                }
+            }
+            guard let previous = result.last else {
+                result.append(candidate)
+                continue
+            }
+            if NSIntersectionRange(previous, candidate).length > 0 {
+                continue
+            }
+            result.append(candidate)
+        }
+        return result
+    }
+
+    private func attributedReplacement(for insertString: Any) -> NSAttributedString? {
+        if let attributedString = insertString as? NSAttributedString {
+            return attributedString
+        }
+        if let string = insertString as? String {
+            return NSAttributedString(string: string, attributes: currentTextAttributes())
+        }
+        if let string = insertString as? NSString {
+            return NSAttributedString(string: string as String, attributes: currentTextAttributes())
+        }
+        return nil
+    }
+
+    private func performMultipleSelectionEdit(
+        ranges: [NSRange],
+        replacements: [NSAttributedString],
+        primaryRange: NSRange,
+        primaryIndex: Int? = nil
+    ) -> Bool {
+        guard ranges.count == replacements.count,
+              !ranges.isEmpty,
+              ranges.allSatisfy(isValidSelectedRange),
+              ranges == ranges.sorted(by: { $0.location < $1.location }) else {
+            return false
+        }
+        for pair in zip(ranges, ranges.dropFirst()) {
+            guard NSMaxRange(pair.0) <= pair.1.location else { return false }
+        }
+
+        let rangeValues = ranges.map { NSValue(range: $0) }
+        let replacementStrings = replacements.map(\.string)
+        let markerRanges = pendingPasteMarkerRanges()
+        let touchedMarkerIDs = pendingPasteReservations.compactMap { id, reservation -> UUID? in
+            guard reservation.usesMarker,
+                  let markerRange = markerRanges[id],
+                  ranges.contains(where: {
+                      Self.pasteReservationRangesIntersect($0, markerRange)
+                  }) else {
+                return nil
+            }
+            return id
+        }
+        if !touchedMarkerIDs.isEmpty {
+            // Restore only marker-backed reservations touched by this edit. The
+            // single-range AppKit interception cannot observe in-range edits here.
+            for id in touchedMarkerIDs {
+                _ = rollbackPendingPasteReservation(
+                    id: id,
+                    notifyingTextChange: false,
+                    markerRangesByID: markerRanges
+                )
+            }
+        }
+        guard shouldChangeText(inRanges: rangeValues, replacementStrings: replacementStrings) else {
+            return false
+        }
+
+        for (range, replacement) in zip(ranges, replacements) {
+            updateMarkerlessPendingPasteReservations(
+                for: range,
+                replacementString: replacement.string
+            )
+            queueAutomaticAttachmentFileCleanup(in: range)
+        }
+
+        var transformedRanges: [NSRange] = []
+        var delta = 0
+        for (range, replacement) in zip(ranges, replacements) {
+            let location = range.location + delta + replacement.length
+            transformedRanges.append(NSRange(location: location, length: 0))
+            delta += replacement.length - range.length
+        }
+
+        isApplyingMultipleSelectionEdit = true
+        textStorage?.beginEditing()
+        for (range, replacement) in zip(ranges.reversed(), replacements.reversed()) {
+            textStorage?.replaceCharacters(in: range, with: replacement)
+        }
+        textStorage?.endEditing()
+        isApplyingMultipleSelectionEdit = false
+        didChangeText()
+
+        let primaryIndex = primaryIndex ?? ranges.firstIndex(of: primaryRange) ?? 0
+        let primary = transformedRanges[primaryIndex]
+        setSelectedRange(primary)
+        additionalSelectionRanges = transformedRanges.enumerated().compactMap { index, range in
+            index == primaryIndex ? nil : range
+        }
+        normalizeTextBaselineOffsets()
+        recenterSingleLineTextContainer()
+        flushAutomaticAttachmentFileCleanup()
+        return true
+    }
+
+    private func activeListReplacement(
+        for range: NSRange,
+        in text: String
+    ) -> (range: NSRange, replacement: String)? {
+        guard range.length == 0 else { return nil }
+        guard let continuation = Self.automaticListContinuation(in: text, at: range.location) else {
+            return nil
+        }
+        return (continuation.replacementRange, continuation.replacement)
+    }
+
+    override func insertNewlineIgnoringFieldEditor(_ sender: Any?) {
+        guard !hasMarkedText() else {
+            super.insertNewlineIgnoringFieldEditor(sender)
+            return
+        }
+
+        guard let ranges = activeEditingRanges() else {
+            super.insertNewlineIgnoringFieldEditor(sender)
+            return
+        }
+        let text = attributedString().string
+        let listReplacements = ranges.map { range in
+            activeListReplacement(for: range, in: text)
+                ?? (range: range, replacement: "\n")
+        }
+        let changedRanges = listReplacements.map(\.range)
+        let overlaps = zip(changedRanges, changedRanges.dropFirst()).contains {
+            NSMaxRange($0) > $1.location
+        }
+        guard !overlaps,
+              performMultipleSelectionEdit(
+                  ranges: changedRanges,
+                  replacements: listReplacements.map {
+                      NSAttributedString(string: $0.replacement, attributes: currentTextAttributes())
+                  },
+                  primaryRange: changedRanges[ranges.firstIndex(of: selectedRange()) ?? 0]
+              ) else {
+            super.insertNewlineIgnoringFieldEditor(sender)
+            return
+        }
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -3555,6 +3850,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func clearContent(cleanupAttachmentFiles: Bool = true) {
         invalidatePendingAttachmentUploads()
+        clearAdditionalTextBoxSelections()
         let attachments = inlineAttachments()
         if cleanupAttachmentFiles {
             cleanupDisposableAttachmentFiles(
@@ -3598,6 +3894,7 @@ final class TextBoxInputTextView: NSTextView {
 
     private func installAttributedContent(_ content: NSAttributedString, notifyingTextChange: Bool) {
         invalidatePendingAttachmentUploads()
+        clearAdditionalTextBoxSelections()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(content)
@@ -3979,10 +4276,95 @@ final class TextBoxInputTextView: NSTextView {
         onLayoutCompleted(self, lineFragmentCount)
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        drawAdditionalSelectionHighlights(in: dirtyRect)
+        super.draw(dirtyRect)
+        drawAdditionalCarets(in: dirtyRect)
+    }
+
+    private func drawAdditionalSelectionHighlights(in dirtyRect: NSRect) {
+        guard !additionalSelectionRanges.isEmpty,
+              let layoutManager,
+              let textContainer else { return }
+        let highlightColor = NSColor.controlAccentColor.withAlphaComponent(0.24)
+        highlightColor.setFill()
+        layoutManager.ensureLayout(for: textContainer)
+
+        for range in additionalSelectionRanges where range.length > 0 {
+            guard isValidSelectedRange(range) else { continue }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: range,
+                actualCharacterRange: nil
+            )
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) {
+                _, _, _, fragmentGlyphRange, _ in
+                let intersection = NSIntersectionRange(glyphRange, fragmentGlyphRange)
+                guard intersection.length > 0 else { return }
+                var rect = layoutManager.boundingRect(
+                    forGlyphRange: intersection,
+                    in: textContainer
+                )
+                rect.origin.x += self.textContainerOrigin.x
+                rect.origin.y += self.textContainerOrigin.y
+                rect = rect.insetBy(dx: -1, dy: 0)
+                guard rect.intersects(dirtyRect) else { return }
+                rect.fill()
+            }
+        }
+    }
+
+    private func drawAdditionalCarets(in dirtyRect: NSRect) {
+        guard !additionalSelectionRanges.isEmpty else { return }
+        let caretColor = insertionPointColor ?? textColor ?? .labelColor
+        caretColor.setFill()
+        for range in additionalSelectionRanges where range.length == 0 {
+            guard let rect = insertionCaretRect(at: range.location),
+                  rect.intersects(dirtyRect) else { continue }
+            rect.fill()
+        }
+    }
+
+    private func insertionCaretRect(at location: Int) -> NSRect? {
+        guard let layoutManager,
+              let textContainer else { return nil }
+        let length = attributedString().length
+        guard location >= 0, location <= length else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        guard layoutManager.numberOfGlyphs > 0 else {
+            let lineHeight = ceil((font?.ascender ?? 14) - (font?.descender ?? 0))
+            return NSRect(
+                x: textContainerOrigin.x,
+                y: textContainerOrigin.y,
+                width: 1.5,
+                height: lineHeight
+            )
+        }
+
+        let character = min(max(location, 0), max(0, length - 1))
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: character, length: 1),
+            actualCharacterRange: nil
+        )
+        let glyph = min(glyphRange.location, max(0, layoutManager.numberOfGlyphs - 1))
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyph, length: 1),
+            in: textContainer
+        )
+        let x = location >= length ? glyphRect.maxX : glyphRect.minX
+        return NSRect(
+            x: textContainerOrigin.x + x,
+            y: textContainerOrigin.y + lineRect.minY,
+            width: 1.5,
+            height: max(1, lineRect.height)
+        )
+    }
+
     override func mouseDown(with event: NSEvent) {
         dismissMentionCompletions()
         if let hit = inlineAttachmentHit(for: event) {
             window?.makeFirstResponder(self)
+            clearAdditionalTextBoxSelections()
             if hit.closeRect.contains(hit.point) {
                 deleteAttachment(at: hit.characterIndex)
                 return
@@ -3993,7 +4375,16 @@ final class TextBoxInputTextView: NSTextView {
             }
             return
         }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.option),
+           !flags.contains(.command),
+           !flags.contains(.control) {
+            window?.makeFirstResponder(self)
+            addTextBoxCursor(at: insertionIndex(for: convert(event.locationInWindow, from: nil)))
+            return
+        }
         clearAttachmentFocus(dismissPreview: true)
+        clearAdditionalTextBoxSelections()
         super.mouseDown(with: event)
     }
 
@@ -4004,6 +4395,7 @@ final class TextBoxInputTextView: NSTextView {
         isCloseClick: Bool
     ) {
         window?.makeFirstResponder(self)
+        clearAdditionalTextBoxSelections()
         if isCloseClick {
             deleteAttachment(at: characterIndex)
             return
@@ -4105,6 +4497,7 @@ final class TextBoxInputTextView: NSTextView {
             firstResponderHasMarkedText: eventHasMarkedText,
             flags: flags
         ) {
+            clearAdditionalTextBoxSelections()
             switch Int(event.keyCode) {
             case kVK_LeftArrow:
                 moveInsertionPointLeft()
@@ -4188,6 +4581,24 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
+        if !additionalSelectionRanges.isEmpty {
+            switch commandSelector {
+            case #selector(NSResponder.deleteBackward(_:)):
+                if deleteMultipleSelections(direction: .backward) { return }
+            case #selector(NSResponder.deleteForward(_:)):
+                if deleteMultipleSelections(direction: .forward) { return }
+            case #selector(NSResponder.moveLeft(_:)),
+                 #selector(NSResponder.moveRight(_:)),
+                 #selector(NSResponder.moveBackward(_:)),
+                 #selector(NSResponder.moveForward(_:)),
+                 #selector(NSResponder.moveUp(_:)),
+                 #selector(NSResponder.moveDown(_:)):
+                clearAdditionalTextBoxSelections()
+            default:
+                break
+            }
+        }
+
         switch commandSelector {
         case #selector(NSResponder.deleteBackward(_:)):
             if deleteAttachmentForKeyboardCommand(direction: .backward) {
@@ -4239,6 +4650,35 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         super.doCommand(by: commandSelector)
+    }
+
+    private enum MultipleSelectionDeleteDirection {
+        case backward
+        case forward
+    }
+
+    private func deleteMultipleSelections(direction: MultipleSelectionDeleteDirection) -> Bool {
+        guard let activeRanges = activeEditingRanges() else { return false }
+        let length = attributedString().length
+        let primaryIndex = activeRanges.firstIndex(of: selectedRange()) ?? 0
+        let ranges = activeRanges.map { range -> NSRange in
+            guard range.length == 0 else { return range }
+            switch direction {
+            case .backward:
+                guard range.location > 0 else { return range }
+                return NSRange(location: range.location - 1, length: 1)
+            case .forward:
+                guard range.location < length else { return range }
+                return NSRange(location: range.location, length: 1)
+            }
+        }
+        guard ranges.contains(where: { $0.length > 0 }) else { return true }
+        return performMultipleSelectionEdit(
+            ranges: ranges,
+            replacements: ranges.map { _ in NSAttributedString(string: "", attributes: currentTextAttributes()) },
+            primaryRange: ranges[primaryIndex],
+            primaryIndex: primaryIndex
+        )
     }
 
     func refreshMentionCompletions() {
@@ -4421,11 +4861,14 @@ final class TextBoxInputTextView: NSTextView {
               let suggestion = explicitSuggestion ?? mentionCompletionController.selectedSuggestion,
               explicitSuggestion == nil ||
                   mentionCompletionController.suggestions.contains(where: { $0.id == suggestion.id }),
-              isValidSelectedRange(query.range),
-              shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
+              isValidSelectedRange(query.range) else {
+            return false
+        }
+        guard shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
             return false
         }
 
+        clearAdditionalTextBoxSelections()
         let replacement = mentionCompletionReplacementText(
             for: suggestion,
             replacing: query.range
@@ -4883,9 +5326,56 @@ final class TextBoxInputTextView: NSTextView {
         case "v":
             paste(nil)
             return true
+        case "d":
+            guard !hasMarkedText() else { return false }
+            selectNextOccurrence()
+            return true
         default:
             return false
         }
+    }
+
+    private func selectNextOccurrence() {
+        let text = attributedString().string as NSString
+        let current = selectedRange()
+        let target: NSRange
+        if current.length == 0 {
+            guard let word = wordRange(at: current.location) else { return }
+            setSelectedRange(word)
+            needsDisplay = true
+            return
+        } else {
+            target = current
+        }
+
+        let needle = text.substring(with: target)
+        guard !needle.isEmpty else { return }
+        let existing = activeEditingRanges() ?? [target]
+        let searchStart = existing.map(NSMaxRange).max() ?? NSMaxRange(target)
+        let firstRange = NSRange(location: min(searchStart, text.length), length: max(0, text.length - searchStart))
+        let wrappedRange = NSRange(location: 0, length: min(searchStart, text.length))
+        let candidates = [
+            text.range(of: needle, options: .literal, range: firstRange),
+            text.range(of: needle, options: .literal, range: wrappedRange)
+        ]
+        guard let match = candidates.first(where: { candidate in
+            candidate.location != NSNotFound && !existing.contains(candidate)
+        }) else { return }
+        additionalSelectionRanges.append(match)
+        additionalSelectionRanges.sort { $0.location < $1.location }
+        needsDisplay = true
+    }
+
+    private func wordRange(at location: Int) -> NSRange? {
+        let text = attributedString().string as NSString
+        guard location >= 0, location <= text.length else { return nil }
+        let pattern = #"[\p{L}\p{N}_]+"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let fullRange = NSRange(location: 0, length: text.length)
+        return expression.matches(in: text as String, range: fullRange).first {
+            let range = $0.range
+            return location >= range.location && location <= NSMaxRange(range)
+        }?.range
     }
 
     func deleteAttachment(at characterIndex: Int) {
