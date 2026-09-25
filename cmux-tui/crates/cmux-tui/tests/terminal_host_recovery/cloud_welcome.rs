@@ -8,9 +8,10 @@ fn cloud_bootstrap_real_first_open_preserves_input_and_reuses_the_terminal() {
     let rendered = harness.dir.join("rendered");
     let instance = harness.dir.join("instance");
     fs::write(&instance, "fixture-instance\n").unwrap();
+    // Match the actual welcome renderer, which starts with a blank line.
     fs::write(
         &renderer,
-        format!("#!/bin/sh\nprintf x >> '{}'\nprintf 'CLOUD-GUIDE\\n'\n", rendered.display()),
+        format!("#!/bin/sh\nprintf x >> '{}'\nprintf '\\nCLOUD-GUIDE\\n'\n", rendered.display()),
     )
     .unwrap();
     fs::set_permissions(&renderer, fs::Permissions::from_mode(0o755)).unwrap();
@@ -88,7 +89,7 @@ fn cloud_bootstrap_real_first_open_preserves_input_and_reuses_the_terminal() {
     assert_eq!(fs::read_to_string(&rendered).unwrap(), "x");
     let manual = Command::new(&renderer).arg("welcome").output().unwrap();
     assert!(manual.status.success());
-    assert_eq!(manual.stdout, b"CLOUD-GUIDE\n");
+    assert_eq!(manual.stdout, b"\nCLOUD-GUIDE\n");
     request(&harness.socket, open);
     assert_eq!(fs::read_to_string(&rendered).unwrap(), "xx");
 }
