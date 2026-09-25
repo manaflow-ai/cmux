@@ -12,7 +12,9 @@ export const accountMeOutputSchema = z.object({
   // OpenAPI type is a closed enum) keep decoding; a Max subscriber reports
   // "pro" here and the exact personal plan in `subscriptionPlanId`.
   planId: z.enum(["free", "pro"]),
-  subscriptionPlanId: z.enum(["free", "pro", "max"]),
+  // Current servers always return the exact plan. Keep the wire field optional
+  // so generated clients can decode older deployments during a rolling update.
+  subscriptionPlanId: z.enum(["free", "go", "pro", "max"]).nullable().optional(),
   isPro: z.boolean(),
   billingManagement: z.enum(["stripe", "external", "none"]),
 });
@@ -26,7 +28,7 @@ export const accountMeProcedure = os
     operationId: "account.me",
     summary: "Get the authenticated account and plan",
     description:
-      "Returns the signed-in user's id, primary email, and resolved billing plan (free, pro, or max).",
+      "Returns the signed-in user's id, primary email, resolved plan family (free or pro), and exact personal subscription plan (free, go, pro, or max).",
     tags: ["Account"],
     successStatus: 200,
   })

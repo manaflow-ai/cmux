@@ -35,3 +35,7 @@ the checker, trusted workflow, complexity rule, and Oxlint lock entries
 unchanged in normal pull requests. Policy changes need a separate reviewed
 update. The contributor-side `Web complexity candidate` check is only an early
 local diagnostic.
+
+## Database provider
+
+cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.

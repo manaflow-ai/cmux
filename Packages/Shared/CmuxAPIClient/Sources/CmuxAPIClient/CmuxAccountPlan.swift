@@ -7,8 +7,8 @@ public struct CmuxAccountPlan: Sendable, Hashable {
     public var email: String
     /// Resolved plan family, `"free"` or `"pro"` (a Max subscriber is `"pro"` here).
     public var planID: String
-    /// The exact personal plan: `"free"`, `"pro"`, or `"max"`.
-    public var subscriptionPlanID: String
+    /// The exact personal plan: `"free"`, `"go"`, `"pro"`, or `"max"`; nil on older servers.
+    public var subscriptionPlanID: String?
     /// Whether the account has an active Pro entitlement.
     public var isPro: Bool
     /// How billing is managed for this account: `"stripe"`, `"external"`, or `"none"`.
@@ -26,7 +26,7 @@ public struct CmuxAccountPlan: Sendable, Hashable {
             userID: userID,
             email: email,
             planID: planID,
-            subscriptionPlanID: planID,
+            subscriptionPlanID: nil,
             isPro: isPro,
             billingManagement: billingManagement
         )
@@ -37,14 +37,14 @@ public struct CmuxAccountPlan: Sendable, Hashable {
     ///   - userID: Stack user id of the signed-in account.
     ///   - email: Primary email, or the empty string when there is none.
     ///   - planID: Resolved plan family (`"free"` or `"pro"`).
-    ///   - subscriptionPlanID: The exact personal plan (`"free"`, `"pro"`, or `"max"`).
+    ///   - subscriptionPlanID: The exact personal plan (`"free"`, `"go"`, `"pro"`, or `"max"`; nil on older servers).
     ///   - isPro: Whether the account has an active Pro entitlement.
     ///   - billingManagement: `"stripe"`, `"external"`, or `"none"`.
     public init(
         userID: String,
         email: String,
         planID: String,
-        subscriptionPlanID: String,
+        subscriptionPlanID: String?,
         isPro: Bool,
         billingManagement: String
     ) {

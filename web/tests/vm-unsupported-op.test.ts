@@ -6,6 +6,7 @@ import { isOperatorFaultVmError } from "../services/vms/observability";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import { vmRequestLocale, vmUnsupportedCopy } from "../services/vms/vmErrorMessages";
 import { locales } from "../i18n/routing";
+import { parseCmuxTuiManifest } from "../services/vms/drivers/cmuxTuiDaemon";
 
 // A driver that cannot perform an operation raises VmOperationUnsupportedError.
 // Before this mapping it surfaced as 502 vm_cloud_service_unavailable
@@ -13,6 +14,29 @@ import { locales } from "../i18n/routing";
 // perform. `fork` is the live case today: no driver implements it; the port
 // capability uses the same contract for older deployments.
 describe("unsupported provider operations", () => {
+  test("missing hook artifacts return localized setup guidance without manifest diagnostics", async () => {
+    let cause: unknown;
+    try {
+      parseCmuxTuiManifest("https://private.example/artifacts/manifest.json", {
+        commit: "a".repeat(40),
+        binaries: { "cmux-tui-x86_64-unknown-linux-musl": "b".repeat(64) },
+      });
+    } catch (error) {
+      cause = error;
+    }
+    expect(cause).toBeDefined();
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "create",
+      cause,
+    }), { locale: "ja" });
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(response!.status).toBe(503);
+    expect(payload.error).toBe("vm_artifact_unavailable");
+    expect(payload.message).toBe("Cloud VM のセットアップを一時的に利用できません。");
+    expect(JSON.stringify(payload)).not.toMatch(/private\.example|cmux-tui|freestyle|manifest/);
+  });
+
   test("the structured driver error maps to an honest non-retryable 501", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
       provider: "freestyle",

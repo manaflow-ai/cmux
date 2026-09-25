@@ -58,6 +58,10 @@ export function GET(request: Request): Response {
           "/api/coderouter/organizations",
           request.url,
         ).toString(),
+        apiKeysSelfUrl: new URL(
+          "/api/coderouter/api-keys/self",
+          request.url,
+        ).toString(),
         openaiBaseUrl: new URL("/v1", request.url).toString(),
       },
       // Keep the hosted Subrouter fields for released sr clients while cmux
