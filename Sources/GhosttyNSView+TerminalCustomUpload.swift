@@ -66,12 +66,12 @@ extension GhosttyNSView {
         let originSurfaceId = terminalSurface?.id
         // The indicator was started on this view; end it on the same one even
         // if a different surface is mounted by the time the upload finishes.
-        weak var originHostedView = terminalSurface?.hostedView
+        let originHostedView = terminalSurface?.hostedView
         return TerminalCustomUploadRunner().handleIfMatched(
             plan: plan,
             operation: operation,
             cleanup: { GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles($0) },
-            completion: { [weak self] result in
+            completion: { [weak self, weak originHostedView] result in
                 (originHostedView ?? self?.terminalSurface?.hostedView)?.endImageTransferIndicator(for: operation)
                 switch result {
                 case .success(let text):

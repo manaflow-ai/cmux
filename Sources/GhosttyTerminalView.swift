@@ -9415,7 +9415,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // view is captured for the same reason: the indicator must end on the
         // view it began on.
         let originSurfaceId = terminalSurface?.id
-        weak var originHostedView = terminalSurface?.hostedView
+        let originHostedView = terminalSurface?.hostedView
 
         TerminalImageTransferPlanner.execute(
             plan: plan,
@@ -9447,7 +9447,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     }
                 )
             },
-            insertText: { [weak self] text in
+            insertText: { [weak self, weak originHostedView] text in
                 let send = {
                     if let operation {
                         (originHostedView ?? self?.terminalSurface?.hostedView)?
@@ -9469,7 +9469,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     DispatchQueue.main.async(execute: send)
                 }
             },
-            onFailure: { [weak self] error in
+            onFailure: { [weak self, weak originHostedView] error in
                 if let operation {
                     (originHostedView ?? self?.terminalSurface?.hostedView)?
                         .endImageTransferIndicator(for: operation)
