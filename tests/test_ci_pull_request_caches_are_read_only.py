@@ -107,7 +107,7 @@ def main() -> int:
             failures.append("seed-derived-data.yml seed: collect must copy the canonical resolved packages into the workspace and sanitize them")
         if not (collect.get("continue-on-error") is True and save.get("continue-on-error") is True):
             failures.append("seed-derived-data.yml seed: the package seed must never fail the DerivedData seed")
-        if not (names.index("Resolve Swift packages") + 1 == names.index("Collect resolved Swift packages") and names.index("Collect resolved Swift packages") + 1 == names.index("Save Swift packages")):
+        if "Resolve Swift packages" not in names or not (names.index("Resolve Swift packages") + 1 == names.index("Collect resolved Swift packages") and names.index("Collect resolved Swift packages") + 1 == names.index("Save Swift packages")):
             failures.append("seed-derived-data.yml seed: collect and save must directly follow resolve, before any step a cancel can cut off")
 
     # The wrappers pick one store per call. Exactly one branch may run, the
