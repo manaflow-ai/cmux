@@ -1,128 +1,8 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import Foundation
 import SwiftUI
-
-/// Which in-app surface opened the upgrade flow. The raw value travels to the
-/// web as `cmux_source`, is stored on the Stripe Checkout Session, and comes
-/// back on every PostHog billing event, so a paid subscription can be traced to
-/// the button that started it. Raw values are lowercase `[a-z0-9_]` tokens;
-/// the server drops anything else.
-enum ProUpgradeSource: String, CaseIterable, Sendable {
-    /// "Upgrade" capsule in the sidebar footer.
-    case sidebarBadge = "mac_sidebar_badge"
-    /// "Upgrade to cmux Pro…" in the sidebar footer account menu.
-    case sidebarAccountMenu = "mac_sidebar_account_menu"
-    /// "Upgrade to cmux Pro…" in the sidebar help (?) menu.
-    case sidebarHelpMenu = "mac_sidebar_help_menu"
-    /// Help > "Upgrade to cmux Pro…" in the main menu bar.
-    case helpMenu = "mac_help_menu"
-    /// Command palette "Upgrade to cmux Pro".
-    case commandPalette = "mac_command_palette"
-    /// Settings > Account card "Upgrade" (via `AccountFlow`).
-    case settingsAccountCard = "mac_settings_account_card"
-    /// Settings > Cloud machines billing.
-    case settingsCloudMachines = "mac_settings_cloud_machines"
-    /// Machines panel empty state: plan does not include Cloud machines.
-    case machinesPanelRequiresPro = "mac_machines_panel_requires_pro"
-    /// Machines panel nudge under the create button.
-    case machinesPanelUpgradeNudge = "mac_machines_panel_upgrade_nudge"
-    /// Machines panel free-access countdown / expired banner.
-    case machinesPanelTrialBanner = "mac_machines_panel_trial_banner"
-    /// Machines panel row action that needs a paid plan.
-    case machinesPanelMachineAction = "mac_machines_panel_machine_action"
-    /// New machine sheet refused because the free plan is at its limit.
-    case newMachineAtLimit = "mac_new_machine_at_limit"
-    /// New machine sheet "Upgrade to Max" under the locked 32 GB / 64 GB sizes.
-    case newMachineSheetMaxUpgrade = "mac_new_machine_sheet_max_upgrade"
-    /// Link inside the `vm_memory_requires_plan` error text (`VMClient`).
-    case vmMemoryRequiresPlanError = "mac_vm_memory_requires_plan_error"
-    /// DEBUG native pricing window.
-    case nativePricingPreview = "mac_native_pricing_preview"
-    /// Link inside the `vm_requires_pro` error text (`VMClient`); the token
-    /// is spelled out in the localized string, so the test pins it here.
-    case vmRequiresProError = "mac_vm_requires_pro_error"
-}
-
-/// Which subscription a checkout starts. The raw value is the server's
-/// `plan` query parameter on `/api/billing/checkout`; Pro is the server
-/// default, so it sends no parameter and older web deploys keep working.
-enum CheckoutPlan: String, Sendable {
-    case go
-    case pro
-    case max
-
-    static let queryParam = "plan"
-
-    /// `url` with this plan's `plan` query item (none for Pro).
-    nonisolated func applying(to url: URL) -> URL {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-        var queryItems = components.queryItems ?? []
-        queryItems.removeAll { $0.name == Self.queryParam }
-        if self != .pro {
-            queryItems.append(URLQueryItem(name: Self.queryParam, value: rawValue))
-        }
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        return components.url ?? url
-    }
-}
-
-/// Checkout attribution query parameters: the upgrade source plus the app's
-/// client, release channel, version and build. Mirrors
-/// `web/services/analytics/checkoutAttribution.ts`.
-enum CheckoutAttribution {
-    static let sourceParam = "cmux_source"
-    static let clientParam = "cmux_client"
-    static let channelParam = "cmux_channel"
-    static let appVersionParam = "cmux_app_version"
-    static let appBuildParam = "cmux_app_build"
-    static let paramNames: [String] = [sourceParam, clientParam, channelParam, appVersionParam, appBuildParam]
-
-    nonisolated static func queryItems(
-        source: ProUpgradeSource,
-        flavor: BuildFlavor = BuildFlavor.current,
-        infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]
-    ) -> [URLQueryItem] {
-        var items = [
-            URLQueryItem(name: sourceParam, value: source.rawValue),
-            URLQueryItem(name: clientParam, value: "mac"),
-            URLQueryItem(name: channelParam, value: flavor.rawValue),
-        ]
-        if let version = infoDictionary["CFBundleShortVersionString"] as? String, !version.isEmpty {
-            items.append(URLQueryItem(name: appVersionParam, value: version))
-        }
-        if let build = infoDictionary["CFBundleVersion"] as? String, !build.isEmpty {
-            items.append(URLQueryItem(name: appBuildParam, value: build))
-        }
-        return items
-    }
-
-    /// Replace any attribution already on `url` with this source's.
-    nonisolated static func applying(
-        to url: URL,
-        source: ProUpgradeSource,
-        flavor: BuildFlavor = BuildFlavor.current,
-        infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]
-    ) -> URL {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-        var queryItems = components.queryItems ?? []
-        queryItems.removeAll { paramNames.contains($0.name) }
-        queryItems.append(contentsOf: self.queryItems(source: source, flavor: flavor, infoDictionary: infoDictionary))
-        components.queryItems = queryItems
-        return components.url ?? url
-    }
-
-    /// PostHog properties for the Mac-side intent event, so the funnel has a
-    /// client-side count of upgrade clicks per surface and channel even before
-    /// the web page loads.
-    nonisolated static func intentProperties(
-        source: ProUpgradeSource,
-        flavor: BuildFlavor = BuildFlavor.current,
-        plan: CheckoutPlan = .pro
-    ) -> [String: Any] {
-        ["source": source.rawValue, "client": "mac", "channel": flavor.rawValue, "plan": plan.rawValue]
-    }
-}
 
 /// Shared entrypoint for every "Upgrade to cmux Pro" surface (sidebar badge,
 /// titlebar badge, Settings Account card, command palette, Help menu). Opens
@@ -193,7 +73,7 @@ enum ProUpgradePresenter {
         plan: CheckoutPlan = .pro,
         base: URL = AuthEnvironment.billingCheckoutURL
     ) -> URL {
-        CheckoutAttribution.applying(to: plan.applying(to: base), source: source)
+        CheckoutAttribution.checkoutURL(source: source, plan: plan, base: base)
     }
 
     @MainActor
@@ -609,8 +489,8 @@ private struct NativePricingPlansView: View {
                 action: snapshot.isMax ? nil : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .max) },
                 isProminent: snapshot.isMax,
                 features: [
-                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 64 GB RAM per machine"),
-                    String(localized: "pricing.native.max.feature.pro", defaultValue: "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"),
+                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs"),
+                    String(localized: "pricing.native.max.feature.pro", defaultValue: "Unlimited workspaces and the iOS app"),
                 ]
             )
             NativePricingPlanCard(
@@ -833,7 +713,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.largestVm", defaultValue: "Largest Cloud VM"),
             free: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
             pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
-            max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM")),
+            max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM from the shared pool")),
             team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
@@ -1010,7 +890,7 @@ private struct NativePricingSizeSection: View {
             .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.max",
-                defaultValue: "32 GB and 64 GB machines need cmux Max."
+                defaultValue: "Max includes 64 GB RAM and 16 vCPUs shared across up to 50 Cloud VMs."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)

@@ -269,7 +269,7 @@ final class CmuxFeatureFlags {
             // flag is remotely disabled.
             CmuxFeatureFlagDefinition(
                 key: "computer-use-ux-enabled-release",
-                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "Computer Use UX"),
+                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "cmux Computer Use UX"),
                 flagDescription: String(
                     localized: "featureFlags.computerUseUX.description",
                     defaultValue: "Shows the Computer Use menu-bar item and automatic onboarding."
@@ -597,10 +597,10 @@ final class CmuxFeatureFlags {
         guard let (bytes, response) = try? await session.bytes(for: request),
               let http = response as? HTTPURLResponse else { return nil }
         if http.statusCode == 429 {
-            let seconds = CmxRetryAfterPolicy.seconds(
+            let seconds = CmxRetryAfterPolicy().seconds(
                 from: http,
-                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
             await releaseControlRetryAfterGate.extend(by: seconds)
             return nil
         }

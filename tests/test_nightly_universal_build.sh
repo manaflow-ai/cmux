@@ -85,16 +85,19 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk '
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
-  in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
+  # Match the whole expression, not a prefix of it. `.*vars\.NAME` also matches
+  # the ungated form, so this guard would keep passing if somebody dropped the
+  # paid-overflow gate from the lane it exists to pin.
+  in_refresh && index($0, refresh_runner) { saw_release_runner=1 }
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
   in_refresh && /select-ci-xcode\.sh/ { saw_xcode_selection=1 }
   in_refresh && /^      - name: Restore Xcode compilation cache/ { saw_lookup=1 }
-  in_refresh && /uses: actions\/cache\/restore@/ { saw_restore_action=1 }
+  in_refresh && /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/ { saw_restore_action=1 }
   in_refresh && /id: compilation-cache-restore/ { saw_restore_id=1 }
   in_refresh && /^      - name: Save Xcode compilation cache/ { saw_cache=1 }
   in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
@@ -127,10 +130,12 @@ if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; 
   exit 1
 fi
 
-R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
-TAG_MOVE_LINE="$(grep -nF -- '- name: Move channel release tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
-if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le "$R2_UPLOAD_LINE" ]; then
-  echo "FAIL: the nightly tag completion marker must move only after GitHub and R2 publication succeed"
+R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
+MARKER_LINE="$(grep -nF -- '- name: Record verified nightly publication' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
+TAG_MOVE_LINE="$(grep -nF -- '- name: Move channel release tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
+if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$MARKER_LINE" ] || [ -z "$TAG_MOVE_LINE" ] \
+  || [ "$MARKER_LINE" -le "$R2_UPLOAD_LINE" ] || [ "$TAG_MOVE_LINE" -le "$MARKER_LINE" ]; then
+  echo "FAIL: the nightly publication marker and tag must move only after GitHub and R2 publication succeed"
   exit 1
 fi
 
@@ -148,39 +153,40 @@ if ! awk '
   exit 1
 fi
 
-CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
+# A cache saved from a pull request is readable only by that pull request, and
+# each save pushes the main seeds out of a size-capped store. Pull request
+# Release builds read the cache warmed from main and never write one.
 if ! awk '
   /^  release-build:/ { in_release=1; next }
   in_release && /^  [a-zA-Z0-9_-]+:/ { in_release=0 }
+  in_release && /uses: (actions\/cache|\.\/\.github\/actions\/cache-)/ && !/uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/ { saw_save=1 }
   in_release && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
-  in_release && /!build-universal\/CompilationCache\.noindex/ { saw_parent_exclusion=1 }
+  in_release && /key: deriveddata-/ { saw_deriveddata=1 }
   in_release && /key: xcode-compilation-release-/ { saw_key=1 }
   in_release && /restore-keys:/ { saw_restore=1 }
   in_release && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_cache_flag=1 }
   in_release && /COMPILATION_CACHE_LIMIT_SIZE=3221225472/ { saw_runtime_limit=1 }
-  in_release && /max_cache_kib=\$\(\(5 \* 1024 \* 1024\)\)/ { saw_save_limit=1 }
-  in_release && /python3 scripts\/ci\/prune-xcode-compilation-cache\.py "\$cache_path" \\$/ { saw_prune=NR }
-  in_release && saw_prune && NR == saw_prune + 1 && /^ +\|\| echo "::warning::Xcode compilation cache pruning failed/ { saw_prune_nonfatal=1 }
-  in_release && /cache_kib=\$\(du -sk "\$cache_path"/ { saw_measure=NR }
-  in_release && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
-  END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && saw_save_limit && saw_prune && saw_prune_nonfatal && saw_measure && saw_prune < saw_measure && saw_skip_save) }
+  END { exit !(saw_path && !saw_deriveddata && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && !saw_save) }
 ' "$CI_WORKFLOW_FILE"; then
-  echo "FAIL: PR release builds must restore and update the bounded cache warmed from main, pruned of dead CAS generations, without archiving it twice"
+  echo "FAIL: PR release builds must restore the cache warmed from main read-only and must not cache DerivedData"
   exit 1
 fi
 
-if ! awk '
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   # Fast branch dogfood pins Blacksmith. Normal Nightly uses the repository
-  # override. Both must retain the macOS 15 helper lane.
-  job == "helper" && /runs-on: \$\{\{ .*vars\.MACOS_RUNNER_15/ { saw_helper_runner=1 }
+  # override. Both must retain the macOS 15 helper lane. Match the whole
+  # expression: a `.*vars\.NAME` prefix would also accept the ungated form.
+  job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
   job == "helper" && /name: cmux-nightly-ghostty-cli-helper/ { saw_helper_artifact=1 }
-  job == "app" && /runs-on: \$\{\{ .*vars\.MACOS_RUNNER_26_NIGHTLY_BUILD/ { saw_app_runner=1 }
+  job == "app" && index($0, app_runner) { saw_app_runner=1 }
   job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
   job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
   job == "app" && /name: cmux-nightly-unsigned-app/ { saw_app_artifact=1 }
@@ -413,7 +419,7 @@ if ! awk '
   step == "bound" && prune[job] && NR == prune[job] + 1 && /^ +\|\| echo "::warning::Xcode compilation cache pruning failed/ { prune_nonfatal[job]=1 }
   step == "bound" && /cache_kib=\$\(du -sk "\$cache_path"/ { measure[job]=NR }
   step == "bound" && /echo "save=/ && /GITHUB_OUTPUT/ { verdict[job]=1 }
-  step == "save" && /uses: actions\/cache\/save@/ { save_action[job]=1 }
+  step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { save_action[job]=1 }
   step == "save" && /^        if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
   step == "save" && /hashFiles/ { rescan[job]=1 }
   END {
@@ -459,7 +465,7 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const shouldPublish = (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
+if ! grep -Fq "const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
   || ! grep -Fq "core.setOutput('should_publish', shouldPublish ? 'true' : 'false');" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly decide step must expose should_publish only for main and rc/ refs that are not measurement or fast runs"
   exit 1
@@ -482,11 +488,47 @@ if ! awk '
   /^      - name: Move channel release tag to built commit/ { in_move=1; next }
   in_move && /^      - name:/ { in_move=0 }
   in_move && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_move_if=1 }
-  END { exit !saw_move_if }
+  in_move && /id: move-channel-release-tag/ { saw_move_id=1 }
+  in_move && /continue-on-error: true/ { saw_move_best_effort=1 }
+  in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token=1 }
+  in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared=1 }
+  in_move && /scripts\/ci\/update-release-tag\.py/ { saw_api_update=1 }
+  END { exit !(saw_move_if && saw_move_id && saw_move_best_effort && saw_app_token && saw_github_token_cleared && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: moving the channel release tag must be gated to publishing runs"
+  echo "FAIL: moving the channel release tag must use the scoped app token, remain observable when stale, and use the verified API helper"
   exit 1
 fi
+
+if ! awk '
+  /^      - name: Mint release tag app token/ { in_token=1; next }
+  in_token && /^      - name:/ { in_token=0 }
+  in_token && /actions\/create-github-app-token@/ { saw_action=1 }
+  in_token && /permission-contents: write/ { saw_contents=1 }
+  in_token && /permission-workflows: write/ { saw_workflows=1 }
+  /^      - name: Record nightly publication marker outcome/ { in_outcome=1; next }
+  in_outcome && /^      - name:/ { in_outcome=0 }
+  in_outcome && /id: tag-outcome/ { saw_outcome_id=1 }
+  in_outcome && /tag_status=updated/ { saw_updated=1 }
+  in_outcome && /tag_status=stale/ { saw_stale=1 }
+  in_outcome && /Published, tag marker stale/ { saw_summary=1 }
+  END { exit !(saw_action && saw_contents && saw_workflows && saw_outcome_id && saw_updated && saw_stale && saw_summary) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly tag publication must mint contents/workflows app permissions and record updated/stale outcomes"
+  exit 1
+fi
+
+for expected in \
+  'cmux-published-sha:' \
+  'nightly-publication-marker.py' \
+  'release metadata already records the exact' \
+  'published, tag marker stale' \
+  "needs.publish-nightly.outputs.tag_status == 'stale'" \
+  "needs.publish-nightly.outputs.tag_status == 'updated'"; do
+  if ! grep -Fqi "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly publication recovery contract is missing: $expected"
+    exit 1
+  fi
+done
 
 if ! awk '
   /^      - name: Publish nightly release assets/ { in_publish=1; next }
@@ -546,9 +588,12 @@ fi
 # A measurement run always builds the production universal workload: it must
 # not depend on the nightly tag (a build-only dispatch on main would otherwise
 # skip when the tag already matches HEAD) and must ignore the fast arm64 path.
+# Match the expression, not its declaration keyword, so that rebinding
+# shouldBuild later in `decide` does not read as a change to this contract.
 for expected in \
-  "const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;" \
-  "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
+  "const alreadyPublished = !buildOnly && !forceBuild && (isMainRef || isRcRef) && publishedSha === headSha;" \
+  "shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
+  "fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"
     exit 1
@@ -574,10 +619,34 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
+# Only the six-hour cache warmup may replace an older scheduled run. The daily
+# 08:47 publication schedule and all push/manual lanes must stay serialized so
+# a newer publication cannot cancel an earlier candidate or race its aliases.
+if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
+  echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
+  exit 1
+fi
+if ! grep -Fq "inputs.seed_only && 'cache-seed-manual'" "$WORKFLOW_FILE"; then
+  echo "FAIL: manually dispatched cache seeds must have a separate concurrency group"
+  exit 1
+fi
+if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
+  echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
+  exit 1
+fi
+if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
+  echo "FAIL: only the six-hour cache warmup may cancel an older scheduled run"
+  exit 1
+fi
+if grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' }}" "$WORKFLOW_FILE"; then
+  echo "FAIL: the publishing schedule must not cancel an older nightly run"
+  exit 1
+fi
+
 # An oversize cache silently freezes the nightly cache at the last saved entry:
 # every later build restores that entry, exceeds the bound again, and never
 # saves. Surface the skip as a workflow warning so the freeze is visible.
-for cache_workflow in "$WORKFLOW_FILE" "$CI_WORKFLOW_FILE"; do
+for cache_workflow in "$WORKFLOW_FILE"; do
   if grep -Fq 'echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow" \
     || ! grep -Fq 'echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow"; then
     echo "FAIL: $(basename "$cache_workflow") must report an oversize compilation cache as a workflow warning"

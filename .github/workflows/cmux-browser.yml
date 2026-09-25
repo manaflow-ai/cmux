@@ -1,10 +1,7 @@
 name: cmux-browser
 
 on:
-  pull_request:
-    paths:
-      - "cmux-browser/**"
-      - ".github/workflows/cmux-browser.yml"
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -15,7 +12,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Reusable calls inherit the caller's `github.workflow` value. Keep this
+  # explicit so a CI call cannot collide with and cancel its own caller.
+  group: cmux-browser-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
