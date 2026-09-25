@@ -125,6 +125,10 @@ struct TerminalTabIconRegressionTests {
 
         workspace.setAgentLifecycle(key: key, panelId: panel.id, lifecycle: .idle)
         #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
+
+        workspace.setAgentLifecycle(key: key, panelId: panel.id, lifecycle: .running)
+        #expect(workspace.clearAgentLifecycle(key: key, panelId: panel.id))
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
     }
 
     @MainActor
