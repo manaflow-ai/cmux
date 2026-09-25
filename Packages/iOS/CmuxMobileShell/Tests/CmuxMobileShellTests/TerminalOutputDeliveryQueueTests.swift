@@ -548,7 +548,7 @@ import Testing
 
     let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
     await router.enqueueReplayTexts(["resync-replay"])
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
 
     let genericReplayRequested = await waitForReplayRequestCount(router, atLeast: replayCountAfterExhaustion + 1)
     #expect(genericReplayRequested, "generic resync must still work after fail-open clears the barrier")
@@ -944,6 +944,35 @@ private func waitForReplayRequestCount(
     #expect(queue.completeInFlight() == nil)
 }
 
+@Test func terminalOutputQueueBatchesContiguousRawFallbackBacklog() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(
+        bytes: Data("in-flight".utf8),
+        replaceable: false
+    )
+    let first = TerminalOutputDelivery(
+        bytes: Data("first".utf8),
+        replaceable: false,
+        endSequence: 5
+    )
+    let second = TerminalOutputDelivery(
+        bytes: Data("-second".utf8),
+        replaceable: false,
+        endSequence: 12
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(first) == nil)
+    #expect(queue.enqueue(second) == nil)
+    #expect(queue.pendingCount == 2)
+
+    let completed = queue.completeInFlight()
+    let batched = try #require(completed)
+    #expect(String(decoding: batched.bytes, as: UTF8.self) == "first-second")
+    #expect(batched.endSequence == 12)
+    #expect(queue.pendingCount == 0)
+}
+
 @Test func terminalOutputQueueDrainsRawFallbackBacklogInOrder() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -955,11 +984,12 @@ private func waitForReplayRequestCount(
     }
 
     #expect(queue.pendingCount == 128)
-    for index in 0..<128 {
-        let expected = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
-        #expect(queue.completeInFlight() == expected)
+    var drained = Data()
+    while let delivery = queue.completeInFlight() {
+        drained.append(delivery.bytes)
     }
-    #expect(queue.completeInFlight() == nil)
+    let expected = (0..<128).map { "raw-\($0)" }.joined()
+    #expect(String(decoding: drained, as: UTF8.self) == expected)
     #expect(queue.isIdle)
 }
 

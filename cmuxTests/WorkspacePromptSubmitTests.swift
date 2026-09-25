@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -200,6 +201,86 @@ struct WorkspacePromptSubmitTests {
         #expect(second.latestConversationMessage == "shipped from feed path")
     }
 
+    @Test func testSubmittedPromptLengthReportsTheWholePromptNotTheCap() {
+        // The CLI caps message keys at 240 characters (239 plus U+2026) and
+        // publishes the submitted length beside the truncated value.
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"\#(truncated)","prompt_length":1000}"#
+        )
+
+        #expect(event.submittedPromptMessage?.count == 240)
+        #expect(event.submittedPromptLength == 1000)
+    }
+
+    @Test func testSubmittedPromptLengthIsNilWhenTheProducerDidNotReportIt() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"short prompt"}"#
+        )
+
+        #expect(event.submittedPromptLength == nil)
+    }
+
+    @Test func testPromptSubmitEventPublishesTheSubmittedLengthOverThePreviewLength() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: truncated,
+                submittedLength: 1000,
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 1000)
+        #expect((payload["message_preview"] as? String)?.count == 240)
+        #expect(payload["message"] is NSNull)
+    }
+
+    @Test func testPromptSubmitWithoutASubmittedLengthStillCountsTheMessage() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "ship it",
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 7)
+    }
+
     @Test func testFeedPromptSubmitEventFallsBackToContextMessage() {
         let event = WorkstreamEvent(
             sessionId: "agent-session",
@@ -280,4 +361,119 @@ struct WorkspacePromptSubmitTests {
         defaults.set(true, forKey: IMessageModeSettings.key)
         #expect(IMessageModeSettings.isEnabled(defaults: defaults))
     }
+
+    @Test func testPromptScrollMarkerCapturesLiveBottom() throws {
+        let geometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 37, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let marker = try #require(TerminalPromptScrollMarker(geometry: geometry))
+
+        #expect(marker.topRow == 100)
+        #expect(marker.rowSpaceRevision == 7)
+    }
+
+    @Test func testPromptScrollMarkerTracksItsRowAsOutputAppends() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 220, offset: 200, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let fraction = try #require(marker.trackFraction(in: currentGeometry))
+
+        #expect(abs(fraction - 0.5) < 0.0001)
+    }
+
+    @Test func testPromptScrollMarkerExpiresWhenGhosttyRenumbersRows() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let renumberedGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+            rowSpaceRevision: 8
+        )
+
+        #expect(marker.trackFraction(in: renumberedGeometry) == nil)
+    }
+
+    @Test func testPromptScrollMarkerRecordedBeforeScrollbackAppearsStaysAtStart() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 20, offset: 0, len: 40),
+                rowSpaceRevision: 3
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 80, offset: 60, len: 20),
+            rowSpaceRevision: 3
+        )
+
+        #expect(marker.topRow == 0)
+        #expect(marker.trackFraction(in: currentGeometry) == 0)
+    }
+
+
+    @Test func testPromptScrollMarkerActivationJumpsToCapturedRow() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+
+        hostedView.recordPromptScrollMarker()
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 1
+        )
+
+        #expect(promptScrollView.activatePromptScrollMarker(marker))
+        #expect(surfaceView.performedRows == [80])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [1])
+    }
+
+    @Test func testPromptScrollMarkerActivationRejectsRenumberedScrollback() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+
+        hostedView.recordPromptScrollMarker()
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 2
+        )
+
+        #expect(!promptScrollView.activatePromptScrollMarker(marker))
+        #expect(surfaceView.performedRows.isEmpty)
+    }
+
 }

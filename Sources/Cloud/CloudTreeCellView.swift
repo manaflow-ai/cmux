@@ -17,7 +17,7 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
-    private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsHost: CloudTreeRowControlsHostingView?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
@@ -149,13 +149,13 @@ final class CloudTreeCellView: NSTableCellView {
         }()
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style)
-                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
     }
 
-    private func makeButtonsHost(style: CloudTreeStyle) -> NSHostingView<AnyView> {
-        let host = NSHostingView(rootView: AnyView(EmptyView()))
+    private func makeButtonsHost(style: CloudTreeStyle) -> CloudTreeRowControlsHostingView {
+        let host = CloudTreeRowControlsHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
         // Buttons sit on the name line (two-line machine cards), like the chevron
@@ -199,6 +199,11 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
         return nil
     }
 }
+
+/// The hit-testable host for a row's hover buttons. `CloudTreeNSOutlineView`
+/// hands mouse-downs inside it to SwiftUI; NSTableView otherwise keeps every
+/// click on a non-`NSControl` subview and runs the row's own click action.
+final class CloudTreeRowControlsHostingView: NSHostingView<AnyView> {}
 
 /// Row view drawing the same selection treatment as the Files sidebar.
 final class CloudTreeRowView: NSTableRowView {

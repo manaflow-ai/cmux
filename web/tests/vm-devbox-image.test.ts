@@ -115,6 +115,7 @@ describe("devbox image template", () => {
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
+      "cmux-prompt-sync",
       "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
@@ -262,6 +263,54 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
+  test("ble.sh runtime files do not follow a transient XDG runtime directory", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
+    const blesh = path.join(directory, "blesh");
+    const transientRuntime = path.join(directory, "transient-runtime");
+    const bootRuntime = path.join(directory, "boot-runtime");
+    mkdirSync(blesh);
+    mkdirSync(transientRuntime);
+    writeFileSync(path.join(blesh, "ble.sh"), [
+      "BLE_VERSION=fixture",
+      "BLE_RUNTIME_DIR=\"$XDG_RUNTIME_DIR\"",
+      "bleopt() { mkdir -p \"$BLE_RUNTIME_DIR/blesh\"; printf ok > \"$BLE_RUNTIME_DIR/blesh/live\"; }",
+      "ble-face() { :; }",
+      "ble-bind() { :; }",
+      "printf '%s' \"$XDG_RUNTIME_DIR\" > \"$HOME/ble-runtime\"",
+    ].join("\n"));
+    writeFileSync(path.join(directory, "terminfo.sh"), "");
+    writeFileSync(path.join(directory, "prompt.bash"), "PROMPT_COMMAND=()");
+    const rc = path.join(directory, "bashrc");
+    writeFileSync(
+      rc,
+      bashrc
+        .replaceAll("/etc/profile.d/cmux-terminfo.sh", path.join(directory, "terminfo.sh"))
+        .replaceAll("/etc/cmux", directory)
+        .replaceAll("/tmp/cmux-blesh-runtime-${UID}", bootRuntime)
+        .replaceAll("/usr/local/share/blesh", blesh),
+    );
+    try {
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; rm -rf '${bootRuntime}/blesh'; bleopt; test -f '${bootRuntime}/blesh/live'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          PATH: process.env.PATH!,
+          HOME: directory,
+          USER: "cmux",
+          TERM: "dumb",
+          XDG_RUNTIME_DIR: transientRuntime,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(directory, "ble-runtime"), "utf8")).toBe(
+        bootRuntime,
+      );
+      expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("one non-root work user named cmux, on a machine named cmux", () => {
     // Half the complaint this answers: a cmux Cloud terminal opened as
     // `root@freestyle-vm`, and `claude --dangerously-skip-permissions` refuses
@@ -323,8 +372,8 @@ describe("devbox image template", () => {
     expect(wait).toContain("exit 1");
     for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts", "check-devbox-image-reachable.ts"]) {
       const script = readScript(name);
-      expect({ name, sleeps: /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script) })
-        .toEqual({ name, sleeps: false });
+      const sleeps = /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script);
+      expect({ name, sleeps }).toEqual({ name, sleeps: name === "build-devbox-freestyle.ts" });
       expect({ name, waits: script.includes("devboxWaitForDaemonCommand") }).toEqual({ name, waits: true });
     }
     // The ladder rows are independent, so they run concurrently, and the full
@@ -436,13 +485,14 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
-    // identity on the platform instance id, wiping cmux-remote's default root
-    // state dir on a clone, and holds the daemon on the builder itself.
+    // identity on the platform instance id, rotating auth/connection state on
+    // a clone while preserving the warm journal, and holds the daemon on the builder.
     expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
     expect(devboxBoot).toContain("/latest/meta-data/instance-id");
     expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
     expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
-    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR"');
+    expect(devboxBoot).toContain('find "$REMOTE_STATE_DIR/sessions"');
+    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR/connections"');
     // The supervisor owns the daemon as a background child so it can stop a
     // daemon that belongs to another machine (a clone of a live machine).
     expect(devboxBoot).toContain("daemon_pid=$!");

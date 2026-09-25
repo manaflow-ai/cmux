@@ -136,6 +136,19 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         return result
     }
 
+    /// ALPNs the single v2 endpoint serves beside irx. Shipped iOS builds dial
+    /// the legacy `cmux/mobile/1` dialect, so it rides the same endpoint
+    /// instead of a separate listener.
+    nonisolated static var endpointAdditionalALPNs: [Data] {
+        [MobileHostIrxLegacyDialectServer.legacyALPN]
+    }
+
+    /// Whether an inbound connection on `alpn` is handed to the legacy dialect
+    /// server. It follows the same pairing opt-in as the v2 runtime.
+    func acceptsLegacyDialect(alpn: Data) -> Bool {
+        pairingEnabled() && alpn == MobileHostIrxLegacyDialectServer.legacyALPN
+    }
+
     var isNetworkingAllowed: Bool {
         (pairingEnabled() || DevicesFeature.isEnabled)
             && !managedDevicePolicy.isEnforced(.disableIrohNetworking)
@@ -395,7 +408,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             deviceID: deviceID, environment: configuration.environment, projectID: configuration.projectID,
             teamID: scope.teamID, userID: scope.session.accountID)
         let key = try await installation.key(identity: tuple)
-        let store = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager())
+        let store = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager(), identityKey: key)
         let restored = try await store.load(identity: tuple)
         guard isCurrent(token), !Task.isCancelled else { throw V2ControlFailure.stopped }
         let device = V2DeviceDescriptor(endpointID: key.endpointID, identity: tuple,
@@ -409,7 +422,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let supervisor = IrxEndpointSupervisor(configuration: .init(identity: identity, pathMode: Self.pathMode,
             preferredBindAddress: "0.0.0.0:\(preferredPort)",
             initialRemoteBiStreams: 1, initialRemoteUniStreams: 0,
-            additionalALPNs: [MobileHostIrxLegacyDialectServer.legacyALPN]), journal: Self.journal)
+            additionalALPNs: Self.endpointAdditionalALPNs), journal: Self.journal)
         let admission = try V2InboundAdmissionAuthority(host: device)
         if let restored { _ = admission.restore(restored) }
         let http = V2URLSessionHTTPTransport(session: .shared)
@@ -806,7 +819,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                             registry: registry, token: token)
                     }
                 case .foreign(let alpn, let connection):
-                    guard self.pairingEnabled(), alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
+                    guard self.acceptsLegacyDialect(alpn: alpn),
                           let legacyService,
                           let trust = legacyService.broker.cachedTrustForAdmission(),
                           let acceptor = self.legacyAcceptor(token: token) else {

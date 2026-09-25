@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -67,6 +68,19 @@ final class CloudSidebarRenameFixture {
 
     func drain() async throws {
         try await catalog.cloudRenameCoordinator.enqueue(key: .workspace(machine: machine, id: "barrier"), pendingName: "") {}.value
+    }
+
+    @discardableResult
+    func agentName(_ name: String) -> Bool {
+        guard let context = catalog.cloudAgentNameContext(workspaceID: workspace.id, panelID: panelID) else { return false }
+        return catalog.submitCloudPanelRename(
+            workspace: workspace, panelID: panelID, title: name, source: .auto, context: context
+        ) == true
+    }
+
+    @discardableResult
+    func userName(_ name: String) -> Bool {
+        catalog.submitCloudPanelRename(workspace: workspace, panelID: panelID, title: name, source: .user) == true
     }
 
     func assertParity(_ title: String, workspaceName: String = "Fixture workspace") throws {

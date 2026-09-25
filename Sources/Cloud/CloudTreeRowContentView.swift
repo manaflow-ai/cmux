@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
@@ -54,7 +55,7 @@ struct CloudTreeRowContentView: View {
             EmptyView()
         case .terminalsPool(_, let count):
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
-        case .displaysPool(_, let count):
+        case .displaysPool(_, let count, _):
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
@@ -107,8 +108,8 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
-        case .resourcesPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: count, style: style)
+        case .resourcesPool:
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: nil, style: style)
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
@@ -178,6 +179,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     let style: CloudTreeStyle
     let icon: String
     let tint: Color
+    var iconAsset: String? = nil
     let title: String
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
@@ -193,6 +195,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         style: CloudTreeStyle,
         icon: String,
         tint: Color,
+        iconAsset: String? = nil,
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
@@ -203,6 +206,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.style = style
         self.icon = icon
         self.tint = tint
+        self.iconAsset = iconAsset
         self.title = title
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
@@ -214,7 +218,13 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
             if style.iconSlot > 0 {
-                CloudTreeRowIcon(style: style, systemName: icon, tint: tint, dimmed: titleDimmed)
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: icon,
+                    tint: tint,
+                    assetName: iconAsset,
+                    dimmed: titleDimmed
+                )
             }
             switch style.leafLayout {
             case .twoLine:
@@ -280,6 +290,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
         style: CloudTreeStyle,
         icon: String,
         tint: Color,
+        iconAsset: String? = nil,
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
@@ -290,6 +301,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
             style: style,
             icon: icon,
             tint: tint,
+            iconAsset: iconAsset,
             title: title,
             titleWeight: titleWeight,
             titleDimmed: titleDimmed,
@@ -300,7 +312,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
     }
 }
 
-/// A cmux-tui terminal row: lifecycle glyph and title, with secondary details on hover.
+/// A cmux-tui terminal row with its provider mark, title, directory and optional view count.
 struct CloudTreeTerminalRowContent: View {
     let row: CloudTreeTerminalRow
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -325,6 +337,7 @@ struct CloudTreeTerminalRowContent: View {
             style: style,
             icon: glyph,
             tint: CloudTreeIconPalette.terminal,
+            iconAsset: terminal.terminalAgentIconAssetName,
             title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState
         )

@@ -98,6 +98,8 @@ final class CmuxMainWindow: NSWindow {
     private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
 
     private var zoomIntent = MainWindowZoomIntentState()
+    private var pendingManagedPlacementFrame: NSRect?
+    private(set) var isApplyingManagedPlacement = false
 
     /// Preserves the user's zoom intent even if AppKit temporarily applies a
     /// smaller frame while the app is inactive or displays are reconnecting.
@@ -107,11 +109,30 @@ final class CmuxMainWindow: NSWindow {
 
     /// Clears remembered zoom after a confirmed user move, resize, or restore.
     func recordUserPlacement() {
+        pendingManagedPlacementFrame = nil
         zoomIntent.recordUserPlacement()
+    }
+
+    /// Returns true when a resize callback belongs to the last cmux-managed frame.
+    /// The pending frame survives `setFrame` so delayed AppKit callbacks still keep
+    /// display/activation repair from being mistaken for external placement.
+    func consumeManagedPlacementResizeCallback() -> Bool {
+        guard let pendingFrame = pendingManagedPlacementFrame else { return false }
+        pendingManagedPlacementFrame = nil
+        return frame == pendingFrame
     }
 
     /// Applies display repair without discarding the user's remembered zoom intent.
     func setFrameForManagedPlacement(_ frameRect: NSRect, display flag: Bool) {
+        let wasApplyingManagedPlacement = isApplyingManagedPlacement
+        isApplyingManagedPlacement = true
+        pendingManagedPlacementFrame = frameRect
+        defer {
+            isApplyingManagedPlacement = wasApplyingManagedPlacement
+            if pendingManagedPlacementFrame != nil {
+                pendingManagedPlacementFrame = frame
+            }
+        }
         setFrame(frameRect, display: flag)
     }
 

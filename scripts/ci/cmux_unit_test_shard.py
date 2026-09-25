@@ -38,27 +38,15 @@ FALLBACK_TEST_MS = 200
 # so each runs once per pull request. A suite that a strict step runs only
 # partly stays in the batch.
 FOCUSED_GATE_SELECTORS = {
-    "cmuxTests/AgentChatFallbackTranscriptResolutionCoordinatorTests",
-    "cmuxTests/AgentChatSessionRegistryLifecycleReviewRegressionTests",
     "cmuxTests/AgentJournalLifecycleCenterTests",
     "cmuxTests/AgentNotificationRegressionTests",
-    "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
-    "cmuxTests/BackgroundPrimeStartableSurfaceTests",
     "cmuxTests/BrowserOmnibarSuggestionClickRoutingTests",
     "cmuxTests/BrowserPanelViewIdentityTests",
-    "cmuxTests/BrowserSystemProxyMirrorTests",
-    "cmuxTests/BrowserViewportRuntimeTests",
-    "cmuxTests/CLISSHSessionAttachAnchorTests",
-    "cmuxTests/CLISendQueuedOutputTests",
     "cmuxTests/ClaudeBackgroundWorkNotifyTests",
-    "cmuxTests/ClaudeHookLifecycleCleanupTests",
-    "cmuxTests/ClaudeHookLiveDeliveryTargetTests",
-    "cmuxTests/ClaudeHookPIDAuthenticationTests",
     "cmuxTests/CloudMachineDragSourceTests",
     "cmuxTests/CloudMachineOrderingTests",
-    "cmuxTests/CloudNotificationDismissParityTests",
-    "cmuxTests/CloudWorkspaceRenameSurfaceParityTests",
-    "cmuxTests/CmuxBundledBinPathIntegrationTests",
+    "cmuxTests/CloudOperationRecorderTests",
+    "cmuxTests/CloudReadRequestCoordinatorTests",
     "cmuxTests/DeviceDirectoryLifecycleTests",
     "cmuxTests/DeviceDirectoryMergeTests",
     "cmuxTests/DeviceLinkReconnectPolicyTests",
@@ -69,22 +57,13 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/DeviceWorkspaceProjectionTests",
     "cmuxTests/DevicesCloudTreeBuilderTests",
     "cmuxTests/DevicesSidebarModeTests",
-    "cmuxTests/DockNotificationAttentionTests",
     "cmuxTests/FeedCoordinatorTests",
     "cmuxTests/FeedWaiterRegistryTests",
     "cmuxTests/GhosttyNumericLocaleTests",
-    "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GlobalSearchShortcutBehaviorTests",
-    "cmuxTests/HostSettingsShortcutNotificationTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
-    "cmuxTests/MainWindowZoomPlacementTests",
-    "cmuxTests/LiveAgentIndexRelevantChurnTests",
-    "cmuxTests/NotificationRowSnapshotBoundaryTests",
-    "cmuxTests/NotificationScrollRestoreLifecycleTests",
-    "cmuxTests/NotificationScrollRestoreRecoveryTests",
     "cmuxTests/OpenCodeHookRegressionTests",
-    "cmuxTests/PhonePushPresenceGateTests",
     "cmuxTests/PiFeedDockOwnershipTests",
     "cmuxTests/PiFeedOwnershipTests",
     "cmuxTests/RemoteTmuxMirrorCloseDetachTests",
@@ -92,12 +71,11 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/RemoteTmuxMirrorFocusPolicyTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
     "cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests",
-    "cmuxTests/RestoreAdmissionRetryPolicyTests",
-    "cmuxTests/RestoredAgentShellActivityLivenessTests",
+    "cmuxTests/SidebarIssue8373StressTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
     "cmuxTests/SocketACLReloadRegressionTests",
+    "cmuxTests/VMClientReadCoalescingTests",
     "cmuxTests/SurfaceMachineIDDeviceEncodingTests",
-    "cmuxTests/SurfaceResumeAgentHookDowngradeTests",
 
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
@@ -141,7 +119,10 @@ def xctest_methods(
 ) -> list[TestSelector]:
     return [
         TestSelector(
-            identifier=f"{suite_identifier}/{match.group(1)}",
+            # XCTest accepts the call suffix, while Swift Testing requires it.
+            # Migrated @Test methods retain test-prefixed names and are split
+            # here too; a bare method selector silently executes zero tests.
+            identifier=f"{suite_identifier}/{match.group(1)}()",
             path=relative_path,
             line=start_line + offset,
             weight=1,
@@ -159,6 +140,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
     declarations: list[SuiteDeclaration] = []
     extension_methods: dict[str, list[TestSelector]] = {}
     extension_weights: dict[str, int] = {}
+    unsplit_suites: set[str] = set()
     for path in sorted(test_root.glob("**/*.swift")):
         relative = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -187,6 +169,23 @@ def discover_selectors(root: Path) -> list[TestSelector]:
             weight = sum(1 for line in body if TEST_TOKEN_RE.search(line))
             suite_identifier = f"cmuxTests/{name}"
             methods = xctest_methods(suite_identifier, relative, line_number, body)
+            # Only split a Swift Testing suite when the existing method parser
+            # represents every @Test declaration. Inline attributes, modern
+            # non-test-prefixed names, or an unrecognized declaration keep the
+            # whole suite instead of silently dropping part of its coverage.
+            method_ids = {method.identifier for method in methods}
+            for test_declaration in re.split(r"@Test\b", "\n".join(body))[1:]:
+                function = re.search(r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", test_declaration)
+                if function is None or f"{suite_identifier}/{function.group(1)}()" not in method_ids:
+                    unsplit_suites.add(name)
+            # A generated () selector is valid only for a no-argument method.
+            # Preserve the entire suite when a test signature has parameters or
+            # spans lines rather than guessing argument labels. This also sees
+            # inline @Test attributes and extension-declared test methods.
+            for body_line in body:
+                method_start = re.search(r"\bfunc\s+test[A-Za-z0-9_]*\s*\(", body_line)
+                if method_start and not re.match(r"\s*\)", body_line[method_start.end():]):
+                    unsplit_suites.add(name)
             if kind == "extension":
                 extension_methods.setdefault(name, []).extend(methods)
                 # Swift Testing containers often declare all their nested suites
@@ -230,7 +229,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
         # smaller suites grouped so xcodebuild still has a compact selector
         # list and shared setup inside each suite. Include extension methods in
         # the split so extension-declared regressions remain covered.
-        if len(methods) >= LARGE_SUITE_METHOD_THRESHOLD:
+        if len(methods) >= LARGE_SUITE_METHOD_THRESHOLD and declaration.name not in unsplit_suites:
             selectors.extend(methods)
             continue
 
@@ -303,7 +302,9 @@ def reweight_selectors(
         parts = selector.identifier.split("/")
         if len(parts) == 3:
             _, suite, method = parts
-            ms = methods.get(f"{suite}/{method}")
+            # Timing receipts use method names without the no-argument suffix.
+            timing_method = method.removesuffix("()")
+            ms = methods.get(f"{suite}/{timing_method}")
             if ms is None and suite in suites:
                 ms = suites[suite] / methods_per_suite[suite]
             if ms is None:

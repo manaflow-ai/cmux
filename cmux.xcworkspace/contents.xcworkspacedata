@@ -151,6 +151,9 @@
          location = "group:CmuxCloudMachines">
       </FileRef>
       <FileRef
+         location = "group:CmuxCloudTui">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCloudTunnelCore">
       </FileRef>
       <FileRef
@@ -191,6 +194,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxLiveEval">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileHost">
       </FileRef>
       <FileRef
          location = "group:CmuxNotifications">
@@ -239,6 +245,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSudoBrokerUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSurfaceCatalogModel">
       </FileRef>
       <FileRef
          location = "group:CmuxSwiftRender">

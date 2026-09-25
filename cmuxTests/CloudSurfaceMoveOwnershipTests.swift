@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxCore
 import CmuxRemoteSession
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -13,15 +14,79 @@ import Testing
 @MainActor
 @Suite("Cloud surface mutation boundaries", .serialized)
 struct CloudSurfaceMoveOwnershipTests {
-    @Test("Foreign Cloud terminal, browser and display moves leave both workspaces intact", arguments: SurfaceResourceKind.allCases)
-    func foreignCloudMove(kind: SurfaceResourceKind) async throws {
+    @Test("Per-workspace Docks reject foreign displays before detaching", arguments: ["a", "b"])
+    func foreignDisplayDockMove(owner: String) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let source = fixture.workspace
+            let pane = try #require(source.bonsplitController.allPaneIds.first)
+            let browser = try #require(source.newBrowserSurface(inPane: pane, focus: false))
+            let display = resource(machine: owner, kind: .display)
+            let catalog = SurfaceCatalog.shared
+            catalog.upsert(display)
+            catalog.record(.init(resource: display.id, workspaceID: source.id, panelID: browser.id))
+            defer { catalog.remove(display.id) }
+            let target = fixture.manager.addWorkspace(title: "same label", select: false)
+            target.cloudVMBinding = WorkspaceCloudVMBinding(vmID: owner == "a" ? "b" : "a", isBase: false)
+            let dock = target.requiredDockSplitForTesting
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let tab = try #require(source.surfaceIdFromPanelId(browser.id))
+            let before = Set(dock.panels.keys)
+            #expect(!fixture.appDelegate.canMoveSurfaceIntoDock(sourceTabId: tab.uuid, destinationDock: dock))
+            #expect(!fixture.appDelegate.moveSurfaceIntoDock(sourceTabId: tab.uuid, destinationDock: dock,
+                destination: .insert(targetPane: dockPane, targetIndex: 0)))
+            #expect(source.panels[browser.id] != nil)
+            #expect(Set(dock.panels.keys) == before)
+            target.cloudVMBinding = WorkspaceCloudVMBinding(vmID: owner, isBase: false)
+            let detached = try #require(source.detachSurface(panelId: browser.id))
+            #expect(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false) == browser.id)
+            #expect(dock.machineOwningSurface(browser.id) == .cloud(owner))
+            let captured = dock.sessionSnapshot(includeScrollback: false)
+            #expect(captured.panels.first(where: { $0.id == browser.id })?.browser?.cloudResource == display.id)
+            target.cloudVMBinding = WorkspaceCloudVMBinding(vmID: owner == "a" ? "b" : "a", isBase: false)
+            #expect(dock.restoreSessionSnapshot(captured).isEmpty)
+            #expect(dock.panels[browser.id] != nil)
+        }
+    }
+
+    @Test("Duplicating a display preserves its VM and independent view identity", arguments: [false, true])
+    func displayDuplicationRetainsOwner(offline: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let workspace = fixture.workspace
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let browser = try #require(workspace.newBrowserSurface(inPane: pane, focus: false))
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
+            let catalog = SurfaceCatalog.shared
+            var display = resource(machine: "a", kind: .display)
+            display.id.key = "display:1"
+            if !offline { catalog.upsert(display) }
+            catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: display.id)], workspaceID: workspace.id)
+            defer { catalog.remove(display.id) }
+            let duplicate = try #require(workspace.duplicateBrowserToRight(panelId: browser.id, focus: false))
+            #expect(duplicate.id != browser.id)
+            #expect(catalog.projectionRecord(forPanel: duplicate.id)?.resource == display.id)
+            #expect(workspace.machineOwningSurface(duplicate.id) == .cloud("a"))
+            #expect(workspace.panels[browser.id] === browser)
+            let foreign = fixture.manager.addWorkspace(title: "same name", select: false)
+            foreign.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "b", isBase: false)
+            #expect(!fixture.appDelegate.moveSurface(panelId: duplicate.id, toWorkspace: foreign.id,
+                focus: false, focusWindow: false))
+            #expect(workspace.panels[duplicate.id] != nil)
+        }
+    }
+
+    @Test("Foreign Cloud terminal, browser and display moves leave both workspaces intact", arguments: SurfaceResourceKind.allCases, ["a", "b"])
+    func foreignCloudMove(kind: SurfaceResourceKind, owner: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
             let source = fixture.workspace
             let target = fixture.manager.addWorkspace(title: "same name", select: false)
             defer { target.teardownAllPanels() }
-            target.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "b", isBase: false)
+            target.cloudVMBinding = WorkspaceCloudVMBinding(vmID: owner == "a" ? "b" : "a", isBase: false)
             let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
             let panelID: UUID
             if kind == .terminal {
@@ -29,7 +94,8 @@ struct CloudSurfaceMoveOwnershipTests {
             } else {
                 panelID = try #require(source.newBrowserSurface(inPane: sourcePane, url: URL(string: "about:blank"), focus: false)).id
             }
-            let resource = resource(machine: "a", kind: kind)
+            var resource = resource(machine: owner, kind: kind)
+            resource.id.key = "same-resource-id"
             let catalog = SurfaceCatalog.shared
             catalog.upsert(resource)
             catalog.record(SurfaceProjection(resource: resource.id, workspaceID: source.id, panelID: panelID))
@@ -178,7 +244,9 @@ struct CloudSurfaceMoveOwnershipTests {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        live.register(workspace)
+        let catalog = SurfaceCatalog(live: live)
         let id = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "offline")
         catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: id)], workspaceID: workspace.id)
         #expect(workspace.machineOwningSurface(panelID, catalog: catalog) == .cloud("a"))

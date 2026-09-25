@@ -97,7 +97,7 @@ def test_initialized_consumer_passes() -> None:
 
 def test_release_architecture_selection_remains_analyzed() -> None:
     workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
     )
     step = next(
         step for step in workflow["jobs"]["swift-package-tests"]["steps"]

@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -20,4 +21,6 @@ extension SurfaceCatalog {
     func projectedTerminalIDs(on machine: SurfaceMachineID) -> [String] {
         Array(Set(projections.lazy.filter { $0.resource.machine == machine && $0.resource.kind == .terminal }.map { $0.resource.key })).sorted()
     }
+
+
 }

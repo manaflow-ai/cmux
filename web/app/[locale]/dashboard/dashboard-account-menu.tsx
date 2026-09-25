@@ -151,7 +151,7 @@ function TeamSubmenu({
 }: {
   readonly teams: readonly DashboardCatalogTeam[];
   readonly selected: DashboardCatalogTeam;
-  readonly onSelect: (team: DashboardCatalogTeam) => void;
+  readonly onSelect: (team: DashboardCatalogTeam) => void | Promise<void>;
 }) {
   const t = useTranslations("dashboard.teamSwitcher");
   return (
@@ -173,7 +173,7 @@ function TeamSubmenu({
               value={selected.id}
               onValueChange={(value) => {
                 const team = teams.find((candidate) => candidate.id === value);
-                if (team) onSelect(team);
+                if (team) void Promise.resolve(onSelect(team)).catch(() => undefined);
               }}
             >
               {teams.map((team) => (

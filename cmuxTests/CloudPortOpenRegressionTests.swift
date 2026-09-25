@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 import CmuxWorkspaces
@@ -286,10 +288,20 @@ struct CloudPortOpenRegressionTests {
         LISTEN 0 128 0.0.0.0:6901 0.0.0.0:*
         LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*
         """
+        let scan = VMExecResult(exitCode: 0, stdout: bindings, stderr: "")
+        // #13196 (178d35e5da) scoped the RFB/noVNC range to machines whose
+        // display catalog owns it; SSH and the daemon are always filtered.
         #expect(CmuxTuiSurfaceProvider.ports(
-            from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
-            privateAddress: "10.16.179.6"
+            from: scan,
+            privateAddress: "10.16.179.6",
+            displayPortsOwned: true
         ) == [3000])
+        // Without a desktop, 6901 is an ordinary reachable listener; the
+        // loopback-only 5901 is still unreachable over the private address.
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: scan,
+            privateAddress: "10.16.179.6"
+        ) == [3000, 6901])
     }
 
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
@@ -380,14 +392,16 @@ struct CloudPortOpenRegressionTests {
 
     @Test("Sidebar and repeated opens use the machine-owned local workspace and one catalog identity")
     func rowOpenUsesSharedCatalogPath() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = FakeProvider(machine: machine, supportsPortPreviews: true)
         catalog.register(provider)
         let port = discoveredPort(8000, in: workspace)
         catalog.replaceResources([terminal(), port], on: machine, info: machineInfo(workspaces: [workspace]))
 
-        let ownerWorkspaceID = UUID()
-        let unrelatedWorkspaceID = UUID()
+        let ownerWorkspaceID = live.id()
+        let unrelatedWorkspaceID = live.id()
         _ = try await catalog.project(
             terminal().id,
             into: .workspace(id: ownerWorkspaceID, placement: .split),
@@ -464,7 +478,10 @@ struct CloudPortOpenRegressionTests {
 
     @Test("Unsupported providers fail before a synthetic row or browser pane is created")
     func unsupportedProviderFailsClosed() async {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let destination = live.id()
         let provider = FakeProvider(machine: machine, supportsPortPreviews: false)
         catalog.register(provider)
 
@@ -474,7 +491,7 @@ struct CloudPortOpenRegressionTests {
             try await catalog.openCloudPort(
                 machine: machine,
                 port: 8000,
-                into: .workspace(id: UUID(), placement: .split),
+                into: .workspace(id: destination, placement: .split),
                 focus: false,
                 reuseExisting: false
             )

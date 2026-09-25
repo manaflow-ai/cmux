@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Inspect and edit ~/.config/cmux/cmux.json.
 
-cmux watches the file and auto-reloads on save, so writes take effect
-immediately. The file is JSONC (JSON with // and /* */ comments); this
-script writes comment-free formatting (2-space indent, trailing newline)
-and only writes when the parsed value actually changes.
+cmux watches the file and reloads on save. Writes report disk persistence
+only; runtime application is not observed. The file is JSONC (JSON with // and
+/* */ comments); set/unset edits retain comments and unrelated formatting, and
+only write when the parsed value actually changes.
 
 Usage:
   cmux-settings path                    print the config path
@@ -12,6 +12,12 @@ Usage:
   cmux-settings get <dotted.path>       print value at path (JSON)
   cmux-settings set <dotted.path> <v>   set value (v parsed as JSON, falls back to string)
   cmux-settings unset <dotted.path>     remove value at path
+  cmux-settings undo <receipt-file>     restore one path if it still holds the value set/unset installed
+
+set/unset options:
+  --preview                 print the single-path change and source revision; write nothing
+  --expect-revision <rev>   refuse the write if the source changed since that preview
+  --receipt <new-file>      create a private (0600) undo receipt for this change
   cmux-settings list-supported          print every settings path the schema recognizes
   cmux-settings validate                run cmux's semantic validator on the full config
   cmux-settings open                    open the file in $EDITOR (or VS Code, then TextEdit)
@@ -27,21 +33,75 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import copy
+import ctypes
+import fcntl
+import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import signal
 from pathlib import Path
 from typing import Any
+
+from cmux_jsonc_edit import JSONCEditError, remove_jsonc_path, set_jsonc_path
 
 DEFAULT_PATH = Path.home() / ".config" / "cmux" / "cmux.json"
 SCHEMA_URL = (
     "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
 )
+
+
+def mutation_message(key: str) -> str:
+    """Return a localized conflict message from the bundled catalog."""
+    catalog = json.loads(
+        Path(__file__).with_name("config_mutation_messages.json").read_text(encoding="utf-8")
+    )
+    locale = next(
+        (os.environ[name] for name in ("LC_ALL", "LC_MESSAGES", "LANG") if os.environ.get(name)),
+        "en",
+    )
+    locale = locale.split(".")[0].replace("_", "-")
+    locale = {"zh-CN": "zh-Hans", "zh-TW": "zh-Hant", "zh-HK": "zh-Hant"}.get(locale, locale)
+    return catalog.get(locale, catalog.get(locale.split("-")[0], catalog["en"]))[key]
+
+
+def mutation_conflict(
+    code: str,
+    key: str | None = None,
+    issues: list[dict[str, str]] | None = None,
+) -> SystemExit:
+    """Print a structured conflict without config values; return the exit.
+
+    `issues` carries validator findings (path and message), which name schema
+    constraints, not config values.
+    """
+    message_key = {
+        "writer_busy": "busy",
+        "undo_conflict": "undoConflict",
+        "unsafe_lock": "unsafeLock",
+        "invalid_config": "invalidCandidate",
+        "receipt_exists": "receiptExists",
+    }.get(code, "sourceChanged")
+    if code.startswith("receipt_") and code != "receipt_exists":
+        message_key = "receiptInvalid"
+    payload: dict[str, Any] = {
+        "status": "conflict",
+        "code": code,
+        "key": key,
+        "message": mutation_message(message_key),
+    }
+    if issues is not None:
+        payload["issues"] = issues
+    print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
+    return SystemExit(1)
 
 
 def strip_jsonc(text: str) -> str:
@@ -128,16 +188,210 @@ def load_settings(path: Path) -> dict[str, Any]:
         raise SystemExit(f"error: {path} is not valid JSONC: {e}")
 
 
-def atomic_write(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
-    ) as tmp:
-        tmp.write(encoded)
-        tmp_path = Path(tmp.name)
-    os.replace(tmp_path, path)
+def resolved_write_path(path: Path) -> Path:
+    """Canonical lock/write target, including symlinked parent directories."""
+    return path.resolve(strict=False)
 
+
+@contextlib.contextmanager
+def mutation_lock(configured: Path):
+    """Serialize participating cmux writers on one stable sidecar inode."""
+    target = resolved_write_path(configured)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(
+        str(target) + ".cmux-write.lock",
+        os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise mutation_conflict("unsafe_lock")
+        previous_alarm_handler = signal.getsignal(signal.SIGALRM)
+
+        def lock_timeout(_signum, _frame):
+            raise TimeoutError
+
+        signal.signal(signal.SIGALRM, lock_timeout)
+        signal.setitimer(signal.ITIMER_REAL, 2.0)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except TimeoutError:
+            raise mutation_conflict("writer_busy")
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_alarm_handler)
+        if resolved_write_path(configured) != target:
+            raise mutation_conflict("source_changed")
+        yield target
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def current_revision(path: Path) -> tuple[bytes, int, int] | None:
+    try:
+        with path.open("rb") as source:
+            info = os.fstat(source.fileno())
+            return (source.read(), info.st_dev, info.st_ino)
+    except FileNotFoundError:
+        return None
+
+
+def revision_token(target: Path, revision: tuple[bytes, int, int] | None) -> str:
+    """Digest the resolved target, inode, and bytes a preview was computed from."""
+    digest = hashlib.sha256(str(target).encode("utf-8"))
+    if revision is not None:
+        data, device, inode = revision
+        digest.update(f"\0{device}:{inode}\0".encode("ascii"))
+        digest.update(data)
+    else:
+        digest.update(b"\0absent")
+    return digest.hexdigest()
+
+
+def owned_value(data: dict[str, Any], parts: list[str]) -> dict[str, Any]:
+    """Describe one path; absence is distinct from JSON null or a default."""
+    current: Any = data
+    for part in parts:
+        if not isinstance(current, dict) or part not in current:
+            return {"present": False}
+        current = current[part]
+    return {"present": True, "value": current}
+
+
+def same_owned_value(left: dict, right: dict) -> bool:
+    # Python's True == 1 must not authorize undo of a changed JSON value.
+    return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
+
+
+def source_for_edit(path: Path, data: dict[str, Any]) -> str:
+    if path.exists():
+        with path.open("r", encoding="utf-8", newline="") as source:
+            return source.read()
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+_UNCONDITIONAL_REVISION = object()
+_RENAME_EXCHANGE = 0x2
+
+
+def exchange_paths(left: Path, right: Path) -> None:
+    """Atomically exchange two path entries on the supported host platforms."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    left_bytes = os.fsencode(left)
+    right_bytes = os.fsencode(right)
+    if sys.platform == "darwin":
+        rename = libc.renamex_np
+        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(left_bytes, right_bytes, _RENAME_EXCHANGE)
+    elif sys.platform.startswith("linux"):
+        rename = libc.renameat2
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(-100, left_bytes, -100, right_bytes, _RENAME_EXCHANGE)
+    else:
+        raise OSError(f"atomic config exchange is unsupported on {sys.platform}")
+
+    if result != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(right))
+
+
+def atomic_write_text(
+    path: Path,
+    text: str,
+    *,
+    expected_revision: tuple[bytes, int, int] | None | object = _UNCONDITIONAL_REVISION,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    candidate = text.encode("utf-8")
+    with tempfile.NamedTemporaryFile(
+        mode="wb", dir=path.parent, delete=False, suffix=".tmp"
+    ) as tmp:
+        tmp.write(candidate)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = Path(tmp.name)
+
+    staging_contains_recovery = False
+    try:
+        if expected_revision is _UNCONDITIONAL_REVISION:
+            os.replace(tmp_path, path)
+            return
+
+        if expected_revision is None:
+            try:
+                os.link(tmp_path, path)
+            except FileExistsError:
+                raise SystemExit(
+                    "error: cmux config changed while preparing the edit; retry"
+                )
+            tmp_path.unlink()
+            return
+
+        try:
+            current_mode = stat.S_IMODE(os.stat(path, follow_symlinks=False).st_mode)
+        except FileNotFoundError:
+            raise SystemExit(
+                "error: cmux config changed while preparing the edit; retry"
+            )
+        if current_revision(path) != expected_revision:
+            raise SystemExit(
+                "error: cmux config changed while preparing the edit; retry"
+            )
+        os.chmod(tmp_path, current_mode)
+
+        # Exchange publication and source capture in one filesystem operation.
+        # The previous live entry becomes tmp_path, so the revision comparison
+        # happens after publication without a check/replace race.
+        exchange_paths(tmp_path, path)
+        staging_contains_recovery = True
+        recovered = current_revision(tmp_path)
+        if recovered != expected_revision:
+            # The exchange proved a non-participating writer raced the
+            # publication. A second exchange would introduce another TOCTOU
+            # window and could displace an even newer writer. Keep the exact
+            # displaced entry as recovery evidence instead.
+            raise SystemExit(
+                "error: cmux config changed during publication; "
+                f"recovery retained at {tmp_path}"
+            )
+
+        published = current_revision(path)
+        if (
+            published is None
+            or published[0] != candidate
+            or current_revision(tmp_path) != expected_revision
+        ):
+            raise SystemExit(
+                "error: cmux config changed during publication; "
+                f"recovery retained at {tmp_path}"
+            )
+
+        tmp_path.unlink()
+        staging_contains_recovery = False
+    finally:
+        if tmp_path.exists() and not staging_contains_recovery:
+            tmp_path.unlink()
+
+
+def atomic_write(
+    path: Path,
+    data: dict[str, Any],
+    *,
+    expected_revision: tuple[bytes, int, int] | None | object = _UNCONDITIONAL_REVISION,
+) -> None:
+    write_path = resolved_write_path(path)
+    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(write_path, encoded, expected_revision=expected_revision)
 
 def split_path(dotted: str) -> list[str]:
     if not dotted:
@@ -210,8 +464,15 @@ def find_cmux_cli() -> str | None:
     return shutil.which("cmux")
 
 
-def discovered_project_config() -> Path | None:
-    current = Path.cwd().resolve()
+def discovered_project_config(start: Path | None = None) -> Path | None:
+    """Find the project config for the working directory (default: process CWD).
+
+    The walk stops before `$HOME`: a `cmux.json` sitting directly in the home
+    directory is a user-level file, not the config of an enclosing project.
+    """
+    current = (start or Path.cwd()).expanduser().resolve()
+    if current.is_file():
+        current = current.parent
     home = Path.home().resolve()
     while current != home:
         for candidate in (current / ".cmux" / "cmux.json", current / "cmux.json"):
@@ -237,18 +498,44 @@ def semantic_scope_for(path: Path, explicit_scope: str | None = None) -> str:
         return "global"
     if resolved.parent.name == ".cmux":
         return "project"
+    # Discovery must start from the working directory, never from the target's
+    # own directory: seeding the walk at `resolved.parent` makes the target its
+    # own first candidate, so every `cmux.json` outside the known global paths
+    # matches itself and gets misclassified as project-local. A custom global
+    # config is only project-local when it is the config the current project
+    # would actually load.
     if discovered_project_config() == resolved:
         return "project"
     return "global"
 
 
-def report_validation_failure(result: subprocess.CompletedProcess[str]) -> None:
+class ValidatorFailure(Exception):
+    """`cmux config validate` failed without reporting per-path issues.
+
+    Nothing can be diffed against a baseline, so the write is refused outright.
+    `issues` holds one `$` entry with the command's output.
+    """
+
+    def __init__(self, issues: list[dict[str, str]]):
+        super().__init__(issues)
+        self.issues = issues
+
+
+def validation_issues(result: subprocess.CompletedProcess[str]) -> list[dict[str, str]]:
+    """Return `cmux --json config validate` findings as path/message pairs.
+
+    Raises ValidatorFailure when a failed run reports no per-path issue (an
+    unreadable file, an older CLI, a crash), so a refusal is never empty and
+    an unstructured failure is never mistaken for a pre-existing issue.
+    """
+    if result.returncode == 0:
+        return []
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
         payload = None
 
-    found_issue = False
+    found: list[dict[str, str]] = []
     if isinstance(payload, dict):
         findings = payload.get("findings")
         if isinstance(findings, list):
@@ -260,22 +547,36 @@ def report_validation_failure(result: subprocess.CompletedProcess[str]) -> None:
                     for issue in issues:
                         if not isinstance(issue, dict):
                             continue
-                        path = issue.get("path", "$")
-                        message = issue.get("message", "invalid configuration")
-                        print(f"error: {path}: {message}", file=sys.stderr)
-                        found_issue = True
+                        found.append({
+                            "path": str(issue.get("path", "$")),
+                            "message": str(issue.get("message", "invalid configuration")),
+                        })
                 if not issues and finding.get("status") == "error":
                     message = finding.get("message")
-                    if isinstance(message, str):
-                        print(f"error: {message}", file=sys.stderr)
-                        found_issue = True
-    if not found_issue:
+                    raise ValidatorFailure([{
+                        "path": "$",
+                        "message": message if isinstance(message, str) else "invalid configuration",
+                    }])
+    if not found:
         detail = result.stderr.strip() or result.stdout.strip()
-        if detail:
-            print(detail, file=sys.stderr)
+        raise ValidatorFailure([{"path": "$", "message": detail or "invalid configuration"}])
+    return found
 
 
-def validate_file_with_cmux(path: Path, scope: str) -> bool:
+def print_issues(issues: list[dict[str, str]]) -> None:
+    for issue in issues:
+        print(f"error: {issue['path']}: {issue['message']}", file=sys.stderr)
+
+
+def report_validation_failure(result: subprocess.CompletedProcess[str]) -> None:
+    try:
+        print_issues(validation_issues(result))
+    except ValidatorFailure as failure:
+        print_issues(failure.issues)
+
+
+def run_cmux_validate(path: Path, scope: str) -> subprocess.CompletedProcess[str] | None:
+    """Run `cmux --json config validate`, or return None when no CLI is found."""
     cli = find_cmux_cli()
     if cli is None:
         print(
@@ -283,8 +584,8 @@ def validate_file_with_cmux(path: Path, scope: str) -> bool:
             "set CMUX_CLI_BIN if it is not on PATH",
             file=sys.stderr,
         )
-        return False
-    result = subprocess.run(
+        return None
+    return subprocess.run(
         [
             cli,
             "--json",
@@ -299,17 +600,27 @@ def validate_file_with_cmux(path: Path, scope: str) -> bool:
         capture_output=True,
         check=False,
     )
+
+
+def validate_file_with_cmux(path: Path, scope: str) -> bool:
+    result = run_cmux_validate(path, scope)
+    if result is None:
+        return False
     if result.returncode == 0:
         return True
     report_validation_failure(result)
     return False
 
 
-def validate_candidate(
+def candidate_issues(
     data: dict[str, Any],
     source_path: Path,
     explicit_scope: str | None = None,
-) -> bool:
+) -> list[dict[str, str]] | None:
+    """Validate an in-memory config; return its issues, or None if no CLI ran.
+
+    Raises ValidatorFailure when validation fails without per-path issues.
+    """
     encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", delete=False, suffix=".cmux.json"
@@ -317,12 +628,49 @@ def validate_candidate(
         tmp.write(encoded)
         candidate = Path(tmp.name)
     try:
-        return validate_file_with_cmux(
-            candidate,
-            semantic_scope_for(source_path, explicit_scope),
-        )
+        result = run_cmux_validate(candidate, semantic_scope_for(source_path, explicit_scope))
     finally:
         candidate.unlink(missing_ok=True)
+    return None if result is None else validation_issues(result)
+
+
+def validate_candidate(
+    data: dict[str, Any],
+    source_path: Path,
+    explicit_scope: str | None = None,
+) -> bool:
+    try:
+        issues = candidate_issues(data, source_path, explicit_scope)
+    except ValidatorFailure as failure:
+        issues = failure.issues
+    if issues is None:
+        return False
+    print_issues(issues)
+    return not issues
+
+
+def introduced_issues(
+    candidate: dict[str, Any],
+    baseline: dict[str, Any],
+    source_path: Path,
+    explicit_scope: str | None = None,
+) -> list[dict[str, str]] | None:
+    """Return the candidate's issues that the baseline doesn't already have.
+
+    Matches the native store: a write is refused only for what it breaks, not
+    for a key from a newer build or an invalid value on another path. Issues
+    are identified by path and message. The baseline is validated only when
+    the candidate has issues. Returns None when no validator could run, and
+    raises ValidatorFailure when either run fails without per-path issues.
+    """
+    issues = candidate_issues(candidate, source_path, explicit_scope)
+    if not issues:
+        return issues
+    existing = candidate_issues(baseline, source_path, explicit_scope)
+    if existing is None:
+        return None
+    known = {(issue["path"], issue["message"]) for issue in existing}
+    return [issue for issue in issues if (issue["path"], issue["message"]) not in known]
 
 
 def flatten(prefix: str, value: Any) -> list[str]:
@@ -423,33 +771,174 @@ def cmd_get(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_set(args: argparse.Namespace) -> int:
-    path = Path(args.file)
-    data = load_settings(path)
+def mutate_setting(args: argparse.Namespace, restore: dict, undo: dict | None = None) -> int:
+    """Install `restore` at args.key under the writer lock.
+
+    `restore` is an owned_value() description. With `undo`, the write happens
+    only while the path on the same resolved target still holds the receipt's
+    installed value.
+    """
+    configured = Path(args.file)
     parts = split_path(args.key)
-    value = parse_value(args.value)
-    changed = set_at(data, parts, value)
-    if not changed:
-        print(f"unchanged: {args.key} = {json.dumps(value)}")
+    with mutation_lock(configured) as path:
+        original = current_revision(path)
+        revision = revision_token(path, original)
+        expected_revision = getattr(args, "expect_revision", None)
+        if expected_revision is not None and expected_revision != revision:
+            raise mutation_conflict("source_changed", args.key)
+        data = load_settings(path)
+        baseline = copy.deepcopy(data)
+        source = source_for_edit(path, data)
+        before = owned_value(data, parts)
+        if undo is not None and (
+            str(path) != undo["target"] or not same_owned_value(before, undo["installed"])
+        ):
+            # Values may be private: report the path and status, not the values.
+            raise mutation_conflict("undo_conflict", args.key)
+        unchanged = same_owned_value(before, restore)
+        wants_receipt = bool(getattr(args, "receipt", None))
+        preview = getattr(args, "preview", False)
+        if unchanged and not wants_receipt and not preview:
+            print(json.dumps({"status": "unchanged", "key": args.key, "runtime": "unobserved"}))
+            return 0
+
+        # set_at keeps the helper's refusal to replace a scalar ancestor.
+        if restore["present"]:
+            set_at(data, parts, restore["value"])
+        else:
+            unset_at(data, parts)
+        try:
+            if restore["present"]:
+                updated = set_jsonc_path(source, parts, restore["value"])
+            else:
+                updated = remove_jsonc_path(source, parts)
+            candidate = json.loads(strip_jsonc(updated))
+        except (JSONCEditError, json.JSONDecodeError) as error:
+            raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+        if not isinstance(candidate, dict):
+            raise mutation_conflict("invalid_config", args.key)
+        if not unchanged:
+            try:
+                introduced = introduced_issues(candidate, baseline, path, args.scope)
+            except ValidatorFailure as failure:
+                raise mutation_conflict("invalid_config", args.key, issues=failure.issues)
+            if introduced is None:
+                return 1
+            if introduced:
+                raise mutation_conflict("invalid_config", args.key, issues=introduced)
+
+        receipt = {
+            "version": 1,
+            "target": str(path),
+            "key": args.key,
+            "before": before,
+            "installed": owned_value(candidate, parts),
+        }
+        if preview:
+            print(json.dumps({
+                "status": "preview",
+                "revision": revision,
+                "change": receipt,
+                "persisted": False,
+                "runtime": "unobserved",
+            }, ensure_ascii=False))
+            return 0
+
+        output = None
+        published = False
+        receipt_error: OSError | None = None
+        try:
+            if wants_receipt:
+                destination = Path(args.receipt).absolute()
+                if destination.resolve(strict=False) in (path, Path(str(path) + ".cmux-write.lock")):
+                    raise mutation_conflict("receipt_path_conflict", args.key)
+                # Exclusive creation: a receipt is never overwritten or shared.
+                try:
+                    fd = os.open(
+                        destination,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                    )
+                except FileExistsError:
+                    raise mutation_conflict("receipt_exists", args.key)
+                except OSError:
+                    # A missing parent, a permission error, or a symlinked
+                    # ancestor: nothing was written yet.
+                    raise mutation_conflict("receipt_unwritable", args.key)
+                output = os.fdopen(fd, "w", encoding="utf-8")
+            if resolved_write_path(configured) != path:
+                raise mutation_conflict("source_changed", args.key)
+            if not unchanged:
+                atomic_write_text(path, updated, expected_revision=original)
+            published = True
+            # A publication that fails first leaves an empty receipt, which
+            # undo refuses; it never looks like a successful change.
+            if output is not None:
+                try:
+                    json.dump(receipt, output, ensure_ascii=False)
+                    output.write("\n")
+                    output.flush()
+                except OSError as error:
+                    receipt_error = error
+        except OSError as error:
+            if not published:
+                raise
+            receipt_error = error
+        finally:
+            if output is not None:
+                try:
+                    output.close()
+                except OSError as error:
+                    if not published:
+                        raise
+                    receipt_error = receipt_error or error
+        if receipt_error is not None:
+            # The config change is committed. Report it as persisted so the
+            # caller does not retry; only the undo handle is unavailable.
+            print(json.dumps({"status": "persisted", "receipt": "failed", "runtime": "unobserved"}))
+            return 0
+        print(json.dumps({
+            "status": "unchanged" if unchanged else "persisted",
+            "key": args.key,
+            "runtime": "unobserved",
+        }))
         return 0
-    if not validate_candidate(data, path, args.scope):
-        return 1
-    atomic_write(path, data)
-    print(f"set: {args.key} = {json.dumps(value)}")
-    return 0
+
+
+def cmd_set(args: argparse.Namespace) -> int:
+    return mutate_setting(args, {"present": True, "value": parse_value(args.value)})
 
 
 def cmd_unset(args: argparse.Namespace) -> int:
-    path = Path(args.file)
-    data = load_settings(path)
-    if not unset_at(data, split_path(args.key)):
-        print(f"unchanged: {args.key} (not present)")
-        return 0
-    if not validate_candidate(data, path, args.scope):
-        return 1
-    atomic_write(path, data)
-    print(f"unset: {args.key}")
-    return 0
+    return mutate_setting(args, {"present": False})
+
+
+def cmd_undo(args: argparse.Namespace) -> int:
+    fd = os.open(args.receipt_file, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "r", encoding="utf-8") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise mutation_conflict("receipt_not_private")
+        try:
+            receipt = json.load(source)
+        except (json.JSONDecodeError, UnicodeError):
+            raise mutation_conflict("receipt_invalid")
+    if not isinstance(receipt, dict):
+        raise mutation_conflict("receipt_invalid")
+    if receipt.get("version") != 1 or not isinstance(receipt.get("key"), str):
+        raise mutation_conflict("receipt_version")
+    for name in ("before", "installed"):
+        value = receipt.get(name)
+        if (
+            not isinstance(value, dict)
+            or type(value.get("present")) is not bool
+            or (value["present"] and "value" not in value)
+        ):
+            raise mutation_conflict("receipt_value")
+    if not isinstance(receipt.get("target"), str):
+        raise mutation_conflict("receipt_target")
+    args.key = receipt["key"]
+    return mutate_setting(args, receipt["before"], undo=receipt)
 
 
 def cmd_list_supported(args: argparse.Namespace) -> int:
@@ -483,7 +972,11 @@ def cmd_open(args: argparse.Namespace) -> int:
     path = Path(args.file)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        atomic_write(path, {"$schema": SCHEMA_URL, "schemaVersion": 1})
+        atomic_write(
+            path,
+            {"$schema": SCHEMA_URL, "schemaVersion": 1},
+            expected_revision=None,
+        )
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
     if editor:
         try:
@@ -544,6 +1037,15 @@ def main() -> int:
     p_unset = sub.add_parser("unset")
     p_unset.add_argument("key")
     p_unset.set_defaults(func=cmd_unset)
+
+    for mutating in (p_set, p_unset):
+        mutating.add_argument("--receipt", metavar="PRIVATE_RECEIPT_FILE")
+        mutating.add_argument("--preview", action="store_true")
+        mutating.add_argument("--expect-revision", metavar="REVISION")
+
+    p_undo = sub.add_parser("undo")
+    p_undo.add_argument("receipt_file")
+    p_undo.set_defaults(func=cmd_undo)
 
     sub.add_parser("list-supported").set_defaults(func=cmd_list_supported)
     sub.add_parser("validate").set_defaults(func=cmd_validate)

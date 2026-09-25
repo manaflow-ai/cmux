@@ -5,12 +5,15 @@ struct CloudBrowserConnectionCard: View {
     let address: String
     let message: String?
     let onRetry: (() -> Void)?
+    var isDesktop = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Image(systemName: "network").font(.system(size: 28)).foregroundStyle(.secondary)
-                Text(String(localized: "cloud.ports.accessTitle", defaultValue: "Connect to this Cloud port"))
+                Image(systemName: isDesktop ? "display" : "network").font(.system(size: 28)).foregroundStyle(.secondary)
+                Text(isDesktop
+                    ? String(localized: "cloud.display.connectTitle", defaultValue: "Connect to this Cloud display")
+                    : String(localized: "cloud.ports.accessTitle", defaultValue: "Connect to this Cloud port"))
                     .font(.title2.weight(.semibold))
                 Text(verbatim: address).font(.system(.body, design: .monospaced)).textSelection(.enabled)
                 if let message {

@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -23,7 +24,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         )
         registry.start(catalog: catalog)
         let scope = registry.creationScope
-        registry.recordCreatedMachine(summary, scope: scope)
+        await registry.recordCreatedMachine(summary, scope: scope)
         #expect(catalog.snapshot.machines.first?.name == "bright-teal-otter")
         #expect(registry.provider(machineID: summary.id) == nil)
         #expect(lists == 0)
@@ -33,18 +34,68 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         var renamed = discovered
         renamed.displayName = "My renamed machine"
         provider?.update(summary: renamed)
-        registry.recordCreatedMachine(summary, scope: scope)
+        await registry.recordCreatedMachine(summary, scope: scope)
         #expect(catalog.snapshot.machines.first?.name == "My renamed machine")
         #expect(registry.provider(machineID: summary.id) === provider)
         #expect(catalog.snapshot.machines.count == 1)
         await registry.accessDidEnd()
         registry.start(catalog: catalog)
-        registry.recordCreatedMachine(summary, scope: scope)
+        await registry.recordCreatedMachine(summary, scope: scope)
         #expect(catalog.snapshot.machines.isEmpty)
-        registry.recordCreatedMachine(summary, scope: registry.creationScope)
+        await registry.recordCreatedMachine(summary, scope: registry.creationScope)
         #expect(catalog.snapshot.machines.count == 1)
         await registry.accessDidEnd()
         #expect(catalog.snapshot.machines.isEmpty, "Account teardown also removes receipts that have no provider yet")
+    }
+
+    @Test("New Machine: an addressed snapshot-v2 receipt registers the provider and serves one attach with no network")
+    func addressedTrustedReceiptSkipsDiscoveryAndAttach() async {
+        let catalog = SurfaceCatalog()
+        var created = machine("vm-fresh")
+        created.addressIPv4 = "10.16.0.9"
+        created.cmuxTuiContract = CmuxTuiSurfaceProviderRegistry.trustedCarrierContract
+        var lists = 0
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(paths: paths, clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { lists += 1; return VMListPage(vms: [], limits: nil) }
+        )
+        registry.start(catalog: catalog)
+        await registry.recordCreatedMachine(created, scope: registry.creationScope)
+
+        #expect(registry.provider(machineID: created.id) != nil)
+        #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == "ws://10.16.0.9:1337/v1/link")
+        #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == nil,
+                "The receipt answers one attach; later opens use the saved device path")
+        #expect(lists == 0, "Neither registration nor the attach answer re-read the fleet")
+        #expect(paths.deviceFingerprint(for: created.id) == CloudTuiClientPaths.carrierDeviceMarker,
+                "The first link dials --carrier without a control-plane attach request")
+        await registry.accessDidEnd()
+    }
+
+    @Test("A receipt without the snapshot-v2 contract registers but still asks the control plane to attach")
+    func addressedUntrustedReceiptKeepsAttach() async {
+        let catalog = SurfaceCatalog()
+        var created = machine("vm-legacy")
+        created.addressIPv4 = "10.16.0.10"
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(paths: paths, clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) }
+        )
+        registry.start(catalog: catalog)
+        await registry.recordCreatedMachine(created, scope: registry.creationScope)
+
+        #expect(registry.provider(machineID: created.id) != nil)
+        #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == nil)
+        #expect(paths.deviceFingerprint(for: created.id) == nil, "An untrusted receipt keeps the attach request")
+        await registry.accessDidEnd()
     }
 
     @Test("A stale fleet page cannot prune a machine create receipt before discovery observes it")
@@ -63,7 +114,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             refreshProvider: { _, _ in true }
         )
         registry.start(catalog: catalog)
-        registry.recordCreatedMachine(created, scope: registry.creationScope)
+        await registry.recordCreatedMachine(created, scope: registry.creationScope)
 
         #expect(await registry.refresh(force: true))
         #expect(lists == 1)
@@ -102,7 +153,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         registry.start(catalog: catalog)
         let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "vm-a") }
         #expect(await boundedResult(requested))
-        registry.recordCreatedMachine(machine("vm-b"), scope: registry.creationScope)
+        await registry.recordCreatedMachine(machine("vm-b"), scope: registry.creationScope)
         release.resolve(true)
         #expect(await discovery.value != nil)
         #expect(lists == 1)
@@ -121,8 +172,8 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         )
         registry.start(catalog: catalog)
         let oldScope = registry.creationScope
-        registry.recordCreatedMachine(machine("VM-First"), scope: oldScope)
-        registry.recordCreatedMachine(machine("VM-Second"), scope: oldScope)
+        await registry.recordCreatedMachine(machine("VM-First"), scope: oldScope)
+        await registry.recordCreatedMachine(machine("VM-Second"), scope: oldScope)
         registry.machineWasDeleted("vm-first")
         #expect(catalog.machines[.cloud("VM-First")] == nil)
         #expect(await registry.refresh(force: true))
@@ -130,13 +181,13 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
 
         notifications.post(name: .cmuxCloudVMAccessDidEnd, object: nil, userInfo: ["cmux.teamSwitch": true])
         #expect(catalog.machines.isEmpty)
-        registry.recordCreatedMachine(machine("late-old-team"), scope: oldScope)
+        await registry.recordCreatedMachine(machine("late-old-team"), scope: oldScope)
         #expect(catalog.machines.isEmpty)
         #expect(registry.creationScope == nil)
         #expect(await registry.refresh(force: true) == false)
         await registry.accessDidEnd()
         registry.start(catalog: catalog)
-        registry.recordCreatedMachine(machine("new-team"), scope: registry.creationScope)
+        await registry.recordCreatedMachine(machine("new-team"), scope: registry.creationScope)
         #expect(await registry.refresh(force: true))
         #expect(Set(catalog.machines.keys) == [.cloud("new-team")])
         await registry.accessDidEnd()

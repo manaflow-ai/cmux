@@ -18,7 +18,8 @@ CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
 def production_shard_constants() -> tuple[int, int]:
     """Read the production matrix constants so this test exercises its topology."""
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    # ci-macos.yml's batch steps run this script.
+    workflow = (ROOT / "scripts" / "ci" / "run-app-host-unit-batches.sh").read_text(encoding="utf-8")
     values: dict[str, int] = {}
     for line in workflow.splitlines():
         stripped = line.strip()
@@ -66,6 +67,119 @@ extension LargeSuiteTests {
 """.lstrip(),
         encoding="utf-8",
     )
+
+
+def check_split_methods_use_callable_identifiers() -> int:
+    """Xcode matches Swift Testing methods only with their call signature.
+
+    A real Xcode bundle with a failing @Test sentinel exits zero and runs zero
+    tests for ModernTests/testSentinel. ModernTests/testSentinel() executes the
+    failure; XCTest accepts that explicit no-argument signature as well.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        for suite, declaration, attribute in (
+            ("ModernTests", "@Suite struct ModernTests", "    @Test\n"),
+            ("LegacyTests", "final class LegacyTests: XCTestCase", ""),
+        ):
+            methods = "\n".join(
+                f"{attribute}    func testGenerated{index:02d}() {{}}"
+                for index in range(40)
+            )
+            (test_root / f"{suite}.swift").write_text(
+                f"{declaration} {{\n{methods}\n}}\n", encoding="utf-8"
+            )
+        selectors = set()
+        for shard in (1, 2):
+            selectors.update(run_shard(root, shard, root / f"{shard}.args", root / "absent.json"))
+        expected = {
+            f"-only-testing:cmuxTests/{suite}/testGenerated{index:02d}()"
+            for suite in ("ModernTests", "LegacyTests") for index in range(40)
+        }
+        if selectors != expected:
+            print("FAIL: split selectors must retain callable method signatures; "
+                  f"missing={sorted(expected - selectors)[:3]} unexpected={sorted(selectors - expected)[:3]}")
+            return 1
+        import json
+        timings = root / "timings.json"
+        timings.write_text(json.dumps({
+            "suites": {}, "methods": {"ModernTests/testGenerated00": 12345},
+        }), encoding="utf-8")
+        listed = subprocess.run(
+            [sys.executable, str(HELPER), "--root", str(root), "--list", "--timings", str(timings)],
+            text=True, capture_output=True, check=True,
+        )
+        weights = {row.split("\t")[0]: int(row.split("\t")[1])
+                   for row in listed.stdout.splitlines()}
+        if weights["cmuxTests/ModernTests/testGenerated00()"] != 12345:
+            print("FAIL: call suffix must preserve measured method weights")
+            return 1
+    print("PASS: split XCTest and Swift Testing methods retain callable signatures")
+    return 0
+
+
+def check_parameterized_test_methods_keep_their_suite() -> int:
+    """A no-argument method selector must never replace a parameterized test."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        ordinary = "\n".join(f"    @Test\n    func testGenerated{i}() {{}}" for i in range(40))
+        declarations = {
+            "DirectTests": "    @Test(arguments: [1, 2]) func testValues(value: Int) {}",
+            "MultilineTests": "    @Test(arguments: [1, 2])\n    func testValues(\n        value: Int\n    ) {}",
+            "ExtendedTests": "",
+        }
+        for suite, extra in declarations.items():
+            (test_root / f"{suite}.swift").write_text(
+                f"@Suite struct {suite} {{\n{ordinary}\n{extra}\n}}\n", encoding="utf-8"
+            )
+        (test_root / "Extension.swift").write_text(
+            "extension ExtendedTests {\n    @Test(arguments: [1, 2])\n    func testValues(value: Int) {}\n}\n",
+            encoding="utf-8",
+        )
+        selected = []
+        for shard in (1, 2):
+            selected.extend(run_shard(root, shard, root / f"{shard}.args", root / "absent.json"))
+        expected = {f"-only-testing:cmuxTests/{suite}" for suite in declarations}
+        if len(selected) != len(expected) or set(selected) != expected:
+            print(f"FAIL: parameterized suites must run whole exactly once: {selected[:5]}")
+            return 1
+    print("PASS: parameterized and multiline test methods preserve whole-suite execution")
+    return 0
+
+
+def check_unrepresented_swift_tests_keep_their_suite() -> int:
+    """Large migrated suites cannot drop modern names or inline @Test methods."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        ordinary = "\n".join(f"    @Test\n    func testGenerated{i}() {{}}" for i in range(40))
+        declarations = {
+            "ModernNameTests": "    @Test\n    func otherName() {}",
+            "InlineTests": "    @Test func testInline() {}",
+            "ExtendedModernTests": "",
+        }
+        for suite, extra in declarations.items():
+            (test_root / f"{suite}.swift").write_text(
+                f"@Suite struct {suite} {{\n{ordinary}\n{extra}\n}}\n", encoding="utf-8"
+            )
+        (test_root / "ModernExtension.swift").write_text(
+            "extension ExtendedModernTests {\n    @Test func otherName() {}\n}\n",
+            encoding="utf-8",
+        )
+        selected = []
+        for shard in (1, 2):
+            selected.extend(run_shard(root, shard, root / f"{shard}.args", root / "absent.json"))
+        expected = {f"-only-testing:cmuxTests/{suite}" for suite in declarations}
+        if len(selected) != len(expected) or set(selected) != expected:
+            print(f"FAIL: unrepresented Swift Testing methods must preserve their whole suite: {selected[:5]}")
+            return 1
+    print("PASS: modern names and inline Swift Testing methods preserve whole-suite execution")
+    return 0
 
 
 def write_timed_suites_fixture(test_root: Path) -> None:
@@ -372,10 +486,10 @@ def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
     """Return suites strict steps run in full, suites run in part, and the job env."""
     import re
 
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
     match = re.search(r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", workflow)
     if match is None:
-        raise SystemExit("FAIL: app-host-unit-tests job missing from ci.yml")
+        raise SystemExit("FAIL: app-host-unit-tests job missing from ci-macos.yml")
     job = match.group(1)
     whole: set[str] = set()
     partial: set[str] = set()
@@ -391,6 +505,183 @@ def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
     return whole, partial, env
 
 
+def check_truthful_broad_suites_leave_focused_gates(
+    generated_selectors: list[str],
+) -> int:
+    """Suites protected by strict broad accounting should run in the timed batch."""
+    import importlib.util
+
+    folded = {
+        "AgentChatFallbackTranscriptResolutionCoordinatorTests",
+        "AgentChatSessionRegistryLifecycleReviewRegressionTests",
+        "AgentRestoreLiveOwnerAdmissionTests",
+        "BackgroundPrimeStartableSurfaceTests",
+        "BrowserSystemProxyMirrorTests",
+        "BrowserViewportRuntimeTests",
+        "CLISSHSessionAttachAnchorTests",
+        "CLISendQueuedOutputTests",
+        "ClaudeHookLifecycleCleanupTests",
+        "ClaudeHookLiveDeliveryTargetTests",
+        "ClaudeHookPIDAuthenticationTests",
+        "CloudNotificationDismissParityTests",
+        "CloudWorkspaceRenameSurfaceParityTests",
+        "CmuxBundledBinPathIntegrationTests",
+        "DockNotificationAttentionTests",
+        "GhosttyOptionAsAltModsTests",
+        "HostSettingsShortcutNotificationTests",
+        "LiveAgentIndexRelevantChurnTests",
+        "MainWindowZoomPlacementTests",
+        "NotificationRowSnapshotBoundaryTests",
+        "NotificationScrollRestoreLifecycleTests",
+        "NotificationScrollRestoreRecoveryTests",
+        "PhonePushPresenceGateTests",
+        "RestoreAdmissionRetryPolicyTests",
+        "RestoredAgentShellActivityLivenessTests",
+        "SurfaceResumeAgentHookDowngradeTests",
+    }
+    spec = importlib.util.spec_from_file_location("cmux_unit_test_shard_folded", HELPER)
+    assert spec is not None and spec.loader is not None
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = helper
+    spec.loader.exec_module(helper)
+
+    focused = {selector.split("/", 1)[1] for selector in helper.FOCUSED_GATE_SELECTORS}
+    whole, _, _ = focused_steps_in_ci_workflow()
+    stale = sorted(folded & (focused | whole))
+    if stale:
+        print(f"FAIL: truthful broad suites still have dedicated focused ownership: {stale}")
+        return 1
+
+    discovered = {
+        selector.identifier.split("/", 2)[1]
+        for selector in helper.discover_selectors(ROOT)
+        if selector.identifier.startswith("cmuxTests/")
+    }
+    missing = sorted(folded - discovered)
+    if missing:
+        print(f"FAIL: folded suites are absent from broad shard discovery: {missing}")
+        return 1
+
+    ownership = {
+        suite: generated_selectors.count(f"-only-testing:cmuxTests/{suite}")
+        for suite in folded
+    }
+    bad_ownership = {
+        suite: count for suite, count in ownership.items() if count != 1
+    }
+    if bad_ownership:
+        print(
+            "FAIL: folded suites must have exactly one generated broad-shard owner: "
+            f"{bad_ownership}"
+        )
+        return 1
+
+    print("PASS: truthful broad suites are discovered and owned exactly once by the measured shard batch")
+    return 0
+
+
+def check_folded_fish_suite_keeps_prerequisite() -> int:
+    import re
+
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
+    match = re.search(
+        r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)",
+        workflow,
+    )
+    if match is None:
+        print("FAIL: app-host-unit-tests job missing")
+        return 1
+    job = match.group(1)
+    run_step = re.search(
+        r"(?ms)^      - name: Run unit tests\n(.*?)(?=^      - name: |\Z)",
+        job,
+    )
+    if run_step is None:
+        print("FAIL: Run unit tests step missing")
+        return 1
+    body = run_step.group(0)
+    batches = "scripts/ci/run-app-host-unit-batches.sh"
+    if f"run: {batches}" not in body:
+        print(f"FAIL: Run unit tests no longer runs {batches}")
+        return 1
+    body = (ROOT / batches).read_text(encoding="utf-8")
+    required = (
+        "CmuxBundledBinPathIntegrationTests",
+        "grep -Fq",
+        "brew install fish",
+        "command -v fish",
+        "fish is required for CmuxBundledBinPathIntegrationTests",
+    )
+    missing = [needle for needle in required if needle not in body]
+    if missing:
+        print(f"FAIL: folded fish suite lost its runtime prerequisite: {missing}")
+        return 1
+    print("PASS: folded bundled-bin suite installs and requires fish only in its owning batch")
+    return 0
+
+
+def check_global_search_has_dedicated_consumer() -> int:
+    """Global search must run beside, never ahead of, the six broad workers."""
+    import re
+
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", workflow)
+    if match is None:
+        print("FAIL: app-host-unit-tests job missing")
+        return 1
+    job = match.group(1)
+    # The matrix rows are JSON literals inside the `include` expression: the
+    # numbered consumers, and the single changed-suites worker.
+    import json
+
+    include = re.search(r"(?ms)^        include: >-\n(.*?)\]'\) \}\}$", job)
+    if include is None:
+        print("FAIL: app-host matrix include expression missing")
+        return 1
+    row_sets = [
+        json.loads(literal)
+        for literal in re.findall(r"(?s)'(\[.*?\])'", include.group(0))
+    ]
+    numbered = next((rows for rows in row_sets if len(rows) > 1), [])
+    changed = next((rows for rows in row_sets if len(rows) == 1), [])
+    rows = {int(row["shard"]) for row in numbered}
+    missing_shards = [shard for shard in range(1, 8) if shard not in rows]
+    if missing_shards:
+        print(f"FAIL: app-host matrix is missing consumers: {missing_shards}")
+        return 1
+    # A consumer runs compile admission's product, which only loads under the
+    # admission's Xcode, so no row may route a consumer to a pool of its own.
+    if any(set(row) != {"shard"} for row in numbered + changed):
+        print("FAIL: an app-host matrix row names its own pool; consumers run on compile admission's pool")
+        return 1
+    if [row.get("shard") for row in changed] != [8]:
+        print("FAIL: a changed-suites run must be one shard-8 worker")
+        return 1
+    if 'CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"' not in job:
+        print("FAIL: global search must own consumer 7")
+        return 1
+
+    steps = {
+        part.split("\n", 1)[0]: part
+        for part in re.split(r"(?m)^      - name: ", job)[1:]
+    }
+    global_step = steps.get("Run global search shortcut regressions", "")
+    broad_step = steps.get("Run unit tests", "")
+    if "matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD)" not in global_step:
+        print("FAIL: global search step is not pinned to its dedicated consumer")
+        return 1
+    if "matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD)" not in broad_step:
+        print("FAIL: dedicated global-search consumer can still enter broad batches")
+        return 1
+
+    physical, _ = production_shard_constants()
+    if physical != 6:
+        print(f"FAIL: dedicated consumer must not change six-worker broad topology, got {physical}")
+        return 1
+    print("PASS: global search has a seventh consumer and the broad topology stays six workers")
+    return 0
+
+
 def check_focused_gates_run_once() -> int:
     import importlib.util
     import re
@@ -404,9 +695,9 @@ def check_focused_gates_run_once() -> int:
     whole, partial, env = focused_steps_in_ci_workflow()
     excluded = {selector.split("/", 1)[1] for selector in helper.FOCUSED_GATE_SELECTORS}
     if excluded != whole - partial:
-        print("FAIL: the batch must leave out exactly the suites a strict ci.yml step runs in full")
-        print(f"  strict in ci.yml but still in the batch: {sorted(whole - partial - excluded)}")
-        print(f"  left out of the batch but not strict in ci.yml: {sorted(excluded - (whole - partial))}")
+        print("FAIL: the batch must leave out exactly the suites a strict ci-macos.yml step runs in full")
+        print(f"  strict in ci-macos.yml but still in the batch: {sorted(whole - partial - excluded)}")
+        print(f"  left out of the batch but not strict in ci-macos.yml: {sorted(excluded - (whole - partial))}")
         return 1
 
     sources = "\n".join(
@@ -417,27 +708,33 @@ def check_focused_gates_run_once() -> int:
         if not re.search(rf"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:final\s+)?(?:class|struct|enum|actor)\s+{name}\b", sources)
     )
     if undeclared:
-        print(f"FAIL: ci.yml strict steps name suites cmuxTests does not declare: {undeclared}")
+        print(f"FAIL: ci-macos.yml strict steps name suites cmuxTests does not declare: {undeclared}")
         return 1
 
     groups = {
         env.get(name)
         for name in (
-            "CMUX_APP_HOST_GLOBAL_SEARCH_SHARD",
             "CMUX_APP_HOST_CLI_REGRESSION_SHARD",
             "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD",
             "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD",
         )
     }
     reserved = {value.split("=")[0] for value in env.get("CMUX_APP_HOST_RESERVED_WALL_SECONDS", "").split()}
-    if None in groups or len(groups) != 4 or groups != reserved:
-        print(f"FAIL: strict step groups run on shards {sorted(map(str, groups))} but wall time is reserved on {sorted(reserved)}")
+    if None in groups or len(groups) != 3 or groups != reserved:
+        print(f"FAIL: shared strict groups run on shards {sorted(map(str, groups))} but wall time is reserved on {sorted(reserved)}")
         return 1
     print("PASS: strict suites run once, exist, and every worker that runs them has wall time reserved")
     return 0
 
 
 def main() -> int:
+    if (rc := check_split_methods_use_callable_identifiers()) != 0:
+        return rc
+    if (rc := check_parameterized_test_methods_keep_their_suite()) != 0:
+        return rc
+    if (rc := check_unrepresented_swift_tests_keep_their_suite()) != 0:
+        return rc
+
     if (rc := check_test_topology_matches_production()) != 0:
         return rc
     with tempfile.TemporaryDirectory() as tmp:
@@ -475,7 +772,7 @@ def main() -> int:
                 return 1
             selectors.extend(output.read_text(encoding="utf-8").splitlines())
 
-    extension_selector = "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression"
+    extension_selector = "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression()"
     if selectors.count(extension_selector) != 1:
         print(f"FAIL: expected extension selector exactly once, got {selectors.count(extension_selector)}")
         return 1
@@ -518,12 +815,7 @@ def main() -> int:
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
             repo_assigned_selectors.extend(shard_selectors)
             for focused_selector in (
-                "-only-testing:cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
-                "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
-                "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
-                "-only-testing:cmuxTests/CloudNotificationDismissParityTests",
                 "-only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
-                "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
                 "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests",
                 "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
                 "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
@@ -583,6 +875,15 @@ def main() -> int:
         return rc
 
     if (rc := check_reserved_workers_get_less_of_the_batch()) != 0:
+        return rc
+
+    if (rc := check_truthful_broad_suites_leave_focused_gates(repo_assigned_selectors)) != 0:
+        return rc
+
+    if (rc := check_folded_fish_suite_keeps_prerequisite()) != 0:
+        return rc
+
+    if (rc := check_global_search_has_dedicated_consumer()) != 0:
         return rc
 
     if (rc := check_focused_gates_run_once()) != 0:

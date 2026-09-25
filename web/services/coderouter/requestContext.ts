@@ -17,11 +17,12 @@ import { resolveTeam } from "../subrouter/routeHelpers";
 import {
   authenticateRequestRouteToken,
   VM_ID_HEADER,
+  VM_AUTHORIZATION_HEADER,
   ROUTE_TOKEN_HEADER,
   routeTokenFromRequest,
 } from "./routeTokenAuth";
 import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
-import { recordCoderouterIdentity } from "./requestTelemetry";
+import { recordCoderouterIdentity, spanned } from "./requestTelemetry";
 
 export type CodeRouterRequestContext = {
   readonly user: AuthedUser;
@@ -55,9 +56,13 @@ export async function resolveCoderouterControlContext(
   | { readonly ok: false; readonly response: Response }
 > {
   const token = routeTokenFromRequest(request);
-  if (token?.startsWith("crt_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER) || token?.startsWith("crt_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
     const auth = await authenticateRequestRouteToken(request);
     if (!auth.ok) return { ok: false, response: jsonResponse({ error: auth.reason }, 401) };
+    // A chatmux machine may use its team's shared accounts, never manage them.
+    if (auth.identity.machine === "chatmux") {
+      return { ok: false, response: jsonResponse({ error: "chatmux_machine_not_allowed" }, 403) };
+    }
     if (!auth.identity.vmId) {
       return { ok: false, response: jsonResponse({ error: "vm_bound_token_required" }, 403) };
     }
@@ -95,7 +100,7 @@ export async function resolveCoderouterUsageTeam(
   | { readonly ok: false; readonly response: Response }
 > {
   const token = routeTokenFromRequest(request);
-  if (token?.startsWith("crt_") || token?.startsWith("crk_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER) || token?.startsWith("crt_") || token?.startsWith("crk_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
     const auth = await authenticateRequestRouteToken(request);
     if (!auth.ok) return { ok: false, response: jsonResponse({ error: auth.reason }, 401) };
     const routed = auth.identity;
@@ -121,10 +126,10 @@ export async function resolveCodeRouterRequestContext(
 > {
   // A guest's injected identity must never fall through to a browser session,
   // selected organization, or another credential it supplies alongside it.
-  if (request.headers.has(VM_ID_HEADER)) {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER) || request.headers.has(VM_ID_HEADER)) {
     return { ok: false, response: jsonResponse({ error: "vm_management_forbidden" }, 403) };
   }
-  return await withSubrouterAuthorizationDeadline(async (signal) => {
+  return await spanned("auth", () => withSubrouterAuthorizationDeadline(async (signal) => {
     const requestedTeamId = requestedVmTeamIdFromRequest(request);
     const user = await verifySubrouterRequest(request, signal, {
       requestedTeamId,
@@ -154,5 +159,5 @@ export async function resolveCodeRouterRequestContext(
     // browser-cookie request. Verification above remains authoritative.
     parseNativeStackTokens(request);
     return { ok: true, value: { user, team: { ...team, manageAccounts: await canManageCoderouterAccounts(user.id, team.teamId) } } };
-  });
+  }));
 }

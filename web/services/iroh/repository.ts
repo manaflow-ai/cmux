@@ -263,18 +263,26 @@ async function findDiscoveryCaller(
   input: DiscoveryPageInput,
   clientNamespace: string,
 ): Promise<IrohBindingRecord | undefined> {
+  const hasCallerId = Boolean(input.callerBindingId);
+  const hasCallerPlatform = Boolean(input.callerPlatform);
+  if (hasCallerId !== hasCallerPlatform) {
+    throw new IrohForbiddenError({ code: "invalid_discovery_caller" });
+  }
   if (!input.callerBindingId || !input.callerPlatform) return undefined;
+  const callerBindingId = input.callerBindingId;
+  const callerPlatform = input.callerPlatform;
   const [caller] = await tx
     .select()
     .from(irohEndpointBindings)
     .where(and(
-      eq(irohEndpointBindings.id, input.callerBindingId),
+      eq(irohEndpointBindings.id, callerBindingId),
       eq(irohEndpointBindings.userId, input.userId),
-      eq(irohEndpointBindings.platform, input.callerPlatform),
+      eq(irohEndpointBindings.platform, callerPlatform),
       eq(irohEndpointBindings.clientNamespace, clientNamespace),
       isNull(irohEndpointBindings.revokedAt),
     ))
     .limit(1);
+  if (!caller) throw new IrohForbiddenError({ code: "invalid_discovery_caller" });
   return caller;
 }
 
@@ -292,11 +300,13 @@ async function scanDiscoveryRows(
   input: DiscoveryPageInput,
   caller: IrohBindingRecord | undefined,
   clientNamespace: string,
-): Promise<IrohBindingRecord[]> {
+): Promise<{ readonly visibleRows: IrohBindingRecord[]; readonly truncatedAfter?: string }> {
   const visibleRows: IrohBindingRecord[] = [];
   let scanAfter = input.cursor?.afterBindingId;
   const scanPageSize = Math.max(input.pageSize + 1, 256);
-  while (visibleRows.length <= input.pageSize) {
+  const maxScannedRows = Math.max(scanPageSize * 16, 4_096);
+  let scannedRows = 0;
+  while (visibleRows.length <= input.pageSize && scannedRows < maxScannedRows) {
     const rows = await tx
       .select()
       .from(irohEndpointBindings)
@@ -311,11 +321,15 @@ async function scanDiscoveryRows(
       if (discoveryBindingVisible(binding, caller, clientNamespace)) visibleRows.push(binding);
       if (visibleRows.length > input.pageSize) break;
     }
+    scannedRows += rows.length;
     if (visibleRows.length > input.pageSize || rows.length < scanPageSize) break;
     scanAfter = rows.at(-1)?.id;
     if (!scanAfter) break;
   }
-  return visibleRows;
+  return {
+    visibleRows,
+    truncatedAfter: scannedRows >= maxScannedRows ? scanAfter : undefined,
+  };
 }
 
 async function runDiscoveryPageTransaction(
@@ -330,15 +344,17 @@ async function runDiscoveryPageTransaction(
   }
   const clientNamespace = input.clientNamespace ?? "legacy";
   const caller = await findDiscoveryCaller(tx, input, clientNamespace);
-  const visibleRows = await scanDiscoveryRows(tx, input, caller, clientNamespace);
+  const scan = await scanDiscoveryRows(tx, input, caller, clientNamespace);
+  const visibleRows = scan.visibleRows;
   const bindings = visibleRows.slice(0, input.pageSize);
   const last = bindings.at(-1);
+  const afterBindingId = visibleRows.length > input.pageSize ? last?.id : scan.truncatedAfter;
   return {
     bindings,
     lanDiscoveryGeneration: state.generation,
     accountRevision: state.revision,
-    nextCursor: visibleRows.length > input.pageSize && last
-      ? { generation: state.generation, afterBindingId: last.id }
+    nextCursor: afterBindingId
+      ? { generation: state.generation, afterBindingId }
       : null,
   };
 }
@@ -1531,7 +1547,41 @@ async function drainIrohRetention(input: {
   const nowIso = input.now.toISOString();
   const challengeCutoffIso = challengeRetentionCutoff.toISOString();
   const auditCutoffIso = auditRetentionCutoff.toISOString();
-  const operations: readonly RetentionBatchOperation[] = [
+  const operations = buildRetentionOperations(nowIso, challengeCutoffIso, auditCutoffIso);
+  const byCategory: Record<IrohRetentionCategory, number> = {
+    revokedHints: 0,
+    expiredHints: 0,
+    expiredChallenges: 0,
+    consumedChallenges: 0,
+    relayAudits: 0,
+    pairGrantAudits: 0,
+    revokedBindings: 0,
+  };
+  const deadline = Date.now() + maxDurationMs;
+  const { rowsProcessed, batches } = await runRetentionOperations(
+    operations,
+    maxRows,
+    deadline,
+    byCategory,
+  );
+
+  const budgetExhausted = rowsProcessed >= maxRows
+    ? "rows"
+    : Date.now() >= deadline
+      ? "time"
+      : null;
+  const backlog = budgetExhausted === "time"
+    ? true
+    : await irohRetentionBacklogExists(input.now, challengeRetentionCutoff, auditRetentionCutoff);
+  return { rowsProcessed, batches, backlog, budgetExhausted, byCategory };
+}
+
+function buildRetentionOperations(
+  nowIso: string,
+  challengeCutoffIso: string,
+  auditCutoffIso: string,
+): readonly RetentionBatchOperation[] {
+  return [
     {
       category: "revokedHints",
       run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
@@ -1718,16 +1768,14 @@ async function drainIrohRetention(input: {
       `)),
     },
   ];
-  const byCategory: Record<IrohRetentionCategory, number> = {
-    revokedHints: 0,
-    expiredHints: 0,
-    expiredChallenges: 0,
-    consumedChallenges: 0,
-    relayAudits: 0,
-    pairGrantAudits: 0,
-    revokedBindings: 0,
-  };
-  const deadline = Date.now() + maxDurationMs;
+}
+
+async function runRetentionOperations(
+  operations: readonly RetentionBatchOperation[],
+  maxRows: number,
+  deadline: number,
+  byCategory: Record<IrohRetentionCategory, number>,
+): Promise<{ rowsProcessed: number; batches: number }> {
   const activeOperations = [...operations];
   let rowsProcessed = 0;
   let batches = 0;
@@ -1748,15 +1796,7 @@ async function drainIrohRetention(input: {
     }
   }
 
-  const budgetExhausted = rowsProcessed >= maxRows
-    ? "rows"
-    : Date.now() >= deadline
-      ? "time"
-      : null;
-  const backlog = budgetExhausted === "time"
-    ? true
-    : await irohRetentionBacklogExists(input.now, challengeRetentionCutoff, auditRetentionCutoff);
-  return { rowsProcessed, batches, backlog, budgetExhausted, byCategory };
+  return { rowsProcessed, batches };
 }
 
 async function runRetentionBatch(

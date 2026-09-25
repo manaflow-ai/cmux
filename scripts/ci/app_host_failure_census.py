@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Census failed app-host tests across GitHub Actions logs."""
 import argparse
+import functools
 import json
 import re
 import subprocess
@@ -11,9 +12,20 @@ from pathlib import Path
 XCTEST_START = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' started\.")
 XCTEST_FAIL = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' failed")
 SWIFT_START = re.compile(r"(?:◇|▶) Test (.+?) started\.")
-SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
+# A parameterized case names its arguments between "recorded an issue" and
+# the source location, e.g. `recorded an issue with 1 argument enabled → true
+# at Poll.swift:352:9: ...`. Without that clause the pattern matches nothing,
+# losing both the failure and its assertion text.
+SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: with \d+ arguments? .*?)?(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
 SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?: \(.*?\))?(?:\.\s*)?(?::\s*(.*))?$")
-SWIFT_FAIL = re.compile(r"✘ Test (.+?) failed(?: after| with)\b")
+# A parameterized suite closes with a rollup, `✘ Test <name> with 2 test
+# cases failed after ...`; the trailing clause is not part of the name.
+SWIFT_FAIL = re.compile(r"✘ Test (.+?)(?: with \d+ test cases?)? failed(?: after| with)\b")
+# swift-testing ends a bundle with "✘ Test run with 253 tests in 41 suites
+# failed after ...", which the patterns above otherwise capture as a test
+# named "run with 253 tests in 41 suites". One such line per shard inflates
+# every failure count.
+SWIFT_RUN_SUMMARY = re.compile(r"^run with \d+ tests?\b")
 RESTART = "Restarting after unexpected exit"
 KNOWN = re.compile(r"known issue|XCTExpectFailure", re.IGNORECASE)
 
@@ -24,6 +36,11 @@ def _clean(value):
 
 def _test_name(kind, suite, name):
     return "{}{}{}".format(suite, "/" if suite else "", name).strip()
+
+
+def _is_run_summary(name):
+    """True for swift-testing's per-bundle run summary, which is not a test."""
+    return bool(SWIFT_RUN_SUMMARY.match((name or "").strip()))
 
 
 def parse_log(text, run_id="unknown", job_id=None):
@@ -45,7 +62,9 @@ def parse_log(text, run_id="unknown", job_id=None):
         if xm:
             current = _test_name("xctest", xm.group(1), xm.group(2))
             seen.setdefault(current, True)
-        elif sm and not KNOWN.search(line):
+        elif sm and not KNOWN.search(line) and not _is_run_summary(
+            _clean(sm.group(1)).strip('"')
+        ):
             current = _clean(sm.group(1)).strip('"')
             seen.setdefault(current, True)
         if RESTART in line:
@@ -67,7 +86,7 @@ def parse_log(text, run_id="unknown", job_id=None):
             im = None
         else:
             im = SWIFT_ISSUE.search(line)
-        if im:
+        if im and not _is_run_summary(_clean(im.group(1) or im.group(3)).strip('"')):
             name = _clean(im.group(1) or im.group(3)).strip('"')
             seen.setdefault(name, True)
             failed[name] = True
@@ -77,8 +96,9 @@ def parse_log(text, run_id="unknown", job_id=None):
         sf = SWIFT_FAIL.search(line)
         if sf and not KNOWN.search(line):
             name = _clean(sf.group(1)).strip('"')
-            seen.setdefault(name, True)
-            failed[name] = True
+            if not _is_run_summary(name):
+                seen.setdefault(name, True)
+                failed[name] = True
         recent.append(line)
         if len(recent) > 30:
             recent.pop(0)
@@ -118,8 +138,24 @@ def read_log_dir(directory, explicit_run_id=None):
     return records
 
 
+@functools.lru_cache(maxsize=1)
+def _gh_api_escape_flag():
+    """`gh api` refuses to print job logs containing terminal escape sequences
+    unless asked. The flag arrived in gh 2.75; fall back to bare `gh api` so an
+    older CLI keeps working (it only fails on logs that contain escapes)."""
+    try:
+        help_text = subprocess.run(
+            ["gh", "api", "--help"], capture_output=True, text=True, check=False
+        ).stdout
+    except OSError:
+        return []
+    return ["--allow-escape-sequences"] if "--allow-escape-sequences" in help_text else []
+
+
 def _gh_api(endpoint):
-    return subprocess.check_output(["gh", "api", endpoint], text=True)
+    return subprocess.check_output(
+        ["gh", "api", *_gh_api_escape_flag(), endpoint], text=True
+    )
 
 
 def download_runs(run_ids):

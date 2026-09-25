@@ -386,6 +386,114 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(managerB.selectedTabId, originalSelectedB, "Expected background workspace creation to preserve selected tab")
         XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
         XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
+
+        windowB.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowB)
+        XCTAssertTrue(app.tabManager === managerB)
+
+        let focusedWorkspaceId = app.addWorkspace(windowId: windowAId, bringToFront: true)
+
+        XCTAssertNotNil(focusedWorkspaceId)
+        XCTAssertTrue(app.tabManager === managerA)
+        XCTAssertEqual(managerA.selectedTabId, focusedWorkspaceId, "bringToFront should preserve the legacy selection behavior")
+    }
+
+    func testAddWorkspaceCanSelectInExplicitWindowWithoutChangingActiveWindow() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        windowA.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        let originalSelectedA = managerA.selectedTabId
+
+        let createdWorkspaceId = app.addWorkspace(
+            windowId: windowBId,
+            bringToFront: false,
+            select: true,
+            placementOverride: .end
+        )
+
+        XCTAssertNotNil(createdWorkspaceId)
+        XCTAssertTrue(app.tabManager === managerA)
+        XCTAssertEqual(managerA.selectedTabId, originalSelectedA)
+        XCTAssertEqual(managerB.selectedTabId, createdWorkspaceId)
+        XCTAssertEqual(managerB.tabs.last?.id, createdWorkspaceId)
+    }
+
+    func testSidebarCreateWorkspaceAtEndUsesOwningWindowWhileAnotherWindowIsActive() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let activeWindowId = UUID()
+        let sidebarWindowId = UUID()
+        let activeWindow = makeMainWindow(id: activeWindowId)
+        let sidebarWindow = makeMainWindow(id: sidebarWindowId)
+        defer {
+            activeWindow.orderOut(nil)
+            sidebarWindow.orderOut(nil)
+        }
+
+        let activeManager = TabManager()
+        let sidebarManager = TabManager()
+        app.registerMainWindow(
+            activeWindow,
+            windowId: activeWindowId,
+            tabManager: activeManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            sidebarWindow,
+            windowId: sidebarWindowId,
+            tabManager: sidebarManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        activeWindow.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: activeWindow)
+        let originalActiveSelection = activeManager.selectedTabId
+        let originalSidebarCount = sidebarManager.tabs.count
+
+        app.createWorkspaceAtEndFromSidebar(
+            windowId: sidebarWindowId,
+            tabManager: sidebarManager
+        )
+
+        XCTAssertTrue(app.tabManager === activeManager)
+        XCTAssertEqual(activeManager.selectedTabId, originalActiveSelection)
+        XCTAssertEqual(sidebarManager.tabs.count, originalSidebarCount + 1)
+        XCTAssertEqual(sidebarManager.selectedTabId, sidebarManager.tabs.last?.id)
     }
 
     func testApplicationOpenURLsAddsWorkspaceForDroppedFolderURL() throws {
@@ -1163,6 +1271,41 @@ final class WindowDragHandleHitTests: XCTestCase {
                 trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
             )
         )
+    }
+
+    func testTitlebarChromeSettingsMigrateDottedKeysFromBeforeIssue13930() {
+        let suiteName = "WindowDragHandleHitTests.titlebarChromeDottedKeys.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // The on-disk keys builds before #13930 wrote.
+        let legacyKeys = [
+            "titlebarDebug.leftControlsLeadingInset",
+            "titlebarDebug.leftControlsTopInset",
+            "titlebarDebug.trafficLightTabBarInset",
+            "titlebarDebug.trafficLightTitlebarLeadingInset",
+        ]
+        defaults.set(44.5, forKey: legacyKeys[0])
+        defaults.set(6.5, forKey: legacyKeys[1])
+        defaults.set(88.0, forKey: legacyKeys[2])
+        defaults.set(92.0, forKey: legacyKeys[3])
+        // A value already stored under the flat key wins over the legacy one.
+        defaults.set(10.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+
+        MinimalModeTitlebarDebugSettings.migrateLegacyKeysIfNeeded(defaults: defaults)
+
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults),
+            MinimalModeTitlebarDebugSnapshot(
+                leftControlsLeadingInset: 44.5,
+                leftControlsTopInset: 10.0,
+                trafficLightTabBarLeadingInset: 88.0,
+                trafficLightTitlebarLeadingInset: 92.0
+            )
+        )
+        for legacyKey in legacyKeys {
+            XCTAssertNil(defaults.object(forKey: legacyKey), legacyKey)
+        }
     }
 
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
