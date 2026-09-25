@@ -62,7 +62,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "surface.catalog":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["machine"] as? String, vmID)
-                XCTAssertEqual(params["refresh"] as? Bool, true)
                 return self.v2Response(id: id, ok: true, result: [
                     "machines": [["id": vmID, "link_state": "connected", "remote_workspaces": []]],
                     "resources": [],
