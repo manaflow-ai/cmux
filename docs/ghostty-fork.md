@@ -42,15 +42,19 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `a3e9304c5d`, a cmux-only replay fix on
-top of `c5c31ce819`, the upstream Ghostty merge commit for PR #218 after the
-embedded-environment lifetime fix from PR #227 was merged. The replay fix
-preserves physical blank rows until cursor/state restoration completes, so a
-restored Cloud grid cannot regain stale history rows. The base SHA preserves
-cmux's Cloud loopback link-detection changes while adding the localhost-port
-punctuation fix and owned POSIX environment snapshots for embedded hosts.
+The submodule pinned by this branch is `0068ece733`, the CJK fallback sizing fix
+on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
+the full two-cell terminal span, so Hangul glyphs selected through CoreText
+fallback do not leave a gap before the next terminal cell. The previous pin
+`a3e9304c5d` is a cmux-only replay fix on top of `c5c31ce819`, the upstream
+Ghostty merge commit for PR #218 after the embedded-environment lifetime fix
+from PR #227 was merged. That replay fix preserves physical blank rows until
+cursor/state restoration completes, so a restored Cloud grid cannot regain
+stale history rows. The base SHA preserves cmux's Cloud loopback link-detection
+changes while adding the localhost-port punctuation fix and owned POSIX
+environment snapshots for embedded hosts.
 
-The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
+The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at `3869e81a0` into the
 Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
 `59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
