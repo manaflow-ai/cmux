@@ -325,6 +325,14 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        if navigationAction.targetFrame?.isMainFrame != false,
+           let url = navigationAction.request.url {
+            // Navigation actions also cover reload and back/forward entries,
+            // which bypass browserLoadRequest and still need the file's
+            // encoding selected before WebKit decodes its response.
+            BrowserLocalFileEncodingPolicy().apply(to: webView, for: url)
+        }
+
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
