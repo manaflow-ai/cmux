@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 struct CloudVMStateSnapshotComparisonTests {
+    /// Builds a versioned graph whose terminal has live output metadata.
     private func state(streamRevision: String, futureField: String? = nil) throws -> CloudVMState {
         var terminal: [String: Any] = [
             "id": "term-1",
@@ -26,6 +27,7 @@ struct CloudVMStateSnapshotComparisonTests {
         ], machine: .cloud("vm-test")))
     }
 
+    /// Keeps terminal stream observations out of equal-cursor conflict checks.
     @Test("Live terminal output revisions do not invalidate an equal-cursor graph")
     func terminalStreamRevisionDoesNotInvalidateGraph() throws {
         let before = try state(streamRevision: "7")

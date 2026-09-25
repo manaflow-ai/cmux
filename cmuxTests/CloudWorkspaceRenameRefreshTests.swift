@@ -12,6 +12,7 @@ import Testing
 
 @MainActor
 @Suite struct CloudWorkspaceRenameRefreshTests {
+    /// Exercises the production forced-refresh and rename path against a local daemon.
     @Test("Terminal output at an equal cursor does not block the forced refresh before rename", .timeLimit(.minutes(1)))
     func renameAfterTerminalOutput() async throws {
         let root = URL(fileURLWithPath: "/tmp/cmux-rename-\(UUID().uuidString.prefix(8))", isDirectory: true)
