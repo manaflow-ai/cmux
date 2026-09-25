@@ -602,7 +602,16 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
 
     func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
         _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
+        defer {
+            // The temporary delegate must not replace the running test host's
+            // delegate while its installed shortcut monitor still owns events.
+            AppDelegate.shared = previousAppDelegate
+            if let previousAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousAppDelegate)
+            }
+        }
 
         var scheduledWork: (@Sendable () -> Void)?
         var registerCallCount = 0
