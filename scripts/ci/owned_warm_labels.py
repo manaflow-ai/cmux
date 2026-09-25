@@ -27,7 +27,9 @@ that is not 12 hex digits is dropped. A wrong key only sends an admission to a
 Mac whose build is further away, which compiles as it would elsewhere.
 
 Needs GH_TOKEN (actions: read, for the run's jobs) and ROUTE_TOKEN (the org
-route App with administration: write, for the runner labels).
+route App with administration: write for repository runners, and the
+organization permission Self-hosted runners: write for the minis, which are
+org runners in the glaeda-minis group since glaeda#1222).
 """
 from __future__ import annotations
 
@@ -53,6 +55,8 @@ ADMISSION_JOB = "macOS compile admission"
 MAX_KEYS = 4
 PAGE_SIZE = 100
 API = "https://api.github.com"
+# The org runner group holding the glaeda minis (glaeda#1222 moved them there).
+RUNNER_GROUP = "glaeda-minis"
 
 
 def keys(document: Any) -> list[str]:
@@ -129,11 +133,17 @@ class GitHub:
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-owned-warm-labels",
         }
+        self.org_ids: set[Any] = set()
 
     def request(self, method: str, path: str, body: Any = None) -> Any:
+        """A request to a path under this repository."""
+        return self.api(method, f"/repos/{self.repo}{path}", body)
+
+    def api(self, method: str, path: str, body: Any = None) -> Any:
+        """A request to any API path (an org endpoint, for one)."""
         data = None if body is None else json.dumps(body).encode()
         headers = {**self.headers, **({"Content-Type": "application/json"} if data else {})}
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, headers=headers, method=method)
+        request = urllib.request.Request(f"{API}{path}", data=data, headers=headers, method=method)
         with urllib.request.urlopen(request, timeout=15) as response:
             payload = response.read()
         return json.loads(payload) if payload else None
@@ -149,23 +159,61 @@ class GitHub:
         return found
 
     def runners(self) -> list[Mapping[str, Any]]:
+        """The org's RUNNER_GROUP runners (the glaeda minis), then this repository's own.
+
+        Reading and labeling the org runners needs the App's organization
+        permission "Self-hosted runners: write". Without it this warns and
+        goes on with the repository's runners, which the minis are not.
+        """
+        owner, _, name = self.repo.partition("/")
+        org: list[Mapping[str, Any]] = []
+        try:
+            groups = self.api("GET", f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
+                                     f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
+            group = next((group for group in groups if isinstance(group, Mapping)
+                          and group.get("name") == RUNNER_GROUP and isinstance(group.get("id"), int)), None)
+            if group is None:
+                print(f"::warning title=owned warm labels::no runner group {RUNNER_GROUP} is visible to "
+                      f"{self.repo}; labeling repository runners only")
+            else:
+                org = self._pages(f"/orgs/{owner}/actions/runner-groups/{group['id']}/runners")
+        except urllib.error.HTTPError as error:
+            if error.code not in (403, 404):
+                raise
+            print(f"::warning title=owned warm labels::org runner group {RUNNER_GROUP} unreadable "
+                  f"(HTTP {error.code}); labeling repository runners only. The routing App needs the "
+                  "organization permission Self-hosted runners: read and write")
+        self.org_ids = {runner.get("id") for runner in org}
+        found = {runner.get("id"): runner for runner in org}
+        for runner in self._pages(f"/repos/{self.repo}/actions/runners"):
+            found.setdefault(runner.get("id"), runner)
+        return list(found.values())
+
+    def _pages(self, path: str) -> list[Mapping[str, Any]]:
         found: list[Mapping[str, Any]] = []
         for page in range(1, 6):
-            batch = self.request("GET", f"/actions/runners?per_page={PAGE_SIZE}&page={page}").get("runners") or []
+            batch = self.api("GET", f"{path}?per_page={PAGE_SIZE}&page={page}").get("runners") or []
             found.extend(runner for runner in batch if isinstance(runner, Mapping))
             if len(batch) < PAGE_SIZE:
                 break
         return found
 
+    def labels_path(self, runner_id: int) -> str:
+        """A runner's labels endpoint: the org's for an org runner, else this repository's."""
+        owner = self.repo.partition("/")[0]
+        scope = f"/orgs/{owner}" if runner_id in self.org_ids else f"/repos/{self.repo}"
+        return f"{scope}/actions/runners/{runner_id}/labels"
+
     def apply(self, change: Change) -> None:
+        path = self.labels_path(change.runner_id)
         for label in change.remove:
             try:
-                self.request("DELETE", f"/actions/runners/{change.runner_id}/labels/{urllib.parse.quote(label, safe='')}")
+                self.api("DELETE", f"{path}/{urllib.parse.quote(label, safe='')}")
             except urllib.error.HTTPError as error:
                 if error.code != 404:  # already gone
                     raise
         if change.add:
-            self.request("POST", f"/actions/runners/{change.runner_id}/labels", {"labels": list(change.add)})
+            self.api("POST", path, {"labels": list(change.add)})
 
 
 def run(env: Mapping[str, str], actions: GitHub, admin: GitHub) -> str:

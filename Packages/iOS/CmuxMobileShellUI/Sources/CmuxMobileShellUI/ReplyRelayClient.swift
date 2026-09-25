@@ -80,7 +80,8 @@ public struct NoopReplyRelay: ReplyRelaying {
 public struct SystemReplyRelayClient: ReplyRelaying {
     private let serviceBaseURL: URL?
     private let accessToken: @Sendable () async -> String?
-    private let keychainAccessGroup: String?
+    private let keyMaterial: @Sendable () throws -> PhonePushKeyMaterial
+    private let pinnedPeer: @Sendable (PhonePushDeviceTuple) -> PhonePushPeerDescriptor?
     private let diagnosticLog: DiagnosticLog?
     private let session: URLSession
     private let now: @Sendable () -> Date
@@ -102,9 +103,37 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         session: URLSession = .shared,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
+        self.init(
+            serviceBaseURL: serviceBaseURL,
+            accessToken: accessToken,
+            keyMaterial: {
+                try PhonePushKeyMaterial.current(
+                    bundleID: Bundle.main.bundleIdentifier ?? "cmux",
+                    accessGroup: keychainAccessGroup
+                )
+            },
+            pinnedPeer: { PhonePushPeerKeyStore().pinnedDescriptor(for: $0) },
+            diagnosticLog: diagnosticLog,
+            session: session,
+            now: now
+        )
+    }
+
+    /// Test seam: supplies the phone key and the pinned Mac key without the
+    /// host keychain.
+    init(
+        serviceBaseURL: URL?,
+        accessToken: @escaping @Sendable () async -> String?,
+        keyMaterial: @escaping @Sendable () throws -> PhonePushKeyMaterial,
+        pinnedPeer: @escaping @Sendable (PhonePushDeviceTuple) -> PhonePushPeerDescriptor?,
+        diagnosticLog: DiagnosticLog? = nil,
+        session: URLSession = .shared,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
         self.serviceBaseURL = serviceBaseURL
         self.accessToken = accessToken
-        self.keychainAccessGroup = keychainAccessGroup
+        self.keyMaterial = keyMaterial
+        self.pinnedPeer = pinnedPeer
         self.diagnosticLog = diagnosticLog
         self.session = session
         self.now = now
@@ -128,10 +157,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             diagnosticLog?.recordAppEvent(.pushReplyContextMissing, failure: .credentialUnavailable)
             return false
         }
-        guard let identity = try? PhonePushKeyMaterial.current(
-            bundleID: Bundle.main.bundleIdentifier ?? "cmux",
-            accessGroup: keychainAccessGroup
-        ) else {
+        guard let identity = try? keyMaterial() else {
             diagnosticLog?.recordAppEvent(.pushReplyKeyMissing, failure: .credentialUnavailable)
             return false
         }
@@ -144,7 +170,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             macInstanceTag: reply.macInstanceTag,
             macBuildID: macBuildID
         )
-        guard let peer = PhonePushPeerKeyStore().pinnedDescriptor(for: tuple) else {
+        guard let peer = pinnedPeer(tuple) else {
             diagnosticLog?.recordAppEvent(.pushReplyKeyMissing, failure: .credentialUnavailable)
             return false
         }

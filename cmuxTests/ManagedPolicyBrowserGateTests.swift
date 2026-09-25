@@ -149,4 +149,158 @@ struct ManagedPolicyBrowserGateTests {
         #expect(!withoutBrowser.contains(MobileBrowserStreamCapability.createIdentifier))
         #expect(withoutBrowser.contains("terminal.bytes.v1"))
     }
+
+    /// Regression coverage for issue #10866.
+    ///
+    /// A disabled browser must not leave an affordance behind. The actions
+    /// above already refuse, but the button and menu item that reach them were
+    /// still drawn, so the user got controls that only beep. Affordance
+    /// visibility has to track the same gate the actions consult, under the
+    /// user setting and under managed policy alike.
+    @Test
+    func browserAffordanceVisibilityFollowsTheAvailabilityGate() {
+        withBrowserPolicy(managed: nil, userDisabled: true) {
+            #expect(!BrowserAvailabilitySettings.isEnabled())
+            #expect(
+                !BrowserAvailabilitySettings.offersBrowserAffordance(
+                    isEnabled: BrowserAvailabilitySettings.isEnabled()
+                ),
+                "a user-disabled browser must not offer a create affordance"
+            )
+        }
+
+        withBrowserPolicy(managed: true, userDisabled: false) {
+            #expect(!BrowserAvailabilitySettings.isEnabled())
+            #expect(
+                !BrowserAvailabilitySettings.offersBrowserAffordance(
+                    isEnabled: BrowserAvailabilitySettings.isEnabled()
+                ),
+                "a policy-disabled browser must not offer a create affordance"
+            )
+        }
+
+        withBrowserPolicy(managed: nil, userDisabled: false) {
+            #expect(BrowserAvailabilitySettings.isEnabled())
+            #expect(
+                BrowserAvailabilitySettings.offersBrowserAffordance(
+                    isEnabled: BrowserAvailabilitySettings.isEnabled()
+                ),
+                "an enabled browser must still offer its create affordance"
+            )
+        }
+    }
+
+    /// Regression coverage for the surface tab bar's globe button (#10866).
+    ///
+    /// The tab bar filters built-in buttons whose feature is off. The browser
+    /// button was missing from that filter, so disabling the browser left the
+    /// globe in the tab bar while its action refused. It has to follow the
+    /// same gate under the user setting and under managed policy, and it must
+    /// not take the other built-in buttons down with it.
+    @Test
+    func surfaceTabBarGlobeButtonFollowsTheAvailabilityGate() {
+        withBrowserPolicy(managed: nil, userDisabled: true) {
+            #expect(
+                !Workspace.surfaceTabBarBuiltInActionIsAvailable(.newBrowser),
+                "a user-disabled browser must not leave the globe button drawn"
+            )
+        }
+
+        withBrowserPolicy(managed: true, userDisabled: false) {
+            #expect(
+                !Workspace.surfaceTabBarBuiltInActionIsAvailable(.newBrowser),
+                "a policy-disabled browser must not leave the globe button drawn"
+            )
+        }
+
+        withBrowserPolicy(managed: nil, userDisabled: false) {
+            #expect(
+                Workspace.surfaceTabBarBuiltInActionIsAvailable(.newBrowser),
+                "an enabled browser must still offer its tab bar button"
+            )
+            // Buttons with no feature gate of their own stay available, so the
+            // browser gate cannot be read as a blanket filter.
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.newTerminal))
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.newWorkspace))
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.splitRight))
+        }
+
+        // The gate must not follow the browser either way while it is off.
+        withBrowserPolicy(managed: true, userDisabled: true) {
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.newTerminal))
+        }
+    }
+
+    /// The availability gate is watched by one owner (#10866).
+    ///
+    /// Each consumer used to subscribe to all three underlying signals, which
+    /// duplicated the state and made every unrelated `UserDefaults` write
+    /// rebuild live tab-bar button models. The monitor must therefore
+    /// broadcast a real transition and stay silent otherwise.
+    @Test
+    func availabilityMonitorBroadcastsOnlyRealTransitions() async {
+        let defaults = UserDefaults.standard
+        let previousOverride = BrowserAvailabilitySettings.managedPolicyOverrideForTesting
+        let previousUserValue = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            BrowserAvailabilitySettings.managedPolicyOverrideForTesting = previousOverride
+            if let previousUserValue {
+                defaults.set(previousUserValue, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+        }
+        BrowserAvailabilitySettings.managedPolicyOverrideForTesting = nil
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let center = NotificationCenter()
+        let recorder = AvailabilityChangeRecorder()
+        let token = center.addObserver(
+            forName: BrowserAvailabilityMonitor.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { recorder.record() }
+        }
+        defer { center.removeObserver(token) }
+
+        let monitor = BrowserAvailabilityMonitor(notificationCenter: center)
+        #expect(monitor.isEnabled)
+
+        // An unrelated defaults write must not be broadcast as a change.
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        await drainMainQueue()
+        #expect(recorder.count == 0, "an unchanged gate was broadcast as a transition")
+
+        defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        await drainMainQueue()
+        #expect(recorder.count == 1, "a real transition was not broadcast")
+        #expect(!monitor.isEnabled)
+
+        // Re-signalling the same state stays silent.
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        await drainMainQueue()
+        #expect(recorder.count == 1, "an unchanged gate was broadcast again")
+    }
+
+    /// Lets main-queue notification delivery settle. Two turns: the monitor
+    /// observes on the main queue and its broadcast is delivered on another.
+    private func drainMainQueue() async {
+        for _ in 0..<2 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+}
+
+/// Counts monitor broadcasts for ``ManagedPolicyBrowserGateTests``.
+@MainActor
+private final class AvailabilityChangeRecorder {
+    private(set) var count = 0
+
+    func record() {
+        count += 1
+    }
 }

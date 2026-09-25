@@ -338,6 +338,10 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_bisect.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_replay_app_host_verdict.py"
 lane = "linux-guard"
 
@@ -1232,4 +1236,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_merge_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_bisect.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_late_placement.py"
 lane = "linux-guard"
