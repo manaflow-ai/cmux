@@ -1,0 +1,41 @@
+name: Merge receipt
+
+# Records on each merged pull request which checks on its head had passed when
+# it merged and which had not (scripts/ci/merge_receipt.py), and labels it
+# merged-unverified when a judging check was not green. It runs after the merge,
+# so it cannot block or slow one. pull_request_target gives fork pull requests
+# a write token; the job only reads the GitHub API and runs the script from the
+# commit this workflow was loaded from, never the pull request's code.
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  receipt:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+      statuses: read
+    steps:
+      - name: Checkout trusted script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/merge_receipt.py
+          sparse-checkout-cone-mode: false
+
+      - name: Post merge receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: python3 scripts/ci/merge_receipt.py post --repo "$REPO" --pr "$PR"
