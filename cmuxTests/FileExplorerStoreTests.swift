@@ -309,6 +309,23 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testMutationsAllowRootPathWithTrailingSlash() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-trailing-root-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        store.rootPath = rootURL.path + "/"
+
+        let filePath = try await store.createEntry(kind: .file, in: store.rootPath, named: "new-file")
+        #expect(FileManager.default.fileExists(atPath: filePath))
+        try await store.deleteEntries(paths: [filePath])
+        #expect(!FileManager.default.fileExists(atPath: filePath))
+    }
+
+    @Test
     func testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([
