@@ -1252,9 +1252,15 @@ struct WorkspaceDetailView: View {
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
     func openLocalBrowserFallback() {
+        showLocalBrowser { browserStore.openBrowser(for: $0) }
+    }
+
+    /// Makes the phone-local browser that `open` reveals (for this
+    /// workspace's raw id) the visible surface.
+    func showLocalBrowser(_ open: (String) -> BrowserSurfaceState) {
         let workspaceID = workspace.id.rawValue
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
-        _ = browserStore.openBrowser(for: workspaceID)
+        _ = open(workspaceID)
         store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
         store.recordLastOpenedLocalBrowserTab(in: workspace.id)
         stopActiveBrowserStream()
