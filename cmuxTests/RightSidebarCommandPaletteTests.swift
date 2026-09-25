@@ -21,7 +21,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
 
-            for mode in RightSidebarMode.availableModes() {
+            for mode in RightSidebarMode.availableModes() where mode.shortcutAction != nil || mode == .reviews {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
                 let contribution = try XCTUnwrap(
                     contributionsByID[commandID],
@@ -44,7 +44,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Machines beta toggle (pinned off above), and feed/dock stay off.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
             XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 3)
+            XCTAssertEqual(contributions.count, 4)
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.reviews)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])

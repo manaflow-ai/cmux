@@ -86,15 +86,15 @@ struct DevicesSidebarModeTests {
         #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false) == false, "callers that predate Devices see it hidden")
         #expect(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true, devicesEnabled: true)
-                == [.files, .find, .sessions, .machines]
+                == [.files, .find, .sessions, .machines, .reviews]
         )
         #expect(
             RightSidebarMode.availableModes(feedEnabled: true, dockEnabled: true, machinesEnabled: false, devicesEnabled: true)
-                == [.files, .find, .sessions, .feed, .dock]
+                == [.files, .find, .sessions, .feed, .dock, .reviews]
         )
         #expect(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
-                == [.files, .find, .sessions, .machines]
+                == [.files, .find, .sessions, .machines, .reviews]
         )
     }
 
