@@ -419,8 +419,8 @@ def test_non_package_changes_leave_the_package_test_lane_unrouted() -> None:
 
 
 def test_lane_wide_inputs_do_not_turn_the_lane_into_a_full_sweep() -> None:
-    # select_package_tests.py fails open for these: each one selects all 33
-    # packages, which on a pull request is the 30-minute sweep under another
+    # select_package_tests.py fails open for these: each one selects every
+    # package, which on a pull request is the 30-minute sweep under another
     # name. Over the last 200 merged pull requests, routing them would have
     # queued 34 full runs. They keep their coverage from the push to main.
     for path in (
@@ -452,8 +452,32 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     assert module.classify_files([
         "Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift"
     ]).swift_packages is True
+    # These macOS packages had test targets but were missing from the list too.
+    for name in (
+        "CmuxAppKitSupportUI",
+        "CmuxCanvas",
+        "CmuxCloudBannerCore",
+        "CmuxCloudImagePaste",
+        "CmuxCloudTunnelCore",
+        "CMUXDebugLog",
+        "CmuxExtensionKit",
+        "CmuxFeedback",
+        "CmuxLiveEval",
+        "CmuxPanes",
+        "CmuxPhonePush",
+        "CMUXProjectModel",
+        "CmuxSidebar",
+        "CmuxSidebarInterpreterService",
+        "CmuxSimulator",
+        "CmuxSwiftRender",
+        "CmuxSwiftRenderUI",
+        "CmuxTestSupport",
+        "CmuxUpdaterUI",
+        "CmuxWindowing",
+    ):
+        assert name in packages, name
     for name in packages:
-        assert (ROOT / "Packages").glob(f"*/{name}/Package.swift"), name
+        assert any((ROOT / "Packages").glob(f"*/{name}/Package.swift")), name
 
 
 def test_package_lane_does_not_widen_any_other_area() -> None:
@@ -2501,7 +2525,7 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
         "agent_session_web=true",
         "cli=true",
         # The package lane is the exception to fail-open: selecting it for an
-        # unrecognized path means all 33 packages, which is the sweep this
+        # unrecognized path means every package, which is the sweep this
         # routing exists to avoid. Main still runs it on the merged commit.
         "swift_packages=false",
         "release_build=true",
@@ -5463,9 +5487,11 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert identity.PRODUCT_PROFILES["app-host"] == (
         "cmux",
         "cmux-unit",
-        "cmux-numeric-locale",
         "cmux-cli-tests",
     )
+    # The numeric-locale gate reuses the cmux-unit xctestrun instead of paying
+    # for another build-for-testing; see scripts/ci/app_host_test_products.py.
+    assert "cmux-numeric-locale" not in compile_script
     assert identity.PRODUCT_PROFILES["cli"] == ("cmux-cli-tests",)
     # Every profile must be distinguishable in the identity, or one profile's
     # product answers another profile's cache lookup.
@@ -6012,8 +6038,9 @@ def test_product_restore_receipt_binds_immutable_product_identity() -> None:
     script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
     for field in (
         '"repository": os.environ["GITHUB_REPOSITORY"]',
-        '"artifact_id": int(os.environ["ARTIFACT_ID"])',
-        '"provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"]',
+        # test-e2e.yml's owned build restores its own archive before it uploads.
+        '"artifact_id": int(os.environ["ARTIFACT_ID"]) if os.environ.get("ARTIFACT_ID") else None',
+        '"provider_digest": os.environ.get("ARTIFACT_PROVIDER_DIGEST") or None',
         '"archive_sha256": os.environ["EXPECTED_SHA256"]',
         '"product_contract": os.environ["CMUX_PRODUCT_CONTRACT"]',
         '"source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"]',
@@ -6135,7 +6162,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert 'kill -9 "$VDISPLAY_PID"' in runtime_block
     assert "scripts/ci/virtual-display-lock.sh reap-strays" in runtime_block
     assert runtime_block.rfind("scripts/ci/virtual-display-lock.sh reap-strays") < runtime_block.rfind("scripts/ci/virtual-display-lock.sh release")
-    assert "timeout-minutes: 40" in package_block
+    assert "timeout-minutes: 60" in package_block
     assert "CMUX_CI_HELPER_XCODE_APP" in package_block
     assert "/Applications/Xcode_16.4.app" not in package_block
     assert "Select helper Xcode" in package_block

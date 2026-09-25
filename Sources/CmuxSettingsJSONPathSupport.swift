@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
@@ -140,6 +141,10 @@ enum AppSettingsFileMapping {
         .init(
             jsonKey: "focusHistoryIncludesPanesAndTabs",
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "equalizeSplitsOnCreate",
+            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
         ),
         .init(
             jsonKey: "openSupportedFilesInCmux",
