@@ -20,6 +20,9 @@ public enum EventStreamSocketFailureKind: Equatable, Sendable {
 /// `CLIError` mapping remain the CLI's responsibility, mirroring how
 /// wire-level classification stays in this package.
 public struct EventStreamReconnectPolicy {
+    /// Creates a reconnect policy value.
+    public init() {}
+
     /// - Parameters:
     ///   - socketFailureKind: The typed transport failure, when the producer
     ///     could classify one.
