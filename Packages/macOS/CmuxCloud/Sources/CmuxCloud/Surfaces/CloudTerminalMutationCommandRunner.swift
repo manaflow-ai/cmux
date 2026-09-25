@@ -6,7 +6,7 @@ import Foundation
 public struct CloudTerminalMutationCommandRunner: CloudTuiCommandRunning {
     public init(
         base: any CloudTuiCommandRunning,
-        validate: @MainActor @Sendable () throws -> Void
+        validate: @escaping @MainActor @Sendable () throws -> Void
     ) {
         self.base = base
         self.validate = validate

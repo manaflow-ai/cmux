@@ -7,6 +7,7 @@ import Foundation
 /// the daemon drops the terminal from its graph, and the pane is the only
 /// thing left holding it open. Closing is driven by the accepted graph, so the
 /// rule lives here instead of inside the provider's refresh.
+/// lint:allow namespace-type: moved unchanged from the app target, where it was an internal static namespace; reshaping it is a separate change from this package move.
 public enum CloudTerminalPaneClosure {
     /// Panels whose bound terminal is gone from an authoritative graph.
     ///

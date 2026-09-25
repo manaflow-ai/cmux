@@ -25,6 +25,7 @@ import Foundation
 ///
 /// Same limits as env delivery: 256 KiB, because the PTY is a control channel,
 /// not a bulk one. Larger non-secret payloads belong to `cmux vm push`.
+/// lint:allow namespace-type: moved unchanged from the app target, where it was an internal static namespace; reshaping it is a separate change from this package move.
 public enum CloudFileDelivery {
     /// Absolute: the daemon's own PATH is not a login shell's.
     static let receiverProgram = "/usr/local/bin/cmux"

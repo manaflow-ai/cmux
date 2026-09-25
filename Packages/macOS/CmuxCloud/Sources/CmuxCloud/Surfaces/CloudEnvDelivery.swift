@@ -24,6 +24,7 @@ import Foundation
 ///
 /// What is left exposed is only what the machine itself must hold: a root-only file on
 /// its persistent volume, which forks and snapshots of that machine inherit.
+/// lint:allow namespace-type: moved unchanged from the app target, where it was an internal static namespace; reshaping it is a separate change from this package move.
 public enum CloudEnvDelivery {
     /// Absolute: the daemon's own PATH is not a login shell's.
     public static let receiverCommand = ["/usr/local/bin/cmux", "env", "receive"]
