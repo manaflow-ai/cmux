@@ -167,22 +167,26 @@ final class TerminalPanel: Panel, ObservableObject {
             }
             .store(in: &cancellables)
 
-        agentFooter = TerminalAgentFooterUpdate.latestState(for: id)
         agentFooterUpdateObserver = NotificationCenter.default.addObserver(
             forName: .terminalAgentFooterDidUpdate,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let update = notification.object as? TerminalAgentFooterUpdate,
-                  update.surfaceID == self?.id else {
-                return
+            MainActor.assumeIsolated {
+                guard let update = notification.object as? TerminalAgentFooterUpdate,
+                      update.surfaceID == self?.id else {
+                    return
+                }
+                self?.agentFooter = update.state
             }
-            self?.agentFooter = update.state
         }
+        agentFooter = TerminalAgentFooterUpdate.latestState(for: id)
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(agentFooterUpdateObserver)
+        if let agentFooterUpdateObserver {
+            NotificationCenter.default.removeObserver(agentFooterUpdateObserver)
+        }
     }
 
     /// Create a new terminal panel with a fresh surface

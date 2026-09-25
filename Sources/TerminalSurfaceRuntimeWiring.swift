@@ -112,6 +112,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
+        TerminalAgentFooterUpdate.activate(surfaceID: surfaceID)
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
@@ -127,8 +128,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
 
     @MainActor
     func dropSurface(surfaceID: UUID) {
-        TerminalAgentFooterUpdate.post(surfaceID: surfaceID, state: nil)
-        TerminalAgentFooterUpdate.remove(surfaceID: surfaceID)
+        TerminalAgentFooterUpdate.retire(surfaceID: surfaceID)
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
     }
 }

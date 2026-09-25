@@ -11,19 +11,27 @@ struct TerminalAgentFooterUpdate: Sendable {
         let state: AgentFooterState?
     }
 
+    private struct Cache: Sendable {
+        var snapshots: [UUID: Snapshot] = [:]
+        var retiredSurfaceIDs: Set<UUID> = []
+    }
+
     // Footer updates can arrive while a startup command is creating its
     // surface, before TerminalPanel has installed its notification observer.
     // This short-lived replay cache closes that construction gap; the lock
     // protects only the synchronous snapshot read/write, not ongoing domain
     // state.
     private static let latestStates = OSAllocatedUnfairLock(
-        initialState: [UUID: Snapshot]()
+        initialState: Cache()
     )
 
     static func post(surfaceID: UUID, state: AgentFooterState?) {
-        latestStates.withLock { snapshots in
-            snapshots[surfaceID] = Snapshot(state: state)
+        let shouldPost = latestStates.withLock { cache in
+            guard !cache.retiredSurfaceIDs.contains(surfaceID) else { return false }
+            cache.snapshots[surfaceID] = Snapshot(state: state)
+            return true
         }
+        guard shouldPost else { return }
         NotificationCenter.default.post(
             name: .terminalAgentFooterDidUpdate,
             object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: state)
@@ -31,15 +39,27 @@ struct TerminalAgentFooterUpdate: Sendable {
     }
 
     static func latestState(for surfaceID: UUID) -> AgentFooterState? {
-        latestStates.withLock { snapshots in
-            snapshots[surfaceID]?.state
+        latestStates.withLock { cache in
+            cache.snapshots[surfaceID]?.state
         }
     }
 
-    static func remove(surfaceID: UUID) {
-        latestStates.withLock { snapshots in
-            snapshots.removeValue(forKey: surfaceID)
+    static func activate(surfaceID: UUID) {
+        latestStates.withLock { cache in
+            cache.retiredSurfaceIDs.remove(surfaceID)
+            cache.snapshots.removeValue(forKey: surfaceID)
         }
+    }
+
+    static func retire(surfaceID: UUID) {
+        latestStates.withLock { cache in
+            cache.retiredSurfaceIDs.insert(surfaceID)
+            cache.snapshots[surfaceID] = Snapshot(state: nil)
+        }
+        NotificationCenter.default.post(
+            name: .terminalAgentFooterDidUpdate,
+            object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
+        )
     }
 }
 
@@ -101,6 +121,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         surfaceID: UUID,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
     ) {
+        TerminalAgentFooterUpdate.activate(surfaceID: surfaceID)
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.notificationHandler = PromptTurnNotificationHandler(
