@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -7,7 +8,7 @@ import Testing
 @MainActor
 struct SidebarAccessibilityTreeTests {
     @Test
-    func mountedSidebarRowAccessibilityWalkIsAcyclic() async throws {
+    func mountedSidebarAndProjectPanelAccessibilityWalkIsAcyclic() async throws {
         let url = try #require(URL(string: "https://example.com/context"))
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "Read \(url.absoluteString)"
@@ -25,15 +26,36 @@ struct SidebarAccessibilityTreeTests {
                 lazyContractProbe: SidebarLazyContractProbe()
             )
         )
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarAX-\(UUID().uuidString).xcodeproj")
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+        try Data(Self.projectFixture.utf8).write(to: projectURL.appendingPathComponent("project.pbxproj"))
+        let panel = ProjectPanel(projectURL: projectURL)
+        panel.reload()
+        let loaded = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            panel.loadState.model != nil || panel.lastLoadError != nil
+        }
+        try #require(loaded && panel.loadState.model != nil, "Project fixture must load: \(panel.lastLoadError ?? "")")
+        let projectView = NSHostingView(rootView: ProjectPanelView(
+            panel: panel, isFocused: false, onRequestPanelFocus: {}
+        ))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 820, height: 300))
+        container.frame = NSRect(x: 0, y: 0, width: 360, height: 300)
+        projectView.frame = NSRect(x: 360, y: 0, width: 460, height: 300)
+        root.addSubview(container)
+        root.addSubview(projectView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            contentRect: root.bounds,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.contentView = container
+        window.isReleasedWhenClosed = false
+        window.contentView = root
         window.orderFront(nil)
         defer {
+            controller.dismantleContainerView(container)
             window.contentView = nil
             window.close()
         }
@@ -46,7 +68,7 @@ struct SidebarAccessibilityTreeTests {
             selectedScrollTargetWorkspaceId: nil
         )
         await Self.flushStagedTableMutations()
-        container.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
         let cell = try #require(
@@ -66,10 +88,75 @@ struct SidebarAccessibilityTreeTests {
             "A row text field must expose only its own link elements, never AppKit cell aliases."
         )
 
-        var walk = AccessibilityWalk()
+        var walk = SidebarAccessibilityTreeWalk()
         walk.visit(window)
         #expect(walk.cycle == nil, "Accessibility children must not point back to an ancestor: \(walk.cycle ?? [])")
         #expect(walk.maxDepth < 256, "Accessibility walk exceeded the safety depth: \(walk.maxDepth)")
+        #expect(walk.visited.count > 5, "The walk must reach the mounted table and project content.")
+
+        let updated = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: "Changed https://example.com/updated", workspaceId: model.workspaceId
+        )
+        cell.applyRebuiltModel(updated)
+        cell.layoutSubtreeIfNeeded()
+        var updatedWalk = SidebarAccessibilityTreeWalk()
+        updatedWalk.visit(window)
+        #expect(updatedWalk.cycle == nil)
+    }
+
+    @Test(arguments: [1, 2, 12])
+    func plainTextRemainsReadableWithoutCellChildren(lines: Int) throws {
+        let field = SidebarRowTextView(lines: lines)
+        field.configurePlainText("Workspace context", font: .systemFont(ofSize: 12), color: .labelColor)
+        let elements = NSAccessibility.unignoredChildren(from: [field])
+        let text = try #require(elements.first as? NSObject)
+        #expect(text.value(forKey: "accessibilityValue") as? String == "Workspace context")
+        #expect(text.value(forKey: "accessibilityRole") as? String == NSAccessibility.Role.staticText.rawValue)
+    }
+
+    @Test
+    func readingLinkChildrenDoesNotRewriteRenderedText() throws {
+        let field = try Self.makeLinkedField()
+        let rendered = NSAttributedString(attributedString: field.attributedStringValue)
+        let children = field.accessibilityChildren() ?? []
+        let link = try #require(children.compactMap { $0 as? SidebarRowTextAccessibilityLink }.first)
+
+        #expect(field.attributedStringValue.isEqual(to: rendered))
+        #expect((link.accessibilityParent() as AnyObject?) === field)
+        #expect(link.accessibilityURL()?.absoluteString == "https://example.com/context")
+        #expect(!link.accessibilityFrameInParentSpace().isEmpty)
+    }
+
+    @Test
+    func attributedAccessibilityTextUsesOwnedLinksWithoutRewritingDisplay() throws {
+        let field = try Self.makeLinkedField()
+        let rendered = NSAttributedString(attributedString: field.attributedStringValue)
+        let range = NSRange(location: 0, length: rendered.length)
+        let attributed = try #require(field.accessibilityAttributedString(for: range))
+        let link = try #require(attributed.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
+            as? SidebarRowTextAccessibilityLink)
+        let children = field.accessibilityChildren() ?? []
+
+        #expect(children.contains { ($0 as AnyObject) === link })
+        #expect(attributed.string == rendered.string)
+        #expect(field.attributedStringValue.isEqual(to: rendered))
+        #expect(field.accessibilityNumberOfCharacters() == rendered.length)
+        #expect(field.accessibilityVisibleCharacterRange() == range)
+        #expect(field.accessibilityAttributedString(for: NSRange(location: NSNotFound, length: 1)) == nil)
+    }
+
+    private static func makeLinkedField() throws -> SidebarRowTextView {
+        let source = NSAttributedString(
+            string: "Documentation",
+            attributes: [.link: try #require(URL(string: "https://example.com/context"))]
+        )
+        let field = SidebarRowTextView(lines: 1)
+        field.frame = NSRect(x: 0, y: 0, width: 320, height: 40)
+        field.configureAttributedText(
+            try AttributedString(source, including: AttributeScopes.AppKitAttributes.self),
+            font: .systemFont(ofSize: 12), color: .labelColor, linkColor: .linkColor
+        )
+        return field
     }
 
     private static func contains(url: URL, in attributedString: NSAttributedString) -> Bool {
@@ -126,50 +213,16 @@ struct SidebarAccessibilityTreeTests {
         }
     }
 
-    @MainActor
-    private struct AccessibilityWalk {
-        var visited = Set<ObjectIdentifier>()
-        var active = Set<ObjectIdentifier>()
-        var cycle: [String]?
-        var maxDepth = 0
-
-        mutating func visit(_ node: Any, depth: Int = 0, path: [String] = []) {
-            guard cycle == nil else { return }
-            guard depth < 256 else {
-                cycle = path + ["<depth-limit>"]
-                return
-            }
-            let object = node as AnyObject
-            let identity = ObjectIdentifier(object)
-            let name = String(describing: type(of: object))
-            guard active.insert(identity).inserted else {
-                cycle = path + [name]
-                return
-            }
-            defer { active.remove(identity) }
-            guard visited.insert(identity).inserted else { return }
-            maxDepth = max(maxDepth, depth)
-            for child in Self.children(of: object) {
-                visit(child, depth: depth + 1, path: path + [name])
-            }
-        }
-
-        private static func children(of object: AnyObject) -> [Any] {
-            let rawChildren: [Any]?
-            if let view = object as? NSView {
-                rawChildren = view.accessibilityChildren()
-            } else if let element = object as? NSAccessibilityElement {
-                rawChildren = element.accessibilityChildren()
-            } else if let object = object as? NSObject {
-                let selector = NSSelectorFromString("accessibilityAttributeValue:")
-                rawChildren = object.responds(to: selector)
-                    ? object.perform(selector, with: NSAccessibility.Attribute.children.rawValue)?
-                        .takeUnretainedValue() as? [Any]
-                    : nil
-            } else {
-                rawChildren = nil
-            }
-            return rawChildren.map { NSAccessibility.unignoredChildren(from: $0) } ?? []
-        }
+    private static let projectFixture = """
+    {
+        archiveVersion = 1;
+        objectVersion = 56;
+        objects = {
+            P0 = {isa = PBXProject; mainGroup = G0; targets = (); };
+            G0 = {isa = PBXGroup; children = (F0); sourceTree = "<group>"; };
+            F0 = {isa = PBXFileReference; path = Context.swift; sourceTree = "<group>"; };
+        };
+        rootObject = P0;
     }
+    """
 }
