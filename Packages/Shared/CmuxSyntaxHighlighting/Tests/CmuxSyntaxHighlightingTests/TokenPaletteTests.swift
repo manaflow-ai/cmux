@@ -32,4 +32,44 @@ struct TokenPaletteTests {
         #expect(hashed.hexKey == "0091FF")
         #expect(TokenColor(hex: "nope") == nil)
     }
+
+    @Test("Ghostty ANSI colors drive semantic token roles")
+    func ghosttyAnsiColorsDriveSemanticTokenRoles() throws {
+        let red = try #require(TokenColor(hex: "#110000"))
+        let green = try #require(TokenColor(hex: "#001100"))
+        let yellow = try #require(TokenColor(hex: "#111100"))
+        let blue = try #require(TokenColor(hex: "#000011"))
+        let magenta = try #require(TokenColor(hex: "#110011"))
+        let cyan = try #require(TokenColor(hex: "#001111"))
+        let black = try #require(TokenColor(hex: "#010101"))
+        let white = try #require(TokenColor(hex: "#FEFEFE"))
+        let foreground = try #require(TokenColor(hex: "#ABCDEF"))
+        let ansi: [Int: TokenColor] = [
+            1: red,
+            2: green,
+            3: yellow,
+            4: blue,
+            5: magenta,
+            6: cyan,
+            7: white,
+            8: black,
+        ]
+
+        let palette = TokenPalette(
+            ansiPalette: ansi,
+            foreground: foreground,
+            fallback: .cmuxDark
+        )
+        let theme = TokenTheme(base: .dark, palette: palette)
+
+        #expect(theme.palette.foreground == foreground)
+        #expect(theme.palette.keyword == red)
+        #expect(theme.palette.string == cyan)
+        #expect(theme.palette.comment == black)
+        #expect(theme.palette.type == magenta)
+        #expect(theme.palette.number == yellow)
+        #expect(theme.palette.attribute == blue)
+        #expect(theme.palette.variable == white)
+        #expect(theme.palette.regexp == green)
+    }
 }

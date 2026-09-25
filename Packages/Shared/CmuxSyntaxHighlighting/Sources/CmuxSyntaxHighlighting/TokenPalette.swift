@@ -33,6 +33,75 @@ public struct TokenPalette: Sendable, Equatable {
     /// Opacity for ``indentGuide`` (0...1).
     public let indentGuideAlpha: Double
 
+    private init(
+        foreground: TokenColor,
+        comment: TokenColor,
+        keyword: TokenColor,
+        type: TokenColor,
+        string: TokenColor,
+        number: TokenColor,
+        attribute: TokenColor,
+        variable: TokenColor,
+        regexp: TokenColor,
+        currentLine: TokenColor,
+        currentLineAlpha: Double,
+        indentGuide: TokenColor,
+        indentGuideAlpha: Double
+    ) {
+        self.foreground = foreground
+        self.comment = comment
+        self.keyword = keyword
+        self.type = type
+        self.string = string
+        self.number = number
+        self.attribute = attribute
+        self.variable = variable
+        self.regexp = regexp
+        self.currentLine = currentLine
+        self.currentLineAlpha = currentLineAlpha
+        self.indentGuide = indentGuide
+        self.indentGuideAlpha = indentGuideAlpha
+    }
+
+    /// Creates a token palette from Ghostty's sixteen-color ANSI palette.
+    ///
+    /// The semantic mapping follows the conventional terminal color roles:
+    /// red for keywords, green for literals and cyan for strings. Missing
+    /// entries fall back to the selected built-in palette, so partial
+    /// configurations remain readable.
+    ///
+    /// - Parameters:
+    ///   - ansiPalette: ANSI color indexes (`0...15`) resolved by Ghostty.
+    ///   - foreground: Resolved terminal foreground color.
+    ///   - fallback: Built-in palette used for missing ANSI entries and chrome.
+    public init(
+        ansiPalette: [Int: TokenColor],
+        foreground: TokenColor,
+        fallback: TokenPalette
+    ) {
+        self.foreground = foreground
+        self.comment = Self.ansiColor(8, in: ansiPalette, fallback: fallback.comment)
+        self.keyword = Self.ansiColor(1, in: ansiPalette, fallback: fallback.keyword)
+        self.type = Self.ansiColor(5, in: ansiPalette, fallback: fallback.type)
+        self.string = Self.ansiColor(6, in: ansiPalette, fallback: fallback.string)
+        self.number = Self.ansiColor(3, in: ansiPalette, fallback: fallback.number)
+        self.attribute = Self.ansiColor(4, in: ansiPalette, fallback: fallback.attribute)
+        self.variable = Self.ansiColor(7, in: ansiPalette, fallback: fallback.variable)
+        self.regexp = Self.ansiColor(2, in: ansiPalette, fallback: fallback.regexp)
+        self.currentLine = fallback.currentLine
+        self.currentLineAlpha = fallback.currentLineAlpha
+        self.indentGuide = fallback.indentGuide
+        self.indentGuideAlpha = fallback.indentGuideAlpha
+    }
+
+    private static func ansiColor(
+        _ index: Int,
+        in palette: [Int: TokenColor],
+        fallback: TokenColor
+    ) -> TokenColor {
+        palette[index] ?? fallback
+    }
+
     /// Dark palette for `#0A0A0A` / `#171717` surfaces.
     public static let cmuxDark = TokenPalette(
         foreground: TokenColor(red: 0xED, green: 0xED, blue: 0xED),
