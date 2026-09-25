@@ -32,7 +32,7 @@ extension CMUXCLI {
         // only after verify passes, so a digest mismatch means this exact spec
         // text has never had a passing build. `build` on a fully cached spec
         // just re-runs verify and refreshes the digest.
-        guard (layer["spec_digest"] as? String) == loaded.digest else {
+        guard resolution.cachedSpecDigest == loaded.digest else {
             throw CLIError(message: """
                 The spec changed since its last passing build (steps may be cached, but `verify` has not passed for this exact spec text).
 

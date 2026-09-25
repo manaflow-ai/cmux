@@ -72,6 +72,7 @@ extension CMUXCLI {
         let chainHashes: [String]
         let cachedLayerIndex: Int
         let restoredSnapshotID: String?
+        let cachedSpecDigest: String?
     }
 
     /// Resolves the server-selected base image and the deepest cached layer for
@@ -105,7 +106,8 @@ extension CMUXCLI {
                 baseImageID: baseImageID,
                 chainHashes: chainHashes,
                 cachedLayerIndex: -1,
-                restoredSnapshotID: nil
+                restoredSnapshotID: nil,
+                cachedSpecDigest: nil
             )
         }
 
@@ -116,6 +118,7 @@ extension CMUXCLI {
         )
         var cachedLayerIndex = -1
         var restoredSnapshotID: String?
+        var cachedSpecDigest: String?
         if let layer = resolve["layer"] as? [String: Any],
            let stepIndex = layer["step_index"] as? Int,
            let snapshotID = layer["snapshot_id"] as? String,
@@ -124,13 +127,15 @@ extension CMUXCLI {
            stepIndex < spec.steps.count {
             cachedLayerIndex = stepIndex
             restoredSnapshotID = snapshotID
+            cachedSpecDigest = layer["spec_digest"] as? String
         }
         return VMEnvLayerResolution(
             provider: provider,
             baseImageID: baseImageID,
             chainHashes: chainHashes,
             cachedLayerIndex: cachedLayerIndex,
-            restoredSnapshotID: restoredSnapshotID
+            restoredSnapshotID: restoredSnapshotID,
+            cachedSpecDigest: cachedSpecDigest
         )
     }
 
