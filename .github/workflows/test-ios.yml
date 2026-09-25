@@ -43,13 +43,14 @@ on:
           - iphone
           - ipad
       runner:
-        description: "macOS runner (auto follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS; tart-ios uses the isolated VM fleet)"
+        description: "macOS runner (auto follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and takes an owned Mac with an iOS simulator runtime when CI_PR_POOL_OWNED and CI_IOS_OWNED are 1 and one is free; owned forces the owned pool for a proof run; tart-ios uses the isolated VM fleet)"
         required: false
         default: "auto"
         type: choice
         options:
           - auto
           - blacksmith-6vcpu-macos-26
+          - owned
           - tart-ios
       cache_backend:
         description: "Cache store for this run. default follows CI_CACHE_BACKEND."
@@ -80,6 +81,146 @@ env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 jobs:
+  runner:
+    # The macOS pool mobile-core-package, ios-simulator-build and ios-simulator
+    # run on. `auto` follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS. With
+    # CI_PR_POOL_OWNED=1 and CI_IOS_OWNED=1 an auto run on the 6vcpu macOS 26
+    # default takes an owned Mac when the pool picker E2E uses
+    # (e2e_runner_pool.py, pull request CI's rule) finds two machines free and
+    # CI_OWNED_POOL_SLOTS' glaeda-ios-sim entry leaves one simulator mini free
+    # per requested device family. The build and simulator jobs then ask for
+    # the pool label with glaeda-ios-sim, the label glaeda puts on minis with
+    # an iOS 26.x simulator runtime; mobile-core-package needs no simulator and
+    # takes the pool label alone. Otherwise, and for an ios_version run, the
+    # default holds. `owned` forces the owned pool for a proof run. A job an
+    # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
+    # (started by owned-pool-watch), and every re-run attempt takes retry_runs_on (Blacksmith).
+    # scripts/ci/ios_runner_pool.py has the rules.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    # Reads the queue janitor's pool snapshot and the runs created since it
+    # (six API calls at most; see ios_runner_pool.py for the budget).
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      # ios_runner_pool.py only knows the manaflow-ai pools, so a fork takes
+      # the GitHub-hosted image, as each job's own fork branch does.
+      label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
+      retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
+      # runs-on as JSON: a label, or an owned pool label with glaeda-ios-sim.
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      # mobile-core-package needs no simulator: the pool label alone.
+      package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+      # 'true' when the run uploaded the persistent pool marker: owned-pool-watch
+      # starts ci-owned-pool-rescue.yml for it.
+      owned_marker: ${{ steps.marker.outputs.path != '' }}
+    steps:
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REQUESTED_RUNNER: ${{ inputs.runner }}
+          TART_FLEET: ${{ vars.CI_TART_FLEET }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          IOS_VERSION: ${{ inputs.ios_version }}
+          DEVICE_FAMILY: ${{ inputs.device_family }}
+          SWIFT_PACKAGE: ${{ inputs.swift_package }}
+          SEED_CACHE: ${{ inputs.seed_cache }}
+        run: |
+          set -euo pipefail
+          route="$(python3 scripts/ci/ios_runner_pool.py \
+            --lane test-ios \
+            --requested "$REQUESTED_RUNNER" \
+            --variable "$RUNNER_VARIABLE" \
+            --ios-owned "$IOS_OWNED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP" \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --ios-version "$IOS_VERSION" \
+            --device-family "$DEVICE_FAMILY" \
+            --swift-package "$SWIFT_PACKAGE" \
+            --seed-cache "$SEED_CACHE")"
+          echo "$route" >> "$GITHUB_OUTPUT"
+          echo "$route"
+
+      # ci-owned-pool-rescue.yml watches a run with this marker and re-runs a
+      # job an owned Mac leaves queued or refuses. Fail-safe: without it the
+      # run is only not watched.
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ steps.pool.outputs.persistent == 'true' && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.jobs }}-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+      # The simulator jobs the run will hold, for the janitor's glaeda-ios-sim
+      # count (queue_janitor.capability_marker), before those jobs exist.
+      - name: Upload the simulator capacity marker
+        if: ${{ steps.marker.outputs.path != '' && steps.pool.outputs.sim_jobs != '0' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.sim_jobs }}-glaeda-ios-sim
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+  owned-pool-watch:
+    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `runner`
+    # job put it on an owned Mac; any other run creates no rescue workflow
+    # run. The only job here with Actions write; it runs no repository code.
+    # Fail-safe: if the dispatch fails the run is only not watched.
+    name: Watch owned pool jobs
+    needs: runner
+    if: ${{ needs.runner.outputs.owned_marker == 'true' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the persistent pool rescue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
+
   detect-ios-changes:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -206,18 +347,24 @@ jobs:
           ./scripts/lint-ios-package-conventions.sh
 
   mobile-core-package:
-    needs: [detect-ios-changes, package-conventions-lint]
+    needs: [runner, detect-ios-changes, package-conventions-lint]
     if: >-
-      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+      ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
     timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
     env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
       # A hung test otherwise runs to the job ceiling, which GitHub reports as
@@ -229,7 +376,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
@@ -253,7 +400,7 @@ jobs:
           esac
 
       - name: Validate Tart runner identity
-        if: ${{ startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-') }}
+        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -385,19 +532,26 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
   ios-simulator-build:
-    needs: [detect-ios-changes, package-conventions-lint]
+    needs: [runner, detect-ios-changes, package-conventions-lint]
     # An unrelated lint lane may be skipped. Explicit status checks retain
     # that route while preventing a failed lint from buying a native build.
     if: >-
-      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+      ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 35
+    env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
@@ -410,7 +564,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
@@ -425,7 +579,7 @@ jobs:
               ;;
           esac
       - name: Validate Tart runner identity
-        if: ${{ startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-') }}
+        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -674,7 +828,9 @@ jobs:
           retention-days: 7
 
       - name: Remove compatibility simulator
-        if: ${{ always() && inputs.ios_version != '' && env.SIMULATOR_ID != '' }}
+        # Also a simulator select_ios_simulator.py created for this run, which
+        # an owned Mac would otherwise keep.
+        if: ${{ always() && env.SIMULATOR_ID != '' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
         run: |
           xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl delete "$SIMULATOR_ID"
@@ -684,16 +840,24 @@ jobs:
       contents: read
       actions: read
     needs:
+      - runner
       - detect-ios-changes
       - ios-simulator-build
     # The producer may succeed with an intentionally skipped lint ancestor.
     if: >-
-      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+      ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.ios-simulator-build.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 35
+    env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -702,7 +866,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
@@ -717,7 +881,7 @@ jobs:
               ;;
           esac
       - name: Validate Tart runner identity
-        if: ${{ startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-') }}
+        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -1002,7 +1166,9 @@ jobs:
           retention-days: 7
 
       - name: Remove compatibility simulator
-        if: ${{ always() && inputs.ios_version != '' && env.SIMULATOR_ID != '' }}
+        # Also a simulator select_ios_simulator.py created for this run, which
+        # an owned Mac would otherwise keep.
+        if: ${{ always() && env.SIMULATOR_ID != '' && (inputs.ios_version != '' || startsWith(env.SIMULATOR_NAME, 'cmux CI ')) }}
         run: |
           xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl delete "$SIMULATOR_ID"
@@ -1014,6 +1180,7 @@ jobs:
     # References each suite by job KEY via needs:, so renaming or sharding a job
     # never desyncs the required-checks list. Add new iOS jobs to needs: here.
     needs:
+      - runner
       - detect-ios-changes
       - package-conventions-lint
       - mobile-core-package

@@ -63,6 +63,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate the report-only reverse test impact selector
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reverse_test_impact.py
+
+      - name: Require the R2 public URL wherever the R2 cache actions run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_public_url.py
+
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
@@ -82,6 +90,10 @@ jobs:
       - name: Validate seeded macOS checkout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_git_seed.py
+
+      - name: Validate the CLI lane runs in compile admission
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cli_lane_in_admission.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -113,6 +125,10 @@ jobs:
       - name: Validate build-only reload keeps the tagged app bundle
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_build_only_keeps_tagged_app.sh
+
+      - name: Validate reload resolves the cmux-tui client before building
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_resolves_cmux_tui_client_before_build.sh
 
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
@@ -352,9 +368,17 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate owned Mac build state
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_build_state.py
+
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
+
+      - name: Validate the owned Mac warm labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_warm_labels.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -431,6 +455,10 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate Homebrew cask macOS dependency syntax
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
 
       - name: Validate app bundle license compliance
         if: ${{ matrix.group == 'release-notary' }}

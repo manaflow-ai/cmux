@@ -128,9 +128,13 @@ class WorkflowWiringTests(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW)["jobs"]
         # Same permissions: the R2 transport needs id-token to mint its token.
         self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
+        # The two routes differ only by the job's owned_jobs key (#14318) and
+        # the shards' pr_shard_runner branch (pr_runner_pool.spread_shards).
+        shard_route = step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route")
+        self.assertIn("inputs.pr_shard_runner || ", shard_route)
         self.assertEqual(
-            step_block(block, "Verify GitHub-hosted route"),
-            step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route"),
+            step_block(block, "Verify GitHub-hosted route").replace("' cli-product '", "KEY"),
+            shard_route.replace("format(' shard-{0} ', matrix.shard)", "KEY").replace("inputs.pr_shard_runner || ", ""),
         )
 
     def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):
