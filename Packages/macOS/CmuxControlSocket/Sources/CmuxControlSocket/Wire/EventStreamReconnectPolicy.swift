@@ -10,9 +10,6 @@ public enum EventStreamSocketFailureKind: Equatable, Sendable {
     case receiveTimeoutConfiguration
 }
 
-/// lint:allow namespace-type — stateless policy namespace; keeping the public
-/// type-level API avoids exposing an instance solely for dependency-free rules.
-///
 /// Whether an event-stream failure may be retried by `cmux events --reconnect`.
 ///
 /// The decision is pure: a typed ``EventStreamSocketFailureKind`` is
@@ -22,6 +19,8 @@ public enum EventStreamSocketFailureKind: Equatable, Sendable {
 /// markers stay best-effort over the message text. Localization and
 /// `CLIError` mapping remain the CLI's responsibility, mirroring how
 /// wire-level classification stays in this package.
+// lint:allow namespace-type — preserve the existing public, dependency-free
+// classification API while repairing unrelated Cloud snapshot behavior.
 public enum EventStreamReconnectPolicy {
     /// - Parameters:
     ///   - socketFailureKind: The typed transport failure, when the producer
