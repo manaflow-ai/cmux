@@ -3,6 +3,8 @@ import Bonsplit
 
 /// An explicit drag handle confined to the tab strip's reserved leading inset.
 final class WorkspaceTitlebarDragView: NSView {
+    deinit {}
+
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

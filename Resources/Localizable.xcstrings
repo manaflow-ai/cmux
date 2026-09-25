@@ -299727,6 +299727,12 @@
             "state": "translated",
             "value": "使用標準工作區控制項，並遵循您的標題列偏好設定。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើឧបករណ៍បញ្ជាកន្លែងធ្វើការស្តង់ដារ ជាមួយចំណូលចិត្តរបារចំណងជើងរបស់អ្នក។"
+          }
         }
       }
     },
@@ -304837,6 +304843,12 @@
             "state": "translated",
             "value": "顯示工作區標題列"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញរបារចំណងជើងកន្លែងធ្វើការ"
+          }
         }
       }
     },
@@ -304900,7 +304912,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창 탭은 계속 표시됩니다. 최소 모드에서는 제목 표시줄이 항상 숨겨집니다."
+            "value": "패널 내의 탭은 계속 표시됩니다. 최소 모드에서는 제목 표시줄이 항상 숨겨집니다."
           }
         },
         "nb": {
@@ -304955,6 +304967,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "窗格分頁會保持可見。極簡模式一律隱藏標題列。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងក្នុងបន្ទះនៅតែបង្ហាញ។ របៀបអប្បបរមាតែងតែលាក់របារចំណងជើង។"
           }
         }
       }
@@ -358356,7 +358374,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.showWorkspaceTitleBar 숨기기 표시 작업 공간 창 폴더 그룹 제목 표시줄 창 탭"
+            "value": "app.showWorkspaceTitleBar 숨기기 표시 작업 공간 윈도우 폴더 그룹 제목 표시줄 창 탭 패널"
           }
         },
         "nb": {
@@ -358411,6 +358429,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.showWorkspaceTitleBar 隱藏 顯示 工作區 視窗 資料夾 群組 標題列 窗格 分頁"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar លាក់ បង្ហាញ កន្លែងធ្វើការ បង្អួច ថត ក្រុម របារចំណងជើង ផ្ទាំងក្នុងបន្ទះ"
           }
         }
       }

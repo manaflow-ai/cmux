@@ -1,18 +1,17 @@
 import CmuxSettings
 import Foundation
 
-/// Resolves title-strip visibility without changing the pane tabs or Minimal Mode.
+/// Adapts persisted app preferences to the shared title-bar policy.
 struct WorkspaceTitlebarSettings: Equatable {
     private static let setting = AppCatalogSection().workspaceTitlebarVisibility
     static let showTitlebarKey = setting.userDefaultsKey
     static let defaultShowTitlebar = setting.defaultValue
 
-    let showTitlebar: Bool
-    let isMinimalMode: Bool
+    private let policy: WorkspaceTitlebarPolicy
 
-    // Minimal Mode retains ownership of its compact chrome, but never overwrites
-    // the independent preference restored when the user leaves Minimal Mode.
-    var isHidden: Bool { isMinimalMode || !showTitlebar }
+    var showTitlebar: Bool { policy.showTitlebar }
+    var isMinimalMode: Bool { policy.isMinimalMode }
+    var isHidden: Bool { policy.isHidden }
 
     func tabBarLeadingInset(
         isSidebarVisible: Bool,
@@ -20,18 +19,16 @@ struct WorkspaceTitlebarSettings: Equatable {
         trafficLightInset: CGFloat,
         fullscreenControlsWidth: CGFloat
     ) -> CGFloat {
-        guard isHidden, !isSidebarVisible else { return 0 }
-        if isFullScreen {
-            // Keep standard-mode actions available beside the tabs in fullscreen.
-            // Minimal Mode retains its existing sidebar-only controls.
-            return isMinimalMode ? 0 : fullscreenControlsWidth + 16
-        }
-        return trafficLightInset
+        policy.tabBarLeadingInset(
+            isSidebarVisible: isSidebarVisible,
+            isFullScreen: isFullScreen,
+            trafficLightInset: trafficLightInset,
+            fullscreenControlsWidth: fullscreenControlsWidth
+        )
     }
 
     init(showTitlebar: Bool, isMinimalMode: Bool) {
-        self.showTitlebar = showTitlebar
-        self.isMinimalMode = isMinimalMode
+        policy = WorkspaceTitlebarPolicy(showTitlebar: showTitlebar, isMinimalMode: isMinimalMode)
     }
 
     init(defaults: UserDefaults = .standard) {

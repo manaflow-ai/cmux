@@ -32,19 +32,6 @@ struct WorkspaceTitlebarLayoutTests {
         ) == WindowChromeMetrics.appTitlebarHeight)
     }
 
-    @Test(arguments: [false, true], [false, true])
-    func collapsedSidebarReservesWindowControls(minimal: Bool, fullscreen: Bool) {
-        let settings = WorkspaceTitlebarSettings(showTitlebar: false, isMinimalMode: minimal)
-        #expect(settings.tabBarLeadingInset(
-            isSidebarVisible: false, isFullScreen: fullscreen,
-            trafficLightInset: 80, fullscreenControlsWidth: 120
-        ) == (fullscreen ? (minimal ? 0 : 136) : 80))
-        #expect(settings.tabBarLeadingInset(
-            isSidebarVisible: true, isFullScreen: fullscreen,
-            trafficLightInset: 80, fullscreenControlsWidth: 120
-        ) == 0)
-    }
-
     /// Uses real Bonsplit tab strips and the production title/padding modifiers.
     /// Panel placeholders isolate layout from terminal processes and WebKit.
     @Test(arguments: [1, 3], [false, true])
