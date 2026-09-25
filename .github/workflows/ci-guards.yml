@@ -75,6 +75,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
+      - name: Validate v0.64.25 rpath repair workflow contract
+        if: ${{ matrix.group == 'ci' }}
+        run: bash tests/test_repair_v06425_workflow.sh
+
       - name: Validate Xcode build metrics receipt
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_build_metrics.py
@@ -191,6 +195,10 @@ jobs:
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Test Computer Use drag regression harness
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_cua_drag_cursor_harness.py
 
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
@@ -355,6 +363,10 @@ jobs:
       - name: Validate the scheduled main full-suite run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
+
+      - name: Validate main full-suite failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_attribution.py
 
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
@@ -721,7 +733,13 @@ jobs:
 
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_update_release_tag.py
+        run: |
+          python3 tests/test_update_release_tag.py
+          python3 tests/test_nightly_publication_marker.py
+
+      - name: Validate nightly tag permission probe
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_tag_permission_probe.sh
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}

@@ -7,7 +7,8 @@ name: CI main full suite
 # completion dispatches the next on the newest HEAD. A red result therefore
 # covers only the commits that landed during one run. The schedule is a
 # backstop for a missed event. It keeps one tracking issue open while main is
-# red.
+# red, and names the merged pull requests suspected of each new failure, on
+# the issue and on those pull requests (main_regression_attribution.py).
 #
 # It dispatches ci.yml instead of calling it so the run keeps the identity the
 # app-host product transport trusts (path ci.yml, event workflow_dispatch), and
@@ -128,7 +129,9 @@ jobs:
     # report. Reports are idempotent.
     if: ${{ (github.event_name != 'workflow_run' && github.event_name != 'push' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    # Attribution reads the failed app-host shard logs of two runs (about
+    # three minutes) and diffs the pull requests merged between them.
+    timeout-minutes: 20
     concurrency:
       group: ci-main-full-suite-report
       cancel-in-progress: false
@@ -136,13 +139,41 @@ jobs:
       actions: read
       contents: read
       issues: write
+      # Comments on the pull requests suspected of a new failure.
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          # The trees attribution ranks pull requests against, besides the scripts.
+          sparse-checkout: |
+            scripts/ci
+            cmuxTests
+            Sources
+            Packages/macOS
+            Packages/Shared
+            CLI
+
+      - name: Attribute new failures to merged pull requests
+        # A report-only heuristic: its failure must not stop the issue sync.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          # Main's recent history, without blobs, for the commit range between
+          # two runs and each merged pull request's diff. Continuous runs keep
+          # that range to a few dozen commits.
+          git fetch --no-tags --filter=blob:none --depth=1000 origin main
+          run_args=()
+          if [ -n "$RUN_ID" ]; then
+            run_args=(--run-id "$RUN_ID")
+          fi
+          python3 scripts/ci/main_regression_attribution.py report ${run_args[@]+"${run_args[@]}"} \
+            --section-output "$RUNNER_TEMP/new-failures.md"
 
       - name: Open, update or close the tracking issue
         env:
@@ -154,4 +185,5 @@ jobs:
           if [ -n "$RUN_ID" ]; then
             run_args=(--run-id "$RUN_ID")
           fi
-          python3 scripts/ci/main_full_suite.py report ${run_args[@]+"${run_args[@]}"}
+          python3 scripts/ci/main_full_suite.py report ${run_args[@]+"${run_args[@]}"} \
+            --extra-section "$RUNNER_TEMP/new-failures.md"

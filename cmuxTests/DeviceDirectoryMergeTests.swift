@@ -652,7 +652,7 @@ struct DeviceDirectoryMergeTests {
         #expect(state(trust: .unknown).linkState == .unavailable)
         let unpaired = state(needsAuthorization: true)
         #expect(unpaired.linkState == .unavailable)
-        #expect(unpaired.linkError == "Pair this Mac in Settings \u{203A} Computers to connect.")
+        #expect(unpaired.linkError == "Pair this Mac in Settings \u{203A} Mobile \u{203A} Computers to connect.")
         #expect(state(lastFailure: "boom").linkError == "boom")
     }
 

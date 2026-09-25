@@ -655,24 +655,17 @@ extension Workspace {
                     panelId: panelId,
                     currentProcessIdentity: currentAgentProcessIdentity
                 )
-                guard let matchingObservation else { return false }
-                if let resumeBinding {
-                    return matchingObservation.wasRunningForSnapshot(
-                        effectiveRestorableAgent,
-                        binding: resumeBinding,
+                // Unknown liveness stays nil so the shell state and the caller's
+                // default (`agentWasRunning ?? true`) decide. The Computer Use
+                // merge (#13055) had turned it into false.
+                return (matchingObservation?.processLiveness ?? .unknown)
+                    .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
+                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
                     )
-                }
-                return matchingObservation.processLiveness.wasRunning(
-                    fallingBackTo: panelShellActivityStates[panelId],
-                    recordedProcessIdentities: matchingObservation.agentProcessIdentities,
-                    confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                    currentProcessIdentity: currentAgentProcessIdentity,
-                    processPresence: agentProcessPresence
-                ) ?? false
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
@@ -797,7 +790,7 @@ extension Workspace {
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .filePreview:
-            guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
+            guard let filePreviewPanel = panel as? FilePreviewPanel, filePreviewPanel.cloudPreviewLease == nil, filePreviewPanel.cloudPreviewRemotePath == nil else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
