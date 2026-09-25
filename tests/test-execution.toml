@@ -129,6 +129,10 @@ path = "tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_7028_claude_shim_persistence.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_claude_wrapper_user_binary_resolution.py"
 lane = "macos-cli-no-socket"
 
