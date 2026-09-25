@@ -38,6 +38,7 @@ struct SettingsRowAnchorResolutionTests {
     static let rowConfigPaths: [String] = [
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
+        "app.equalizeSplitsOnCreate",
         "app.focusPaneOnFirstClick",
         "app.focusHistoryIncludesPanesAndTabs",
         "app.globalFontMagnification",

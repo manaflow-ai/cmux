@@ -4,9 +4,10 @@
     owned_build_state.py check STORE FINGERPRINT WORKSPACE [PACKAGE_STORE]
     owned_build_state.py adopt STORE DERIVED_DATA SOURCE
     owned_build_state.py record SOURCE DERIVED_DATA
-    owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
+    owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT [MERGED_ONTO]
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
     owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
+    owned_build_state.py warm-keys STORE RUNNER POOL [FINGERPRINT]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -24,9 +25,10 @@ This keeps two things under STORE (CMUX_OWNED_STATE_ROOT,
   swift-driver still decides what to recompile by modification time, so the
   kept DerivedData also carries the input times it was built against (below).
 - `source-packages`: the resolved `.ci-source-packages`, so the resolve
-  fetches what changed instead of restoring the whole cache. It is not
-  handed to the resolve as an exact hit: that would change the Resolve step,
-  which is part of the product key (product_input_identity.py). Packages hold
+  needs no cache restore. The resolve stamps them with the Package.resolved
+  it resolved, and a matching stamp resolves offline
+  (compile-app-host-test-product.sh `resolve`); otherwise it fetches what
+  changed. Packages hold
   no absolute build paths, so they live in PACKAGE_STORE, one per Mac, which
   every compile slot shares (STORE is per slot, ci-macos.yml's build-slot).
 
@@ -102,6 +104,19 @@ would, a nearer bucket seed wins at any distance if GitHub's compare of its
 commit with the checkout shows no package source change: its download (about
 250 s on a mini) costs less than recompiling the app (365 to 1,053 s).
 
+`keep` also stamps MERGED_ONTO, the main commit the kept build merged onto,
+and `warm-keys` prints the main commits this Mac starts from cheaply, for the
+queue janitor to route a later admission merging onto one of them to this
+runner (owned_warm_state.py, pr_runner_pool.py warm affinity):
+
+    {"runner": "<RUNNER>", "pool": "<POOL>", "keys": ["<sha12>", ...]}
+
+The kept build's merge base comes first, when its stamp matches FINGERPRINT,
+then the commits of the seeds this Mac keeps for FINGERPRINT
+(CMUX_SEED_LOCAL_CACHE, set only when CI_OWNED_PREFER_SEED lets `prefer`
+clone them), most recently used first, MAX_WARM_KEYS in all. It never fails:
+anything it cannot read leaves that key out.
+
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
 renaming the new copy into place after the old one is out of the way, so an
@@ -142,6 +157,9 @@ RECORD = "cmux-owned-input-mtimes.json"
 # before `record` existed may hold only a seed's record, so bumping this
 # discards every older kept DerivedData instead of trusting it.
 STATE_VERSION = "owned-rec1"
+# The keys owned_warm_state.py keeps per runner (its MAX_KEYS).
+MAX_WARM_KEYS = 4
+SEED_KEY_PREFIX = "admission-derived-data-v1-"
 
 
 def stamped(fingerprint: str) -> str:
@@ -306,8 +324,14 @@ def record(source: Path, derived: Path) -> dict[str, str]:
     return {"recorded": "true", "inputs": str(len(recorded))}
 
 
-def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
-    """Clone a just-compiled DerivedData into STORE, stamped with its fingerprint."""
+def warm_key(commit: str | None) -> str:
+    """A commit's warm key (its first 12 hex digits), or "" (pr_runner_pool.warm_key)."""
+    key = (commit or "").strip().lower()[:12]
+    return key if len(key) == 12 and all(char in "0123456789abcdef" for char in key) else ""
+
+
+def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "") -> dict[str, str]:
+    """Clone a just-compiled DerivedData into STORE, stamped with its fingerprint and merge base."""
     if not fingerprint or not derived.is_dir():
         return {"kept": "false", "reason": "no fingerprint or no DerivedData"}
     store.mkdir(parents=True, exist_ok=True)
@@ -318,12 +342,45 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
         remove(incoming / name)
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
+    stamp.pop("merged_onto", None)
     write_stamp(store, stamp)
     clear(store / DERIVED)
     incoming.rename(store / DERIVED)
     stamp["fingerprint"] = stamped(fingerprint)
+    if warm_key(merged_onto):
+        stamp["merged_onto"] = merged_onto.strip().lower()
     write_stamp(store, stamp)
     return {"kept": "true"}
+
+
+def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dict[str, object]:
+    """The main commits this Mac starts from cheaply, as owned_warm_state.py reads them."""
+    found: list[str] = []
+    stamp = read_stamp(store)
+    if ((store / DERIVED).is_dir() and stamp.get("fingerprint")
+            and (not fingerprint or stamp.get("fingerprint") == stamped(fingerprint))):
+        found.append(warm_key(str(stamp.get("merged_onto") or "")))
+    cache = seed.local_cache()
+    seeds: list[tuple[float, str]] = []
+    try:
+        entries = list(cache.iterdir()) if cache is not None and cache.is_dir() else []
+    except OSError:
+        entries = []
+    for entry in entries:
+        name = entry.name
+        if (not name.startswith(SEED_KEY_PREFIX) or (fingerprint and f"-{fingerprint}-j" not in name)
+                or seed.cached(name) is None):
+            continue
+        try:
+            seeds.append((entry.stat().st_mtime, warm_key(name.rsplit("-", 1)[-1])))
+        except OSError:
+            continue
+    found.extend(key for _, key in sorted(seeds, reverse=True))
+    keys: list[str] = []
+    for key in found:
+        if key and key not in keys:
+            keys.append(key)
+    return {"runner": runner, "pool": pool, "keys": keys[:MAX_WARM_KEYS]}
 
 
 def save(store: Path, source_packages: Path, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
@@ -635,8 +692,16 @@ def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] == "record":
         write_outputs(record(Path(argv[2]).resolve(), Path(argv[3])))
         return 0
-    if len(argv) == 5 and argv[1] == "keep":
-        write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))
+    if len(argv) in (5, 6) and argv[1] == "keep":
+        write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4], argv[5] if len(argv) == 6 else ""))
+        return 0
+    if len(argv) in (5, 6) and argv[1] == "warm-keys":
+        # Only the document on stdout: the workflow uploads it as is.
+        try:
+            document = warm_keys(Path(argv[2]), argv[3], argv[4], argv[5] if len(argv) == 6 else "")
+        except Exception:  # noqa: BLE001 - a key it cannot read is left out
+            document = {"runner": argv[3], "pool": argv[4], "keys": []}
+        print(json.dumps(document, separators=(",", ":")))
         return 0
     if len(argv) in (5, 6) and argv[1] == "save":
         write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4]), package_store(argv)))
