@@ -36,7 +36,7 @@ struct WorkspaceGroupNumberedSelectionTests {
         let window = try #require(context.window)
         let manager = context.tabManager
         let ungroupedWorkspace = try #require(manager.selectedWorkspace)
-        let memberWorkspace = manager.addTab(select: false)
+        let memberWorkspace = try #require(manager.addTab(select: false))
         let groupId = try #require(manager.createWorkspaceGroup(
             name: "Grouped",
             childWorkspaceIds: [memberWorkspace.id]

@@ -30,6 +30,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
+    try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "attempts");
@@ -89,6 +90,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Screen, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
+    try expectExplicitNullRejected(protocol.TerminalColors, "overrides");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
     try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");
     try expectExplicitNullRejected(protocol.Tree, "generation");

@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxTerminalCore
 
@@ -27,8 +28,12 @@ extension GhosttyApp {
                 switch result {
                 case .success(let text):
                     completeClipboardRequest(text)
-                case .failure:
-                    NSSound.beep()
+                case .failure(let error):
+                    if ManagedFileTransferPolicy.isRefusal(error) {
+                        ManagedFileTransferPolicy.presentRefusal()
+                    } else {
+                        NSSound.beep()
+                    }
 #if DEBUG
                     cmuxDebugLog("terminal.remotePasteUpload.customFailed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
 #endif

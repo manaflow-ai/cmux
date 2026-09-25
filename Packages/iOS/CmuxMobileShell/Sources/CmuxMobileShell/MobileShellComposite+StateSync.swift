@@ -382,6 +382,7 @@ extension MobileShellComposite {
                 previewAt: record.previewAt,
                 lastActivityAt: record.lastActivityAt,
                 hasUnread: record.hasUnread,
+                unreadCount: record.unreadCount,
                 terminals: record.terminals.map { terminal in
                     MobileSyncWorkspaceListResponse.Terminal(
                         id: terminal.id,
@@ -389,6 +390,15 @@ extension MobileShellComposite {
                         currentDirectory: terminal.currentDirectory,
                         isFocused: terminal.isFocused,
                         isReady: terminal.isReady
+                    )
+                },
+                surfaces: record.surfaces?.map { surface in
+                    MobileSyncWorkspaceListResponse.Surface(
+                        surfaceID: surface.surfaceID,
+                        kind: surface.kind,
+                        title: surface.title,
+                        filePath: surface.filePath,
+                        todo: surface.todo
                     )
                 },
                 simulators: record.simulators
@@ -401,7 +411,8 @@ extension MobileShellComposite {
                 isCollapsed: record.isCollapsed,
                 isPinned: record.isPinned,
                 iconSymbol: record.iconSymbol,
-                anchorWorkspaceID: record.anchorWorkspaceID
+                anchorWorkspaceID: record.anchorWorkspaceID,
+                isEmpty: record.isEmpty
             )
         }
         applyRemoteWorkspaceList(

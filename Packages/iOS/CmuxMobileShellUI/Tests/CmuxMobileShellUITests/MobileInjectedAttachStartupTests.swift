@@ -39,7 +39,11 @@ struct MobileInjectedAttachStartupTests {
             cancelledAttempt,
             retryLaunchRoute: true
         ))
-        #expect(coordinator.claimStoredReconnect() == nil)
+        // A retryable release returns startup to unclaimed rather than
+        // failed, so the launch route is retried instead of falling back to
+        // the stored Mac. Probing claimStoredReconnect here would take the
+        // unclaimed owner and block the retry below.
+        #expect(!coordinator.shouldFallBackFromInjectedAttach)
 
         let retryAttempt = try #require(coordinator.claimInjectedAttach())
 
@@ -79,7 +83,10 @@ struct MobileInjectedAttachStartupTests {
             of: MobilePairingURLConnectionResult.self
         )
 
-        #expect(coordinator.startInjectedAttach(
+        // Hoisted out of #expect: the macro captures call arguments in
+        // @Sendable closures, which rejects these non-Sendable closure
+        // parameters on current toolchains.
+        let startedInitialAttach = coordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {},
             connect: { rawURL in
@@ -91,14 +98,15 @@ struct MobileInjectedAttachStartupTests {
             onCompletion: { completion in
                 connectionFinished.continuation.yield(completion.result)
             }
-        ))
+        )
+        #expect(startedInitialAttach)
 
         for await _ in connectionStarted.stream.prefix(1) {}
 
         // A reconstructed root asks startup to run again. The app-lifetime
         // coordinator must retain the original task and consume this duplicate
         // request without starting a replacement connection.
-        #expect(coordinator.startInjectedAttach(
+        let startedDuplicateAttach = coordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {},
             connect: { rawURL in
@@ -108,7 +116,8 @@ struct MobileInjectedAttachStartupTests {
             onCompletion: { completion in
                 connectionFinished.continuation.yield(completion.result)
             }
-        ))
+        )
+        #expect(startedDuplicateAttach)
 
         allowConnectionToFinish.continuation.yield()
         var results: [MobilePairingURLConnectionResult] = []

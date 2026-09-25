@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxWorkspaces
 import Combine
@@ -176,7 +177,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -204,7 +205,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -320,8 +321,8 @@ extension DockSocketLifecycleTests {
     @MainActor
     func clearingTransferredDockTitleStaysCleared() throws {
         let sourceWorkspaceId = UUID()
-        let panel = DockTransferTestPanel()
-        panel.displayTitle = "Current Dock Title"
+        let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
+        panel.updateTitle("Current Dock Title")
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { nil }
@@ -1671,7 +1672,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))

@@ -75,6 +75,48 @@ struct MobileFeatureFlagsTests {
         #expect(flags.terminalFilesChipEnabled)
     }
 
+    @Test("keyboard rebuild revert ships off so legacy pinning is the default")
+    func keyboardDockRebuildRevertDefaultsOff() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let flags = MobileFeatureFlags(
+            loader: QueueClientConfigLoader([.failure(.unavailable)]),
+            request: ClientConfigRequest(distinctId: "test"),
+            defaults: defaults
+        )
+
+        #expect(!flags.keyboardDockRebuildRevertEnabled)
+    }
+
+    @Test("remote keyboard revert applies live and survives an outage")
+    func keyboardDockRebuildRevertCachesLastValue() async throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let request = ClientConfigRequest(distinctId: "test")
+        let revertThenUnavailable = QueueClientConfigLoader([
+            .success(config(keyboardDockRebuildRevertEnabled: true)),
+            .failure(.unavailable),
+        ])
+        let flags = MobileFeatureFlags(
+            loader: revertThenUnavailable,
+            request: request,
+            defaults: defaults
+        )
+
+        await flags.refresh()
+        #expect(flags.keyboardDockRebuildRevertEnabled)
+
+        let reloaded = MobileFeatureFlags(
+            loader: revertThenUnavailable,
+            request: request,
+            defaults: defaults
+        )
+        #expect(reloaded.keyboardDockRebuildRevertEnabled)
+        await reloaded.refresh()
+        #expect(reloaded.keyboardDockRebuildRevertEnabled)
+    }
+
     private func makeDefaults() throws -> (UserDefaults, String) {
         let suiteName = "MobileFeatureFlagsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -83,12 +125,16 @@ struct MobileFeatureFlagsTests {
     }
 
     private func config(
-        terminalFilesChipEnabled: Bool,
+        terminalFilesChipEnabled: Bool = true,
+        keyboardDockRebuildRevertEnabled: Bool = false,
         hasEvaluationErrors: Bool = false
     ) -> ClientConfig {
         ClientConfig(
             featureFlags: [
                 MobileFeatureFlags.terminalFilesChipFlag.key: .bool(terminalFilesChipEnabled),
+                MobileFeatureFlags.keyboardDockRebuildRevertFlag.key: .bool(
+                    keyboardDockRebuildRevertEnabled
+                ),
             ],
             featureFlagPayloads: [:],
             errorsWhileComputingFlags: hasEvaluationErrors

@@ -7,6 +7,7 @@ extension TaskComposerSheet {
         TaskComposerDirectoryCandidates(
             store: store,
             selectedMacDeviceID: selectedMacDeviceID,
+            selectedMacInstanceTag: selectedMacInstanceTag,
             selectedTemplate: selectedTemplate
         ).make()
     }
