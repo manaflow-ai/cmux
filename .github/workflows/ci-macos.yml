@@ -2627,12 +2627,21 @@ jobs:
           retention-days: 7
 
   swift-package-tests:
-    # Stays on the macos-15 pool on every event, including pull requests. The
+    # Defaults to the macos-15 pool on every event, including pull requests. The
     # "Select helper Xcode" step below pins CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15
     # and the build then asserts HELPER_SDK_VERSION == 15.*, so the job needs an
     # image carrying an SDK 15 Xcode; select-ci-xcode.sh exits non-zero rather
     # than falling back when it cannot find one. The macos-26 image has no SDK 15.
     # It is the one pull-request macOS job MACOS_RUNNER_PR must not move.
+    #
+    # The owned Macs: a same-repository pull request run whose picker placed
+    # ' swift-package ' in pr_owned_jobs takes the owned label on attempt 1
+    # (and on the rescue's attempt 2 after a refusal), with the lane's Xcode.
+    # The picker places it only when this run builds no helper
+    # (pr_runner_pool.package_lane_owned(): not full suite plus release_build),
+    # so those steps never run there. Every other attempt, event or pick keeps
+    # the macos-15 default below; ci-owned-pool-rescue.yml moves a stuck or
+    # refused job off the fleet. glaeda classes this job id as light.
     #
     # That SDK 15 pin is self-imposed, not a toolchain limit. It dates from Zig
     # 0.15.2, whose MachO linker could not resolve libSystem against an
@@ -2660,10 +2669,12 @@ jobs:
       ghostty_helper_toolchain_sha256: ${{ steps.ghostty-helper-identity.outputs.toolchain_sha256 }}
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && inputs.pr_runner || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && inputs.pr_refused_retry_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 40
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # The owned label's Xcode (the lane pin) exactly when runs-on took it;
+      # the pool picker's Wiring tests keep the two conditions equal.
+      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && inputs.pr_runner || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && inputs.pr_refused_retry_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:

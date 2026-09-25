@@ -664,6 +664,11 @@ jobs:
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
+          # swift-package-tests takes an owned Mac when it builds no SDK 15
+          # Release helper (full suite plus release_build), which the minis
+          # cannot build (pr_runner_pool.package_lane_owned()).
+          RUN_SWIFT_PACKAGES: ${{ steps.detect.outputs.swift_packages }}
+          RUN_RELEASE_BUILD: ${{ steps.detect.outputs.release_build }}
           # The main commit this run merges onto, whose warm label (a root
           # runner that kept a build of it) compile admission may take.
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
