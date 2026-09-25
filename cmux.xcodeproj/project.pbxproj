@@ -27,6 +27,7 @@
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */; };
 		C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A540000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift */; };
+		A6E57A0D0000000000000001 /* AgentChatProseStreamWakeDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E57A0D0000000000000002 /* AgentChatProseStreamWakeDriver.swift */; };
 		99230001992300019923000C /* AgentChatResumeIntentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000B /* AgentChatResumeIntentRecorder.swift */; };
 		C7A52D100000000000000012 /* AgentChatSessionRegistry+ChildRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */; };
 		C8711A000000000000000002 /* AgentChatSessionRegistry+CodexRolloutFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */; };
@@ -4196,6 +4197,7 @@
 		C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatEndedTranscriptListabilityCache.swift"; sourceTree = "<group>"; };
 		C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatFallbackTranscriptResolutionCoordinator.swift"; sourceTree = "<group>"; };
 		C7A540000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatFallbackTranscriptResolutionCoordinatorTests.swift; sourceTree = "<group>"; };
+		A6E57A0D0000000000000002 /* AgentChatProseStreamWakeDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatProseStreamWakeDriver.swift"; sourceTree = "<group>"; };
 		99230001992300019923000B /* AgentChatResumeIntentRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatResumeIntentRecorder.swift; sourceTree = "<group>"; };
 		C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+ChildRuns.swift"; sourceTree = "<group>"; };
 		C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+CodexRolloutFiles.swift"; sourceTree = "<group>"; };
@@ -8457,6 +8459,7 @@
 					C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */,
 					C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */,
 					C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */,
+				A6E57A0D0000000000000002 /* AgentChatProseStreamWakeDriver.swift */,
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
 				C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */,
 				A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */,
@@ -13025,6 +13028,7 @@
 				D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
 				C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */,
+				A6E57A0D0000000000000001 /* AgentChatProseStreamWakeDriver.swift in Sources */,
 					C7A52D100000000000000012 /* AgentChatSessionRegistry+ChildRuns.swift in Sources */,
 					C8711A000000000000000002 /* AgentChatSessionRegistry+CodexRolloutFiles.swift in Sources */,
 					C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */,
