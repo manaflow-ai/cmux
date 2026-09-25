@@ -60,6 +60,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/FeedCoordinatorTests",
     "cmuxTests/FeedWaiterRegistryTests",
     "cmuxTests/GhosttyNumericLocaleTests",
+    "cmuxTests/GhosttyCopyModeScrollbackTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GlobalSearchShortcutBehaviorTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
