@@ -515,6 +515,12 @@ def main(argv: list[str]) -> int:
             # consumer canary: a re-push of admitted inputs reuses the build
             # and drops them rather than compiling again.
             canary = not unit
+            if canary:
+                # Keep the consumer canary a consumer edit would have taken.
+                selectors = [
+                    selector for selector in consumer_canary_selectors(args.root, paths, diff)
+                    if selector not in reached
+                ]
             selectors = selectors + reached
             unit = True
     if not unit:

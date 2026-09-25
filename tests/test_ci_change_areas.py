@@ -4849,6 +4849,13 @@ def test_an_app_source_diff_runs_the_suites_that_mention_what_it_changed() -> No
         assert result["unit_canary"] == "true", result
         assert result["unit_in_admission"] == "false", result
         assert "cmuxTests/AgentQuitOwnershipTests" in result["unit_selectors"].split(), result
+        # Only suites the shared batch runs: the selector also names helper
+        # types, and a selector matching no test fails the run.
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        from cmux_unit_test_shard import discover_selectors
+        batch = {f"cmuxTests/{s.identifier.split('/')[1]}" for s in discover_selectors(ROOT)}
+        assert set(result["unit_selectors"].split()) <= batch, set(result["unit_selectors"].split()) - batch
+        assert result["unit_strict_steps"] == "", result
 
         for unreadable in (None, ""):
             result = outputs(unreadable)
