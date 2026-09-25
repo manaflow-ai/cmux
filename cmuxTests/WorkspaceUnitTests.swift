@@ -538,6 +538,40 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         }
     }
 
+    func testRightSidebarModeSwitchActionsResolveTheirOwnTabDigit() {
+        // `Action.defaultShortcut` reads UserDefaults.standard and cannot take a
+        // suite, so this keeps the action-to-tab mapping covered end to end.
+        let defaults = UserDefaults.standard
+        let feedKey = RightSidebarBetaFeatureSettings.feedEnabledKey
+        let dockKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+        let previousFeed = defaults.object(forKey: feedKey)
+        let previousDock = defaults.object(forKey: dockKey)
+        defer {
+            if let previousFeed { defaults.set(previousFeed, forKey: feedKey) }
+            else { defaults.removeObject(forKey: feedKey) }
+            if let previousDock { defaults.set(previousDock, forKey: dockKey) }
+            else { defaults.removeObject(forKey: dockKey) }
+        }
+        defaults.set(true, forKey: feedKey)
+        defaults.set(true, forKey: dockKey)
+        let modeSwitchActions: [(KeyboardShortcutSettings.Action, RightSidebarMode)] = [
+            (.switchRightSidebarToFiles, .files),
+            (.switchRightSidebarToFind, .find),
+            (.switchRightSidebarToSessions, .sessions),
+            (.switchRightSidebarToFeed, .feed),
+            (.switchRightSidebarToDock, .dock),
+        ]
+
+        for (action, mode) in modeSwitchActions {
+            XCTAssertEqual(
+                action.defaultShortcut,
+                KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: mode, defaults: defaults)
+            )
+        }
+        // Distinct digits make a swapped action-to-tab mapping fail above.
+        XCTAssertEqual(Set(modeSwitchActions.map { $0.0.defaultShortcut.key }).count, modeSwitchActions.count)
+    }
+
     func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {
         let visibleActions = Set(KeyboardShortcutSettings.settingsVisibleActions)
 
