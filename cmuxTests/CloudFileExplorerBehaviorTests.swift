@@ -94,7 +94,7 @@ struct CloudFileExplorerBehaviorTests {
 
         try await waitFor("Cloud root loaded") { store.rootNodes.map(\.name) == ["cloud.txt"] }
         #expect(store.rootPath == "/home/cmux")
-        #expect(store.displayRootPath == "cloud://vivid-newt:/home/cmux")
+        #expect(store.displayRootPath == "~")
         #expect(store.provider is CloudVMFileExplorerProvider)
         #expect(runner.calls.allSatisfy { $0.vmID == "vivid-newt" })
     }
