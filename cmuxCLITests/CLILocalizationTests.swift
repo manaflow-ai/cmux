@@ -50,6 +50,22 @@ struct CLILocalizationTests {
         #expect(result.stdout.contains("Usage: cmux help [topic]"))
     }
 
+    @Test("localized interpolation substitutes the argument")
+    func interpolation() throws {
+        let fixture = try Self.makeFixture(app: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let result = Self.runCLI(
+            at: fixture.cli,
+            language: "ja",
+            arguments: ["--socket", fixture.root.appendingPathComponent("unused.sock").path,
+                        "right-sidebar", "--test-flag"]
+        )
+        #expect(!result.timedOut)
+        #expect(result.status != 0)
+        #expect(result.stderr.contains("不明なフラグ '--test-flag'"), Comment(rawValue: result.stderr))
+        #expect(!result.stderr.contains("%@"))
+    }
+
     private final class BundleToken {}
 
     private static func runCLI(
@@ -89,7 +105,10 @@ struct CLILocalizationTests {
                     .write(to: contents.appendingPathComponent("Info.plist"))
                 let japanese = resources.appendingPathComponent("ja.lproj")
                 try fileManager.createDirectory(at: japanese, withIntermediateDirectories: true)
-                try Data("\"cli.help.topic.start\" = \"開始と再開\";\n".utf8)
+                try Data("""
+                "cli.help.topic.start" = "開始と再開";
+                "cli.rightSidebar.error.unknownFlag" = "不明なフラグ '%@'";
+                """.utf8)
                     .write(to: japanese.appendingPathComponent("Localizable.strings"))
             }
             let cli = bin.appendingPathComponent("cmux")
