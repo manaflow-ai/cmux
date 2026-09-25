@@ -36,7 +36,10 @@ extension Workspace {
         guard let command = snapshot.retargetingForkWorkingDirectory(workingDirectory).forkCommand else { return nil }
         descriptor.terminalProfile = .shell
         descriptor.configuredRemoteCommand = command
-        guard let forkConfiguration = descriptor.tuiSSHConfiguration(agentSocketPath: configuration.agentSocketPath) else { return nil }
+        guard let forkConfiguration = descriptor.tuiSSHConfiguration(
+            agentSocketPath: configuration.agentSocketPath,
+            sshKeepaliveSettings: configuration.sshKeepaliveSettings
+        ) else { return nil }
         return AgentConversationForkWorkspaceLaunch(
             workingDirectory: workingDirectory, terminalWorkingDirectory: nil,
             initialTerminalCommand: nil, initialTerminalInput: "", initialTerminalEnvironment: [:],
