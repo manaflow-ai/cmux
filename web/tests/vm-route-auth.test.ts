@@ -1685,6 +1685,26 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test("includes personal VMs when the default paid team is resolved implicitly", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: null,
+      listTeams: async () => [
+        { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+        { id: "team-2", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } },
+      ],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+
+    expect(response.status).toBe(200);
+    expect(listUserVms).toHaveBeenCalledWith("user-1", "team-2", { includePersonal: true });
+  });
+
   test("rejects VM create when multiple Stack teams have no paid metadata and no selected/requested team", async () => {
     getUser.mockResolvedValue({
       id: "user-1",

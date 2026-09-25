@@ -6625,6 +6625,37 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
+  dbTest("lists personal VMs alongside an implicitly resolved team scope", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values
+        ('user-workflow-default-scope', 'user-workflow-default-scope', 'free', 'freestyle', 'provider-vm-default-personal', 'snapshot-test', 'running'),
+        ('user-workflow-default-scope', 'team-workflow-default-scope', 'team', 'freestyle', 'provider-vm-default-team', 'snapshot-test', 'running'),
+        ('user-workflow-other', 'user-workflow-other', 'free', 'freestyle', 'provider-vm-default-other', 'snapshot-test', 'running')
+    `;
+
+    const provider = providerLayer({
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.fail(new Error("unused") as never),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    });
+    const listed = await Effect.runPromise(
+      listUserVms("user-workflow-default-scope", "team-workflow-default-scope", { includePersonal: true }).pipe(
+        Effect.provide(provider),
+      ),
+    );
+
+    expect(listed.map((entry) => entry.providerVmId).sort()).toEqual([
+      "provider-vm-default-personal",
+      "provider-vm-default-team",
+    ]);
+  });
+
   dbTest("does not destroy, exec, or mint SSH for another user's VM", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
