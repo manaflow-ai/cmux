@@ -38,6 +38,8 @@ public struct SidebarPullRequestCheckSummary: Equatable, Sendable {
     public let failedCount: Int
     /// Number of checks still running.
     public let pendingCount: Int
+    /// Number of checks with neutral conclusions such as skipped.
+    public let neutralCount: Int
     /// Total checks included.
     public let totalCount: Int
 
@@ -47,13 +49,15 @@ public struct SidebarPullRequestCheckSummary: Equatable, Sendable {
         passedCount: Int,
         failedCount: Int,
         pendingCount: Int,
-        totalCount: Int
+        totalCount: Int,
+        neutralCount: Int = 0
     ) {
         self.state = state
         self.passedCount = passedCount
         self.failedCount = failedCount
         self.pendingCount = pendingCount
         self.totalCount = totalCount
+        self.neutralCount = neutralCount
     }
 }
 

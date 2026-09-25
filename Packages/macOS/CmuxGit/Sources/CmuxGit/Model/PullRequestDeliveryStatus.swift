@@ -24,6 +24,8 @@ public struct PullRequestCheckSummary: Equatable, Sendable {
     public let failedCount: Int
     /// Number of checks that are still running.
     public let pendingCount: Int
+    /// Number of checks with neutral conclusions such as skipped.
+    public let neutralCount: Int
     /// Number of checks included in the summary.
     public let totalCount: Int
 
@@ -33,13 +35,15 @@ public struct PullRequestCheckSummary: Equatable, Sendable {
         passedCount: Int,
         failedCount: Int,
         pendingCount: Int,
-        totalCount: Int
+        totalCount: Int,
+        neutralCount: Int = 0
     ) {
         self.state = state
         self.passedCount = passedCount
         self.failedCount = failedCount
         self.pendingCount = pendingCount
         self.totalCount = totalCount
+        self.neutralCount = neutralCount
     }
 }
 

@@ -205,7 +205,8 @@ private extension TabManager {
                     passedCount: $0.passedCount,
                     failedCount: $0.failedCount,
                     pendingCount: $0.pendingCount,
-                    totalCount: $0.totalCount
+                    totalCount: $0.totalCount,
+                    neutralCount: $0.neutralCount
                 )
             },
             deployment: status.deployment.map {

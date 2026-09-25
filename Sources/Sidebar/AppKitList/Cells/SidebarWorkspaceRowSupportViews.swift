@@ -624,7 +624,9 @@ final class SidebarRowPullRequestLine: NSView {
         let titleX = iconSize.width + 4
         // The short status word keeps its natural width; the title absorbs
         // any shortfall (it is the long, truncatable part).
-        let titleWidth = max(10, bounds.width - titleX - ceil(statusSize.width) - 8)
+        let availableWidth = max(10, bounds.width - titleX)
+        let statusWidth = min(ceil(statusSize.width), max(10, floor(availableWidth * 0.45)))
+        let titleWidth = max(0, availableWidth - statusWidth - 4)
         let title: NSView = titleButton.isHidden ? titleLabel : titleButton
         let titleSize = titleButton.isHidden
             ? titleLabel.sidebarNaturalCellSize
@@ -635,7 +637,7 @@ final class SidebarRowPullRequestLine: NSView {
         )
         statusLabel.frame = NSRect(
             x: title.frame.maxX + 4, y: (bounds.height - statusSize.height) / 2,
-            width: ceil(statusSize.width), height: statusSize.height
+            width: statusWidth, height: statusSize.height
         )
     }
 }

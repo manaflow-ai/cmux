@@ -36,13 +36,15 @@ public struct PullRequestDeliveryStatusParser: Sendable {
         var passed = 0
         var failed = 0
         var pending = 0
+        var neutral = 0
 
-        var total: Int { passed + failed + pending }
+        var total: Int { passed + failed + pending + neutral }
 
         var state: PullRequestCheckState {
             if failed > 0 { return .failure }
             if pending > 0 { return .pending }
             if passed > 0 { return .success }
+            if neutral > 0 { return .neutral }
             return .neutral
         }
     }
@@ -69,9 +71,7 @@ public struct PullRequestDeliveryStatusParser: Sendable {
             } else if run.conclusion?.lowercased() == "success" {
                 counts.passed += 1
             } else {
-                // Neutral, skipped, and cancelled runs are not failures, but
-                // remain part of the aggregate total.
-                counts.passed += 1
+                counts.neutral += 1
             }
         }
 
@@ -86,12 +86,12 @@ public struct PullRequestDeliveryStatusParser: Sendable {
                 if deployment == nil || Self.deploymentPriority(next.state) > Self.deploymentPriority(deployment!.state) {
                     deployment = next
                 }
-            } else if checkRuns.isEmpty {
+            } else if !checkRuns.contains(where: { $0.name == status.context }) {
                 switch status.state.lowercased() {
                 case "success": counts.passed += 1
                 case "failure", "error": counts.failed += 1
                 case "pending": counts.pending += 1
-                default: counts.passed += 1
+                default: counts.neutral += 1
                 }
             }
         }
@@ -103,7 +103,8 @@ public struct PullRequestDeliveryStatusParser: Sendable {
                 passedCount: counts.passed,
                 failedCount: counts.failed,
                 pendingCount: counts.pending,
-                totalCount: counts.total
+                totalCount: counts.total,
+                neutralCount: counts.neutral
             )
         return PullRequestDeliveryStatus(
             checks: checks,
@@ -112,7 +113,7 @@ public struct PullRequestDeliveryStatusParser: Sendable {
     }
 
     private static let failedConclusions: Set<String> = [
-        "failure", "timed_out", "cancelled", "action_required", "stale"
+        "failure", "timed_out", "cancelled", "action_required", "stale", "startup_failure"
     ]
 
     private static func isDeploymentContext(_ context: String) -> Bool {
