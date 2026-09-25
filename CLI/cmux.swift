@@ -30682,7 +30682,9 @@ struct CMUXCLI {
     ///
     /// Returns the Stop replay for a healthy completion instead of running it,
     /// so the caller runs the Stop event after this frame has unwound. See
-    /// `runGenericAgentHook`.
+    /// `runGenericAgentHook`. Kept out of line so its locals are gone before
+    /// the replayed Stop runs.
+    @inline(never)
     private func runCodexTranscriptMonitor(
         commandArgs: [String],
         client: SocketClient
