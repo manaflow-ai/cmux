@@ -762,9 +762,12 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 1)
         self.assertEqual(jobs(unit_suite="true", cli="true"), 2)
         # Full suite: seven shards, tests-build-and-lag and cli-product-tests after
-        # admission, beside the two side lanes.
-        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), pool.MAX_RUN_JOBS)
-        self.assertEqual(pool.MAX_RUN_JOBS, 11)
+        # admission, beside the two side lanes; the package lane joins them only
+        # when the suite builds no Release helper, and MAX_RUN_JOBS counts it.
+        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), 11)
+        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true", swift_packages="true",
+                              release_build="false"), pool.MAX_RUN_JOBS)
+        self.assertEqual(pool.MAX_RUN_JOBS, 12)
         # A CLI-only run still compiles, then tests the bundled CLI.
         self.assertEqual(jobs(macos="false", cli="true"), 1)
         self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 2)
@@ -1020,7 +1023,9 @@ class PerJobPlacement(unittest.TestCase):
         self.assertTrue(plan.admission)
         self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
         self.assertEqual(plan.side, ("claude-wrapper", "remote-daemon"))
-        self.assertEqual(plan.peak, pool.MAX_RUN_JOBS)
+        self.assertEqual(plan.peak, 11)
+        # With no Release helper the package lane is a third side lane: the most any run holds.
+        self.assertEqual(routing(**FULL, release_build="false").peak, pool.MAX_RUN_JOBS)
         # The unit-ci label runs all seven shards; selected suites one worker, shard 8.
         self.assertEqual(routing(unit_suite="true").after, tuple(f"shard-{index}" for index in range(1, 8)))
         self.assertEqual(routing(unit_suite="true", unit_selectors="Suite").after, ("shard-8",))
@@ -1028,6 +1033,36 @@ class PerJobPlacement(unittest.TestCase):
         # A CLI-only run compiles, then runs cli-product-tests; nothing beside it.
         cli_only = routing(macos="false", cli="true")
         self.assertEqual((cli_only.admission, cli_only.after, cli_only.side), (True, ("cli-product",), ()))
+
+    def test_the_package_lane_is_a_side_lane_only_without_the_release_helper(self):
+        # A package change under the compile-only policy: no helper build.
+        routed = routing(macos="false", swift_packages="true", release_build="true")
+        self.assertEqual((routed.admission, routed.side), (False, ("swift-package",)))
+        self.assertEqual(pool.place(routed, 1), (("swift-package",), 1))
+        beside = routing(swift_packages="true", release_build="true", claude_wrapper="true")
+        self.assertEqual(beside.side, ("claude-wrapper", "swift-package"))
+        self.assertEqual(pool.place(beside, 3), (("admission", "claude-wrapper", "swift-package"), 3))
+        # A full suite that checks the Release build builds the SDK 15 helper
+        # first, which only Blacksmith's macOS 15 image can: not placed.
+        self.assertNotIn("swift-package", routing(**FULL, swift_packages="true", release_build="true").side)
+        # A full suite without the Release check runs the lane with no helper.
+        self.assertIn("swift-package", routing(**FULL, release_build="false").side)
+        # Not routed, or a caller that does not pass it: no lane.
+        self.assertEqual(routing(swift_packages="false").side, ())
+        self.assertEqual(routing().side, ())
+        # A package change with the full suite off but release_build on (the
+        # compile-only policy) still skips the helper, which needs the full suite.
+        self.assertTrue(pool.package_lane_owned(full=False, full_suite="false", swift_packages="true",
+                                                release_build="true"))
+        self.assertFalse(pool.package_lane_owned(full=False, full_suite="false", swift_packages="false",
+                                                 release_build="false"))
+
+    def test_main_places_the_package_lane(self):
+        out = self.output(busy=0, RUN_MACOS="false", RUN_SWIFT_PACKAGES="true", RUN_RELEASE_BUILD="true")
+        self.assertEqual((out["runner"], out["owned_jobs"], out["jobs"]), (MINI, " swift-package ", "1"))
+        full = self.output(busy=0, RUN_FULL_SUITE="true", RUN_CLI="true", RUN_SWIFT_PACKAGES="true",
+                           RUN_RELEASE_BUILD="true")
+        self.assertNotIn(" swift-package ", full["owned_jobs"])
 
     def test_admission_then_gui_jobs_then_light_jobs(self):
         plan = routing(**FULL)
@@ -1793,12 +1828,17 @@ class Wiring(unittest.TestCase):
         retry = "${{ needs.changes.outputs.macos_pr_retry_runner }}"
         for name in ("macos", "remote-daemon"):
             self.assertEqual(jobs[name]["with"]["pr_retry_runner"], retry, name)
-        # Only ci-macos.yml runs root jobs; the side lanes take the side label.
+        # Only ci-macos.yml runs root jobs; the side lanes (swift-package-tests
+        # among them) take the side label.
         self.assertEqual(jobs["macos"]["with"]["pr_root_runner"], "${{ needs.changes.outputs.macos_pr_root_runner }}")
         self.assertNotIn("pr_root_runner", jobs["remote-daemon"]["with"])
         self.assertEqual(jobs["remote-daemon"]["with"]["pr_side_runner"],
                          "${{ needs.changes.outputs.macos_pr_side_runner }}")
-        self.assertNotIn("pr_side_runner", jobs["macos"]["with"])
+        self.assertEqual(jobs["macos"]["with"]["pr_side_runner"], "${{ needs.changes.outputs.macos_pr_side_runner }}")
+        # In ci-macos.yml only swift-package-tests reads it; its root jobs never do.
+        macos_jobs = self.workflow("ci-macos.yml")["jobs"]
+        readers = sorted(name for name, job in macos_jobs.items() if "pr_side_runner" in yaml.safe_dump(job))
+        self.assertEqual(readers, ["swift-package-tests"])
         self.assertEqual(self.workflow("ci.yml")["jobs"]["changes"]["outputs"]["macos_pr_side_runner"],
                          "${{ steps.macos-pool.outputs.side_runner }}")
         self.assertEqual(jobs["macos"]["with"]["pr_admission_runner"],
@@ -1888,10 +1928,43 @@ class Wiring(unittest.TestCase):
         self.assertEqual(steps["route-token"]["with"]["permission-administration"], "write")
         self.assertEqual(steps["Label the runner"]["run"], "python3 scripts/ci/owned_warm_labels.py")
 
-    def test_package_tests_stay_off_the_pr_lane(self):
-        # swift-package-tests builds the SDK 15 helper and must never move.
-        block = yaml.safe_dump(self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"])
-        self.assertNotIn("pr_runner", block)
+    def test_package_tests_take_an_owned_mac_only_where_the_picker_placed_them(self):
+        # swift-package-tests builds the SDK 15 helper on a full suite with
+        # release_build, so it never takes the pull request lane
+        # (MACOS_RUNNER_PR) or the retry pool; only the owned label, on the
+        # attempts that read it, when owned_jobs names ' swift-package '.
+        job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
+        owned = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+                 "contains(inputs.pr_owned_jobs, ' swift-package ') && "
+                 "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
+                 "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner))")
+        self.assertEqual(job["runs-on"], (
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "
+            f"{owned} || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || "
+            "'blacksmith-6vcpu-macos-15') }}"))
+        # The Xcode follows the same condition: the lane pin on the owned
+        # label, the macOS 15 pin everywhere else.
+        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
+                         f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
+                         "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}")
+        block = yaml.safe_dump(job)
+        for lane in ("pr_retry_runner", "pr_root_runner", "pr_shard_runner", "MACOS_RUNNER_PR"):
+            self.assertNotIn(lane, block, lane)
+        # The key the job tests is the one the picker names.
+        self.assertEqual(pool.SWIFT_PACKAGE_JOB, "swift-package")
+        # Every helper step still runs only on a full suite with release_build,
+        # the case package_lane_owned() keeps on Blacksmith.
+        for step in job["steps"]:
+            if "helper" in (step.get("name") or "").lower() and step.get("name") != "Record Release Ghostty helper identity":
+                self.assertIn("inputs.full_suite == 'true' && inputs.release_build == 'true'", step.get("if", ""),
+                              step.get("name"))
+
+    def test_the_picker_reads_the_package_lane_routing(self):
+        env = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
+                   if step.get("id") == "macos-pool")["env"]
+        self.assertEqual(env["RUN_SWIFT_PACKAGES"], "${{ steps.detect.outputs.swift_packages }}")
+        self.assertEqual(env["RUN_RELEASE_BUILD"], "${{ steps.detect.outputs.release_build }}")
 
 
 IOS_SIM = "glaeda-ios-sim"
