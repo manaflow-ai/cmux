@@ -84,9 +84,13 @@ built-in action by supplying a second spelling. Diagnostics always show the
 existing canonical ID and any alias together.
 
 Third-party packs use a reverse-domain namespace they control, for example
-`com.example.review.diff` and `com.example.provider.diff-render`. A pack must
-not redefine another pack's ID by changing its display metadata; an override is
-explicitly recorded as an override of that stable ID.
+`com.example.review.diff` and `com.example.provider.diff-render`. Pack IDs are
+unique installation identities: two packs with the same pack ID are a doctor
+error unless they are the same locked revision. Entry IDs are different: a
+higher-precedence pack may intentionally override a lower-precedence action,
+route, provider, or default entry with the same stable ID. The resolver records
+that override in provenance, while two declarations of the same entry ID in
+one layer remain an error.
 
 Provider kinds are also stable IDs, not free-form labels. Built-in kinds use
 the `cmux.provider.<domain>` form in the table (for example,
@@ -380,7 +384,7 @@ where to reference it. Tags and branches are resolved once; updates require an
 explicit command. Offline `list`, `show`, `diff`, and `doctor` work from the
 lock and cached manifest without network access.
 
-`doctor` checks schema compatibility, duplicate IDs, dependency cycles, path
+`doctor` checks schema compatibility, duplicate pack IDs and same-layer entry IDs, dependency cycles, path
 confinement, executable resolution and byte identity, declared origins,
 capabilities, and lock integrity. It reports one stable diagnostic code per
 issue and never runs a provider as part of diagnosis.
@@ -416,8 +420,10 @@ their internal route changes.
   different surface type.
 - A provider timeout cancels its request and records a bounded diagnostic. It
   cannot keep a process or webview alive after cancellation.
-- A pack dependency cycle, load budget violation, or duplicate stable ID is a
-  pack error, not a reason to reject the user's unrelated config.
+- A pack dependency cycle, load budget violation, duplicate pack ID, or
+  same-layer duplicate entry ID is a pack error, not a reason to reject the
+  user's unrelated config. Cross-layer entry overrides are valid only when the
+  resolver can show their precedence and provenance.
 - Existing packs with only `actions`, `ui`, and `commands` continue to load as
   anonymous legacy packs. Their existing precedence, watcher behavior, source
   attribution, and trust ownership remain unchanged.
