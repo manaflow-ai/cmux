@@ -11524,8 +11524,26 @@ struct CMUXCLI {
         }
         let fallsBackToOpenSSHInteractiveSession =
             usesImplicitManagedInteractiveShell && resolvedUserSSHConfiguration == nil
+        // Detect an absent local Mosh client before creating the workspace. The
+        // terminal's initial command starts as part of `workspace.create`; if
+        // the Mosh wrapper discovers the absence there, its SSH fallback races
+        // remote lifecycle setup and turns a normal startup into misleading
+        // status-255 reconnects. Selecting SSH here keeps the fallback on the
+        // same startup path as an explicit SSH request.
+        let localMoshMissing =
+            !fallsBackToOpenSSHInteractiveSession &&
+            sshOptions.terminalTransport == .mosh &&
+            resolveExecutableInPath("mosh") == nil
+        if localMoshMissing {
+            cliWriteStderr(String(
+                localized: "cli.ssh.mosh.localMissing",
+                defaultValue: "[cmux] Mosh is not installed locally; continuing over SSH."
+            ) + "\n")
+        }
         let effectiveTerminalTransport: WorkspaceRemoteTerminalTransport =
-            fallsBackToOpenSSHInteractiveSession ? .ssh : sshOptions.terminalTransport
+            fallsBackToOpenSSHInteractiveSession || localMoshMissing
+                ? .ssh
+                : sshOptions.terminalTransport
         if configurationResult.status != 0 {
             cliDebugLog(
                 "cli.ssh.config_resolution unavailable target=\(sshOptions.displayDestination) " +
