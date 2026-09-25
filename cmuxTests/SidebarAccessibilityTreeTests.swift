@@ -83,6 +83,7 @@ struct SidebarAccessibilityTreeTests {
         )
 
         let children = textView.accessibilityChildren() ?? []
+        let link = try #require(children.compactMap { $0 as? SidebarRowTextAccessibilityLink }.first)
         #expect(
             children.allSatisfy { $0 is SidebarRowTextAccessibilityLink },
             "A row text field must expose only its own link elements, never AppKit cell aliases."
@@ -92,7 +93,10 @@ struct SidebarAccessibilityTreeTests {
         walk.visit(window)
         #expect(walk.cycle == nil, "Accessibility children must not point back to an ancestor: \(walk.cycle ?? [])")
         #expect(walk.maxDepth < 256, "Accessibility walk exceeded the safety depth: \(walk.maxDepth)")
-        #expect(walk.visited.count > 5, "The walk must reach the mounted table and project content.")
+        #expect(walk.visited.contains(ObjectIdentifier(textView)))
+        #expect(walk.visited.contains(ObjectIdentifier(link)))
+        // NSHostingView can be ignored in the AX tree; verify its rendered content.
+        #expect(walk.textValues.contains { $0.contains("Context.swift") })
 
         let updated = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "Changed https://example.com/updated", workspaceId: model.workspaceId
@@ -102,6 +106,8 @@ struct SidebarAccessibilityTreeTests {
         var updatedWalk = SidebarAccessibilityTreeWalk()
         updatedWalk.visit(window)
         #expect(updatedWalk.cycle == nil)
+        #expect(updatedWalk.visited.contains(ObjectIdentifier(textView)))
+        #expect(updatedWalk.textValues.contains { $0.contains("https://example.com/updated") })
     }
 
     @Test(arguments: [1, 2, 12])
