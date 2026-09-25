@@ -21,7 +21,7 @@ struct SettingsTaxonomyTests {
         #expect(SettingsTaxonomyGroup.sidebarAndDock.sections == [.sidebarAppearance, .customSidebars])
         #expect(SettingsTaxonomyGroup.agentsAndAutomation.sections == [.automation, .computerUse])
         #expect(SettingsTaxonomyGroup.browserAndFiles.sections == [.browser, .browserImport])
-        #expect(SettingsTaxonomyGroup.remoteAndDevices.sections == [.computers, .mobile, .cloudMachines, .networking])
+        #expect(SettingsTaxonomyGroup.remoteAndDevices.sections == [.mobile, .computers, .cloudMachines, .networking])
         #expect(
             SettingsTaxonomyGroup.keyboardAndAdvanced.sections
                 == [.globalHotkey, .keyboardShortcuts, .betaFeatures, .settingsJSON, .reset]

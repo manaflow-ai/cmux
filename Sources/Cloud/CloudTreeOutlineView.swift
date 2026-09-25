@@ -406,7 +406,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if case .devicesEmpty(let section) = node.kind {
                 let cell = (outlineView.makeView(withIdentifier: CloudTreeDevicesEmptyCell.identifier, owner: nil) as? CloudTreeDevicesEmptyCell)
                     ?? CloudTreeDevicesEmptyCell(frame: .zero)
-                cell.configure(section: section, actions: nodeActions, style: style)
+                cell.configure(section: section, actions: nodeActions, style: style, level: outlineView.level(forItem: node))
                 return cell
             }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)

@@ -130,11 +130,34 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         self.pairingEnabled = pairingEnabled
     }
 
-    private var deviceCapabilities: [String] {
-        guard DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess() else { return [] }
-        var result = ["cmux.mac-devices.v1"]
-        if MobileRemoteControlPolicy.allowsIncomingAccess() { result.append("cmux.mac-host.v1") }
+    /// Projects the two Mac-only capabilities independently. Incoming access
+    /// must never implicitly advertise outbound Mac discovery: iOS pairing and
+    /// Mac hosting share this endpoint but are separate authorization routes.
+    nonisolated static func macDeviceCapabilities(
+        discoveryEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> [String] {
+        var result: [String] = []
+        if discoveryEnabled { result.append("cmux.mac-devices.v1") }
+        if incomingAccessEnabled { result.append("cmux.mac-host.v1") }
         return result
+    }
+
+    /// Selects the independent admission policy after the peer has been
+    /// authenticated by the IROH grant and TLS endpoint identity.
+    nonisolated static func allowsInboundPeer(
+        isMac: Bool,
+        pairingEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> Bool {
+        isMac ? incomingAccessEnabled : pairingEnabled
+    }
+
+    private var deviceCapabilities: [String] {
+        Self.macDeviceCapabilities(
+            discoveryEnabled: DevicesFeature.isEnabled,
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
+        )
     }
 
     /// ALPNs the single v2 endpoint serves beside irx. Shipped iOS builds dial
@@ -151,7 +174,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     var isNetworkingAllowed: Bool {
-        (pairingEnabled() || DevicesFeature.isEnabled)
+        (pairingEnabled() || DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess())
             && !managedDevicePolicy.isEnforced(.disableIrohNetworking)
             && !managedDevicePolicy.isEnforced(.disableRemoteControl)
     }
@@ -340,7 +363,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
         await outgoingDeviceClient?.enforce(nil)
         if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
-           metadata.pairingEnabled, scope == nil || !pairingEnabled() {
+           metadata.pairingEnabled || metadata.capabilities.contains("cmux.mac-host.v1"), scope == nil || !pairingEnabled() {
             let withdrawn = V2DeviceMetadata(appVersion: metadata.appVersion,
                 capabilities: metadata.capabilities.filter { $0 != "cmux.mac-host.v1" },
                 displayName: metadata.displayName, pairingEnabled: false, platform: .mac, relayURLs: [])
@@ -858,10 +881,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         token: UUID
     ) async {
         let journal = Self.journal
-        guard pairingEnabled() else {
-            await irx.close(code: .hostShutdown, origin: .local)
-            return
-        }
         guard
             let (peer, control, sessionID) = await IrxAdmission().performServer(
                 connection: irx,
@@ -870,8 +889,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             )
         else { return }
         let isMac = cachedState?.directory?.inboundPeers?.first {
-            $0.device.descriptor.endpointID == peer.endpointIDHex
+            $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
         }?.device.descriptor.metadata.platform == .mac
+        guard Self.allowsInboundPeer(
+            isMac: isMac,
+            pairingEnabled: pairingEnabled(),
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
+        ) else {
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
         let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
             guard isMac ? MobileRemoteControlPolicy.allowsIncomingAccess()
                 : MobileHostService.isListeningEnabled else { return false }

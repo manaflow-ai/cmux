@@ -18,6 +18,8 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var events: [String] = []
     var beforeMutation: (() async throws -> Void)?
     var beforeMaterialization: (() async throws -> Void)?
+    var materializeProjection: ((SurfaceResource, SurfaceRemoteView?, SurfaceDestination) throws -> SurfaceProjection)?
+    var onProjectionEnd: ((SurfaceProjection, SurfaceProjectionEndReason) -> Void)?
     /// Mirrors a browser pane binding its Cloud resource while the provider
     /// configures it, before the catalog operation that created the pane ends.
     var registerDuringMaterialization: (@MainActor (SurfaceProjection) -> Void)?
@@ -39,6 +41,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     }
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await beforeMaterialization?()
+        if let materializeProjection { return try materializeProjection(resource, remoteView, destination) }
         let projection = SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
                                            remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
         registerDuringMaterialization?(projection)
@@ -60,6 +63,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
         try await renameRemoteTab(id: try #require(context.projection.remoteTabID), name: name)
     }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        onProjectionEnd?(projection, reason)
+    }
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         events.append("move-start:" + remoteWorkspaceID)
         try await beforeMutation?()
