@@ -60,7 +60,7 @@ extension DockSplitStore {
                     observation: restorableAgentIndex?.entryForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId,
-                        stableSurfaceId: (panels[panelId] as? any Panel)?.stableSurfaceId,
+                        stableSurfaceId: panels[panelId]?.stableSurfaceId,
                         processIdentityProvider: currentAgentProcessIdentity,
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
@@ -161,7 +161,7 @@ extension DockSplitStore {
             observation: restorableAgentIndex?.entryForStablePanel(
                 workspaceId: observationWorkspaceId,
                 panelId: panelId,
-                stableSurfaceId: (panels[panelId] as? any Panel)?.stableSurfaceId,
+                stableSurfaceId: panels[panelId]?.stableSurfaceId,
                 processIdentityProvider: {
                     guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
                     return AgentPIDProcessIdentity(pid: pid_t($0))

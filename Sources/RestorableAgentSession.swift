@@ -1043,14 +1043,8 @@ struct RestorableAgentSessionIndex: Sendable {
         return entriesByPanelId[panelId]
     }
 
-    func hasAmbiguousPanel(_ panelId: UUID, stableSurfaceId: UUID? = nil) -> Bool {
-        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
-            return true
-        }
-        if let stableSurfaceId, let candidates = candidatesByStableSurfaceId[stableSurfaceId] {
-            return candidates.count > 1
-        }
-        return ambiguousPanelIds.contains(panelId)
+    func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
+        ambiguousPanelIds.contains(panelId)
     }
 
     /// Whether the durable index is complete for one exact workspace/panel owner.
@@ -1080,11 +1074,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Deferred restore admission has the stable panel UUID but may not have
     /// the pre-restart workspace UUID, so this form intentionally ignores the
     /// workspace component.
-    func isComplete(
-        forPanelId panelId: UUID,
-        kind: String? = nil,
-        stableSurfaceId: UUID? = nil
-    ) -> Bool {
+    func isComplete(forPanelId panelId: UUID, kind: String? = nil) -> Bool {
         guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
@@ -1140,7 +1130,6 @@ struct RestorableAgentSessionIndex: Sendable {
     /// panel blocked.
     func hasCurrentAmbiguousPanel(
         _ panelId: UUID,
-        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1153,16 +1142,10 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> Bool {
         // A truncated owner history is structurally incomplete; current PID
         // probes cannot make the omitted records safe to ignore.
-        if stableSurfaceId == nil && boundedAmbiguousPanelIds.contains(panelId) {
+        if boundedAmbiguousPanelIds.contains(panelId) {
             return true
         }
-        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
-            return true
-        }
-        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
-            ?? candidatesByPanelId[panelId]
-            ?? []
-        let evidence = candidates.map { _, entry in
+        let evidence = (candidatesByPanelId[panelId] ?? []).map { _, entry in
             revalidateProcessEvidence
                 ? Self.currentProcessEvidence(
                     for: entry,
@@ -1177,7 +1160,6 @@ struct RestorableAgentSessionIndex: Sendable {
     func hasConflictingLiveStablePanelEntry(
         workspaceId: UUID,
         panelId: UUID,
-        stableSurfaceId: UUID? = nil,
         expectedKind: String?,
         expectedSessionId: String?,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
@@ -1190,13 +1172,7 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Bool {
-        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
-            return true
-        }
-        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
-            ?? candidatesByPanelId[panelId]
-            ?? []
-        let liveEntries = candidates.compactMap { _, entry -> Entry? in
+        let liveEntries = (candidatesByPanelId[panelId] ?? []).compactMap { _, entry -> Entry? in
             let isLive = revalidateProcessEvidence
                 ? Self.entryHasCurrentLiveProcess(
                     entry,
@@ -1227,7 +1203,6 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Restore must not launch while a recorded owner cannot be revalidated.
     func hasUncertainStablePanelEntry(
         panelId: UUID,
-        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1238,13 +1213,7 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Bool {
-        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
-            return true
-        }
-        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
-            ?? candidatesByPanelId[panelId]
-            ?? []
-        return candidates.contains { _, entry in
+        (candidatesByPanelId[panelId] ?? []).contains { _, entry in
             let evidence = revalidateProcessEvidence
                 ? Self.currentProcessEvidence(
                     for: entry,
@@ -1259,7 +1228,6 @@ struct RestorableAgentSessionIndex: Sendable {
     func hasCurrentLiveProcessForStablePanel(
         workspaceId: UUID,
         panelId: UUID,
-        stableSurfaceId: UUID? = nil,
         expectedKind: String? = nil,
         expectedSessionId: String? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
@@ -1275,7 +1243,6 @@ struct RestorableAgentSessionIndex: Sendable {
         guard let entry = entryForStablePanel(
             workspaceId: workspaceId,
             panelId: panelId,
-            stableSurfaceId: stableSurfaceId,
             processIdentityProvider: processIdentityProvider,
             processPresenceProvider: processPresenceProvider,
             revalidateProcessEvidence: revalidateProcessEvidence
@@ -1357,14 +1324,23 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Entry? {
-        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
-            ?? candidatesByPanelId[panelId]
-            ?? []
-        guard !candidates.isEmpty else { return nil }
-        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
-            return nil
+        // Current runtime evidence wins. Consult durable hook ownership only
+        // when this runtime panel has no matching record, as happens after a
+        // restored panel is assigned a new runtime UUID.
+        guard !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
+        let runtimeCandidates = (candidatesByPanelId[panelId] ?? []).filter { _, entry in
+            stableSurfaceId == nil || entry.stableSurfaceId == nil ||
+                entry.stableSurfaceId == stableSurfaceId
         }
-        guard stableSurfaceId != nil || !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
+        let usesStableIdentity = runtimeCandidates.isEmpty && stableSurfaceId != nil
+        let candidates = usesStableIdentity
+            ? (stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] } ?? [])
+            : runtimeCandidates
+        guard !candidates.isEmpty else { return nil }
+        if usesStableIdentity {
+            guard let stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else { return nil }
+        }
 
         let candidatesWithEvidence = candidates.map { key, entry in
             (
@@ -1390,7 +1366,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 (revalidateProcessEvidence || $0.entry.hasRecordedProcessID)
         }
         guard !hasUncertainCandidate else { return nil }
-        if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
+        if let exact = liveCandidates.first(where: {
+            $0.key == PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }) {
             return exact.entry
         }
         if liveCandidates.count == 1 {
@@ -1398,17 +1376,20 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         // Multiple current owners cannot be resolved by a stable panel UUID.
         // Do not let a stale exact-owner record or a cached timestamp pick one.
-        guard liveCandidates.isEmpty,
-              !ambiguousPanelIds.contains(panelId),
-              !equalRankAmbiguousPanelIds.contains(panelId) else {
+        guard liveCandidates.isEmpty else { return nil }
+        if !usesStableIdentity,
+           ambiguousPanelIds.contains(panelId) || equalRankAmbiguousPanelIds.contains(panelId) {
             return nil
         }
-
-        return candidates
-            .map(\.1)
-            .max { lhs, rhs in
-                Self.shouldPreferStablePanelEntry(rhs, over: lhs)
-            }
+        guard let selected = candidates.map(\.1).max(by: { lhs, rhs in
+            Self.shouldPreferStablePanelEntry(rhs, over: lhs)
+        }) else { return nil }
+        // A durable identity can have historical runtime owners. Equal-ranked
+        // records are ambiguous; dictionary iteration must never choose one.
+        guard candidates.filter({ $0.1.updatedAt == selected.updatedAt }).count == 1 else {
+            return nil
+        }
+        return selected
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {

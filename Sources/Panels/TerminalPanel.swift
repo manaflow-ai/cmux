@@ -209,7 +209,6 @@ final class TerminalPanel: Panel, ObservableObject {
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: managedAdditionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
-        self.adoptStableSurfaceId(stableSurfaceId)
         if Self.startsAtOwnedPrompt(
             configTemplate: configTemplate,
             initialCommand: initialCommand,

@@ -378,6 +378,7 @@ final class ClaudeHookSessionStore {
 
     private let statePath: String
     private let stableSurfaceId: String?
+    private let environmentSurfaceId: UUID?
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -398,6 +399,7 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.environmentSurfaceId = processEnv["CMUX_SURFACE_ID"].flatMap(UUID.init(uuidString:))
         self.stableSurfaceId = processEnv["CMUX_STABLE_SURFACE_ID"]
             .flatMap { value in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1967,10 +1969,15 @@ final class ClaudeHookSessionStore {
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
-        if let stableSurfaceId {
-            record.stableSurfaceId = stableSurfaceId
-        }
         if !surfaceId.isEmpty {
+            // TTY/process routing can override stale inherited pane IDs. Only
+            // carry the durable identity when it belongs to the resolved pane.
+            if let stableSurfaceId, let environmentSurfaceId,
+               UUID(uuidString: surfaceId) == environmentSurfaceId {
+                record.stableSurfaceId = stableSurfaceId
+            } else if record.surfaceId.caseInsensitiveCompare(surfaceId) != .orderedSame {
+                record.stableSurfaceId = nil
+            }
             record.surfaceId = surfaceId
         }
         if let cwd = normalizeOptional(cwd) {
