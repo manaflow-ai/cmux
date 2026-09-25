@@ -9,7 +9,8 @@ final class WorkspaceTitlebarDragView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let event = NSApp.currentEvent else { return nil }
-        return capturesMouseDown(at: point, event: event) ? self : nil
+        let localPoint = convert(point, from: superview)
+        return capturesMouseDown(at: localPoint, event: event) ? self : nil
     }
 
     func capturesMouseDown(at point: NSPoint, event: NSEvent) -> Bool {
