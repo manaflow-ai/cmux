@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns remote projections that were restored before their provider published a resource.
@@ -65,10 +66,11 @@ struct SurfaceProjectionRestoreStore: Sendable {
     /// Returns and removes staged projections whose resources are now available.
     mutating func takeResolvable(
         machine: SurfaceMachineID,
-        availableResources: Set<SurfaceResourceID>
+        availableResources: Set<SurfaceResourceID>,
+        isAllowed: (SurfaceProjection) -> Bool = { _ in true }
     ) -> [SurfaceProjection] {
         let resolved = entriesByPanelID.values.filter {
-            $0.resource.machine == machine && availableResources.contains($0.resource)
+            $0.resource.machine == machine && availableResources.contains($0.resource) && isAllowed($0)
         }
         for entry in resolved {
             entriesByPanelID[entry.panelID] = nil

@@ -67,6 +67,10 @@ struct WindowKeyDownReplayGuardTests {
     private final class EditableUndoProbeTextView: NSTextView {
         private(set) var undoCallCount = 0
 
+        override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action == #selector(undo(_:)) || super.validateUserInterfaceItem(item)
+        }
+
         @objc func undo(_ sender: Any?) {
             undoCallCount += 1
         }
@@ -118,14 +122,13 @@ struct WindowKeyDownReplayGuardTests {
         return (window, terminal)
     }
 
-    private func makeWindowWithTerminalHostedEditableResponder()
-        -> (NSWindow, TerminalCommandEquivalentProbeView, EditableUndoProbeTextView) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
+    private func makeWindowWithTerminalHostedEditableResponder(
+        reportsKeyStatus: Bool = false
+    ) -> (NSWindow, TerminalCommandEquivalentProbeView, EditableUndoProbeTextView) {
+        let frame = NSRect(x: 0, y: 0, width: 640, height: 420)
+        let window: NSWindow = reportsKeyStatus
+            ? KeyStatusTestWindow(contentRect: frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            : NSWindow(contentRect: frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
         // window ARC still owns and the over-release lands in a later autorelease pool drain.
         window.isReleasedWhenClosed = false
@@ -209,7 +212,10 @@ struct WindowKeyDownReplayGuardTests {
         return previousMenu
     }
 
-    private func installResponderChainUndoMenu() -> NSMenu? {
+    /// Installs a Cmd+Z menu item. A nil target exercises AppKit responder-chain
+    /// resolution; tests whose contract is cmux routing can pass an explicit
+    /// editable responder so headless app activation does not decide the result.
+    private func installResponderChainUndoMenu(target: AnyObject? = nil) -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
         let undoItem = NSMenuItem(
@@ -217,6 +223,7 @@ struct WindowKeyDownReplayGuardTests {
             action: #selector(EditableUndoProbeTextView.undo(_:)),
             keyEquivalent: "z"
         )
+        undoItem.target = target
         undoItem.keyEquivalentModifierMask = [.command]
         menu.addItem(undoItem)
         NSApp.mainMenu = menu
@@ -421,14 +428,22 @@ struct WindowKeyDownReplayGuardTests {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let previousMenu = installResponderChainUndoMenu()
+        // This assertion is about cmux routing ownership. AppKit only runs a
+        // window's menu key equivalents while it is key, and the app host is
+        // never active on Blacksmith runners, so a plain window cannot reach
+        // the menu there (it can on Warp). AppKit's nil-target lookup depends
+        // on NSApp.keyWindow too, hence the explicit menu target below.
+        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder(reportsKeyStatus: true)
+        let previousMenu = installResponderChainUndoMenu(target: textView)
         defer { NSApp.mainMenu = previousMenu }
 
-        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
         defer {
             window.orderOut(nil)
             window.close()
         }
+
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
 
         guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
             Issue.record("Failed to construct Undo key event")

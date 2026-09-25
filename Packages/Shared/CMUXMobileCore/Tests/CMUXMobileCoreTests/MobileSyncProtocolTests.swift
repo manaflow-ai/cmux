@@ -2,6 +2,16 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
+/// Named rather than resolved. `CmxPairingURLSchemeResolver` reads
+/// `Bundle.main`, which in an xctest process is the test runner and not a cmux
+/// build, so `encodedURL()` throws `invalidURL` whenever this target runs in an
+/// iOS Simulator without a host app. This is the untagged development scheme,
+/// the same value the host fallback produced.
+private let pairingScheme = CmxPairingURLScheme(
+    rawValue: "cmux-ios-dev.cmux.ios"
+)
+
+
 @Test func pairingPayloadRoundTripsThroughURL() throws {
     let expiresAt = Date(timeIntervalSince1970: 2_000_000_000)
     let payload = try MobileSyncPairingPayload(
@@ -14,7 +24,7 @@ import Testing
     )
 
     let decoded = try MobileSyncPairingPayload.decodeURL(
-        payload.encodedURL(),
+        payload.encodedURL(pairingURLScheme: pairingScheme),
         now: Date(timeIntervalSince1970: 1_900_000_000)
     )
 
@@ -162,7 +172,7 @@ import Testing
     )
 
     let decoded = try MobileSyncPairingPayload.decodeURL(
-        payload.encodedURL(),
+        payload.encodedURL(pairingURLScheme: pairingScheme),
         now: Date(timeIntervalSince1970: 1_900_000_000)
     )
 

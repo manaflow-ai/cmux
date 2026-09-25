@@ -40,20 +40,6 @@ struct DisconnectedWorkspaceShellView: View {
     var showComputers: (() -> Void)? = nil
     var setupHelpPresentation = MobileChildSheetPresentation()
 
-    #if os(iOS)
-    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
-        MobileConnectionMethodStore?
-    #endif
-
-    /// The connection-method check is kept behind a platform-neutral property
-    /// so the shared view body never reaches directly into the iOS environment.
-    private var usesTailscaleConnectionMethod: Bool {
-        #if os(iOS)
-        return connectionMethodStore?.method == .tailscale
-        #else
-        return false
-        #endif
-    }
 
     #if os(iOS)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -108,8 +94,8 @@ struct DisconnectedWorkspaceShellView: View {
                     // known/restored Mac shows up here for one-tap reconnect.
                     // Same-account discovery is the primary path. Manual pairing
                     // is available only when the root supplies its Tailscale action.
-                    async let pairedMacs: Void = store?.loadPairedMacs() ?? ()
-                    await pairedMacs
+                    async let pairedMacs: Bool = store?.loadPairedMacs() ?? false
+                    _ = await pairedMacs
                     #if os(iOS)
                     async let registryDevices: Void = store?.loadRegistryDevices() ?? ()
                     // Registry + presence enrich the rows (online dots, build
@@ -255,7 +241,7 @@ struct DisconnectedWorkspaceShellView: View {
             Text(emptyDescription)
                 .accessibilityIdentifier("MobileDisconnectedEmptyDescription")
         } actions: {
-            if usesTailscaleConnectionMethod, let showPairingScanner {
+            if tailscalePairingRequired, let showPairingScanner {
                 Button(action: showPairingScanner) {
                     Text(L10n.string(
                         "mobile.tailscalePairingRequired.scan",
@@ -285,7 +271,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     private var emptyDescription: String {
         #if os(iOS)
-        if usesTailscaleConnectionMethod {
+        if tailscalePairingRequired {
             return MobilePairingScannerSheet.emptyStateGuidanceText
         }
         #endif

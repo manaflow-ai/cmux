@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+@testable import CmuxMobileHost
 import Foundation
 @preconcurrency import Network
 import Testing

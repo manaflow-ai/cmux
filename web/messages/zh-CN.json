@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "检测到的 harness 配置",
+    "selectionNotice": "选择提供商不会启动或启用这些 harness。",
+    "selectProvider": "选择 {provider}",
+    "foundPath": "发现 {path}",
+    "foundCommand": "发现命令 {command}",
+    "installed": "提供商已安装",
+    "missing": "提供商未安装",
+    "install": "使用以下命令安装：{command}",
+    "benefitPi": "压缩、记忆和提供商路由",
+    "benefitOpenagent": "OpenCode 的并行专家和恢复能力",
+    "benefitClaude": "Claude Code 的团队协作与验证",
+    "benefitSuperpowers": "规划、TDD、子代理和审查"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "云端虚拟机设置未完成",
+      "reason": "云端虚拟机的来宾设置未完成。",
+      "message": "cmux 无法完成云端虚拟机的设置。",
+      "action": "请重试此操作。如果问题持续，请联系支持。"
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM 清理待完成",
+      "message": "Cloud VM 设置失败，清理仍未完成。",
+      "action": "创建另一台机器之前，请提供跟踪 ID 联系支持团队。"
+    },
     "unsupported": {
       "title": "云端虚拟机操作不可用",
       "reason": "此机器类型不提供此操作。",
@@ -40,8 +65,7 @@
     "memoryUnavailable": {
       "message": "此机器规格当前不可用。请选择不超过 {max} GiB 的规格。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +75,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "如果我们找到了账户，请查看你的邮箱了解下一步"
   },
@@ -86,6 +111,7 @@
   "authError": {
     "emailUnverifiedTitle": "验证邮箱后继续",
     "emailUnverifiedBody": "请使用最初注册时的方式登录，然后验证邮箱，再使用此登录方式。",
+    "signupPendingBody": "如果你已有账户，请使用之前的方法登录。如果你刚刚创建了账户，请在登录前验证邮箱。",
     "genericTitle": "无法完成登录",
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
     "backToSignIn": "返回登录"
@@ -323,7 +349,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概览",
       "team": "团队",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "移动设备"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -368,30 +394,84 @@
         "loading": "加载中…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "移动设备",
+      "description": "管理对已连接电脑、手机和平板电脑的访问。",
+      "team": "团队",
+      "teamSwitchError": "无法切换团队。请重试。",
+      "loading": "正在加载设备…",
+      "empty": "此团队没有注册设备。",
+      "unavailable": "无法加载你的设备。刷新页面后重试。",
+      "retry": "重试",
+      "mutationError": "无法完成设备更改。",
+      "revoke": "撤销访问权限",
+      "deviceId": "设备",
+      "revision": "版本",
+      "status": "状态",
+      "active": "活动",
+      "revoked": "已撤销",
+      "relaySettings": "中继设置",
+      "relaySettingsDescription": "选择此团队使用的中继服务器。每行输入一个 URL。",
+      "saveRelaySettings": "保存中继设置",
+      "eyebrow": "云端 / 设备",
+      "scopeActive": "正在显示此团队",
+      "emptyTitle": "尚无已连接的设备",
+      "emptyDescription": "cmux 设备与此团队配对后，其平台、版本和访问控制将显示在这里。",
+      "revoking": "正在撤销…",
+      "registeredDevices": "已注册设备",
+      "activeDevices": "有效设备",
+      "directoryRevision": "设备列表修订号",
+      "savingRelaySettings": "正在保存…"
     },
     "coderouterAccounts": {
+      "transferAction": "转移",
+      "transferringAction": "正在转移…",
+      "transferDialogTitle": "将账号转移到其他团队",
+      "transferChooseBody": "选择接收 {account} 的团队。它目前属于 {source}。",
+      "transferDestinationLabel": "目标团队",
+      "continueAction": "继续",
+      "backAction": "返回",
+      "transferConfirmTitle": "转移 {account}？",
+      "transferConfirmBody": "{account} 将从 {source} 转移到 {destination}。{source} 的云端机器和成员将立即停止使用它。它在 {destination} 中保留当前的共享设置。",
+      "transferConfirmAction": "转移账号",
+      "transferSuccess": "已将 {account} 转移到 {destination}。",
+      "transferError": "无法转移此账号，请重试。",
+      "transferForbiddenError": "你已无法将账号转移到该团队。",
+      "transferNotFoundError": "此账号已不在此团队中。请刷新以查看其当前位置。",
+      "transferConflictError": "转移过程中账号发生了变化。请刷新后重试。",
+      "transferUnavailableError": "转移暂时不可用，或账号正在刷新。请稍后重试。",
       "shareWithTeam": "与团队共享",
       "makePrivate": "设为私有",
       "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
       "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
-      "cancelAction": "取消"
+      "cancelAction": "取消",
+      "apiKeysTitle": "API 密钥",
+      "apiKeysDescription": "为脚本和代理创建长期密钥。密钥只显示一次。",
+      "apiKeysCount": "{count, plural, one {# 个密钥} other {# 个密钥}}",
+      "apiKeysLoading": "正在加载 API 密钥…",
+      "apiKeysLoadError": "无法加载 API 密钥，请稍后重试。",
+      "apiKeysRetry": "重试",
+      "apiKeysEmptyBody": "还没有 API 密钥。创建一个以验证 CodeRouter 客户端。",
+      "apiKeyPrefixColumn": "密钥",
+      "apiKeyStatusColumn": "状态",
+      "apiKeySecretTitle": "立即复制此密钥",
+      "apiKeySecretBody": "此密钥不会再次显示。",
+      "apiKeyCopy": "复制 API 密钥",
+      "apiKeyCopied": "已复制",
+      "apiKeyCreatedAt": "创建于 {at}",
+      "apiKeyLastUsed": "最后使用 {at}",
+      "apiKeyRevoked": "已撤销",
+      "apiKeyLabelPlaceholder": "例如 CI 或生产环境",
+      "createApiKeyAction": "创建 API 密钥",
+      "creatingApiKeyAction": "正在创建",
+      "apiKeyCreateError": "无法创建 API 密钥。",
+      "revokeApiKeyAction": "撤销",
+      "revokingApiKeyAction": "正在撤销",
+      "apiKeyRevokeError": "无法撤销 API 密钥。",
+      "revokeApiKeyConfirmTitle": "撤销此 API 密钥？",
+      "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
+      "apiKeyUsageUnavailable": "使用数据不可用",
+      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
     }
   },
   "community": {
@@ -1207,6 +1287,12 @@
       "exampleConfig": "配置示例",
       "metaTitle": "配置",
       "schemaDescriptions": {
+        "root": "cmux 配置。全局 cmux.json 支持应用设置、快捷键、操作、自定义命令、通知钩子和工作区布局。项目本地的 .cmux/cmux.json 或 cmux.json 支持操作、命令、通知钩子、UI 操作绑定、Agent Chat 覆盖、vault 代理、工作区组覆盖，以及工作区启动和按钮配置。",
+        "rightSidebar": "保留在 cmux.json 中的旧版及扩展拥有的右侧边栏配置。",
+        "packs": {
+          "description": "在此配置之前加载的本地 cmux 包文件或目录。目录解析为 cmux.pack.json。使用路径字符串或包含 path 字段的对象。",
+          "path": "本地文件或目录路径。非绝对路径相对于此配置文件。"
+        },
         "paneBorderColor": "覆盖拆分工作区中的 cmux 窗格分隔线颜色。此设置影响 cmux 窗格边界，而不是 Ghostty 的内部分屏。",
         "activePaneBorderColor": "在拆分工作区中围绕当前聚焦的 cmux 窗格绘制的可选边框颜色。",
         "automation": {
@@ -1218,6 +1304,7 @@
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
+          "devWindowDisplay": "仅在 DEBUG 构建中打开新窗口时使用的显示器名称。空值使用系统默认设置。",
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
@@ -1340,7 +1427,7 @@
       "plusButtonScreenshotAlt": "cmux 加号按钮右键菜单显示 Worktree Agents、New Terminal 和 New Browser",
       "plusButtonScreenshotCaption": "右键菜单遵循 ui.newWorkspace.contextMenu 中的顺序。",
       "newWorkspaceButton": "加号按钮的自定义动作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。 New Cloud Workspace 使用最近选中的 Cloud 工作区所属机器，然后使用右侧边栏中的第一台机器；New Cloud Machine 会主动配置一台机器。",
       "newWorkspaceWorktreeNote": "此示例让普通加号点击运行 <action>worktree-agents</action> 操作。来自 <commands>commands</commands> 的工作区命令会先使用可见的设置终端创建 Git <worktree>worktree</worktree>。Codex 和 Claude 同时启动，等待该工作区专用的状态文件，然后在 exec 前进入创建的目录。",
       "simpleCommands": "简单命令",
       "simpleCommandsDesc": "简单命令在当前聚焦的终端中运行 shell 命令：",
@@ -1393,6 +1480,7 @@
       "restartNew": "创建新的 workspace（默认）"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "切换文件编辑器自动换行 (Option+Z).",
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
       "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",
@@ -3985,5 +4073,15 @@
     "organization": "组织",
     "personalAccount": "个人账户",
     "switchAccountButton": "使用其他账号"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 更新内容",
+    "releaseLabel": "1.0.6 · 2026年9月",
+    "connectionTitle": "Mac 连接已更新",
+    "connectionDetail": "此更新使用新的连接服务和 Iroh 传输。较旧的 Mac 构建版本需要更新才能连接。",
+    "updateTitle": "更新 Mac 上的 cmux",
+    "updateDetail": "需要 cmux {stableVersion} 或更高版本，或 NIGHTLY {nightlyVersion} 或更高版本。请在每台 Mac 的“设置”>“移动设备”中启用 iOS 配对。",
+    "rollbackTitle": "需要保留较旧的 Mac 构建版本？",
+    "rollbackDetail": "在仍可用时，从 TestFlight > 先前的构建版本中使用 cmux BETA 1.0.5 ({rollbackBuild})。请选择这个确切的构建版本，因为后续构建使用更新的连接服务。"
   }
 }

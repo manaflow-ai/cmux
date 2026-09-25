@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -150,6 +153,132 @@ struct CloudTerminalPaneReservationTests {
         #expect(projections == 0)
         #expect(store.failure == nil)
         #expect(!store.hasActiveRequests)
+    }
+
+    @Test @MainActor
+    func restoredPaneCapturesItsSavedAttachmentTarget() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { app.tearDown() }
+            let workspace = app.workspace
+            let sourceID = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.paneId(forPanelId: sourceID))
+            let snapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+            let record = SurfaceProjectionRecord(
+                panelID: sourceID, resource: Self.resource().id,
+                remoteWorkspaceID: "saved-workspace", remoteTabID: "saved-tab"
+            )
+            let panelID = try #require(workspace.reserveRestoredCloudTerminalPane(
+                snapshot: snapshot, projection: record, inPane: pane
+            ))
+            let reservation = try #require(workspace.cloudPendingCreations[panelID])
+            #expect(reservation.attachmentPlacement == SurfaceResourcePlacement(
+                resource: record.resource, remoteWorkspaceID: record.remoteWorkspaceID,
+                remoteTabID: record.remoteTabID
+            ))
+            #expect(reservation.remoteWorkspaceID == record.remoteWorkspaceID)
+            #expect(reservation.remoteTabID == record.remoteTabID)
+            #expect(workspace.machineOwningSurface(panelID) == record.resource.machine)
+        }
+    }
+
+    @Test("Restored attachment validates the exact saved view after catalog changes",
+          arguments: ["moved", "removed", "metadataMissing", "wrongTabReceipt", "wrongWorkspaceReceipt", "wrongResource", "wrongMachine"])
+    @MainActor
+    func restoredAttachmentRejectsChangedPlacement(change: String) throws {
+        let catalog = SurfaceCatalog()
+        var resource = Self.resource()
+        let provider = CloudTerminalPlacementTestProvider(machine: resource.machine, catalog: catalog)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: provider.machine) }
+        let saved = SurfaceRemoteWorkspace(id: "saved-workspace", name: "Saved", index: 0, focused: false)
+        let other = SurfaceRemoteWorkspace(id: "other-workspace", name: "Other", index: 1, focused: true)
+        resource.remoteWorkspace = other
+        resource.remoteViews = [
+            SurfaceRemoteView(tabID: "other-tab", workspace: other),
+            SurfaceRemoteView(tabID: "sibling-tab", workspace: saved),
+            SurfaceRemoteView(tabID: "saved-tab", workspace: saved)
+        ]
+        catalog.upsert(resource, from: provider)
+        try #require(catalog.resources[resource.id] == resource)
+        let reservation = CloudTerminalPaneReservation(
+            workspaceID: UUID(), panelID: UUID(), machine: resource.machine,
+            attachmentPlacement: SurfaceResourcePlacement(
+                resource: resource.id, remoteWorkspaceID: saved.id, remoteTabID: "saved-tab"
+            )
+        )
+        let expected = SurfaceRemotePlacement(workspaceID: saved.id, tabID: "saved-tab")
+        #expect(try reservation.validatedAttachmentPlacement(
+            resourceID: resource.id, remoteTabID: "saved-tab", catalog: catalog
+        ) == expected)
+
+        var returnedPlacement = expected
+        var returnedResourceID = resource.id
+        switch change {
+        case "moved": resource.remoteViews?[2].workspace = other
+        case "removed": resource.remoteViews?.removeLast()
+        case "metadataMissing": resource.remoteViews = nil
+        case "wrongTabReceipt": returnedPlacement = SurfaceRemotePlacement(workspaceID: saved.id, tabID: "sibling-tab")
+        case "wrongWorkspaceReceipt": returnedPlacement = SurfaceRemotePlacement(workspaceID: other.id, tabID: "saved-tab")
+        case "wrongResource": returnedResourceID = SurfaceResourceID(machine: resource.machine, kind: .terminal, key: "other-terminal")
+        case "wrongMachine": returnedResourceID = SurfaceResourceID(machine: .cloud("other-machine"), kind: .terminal, key: resource.id.key)
+        default: Issue.record("Unknown placement change")
+        }
+        catalog.upsert(resource, from: provider)
+        try #require(catalog.resources[resource.id] == resource)
+        #expect(throws: CloudDiagnosticFailure.placement) {
+            try reservation.validatedAttachmentPlacement(
+                resourceID: returnedResourceID, remoteTabID: "saved-tab",
+                materializedPlacement: returnedPlacement, catalog: catalog
+            )
+        }
+    }
+
+    @Test @MainActor
+    func aNewCreationDoesNotMistakeItsSourceTabForTheAttachmentTarget() throws {
+        let resource = Self.resource()
+        let reservation = CloudTerminalPaneReservation(
+            workspaceID: UUID(), panelID: UUID(), machine: resource.machine,
+            sourcePlacement: CloudTerminalSourcePlacement(
+                machine: resource.machine, remoteWorkspaceID: "workspace", remoteTabID: "source-tab"
+            )
+        )
+        let created = SurfaceRemotePlacement(workspaceID: "workspace", tabID: "new-tab")
+        #expect(reservation.attachmentPlacement == nil)
+        #expect(try reservation.validatedAttachmentPlacement(
+            resourceID: resource.id, remoteTabID: created.tabID,
+            materializedPlacement: created, catalog: SurfaceCatalog()
+        ) == created)
+    }
+
+    @Test("Exact restored replacement preserves saved identity while legacy inference remains available",
+          arguments: [false, true])
+    @MainActor
+    func replacementKeepsSavedPlacementWhenRequested(preservingSavedPlacement: Bool) throws {
+        let catalog = SurfaceCatalog()
+        var resource = Self.resource()
+        let provider = CloudTerminalPlacementTestProvider(machine: resource.machine, catalog: catalog)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: provider.machine) }
+        let other = SurfaceRemoteWorkspace(id: "other-workspace", name: "Other", index: 0, focused: true)
+        resource.remoteViews = [SurfaceRemoteView(tabID: "other-tab", workspace: other)]
+        catalog.upsert(resource, from: provider)
+        try #require(catalog.resources[resource.id] == resource)
+        let previous = SurfaceProjection(
+            resource: resource.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: "saved-workspace", remoteTabID: "saved-tab"
+        )
+        catalog.record(previous)
+        let panelID = UUID()
+        catalog.replaceProjection(
+            previous, withPanel: panelID, in: previous.workspaceID,
+            remotePlacement: nil, preservingSavedPlacement: preservingSavedPlacement
+        )
+        let replacement = catalog.projection(forPanel: panelID)
+        #expect(catalog.projection(forPanel: previous.panelID) == nil)
+        #expect(replacement?.resource == resource.id)
+        #expect(replacement?.remoteWorkspaceID == (preservingSavedPlacement ? "saved-workspace" : other.id))
+        #expect(replacement?.remoteTabID == (preservingSavedPlacement ? "saved-tab" : "other-tab"))
     }
 
     private static func resource() -> SurfaceResource {

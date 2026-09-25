@@ -88,9 +88,34 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     /// token-scoped terminal transition.
     func installProvisionalDelegate() {
         guard let tableView = sourceView as? SidebarWorkspaceTableViewImpl else { return }
-        previousTableDelegate = tableView.delegate
+        // Installing twice, or over another writer that already forwards to
+        // this one, must not make `responds(to:)` forward back here forever.
+        if tableView.delegate !== self,
+           !Self.forwardingChain(from: tableView.delegate, reaches: self) {
+            if let previousWriter = tableView.delegate as? SidebarWorkspaceDragPasteboardWriter {
+                // Preserve the original delegate rather than retaining a
+                // superseded provisional writer in the forwarding chain.
+                previousTableDelegate = previousWriter.previousTableDelegate
+            } else {
+                previousTableDelegate = tableView.delegate
+            }
+        }
         tableView.delegate = self
         controller = nil
+    }
+
+    private static func forwardingChain(
+        from delegate: NSTableViewDelegate?,
+        reaches target: SidebarWorkspaceDragPasteboardWriter
+    ) -> Bool {
+        var current = delegate
+        var hops = 0
+        while let writer = current as? SidebarWorkspaceDragPasteboardWriter, hops < 32 {
+            if writer === target { return true }
+            current = writer.previousTableDelegate
+            hops += 1
+        }
+        return false
     }
 
     /// Releases the old controller while leaving this writer's source table
@@ -128,12 +153,18 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
 
     override func responds(to selector: Selector) -> Bool {
         super.responds(to: selector)
-            || previousTableDelegate?.responds(to: selector) == true
+            || forwardedDelegate?.responds(to: selector) == true
     }
 
     override func forwardingTarget(for selector: Selector) -> Any? {
-        previousTableDelegate
+        forwardedDelegate
             ?? super.forwardingTarget(for: selector)
+    }
+
+    /// The previous delegate, unless it is this writer itself.
+    private var forwardedDelegate: NSTableViewDelegate? {
+        guard let previousTableDelegate, previousTableDelegate !== self else { return nil }
+        return previousTableDelegate
     }
 
     func tableView(

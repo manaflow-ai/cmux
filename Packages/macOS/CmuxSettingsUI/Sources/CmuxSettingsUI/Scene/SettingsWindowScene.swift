@@ -123,7 +123,7 @@ public struct SettingsWindowRoot: View {
     /// defaulting to ``SettingsSectionID/account`` when the stored value
     /// is unrecognized (e.g., after dropping a case).
     private var selectedSection: SettingsSectionID {
-        SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
+        SettingsSectionID(rawValue: selectedSectionRaw)?.canonicalSection ?? .account
     }
     /// Whether the user currently has a non-empty search query. When
     /// false the sidebar should track section selection only; when true
@@ -206,7 +206,7 @@ public struct SettingsWindowRoot: View {
     private func applyNavigationRequest(_ notification: Notification) {
         guard
             let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)
+            let target = SettingsSectionID(rawValue: rawValue)?.canonicalSection
         else { return }
         // Legacy preserves the highlighted search hit when an external
         // navigation request resolves to the same section the currently
@@ -246,6 +246,7 @@ public struct SettingsWindowRoot: View {
         }
     }
 
+    /// Shows grouped browse categories until search is active, then preserves the flat ranked result list.
     @ViewBuilder
     private var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
@@ -253,14 +254,26 @@ public struct SettingsWindowRoot: View {
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(.secondary)
-            } else {
+            } else if isSearching {
+                // Search stays flat and relevance-ranked. Taxonomy only
+                // reorganizes the default browse view, so existing setting
+                // hit IDs, row anchors, and deep-link selection semantics
+                // remain unchanged while a query is active.
                 ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
+                    sidebarEntryRow(entry)
+                }
+            } else {
+                ForEach(SettingsTaxonomyGroup.allCases) { group in
+                    let groupEntries = taxonomyEntries(for: group, from: matches)
+                    if !groupEntries.isEmpty {
+                        Section {
+                            ForEach(groupEntries) { entry in
+                                sidebarEntryRow(entry)
+                            }
+                        } header: {
+                            Text(group.title)
+                        }
+                    }
                 }
             }
         }
@@ -268,6 +281,30 @@ public struct SettingsWindowRoot: View {
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
         .navigationSplitViewColumnWidth(210)
+    }
+
+    /// Renders one existing search-index entry as a selectable sidebar leaf.
+    @ViewBuilder
+    private func sidebarEntryRow(_ entry: SettingsSearchIndex.Entry) -> some View {
+        SettingsSidebarEntryRow(
+            title: entry.title,
+            symbolName: entry.symbolName,
+            subtitle: subtitle(for: entry)
+        )
+        .tag(entry.id)
+    }
+
+    /// Returns the existing section entries in taxonomy order without
+    /// changing their ids or targets. Runtime visibility filtering happens
+    /// before this step, so unavailable leaves simply disappear from their
+    /// group while the remaining destinations keep their stable identities.
+    private func taxonomyEntries(
+        for group: SettingsTaxonomyGroup,
+        from entries: [SettingsSearchIndex.Entry]
+    ) -> [SettingsSearchIndex.Entry] {
+        group.sections.compactMap { section in
+            entries.first { $0.id == sectionEntryID(for: section) }
+        }
     }
 
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
@@ -370,7 +407,7 @@ public struct SettingsWindowRoot: View {
     /// rows ("section:<rawValue>"). Mirrors ``SettingsSearchIndex``'s
     /// internal id scheme.
     private func sectionEntryID(for section: SettingsSectionID) -> String {
-        "section:\(section.rawValue)"
+        "section:\(section.canonicalSection.rawValue)"
     }
 
     /// Decodes an entry ID back to the section pane that should be
@@ -379,7 +416,7 @@ public struct SettingsWindowRoot: View {
     private func parentSection(for entryID: String) -> SettingsSectionID {
         if entryID.hasPrefix("section:") {
             let raw = String(entryID.dropFirst("section:".count))
-            return SettingsSectionID(rawValue: raw) ?? .account
+            return SettingsSectionID(rawValue: raw)?.canonicalSection ?? .account
         }
         if let entry = searchIndex.entries.first(where: { $0.id == entryID }) {
             if case .setting(let parent) = entry.kind { return parent }
@@ -449,14 +486,8 @@ public struct SettingsWindowRoot: View {
         }
     }
 
-    /// Mirrors legacy `SettingsView.applySettingsNavigation`: scrolls
-    /// to the section header first, then — when the navigation request
-    /// carries a deep anchor and `highlight` is set — scrolls that
-    /// specific anchor into the vertical center of the viewport.
-    ///
-    /// Section-level navigation posts (e.g. external `navigate(to:)`
-    /// calls that don't carry a meaningful highlight) only get the
-    /// section-top scroll, matching the legacy snap-to-top behavior.
+    /// Scrolls to a section header at the top or centers a subsection/row
+    /// anchor, resolving legacy destinations before mounting their content.
     ///
     /// A monotonically increasing `settingsNavigationGeneration`
     /// guards against stale scrolls when navigation requests pile up:
@@ -467,9 +498,12 @@ public struct SettingsWindowRoot: View {
     private func applyScrollNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
         guard
             let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)
+            let requestedSection = SettingsSectionID(rawValue: rawValue)
         else { return }
-        let anchorID = (notification.userInfo?["anchor"] as? String) ?? self.anchorID(for: target)
+        let target = requestedSection.canonicalSection
+        let anchorID = requestedSection.canonicalNavigationAnchor(
+            providedAnchor: notification.userInfo?["anchor"] as? String
+        )
         let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
         let sectionID = self.anchorID(for: target)
         settingsNavigationGeneration += 1

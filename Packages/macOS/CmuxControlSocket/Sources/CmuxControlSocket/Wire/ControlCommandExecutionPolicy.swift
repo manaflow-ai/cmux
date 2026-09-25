@@ -32,8 +32,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
 #if DEBUG
         if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
             || method == "remote.tmux.test_perturb_divider"
-            || method == "remote.tmux.root_frames"
-            || method == "remote.tmux.window" {
+            || method == "remote.tmux.root_frames" {
             self = .socketWorker(mainThreadCallable: false)
             return
         }
@@ -68,13 +67,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             self = .mainActor
         }
     }
-
     /// True when the command runs on the socket-worker thread.
     public var runsOnSocketWorker: Bool {
         if case .socketWorker = self { return true }
         return false
     }
-
     /// Socket-worker methods; internal so package tests can pin the exact set.
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
@@ -83,6 +80,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.sign_in_url",
         "auth.begin_sign_in",
         "auth.sign_out",
+        "auth.team.list",
+        "auth.team.use",
+        "auth.team.create",
         "feedback.submit",
         // `feed.jump` awaits its actor-owned hook-session lookup while the
         // socket worker waits for the response.
@@ -91,8 +91,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
-        // Admission only appends an immutable event to the actor-owned queue;
-        // all downstream process/socket work happens after the reply.
+        // Admission appends an immutable event to the actor-owned queue.
         "agent.hook.enqueue",
         "agent.hook.barrier",
         // Performs a fresh off-main process scan before one agent exec. Only
@@ -125,8 +124,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // surfaces. Keep them on the worker lane so markdown/file-preview panes
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead
         // of the main-actor switch returning method_not_found.
+        // `mobile.panel.artifact.fetch` is deliberately absent: it needs the
+        // authenticated mobile RPC execution context, so the local control
+        // socket answers method_not_found instead of bypassing
+        // artifact-transfer authorization (the worker switch has no case for it).
         "mobile.panel.artifact.stat",
-        "mobile.panel.artifact.fetch",
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
@@ -159,10 +161,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
         "surface.read_selection",
-        // The surface catalog verbs await main-actor catalog work that can sit on the
-        // network (a cloud provider materializing a pane); like `vm.*` they park the
-        // worker instead of holding the main actor.
+        // Surface verbs park the worker while awaiting catalog or provider work.
         "surface.catalog",
+        // Current-work captures owners once, then reduces/encodes off-main without refresh.
+        "current.list",
         "surface.project",
         "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY
@@ -173,7 +175,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
         "workspace.env",
-        "workspace.remote.pty_sessions",
+        "workspace.ssh.open", "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
@@ -189,7 +191,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+        "remote.tmux.mirror", "remote.tmux.window",
+        "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
