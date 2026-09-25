@@ -269,7 +269,7 @@ private actor ParkedWorkspacePersistenceActor {
         _ records: [ParkedWorkspaceRecord],
         fileURL: URL,
         revision: UInt64
-    ) {
+    ) -> Bool {
         let path = fileURL.standardizedFileURL.path
         if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
             return false
