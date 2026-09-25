@@ -2161,9 +2161,11 @@ struct SidebarPinnedIndicatorColorTests {
 @Suite
 @MainActor
 struct SidebarGroupHeaderLayoutTests {
-    @Test(arguments: [CGFloat(1), CGFloat(1.5)])
-    func wrappedTextFitsTheAllocatedHeader(fontScale: CGFloat) throws {
-        let title = "Orchestrator running verification and waiting for agent results"
+    @Test(arguments: [CGFloat(1), CGFloat(1.5)], [
+        "Orchestrator",
+        "Orchestrator running verification and waiting for agent results"
+    ])
+    func wrappedTextFitsTheAllocatedHeader(fontScale: CGFloat, title: String) throws {
         let description = "Anchor run state: all agents finished; preparing the review"
         for width in stride(from: CGFloat(180), through: 400, by: 11) {
             let model = makeModel(name: title, description: description, fontScale: fontScale)
@@ -2190,6 +2192,8 @@ struct SidebarGroupHeaderLayoutTests {
             cell.layoutSubtreeIfNeeded()
             let fields = SidebarAppKitRowCellTests.descendants(of: cell)
                 .compactMap { $0 as? NSTextField }
+            let plusButton = try #require(cell.subviews.compactMap { $0 as? SidebarHeaderGlyphButton }
+                .max { $0.frame.minX < $1.frame.minX })
             for text in [title, description] {
                 let field = try #require(fields.first { $0.stringValue == text })
                 let textCell = try #require(field.cell)
@@ -2200,6 +2204,7 @@ struct SidebarGroupHeaderLayoutTests {
                 #expect(field.frame.height >= ceil(measured.height))
                 #expect(field.frame.minY >= 0)
                 #expect(field.frame.maxY <= height)
+                #expect(!field.frame.intersects(plusButton.frame))
             }
         }
     }
