@@ -13,7 +13,6 @@ final class WorkspaceTaskStatusSignalOwner {
     private var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
     private var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
     private var workspaceGitBranch: SidebarGitBranchState?
-    private var workspacePullRequest: SidebarPullRequestState?
     private var observers: [UUID: AsyncStream<WorkspaceTaskStatusSignals>.Continuation] = [:]
 
     /// Emits the current signal sample immediately, then every distinct sample.
@@ -77,13 +76,6 @@ final class WorkspaceTaskStatusSignalOwner {
         return recomputeSignals()
     }
 
-    /// Records the workspace-level pull-request fallback.
-    @discardableResult
-    func setWorkspacePullRequest(_ state: SidebarPullRequestState?) -> WorkspaceTaskStatusSignalTransition {
-        workspacePullRequest = state
-        return recomputeSignals()
-    }
-
     /// Seeds restored git state without treating session restoration as a user-visible transition.
     func restoreGitState(
         workspaceBranch: SidebarGitBranchState?,
@@ -120,12 +112,18 @@ final class WorkspaceTaskStatusSignalOwner {
         panelGitBranches.removeAll()
         panelPullRequests.removeAll()
         workspaceGitBranch = nil
-        workspacePullRequest = nil
+
         return recomputeSignals()
     }
 
     private func recomputeSignals(emit: Bool = true) -> WorkspaceTaskStatusSignalTransition {
-        let pullRequests = Array(panelPullRequests.values) + (workspacePullRequest.map { [$0] } ?? [])
+        let pullRequests = panelPullRequests.compactMap { panelId, state in
+            guard let branch = state.branch else { return state }
+            guard panelGitBranches[panelId]?.branch.normalizedSidebarBranchName == branch.normalizedSidebarBranchName else {
+                return nil
+            }
+            return state
+        }
         let branches = Array(panelGitBranches.values) + (workspaceGitBranch.map { [$0] } ?? [])
         let next = WorkspaceTaskStatusSignals(
             anyAgentNeedsInput: agentLifecycleStatesByPanelId.values.contains { states in
@@ -183,6 +181,14 @@ struct WorkspaceTaskStatusSignalTransition: Equatable {
 extension Workspace {
     // MARK: - Status signals
 
+    /// Records the workspace-level fallback reported by shell integration.
+    /// Focus changes update ``gitBranch`` as a presentation mirror and do not
+    /// call this method, so a stale focused-panel mirror cannot overwrite the
+    /// authoritative fallback signal.
+    func recordWorkspaceGitBranchSignal(_ state: SidebarGitBranchState?) {
+        handleTaskStatusSignalTransition(taskStatusSignalOwner.setWorkspaceGitBranch(state))
+    }
+
     /// Returns the authoritative live signal sample owned by this workspace.
     func taskStatusSignals(orderedPanelIds: [UUID]? = nil) -> WorkspaceTaskStatusSignals {
         taskStatusSignalOwner.signals
@@ -191,9 +197,13 @@ extension Workspace {
     /// Applies one signal-owner transition to the shared lifecycle rules.
     /// Override expiry and inferred-done notifications therefore run for
     /// agent, Git, and pull-request updates through the same path.
-    func handleTaskStatusSignalTransition(_ transition: WorkspaceTaskStatusSignalTransition) {
+    func handleTaskStatusSignalTransition(
+        _ transition: WorkspaceTaskStatusSignalTransition,
+        notifyDone: Bool = true
+    ) {
         guard transition.didChange else { return }
         reconcileExpiredTaskStatusOverride()
+        guard notifyDone else { return }
         guard transition.previousStatus != .done,
               transition.currentStatus == .done else { return }
         postInferredDoneNotification()

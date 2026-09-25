@@ -3079,10 +3079,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     var gitBranch: SidebarGitBranchState? {
         get { sidebarMetadata.gitBranch }
-        set {
-            sidebarMetadata.gitBranch = newValue
-            handleTaskStatusSignalTransition(taskStatusSignalOwner.setWorkspaceGitBranch(newValue))
-        }
+        set { sidebarMetadata.gitBranch = newValue }
     }
     var panelGitBranches: [UUID: SidebarGitBranchState] {
         get { sidebarMetadata.panelGitBranches }
@@ -3090,10 +3087,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     var pullRequest: SidebarPullRequestState? {
         get { sidebarMetadata.pullRequest }
-        set {
-            sidebarMetadata.pullRequest = newValue
-            handleTaskStatusSignalTransition(taskStatusSignalOwner.setWorkspacePullRequest(newValue))
-        }
+        set { sidebarMetadata.pullRequest = newValue }
     }
     var panelPullRequests: [UUID: SidebarPullRequestState] {
         get { sidebarMetadata.panelPullRequests }
@@ -3119,6 +3113,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 .sidebarGitMetadataService
                 .clearWorkspaceGitProbes(workspaceId: id)
             clearSidebarGitMetadata()
+            handleTaskStatusSignalTransition(taskStatusSignalOwner.reset(), notifyDone: false)
             // A binding transition invalidates the previous machine's cwd report.
             // Local PTY state can be used again only after the binding is removed.
             panelDirectories.removeAll()
@@ -6471,6 +6466,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func resetSidebarContext(reason: String = "unspecified") {
+        handleTaskStatusSignalTransition(taskStatusSignalOwner.reset(), notifyDone: false)
         statusEntries.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
@@ -6484,7 +6480,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelGitBranches.removeAll()
         pullRequest = nil
         panelPullRequests.removeAll()
-        handleTaskStatusSignalTransition(taskStatusSignalOwner.reset())
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
@@ -6579,7 +6574,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             validSurfaceIds.contains($0.key)
         }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
-        handleTaskStatusSignalTransition(taskStatusSignalOwner.prunePanels(validPanelIds: validSurfaceIds))
+        handleTaskStatusSignalTransition(
+            taskStatusSignalOwner.prunePanels(validPanelIds: validSurfaceIds),
+            notifyDone: false
+        )
         let staleAgentPIDPanelIds = agentPIDKeysByPanelId.keys.filter { !validSurfaceIds.contains($0) }
         var didClearStaleAgentRuntime = false
         for panelId in staleAgentPIDPanelIds {

@@ -36,10 +36,6 @@ extension TerminalController {
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            guard SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard).acceptsPassiveReports else {
-                tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
-                return
-            }
             tabManager.updateSurfaceGitBranch(
                 tabId: scope.workspaceID,
                 surfaceId: scope.panelID,
@@ -54,16 +50,14 @@ extension TerminalController {
         }
         if tab.cloudVMBinding != nil { tab.clearSidebarGitMetadata(); return true }
         if let focusedPanelId = tab.focusedPanelId, tab.cloudDirectoryProvenanceRequired(panelId: focusedPanelId) { tab.clearPanelGitBranch(panelId: focusedPanelId); return true }
-        guard SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard).acceptsPassiveReports else {
-            tab.gitBranch = nil
-            return true
-        }
         let existingGitBranch = tab.gitBranch
         let nextIsDirty = isDirty ?? (existingGitBranch?.branch == branch ? existingGitBranch?.isDirty ?? false : false)
-        tab.gitBranch = SidebarGitBranchState(
+        let state = SidebarGitBranchState(
             branch: branch,
             isDirty: nextIsDirty
         )
+        tab.recordWorkspaceGitBranchSignal(state)
+        tab.gitBranch = state
         return true
     }
     /// Shares `.gitBranch` with the update scheduler: update-then-clear (or
@@ -91,6 +85,7 @@ extension TerminalController {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
         }
+        tab.recordWorkspaceGitBranchSignal(nil)
         tab.gitBranch = nil
         return true
     }
@@ -117,10 +112,6 @@ extension TerminalController {
             return
         }
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard).acceptsPassiveReports else {
-                tab.clearPanelPullRequest(panelId: surfaceId)
-                return
-            }
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,

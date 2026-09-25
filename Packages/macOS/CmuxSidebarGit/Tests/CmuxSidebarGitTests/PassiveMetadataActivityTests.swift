@@ -50,4 +50,31 @@ import CmuxGit
         #expect(host.workspaces[0].state.panels[panelId]?.branch?.branch == "reported-while-hidden")
         #expect(await reader.probedDirectories.isEmpty)
     }
+
+    @Test func disabledGitWatchingStillAcceptsLiveBranchReports() async throws {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/srv/project")
+        host.gitMetadataActivity = .disabled
+        let service = SidebarGitMetadataService(
+            workspaceGitMetadataReader: GatedMetadataReader(metadata: .nonRepository),
+            gitMetadataService: GitMetadataService(),
+            pullRequestProbing: RecordingPullRequestProbing(),
+            probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
+            clock: ManualGitPollClock()
+        )
+        service.attach(host: host)
+
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "reported-while-disabled",
+            isDirty: true
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
+            branch: "reported-while-disabled",
+            isDirty: true
+        ))
+        #expect(!host.events.contains(.clearAllGitMetadata))
+    }
 }
