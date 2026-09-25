@@ -2416,6 +2416,12 @@ struct ContentView: View {
             if let fragment = components.fragment, !fragment.isEmpty { result += "#\(fragment)" }
             return result.isEmpty ? nil : result
         }
+        if let url {
+            let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty, value.caseInsensitiveCompare("about:blank") != .orderedSame {
+                return value
+            }
+        }
         guard let directory else { return nil }
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
