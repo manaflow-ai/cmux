@@ -202,11 +202,8 @@ def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
         assert actual.release_build is True, (paths, actual)
 
 
-def test_cli_sources_use_dedicated_cli_workflow_without_app_host_compile() -> None:
-    cli_workflow = (ROOT / ".github/workflows/cli-pipe-regressions.yml").read_text()
-    assert "  workflow_call:" in cli_workflow
-    assert "-scheme cmux-cli" in cli_workflow
-
+def test_cli_sources_route_the_cli_lane_without_app_host_compile() -> None:
+    # tests/test_ci_cli_lane_in_admission.py pins where the CLI lane runs.
     actual = module.classify_files(["CLI/cmux.swift", "CLI/FeedEventClassifier.swift"])
     assert actual.macos is False
     assert actual.web is False
@@ -227,8 +224,7 @@ def test_cli_workflow_inputs_route_the_required_cli_lane() -> None:
         "web/data/cmux.schema.json",
         "cmux.xcodeproj/project.pbxproj",
         "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Process/AgentPIDProcessIdentity.swift",
-        ".github/workflows/cli-pipe-regressions.yml",
-        # Steps of cli-pipe-regressions.yml other than the build.
+        # Steps of compile admission the CLI product depends on.
         "scripts/select-ci-xcode.sh",
         "scripts/install-rust-ci.sh",
         "Native/DiffSidecar/rust-toolchain.toml",
@@ -244,6 +240,20 @@ def test_cli_workflow_inputs_route_the_required_cli_lane() -> None:
         "skills/cmux-settings/scripts/cmux-settings",
     ):
         assert module.classify_files([path]).cli is True, path
+
+
+def test_cmux_foundation_tests_route_the_package_lane_not_the_cli_lane() -> None:
+    # The CLI lane no longer runs `swift test` in CmuxFoundation; the
+    # swift-package-tests lane runs every CmuxFoundation suite when the
+    # package changes, and its test sources never reach the cmux-cli binary.
+    for name in ("CmuxConfigSemanticValidatorTests", "CmuxGlaedaExecutionContractTests"):
+        path = f"Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/{name}.swift"
+        actual = module.classify_files([path])
+        assert actual.cli is False, (path, actual)
+        assert actual.swift_packages is True, (path, actual)
+    assert "CmuxFoundation" in module.swift_package_test_selection(
+        ["Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/CmuxGlaedaExecutionContractTests.swift"]
+    )
 
 
 def test_every_declared_cli_lane_input_exists() -> None:
@@ -1370,7 +1380,7 @@ def test_unknown_ci_helper_still_fails_open_to_every_area_the_lane_can_reach() -
     assert actual.web is True
     assert actual.agent_session_web is True
     assert actual.release_build is True
-    # cli-pipe-regressions.yml runs no unowned scripts/ci helper, so a new one
+    # The CLI lane runs no unowned scripts/ci helper, so a new one
     # cannot change its result unless it shadows an import of a helper the lane
     # does run; test_cli_lane_routes_stdlib_shadowing_ci_helpers covers that.
     assert actual.cli is False
@@ -1600,12 +1610,12 @@ def test_ci_workflow_job_edits_select_only_the_area_they_call() -> None:
         assert change_areas(real, edit_job(real, job)) == areas(), job
     # A caller job selects the area of the reusable workflow it calls: its
     # `with:` inputs, `if:` and `needs:` all live in that block.
-    assert change_areas(real, edit_job(real, "macos")) == areas(macos=True, release_build=True)
+    # The macOS caller also passes the `cli` route that runs the CLI lane.
+    assert change_areas(real, edit_job(real, "macos")) == areas(macos=True, cli=True, release_build=True)
     assert change_areas(real, edit_job(real, "web")) == areas(web=True, agent_session_web=True)
-    assert change_areas(real, edit_job(real, "cli")) == areas(cli=True)
     assert change_areas(
-        real, edit_job(edit_job(real, "cli"), "macos-admission-gate"),
-    ) == areas(cli=True)
+        real, edit_job(edit_job(real, "macos"), "macos-admission-gate"),
+    ) == areas(macos=True, cli=True, release_build=True)
 
 
 def test_ci_workflow_job_edits_fail_open_when_the_area_is_unknown() -> None:
@@ -1626,7 +1636,7 @@ def test_ci_workflow_job_edits_fail_open_when_the_area_is_unknown() -> None:
         assert change_areas(real, head) is None
     # The macOS caller keeps macOS when it is renamed or removed.
     renamed = real.replace("\n  macos:\n", "\n  macos-renamed:\n", 1)
-    assert change_areas(real, renamed) == areas(macos=True, release_build=True)
+    assert change_areas(real, renamed) == areas(macos=True, cli=True, release_build=True)
 
 
 def test_ci_workflow_areas_route_through_classify_files() -> None:
@@ -2989,7 +2999,8 @@ def test_ci_workflow_edits_to_a_mac_lane_caller_still_select_it() -> None:
     assert daemon["remote_daemon_native"] == "true", daemon
     assert daemon["claude_wrapper"] == "false", daemon
 
-    cli = route_ci_workflow_edit(edit_job(real, "cli"))
+    # The `macos` job passes the `cli` route to compile admission.
+    cli = route_ci_workflow_edit(edit_job(real, "macos"))
     assert cli["cli"] == "true", cli
     assert cli["claude_wrapper"] == "false", cli
 
@@ -3044,10 +3055,12 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - run: guard
-  cli:
+  macos:
     needs: [changes]
     if: ${{ needs.changes.outputs.cli == 'true' }}
-    uses: ./.github/workflows/cli-pipe-regressions.yml
+    uses: ./.github/workflows/ci-macos.yml
+    with:
+      cli: ${{ needs.changes.outputs.cli }}
   ci-status:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
@@ -3057,11 +3070,11 @@ jobs:
 
 def test_ci_workflow_edit_to_the_cli_call_site_runs_the_cli_lane() -> None:
     # The router strips ci.yml before the trusted base classifies the diff, so
-    # the detect step compares the `cli` job itself.
+    # the detect step compares the `macos` job, which passes the `cli` route.
     for head in (
         CI_DIFF_BASE_WITH_CLI_LANE.replace(
-            "uses: ./.github/workflows/cli-pipe-regressions.yml",
-            "uses: ./.github/workflows/cli-pipe-regressions.yml\n    secrets: inherit",
+            "uses: ./.github/workflows/ci-macos.yml",
+            "uses: ./.github/workflows/ci-macos.yml\n    secrets: inherit",
         ),
         # Triggers and permissions before `jobs:` reach every called workflow.
         CI_DIFF_BASE_WITH_CLI_LANE.replace(
@@ -3191,7 +3204,6 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "guards",
         "browser",
         "remote-daemon",
-        "cli",
         "web",
         "linux-preflight",
         "macos",
@@ -3296,7 +3308,8 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
     assert early < package < upload
 
     script = workflow_job_step_script("macos-compile-admission", "Run early CLI binary smoke checks", MACOS_WORKFLOW)
-    for failed_probe in ("version", "help", "config-doctor", None, "missing-binary"):
+    probes = ["version", "help", "config-doctor", "broken-pipe", "glaeda"]
+    for failed_probe in (*probes, None, "missing-binary"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             derived = root / "derived with spaces"
@@ -3309,7 +3322,9 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
             trace = root / "probes.txt"
             for probe, filename in (("version", "test_cli_version_memory_guard.py"),
                                     ("help", "test_cli_contract_help.py"),
-                                    ("config-doctor", "test_cli_config_doctor.py")):
+                                    ("config-doctor", "test_cli_config_doctor.py"),
+                                    ("broken-pipe", "test_cli_broken_pipe_writes.py"),
+                                    ("glaeda", "test_cli_glaeda_execution.py")):
                 (root / "tests" / filename).write_text(
                     "import os,pathlib\n"
                     + "assert os.environ['CMUX_CLI_BIN'] == " + repr(str(cli)) + "\n"
@@ -3322,14 +3337,12 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
             invoked = trace.read_text().splitlines() if trace.exists() else []
             if failed_probe == "missing-binary":
                 assert result.returncode != 0 and not invoked
-            elif failed_probe == "version":
-                assert result.returncode == 23 and invoked == ["version"]
-            elif failed_probe == "help":
-                assert result.returncode == 23 and invoked == ["version", "help"]
-            elif failed_probe == "config-doctor":
-                assert result.returncode == 23 and invoked == ["version", "help", "config-doctor"]
+            elif failed_probe is None:
+                assert result.returncode == 0 and invoked == probes, invoked
             else:
-                assert result.returncode == 0 and invoked == ["version", "help", "config-doctor"]
+                # A failing probe stops the step with its status.
+                expected = probes[: probes.index(failed_probe) + 1]
+                assert result.returncode == 23 and invoked == expected, (failed_probe, invoked)
 
 
 def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
@@ -3392,14 +3405,19 @@ def test_macos_admission_gate_needs_every_fast_linux_only_job() -> None:
     entry = {"changes", "static-preflight"}
     # The gate is derived, not hand-picked: every job that starts right after
     # the entry jobs and runs only on Linux. A job with any Mac runner is
-    # already billed and slow, so waiting on it would save nothing.
+    # already billed and slow, so waiting on it would save nothing. A job
+    # that cannot fail (continue-on-error at job level, like the report-only
+    # reverse-test-impact) can never decline macOS, so the gate skips it too.
     expected = entry | {
         key
         for key in jobs
         if key not in entry | {"macos-admission-gate"}
         and set(_job_needs(jobs, key)) <= entry
         and _job_runs_only_on_linux(jobs[key])
+        and jobs[key].get("continue-on-error") is not True
     }
+    assert "reverse-test-impact" in jobs
+    assert "reverse-test-impact" not in expected
     assert set(_job_needs(jobs, "macos-admission-gate")) == expected
     assert {"guards", "web", "suite-coverage"} <= expected
     assert not {"claude-wrapper", "remote-daemon", "cli", "linux-preflight"} & expected
@@ -3421,7 +3439,7 @@ def test_only_mac_work_waits_for_static_preflight() -> None:
     # Every job with a Mac runner still waits, so a lint failure bills no
     # Mac minutes.
     mac_jobs = {key for key in jobs if not _job_runs_only_on_linux(jobs[key])}
-    assert {"claude-wrapper", "remote-daemon", "cli", "macos"} <= mac_jobs
+    assert {"claude-wrapper", "remote-daemon", "macos"} <= mac_jobs
     for key in mac_jobs:
         assert "static-preflight" in _job_needs(jobs, key), key
     # A red static stage still fails the run's verdicts and declines macOS.
@@ -4441,7 +4459,7 @@ def product_runner_output(key: str) -> str:
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
-            "&& inputs.pr_refused_retry_runner "
+            "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
 
