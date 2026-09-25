@@ -447,7 +447,7 @@ final class FeedCoordinator: @unchecked Sendable {
                     }
                     return accepted
                 }
-                var committedEvent: WorkstreamEvent?
+                let committedEventSlot = FeedEventSlot()
                 guard result.commit({
                     guard case .accepted(let accepted, _) = FeedCoordinator.shared.acceptOnIngress(
                         event,
@@ -455,8 +455,8 @@ final class FeedCoordinator: @unchecked Sendable {
                     ) else {
                         return
                     }
-                    committedEvent = accepted
-                }) != nil, let committedEvent else { return nil }
+                    committedEventSlot.value = accepted
+                }) != nil, let committedEvent = committedEventSlot.value else { return nil }
                 DispatchQueue.main.sync {
                     MainActor.assumeIsolated { onAcceptedOnMainActor(committedEvent) }
                 }
@@ -961,6 +961,10 @@ private final class AttentionOverlayState {
 
 private final class SnapshotSlot: @unchecked Sendable {
     var value: [WorkstreamItem] = []
+}
+
+private final class FeedEventSlot: @unchecked Sendable {
+    var value: WorkstreamEvent?
 }
 
 #if DEBUG

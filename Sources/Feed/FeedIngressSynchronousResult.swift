@@ -3,9 +3,9 @@ import Foundation
 /// Transfers one synchronous scheduler result across the serial execution boundary.
 ///
 /// Safety: `state` is accessed only while holding `stateLock`. The semaphore bridges a
-/// synchronous socket worker onto the ordered delivery lane. Publication may use the remainder
-/// of the caller's deadline after a committed mutation. At the deadline, the authoritative
-/// committed value wins so a stalled publisher cannot make socket ingress unbounded.
+/// synchronous socket worker onto the ordered delivery lane. If an authoritative mutation starts
+/// before the deadline, the caller waits for its value even when publication finishes later;
+/// this prevents an accepted item from being reported as unavailable.
 final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
     private enum State {
         case pending
@@ -36,10 +36,8 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
     /// Linearizes the bounded caller result with its synchronous mutation.
     ///
     /// The operation runs outside the state lock so a stalled queue or actor hop
-    /// cannot hold a socket caller past its deadline. The state changes to
-    /// ``committing`` first; this reserves the operation's linearization point
-    /// while allowing the timeout path to return immediately if it fires while
-    /// the operation is waiting on another executor.
+    /// cannot block the timeout path before the mutation begins. The state changes
+    /// to ``committing`` first; this reserves the operation's linearization point.
     func commit(_ operation: () -> Value) -> Value? {
         stateLock.lock()
         guard case .running = state else {
