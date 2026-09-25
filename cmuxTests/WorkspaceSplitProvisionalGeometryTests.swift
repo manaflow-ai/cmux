@@ -38,11 +38,13 @@ struct WorkspaceSplitProvisionalGeometryTests {
         ))
 
         guard case .split(let root) = fixture.workspace.bonsplitController.treeSnapshot() else {
-            return Issue.record("Expected a root split")
+            Issue.record("Expected a root split")
+            return
         }
         guard case .split = root.first,
               case .pane(let newPane) = root.second else {
-            return Issue.record("Expected the existing tree to remain the first root child")
+            Issue.record("Expected the existing tree to remain the first root child")
+            return
         }
         #expect(root.orientation == SplitOrientation.horizontal.rawValue)
         #expect(newPane.tabs.contains { $0.id == rootSplit.id.uuidString })
