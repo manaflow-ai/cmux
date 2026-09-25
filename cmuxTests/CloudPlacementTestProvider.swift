@@ -18,6 +18,8 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var events: [String] = []
     var beforeMutation: (() async throws -> Void)?
     var beforeMaterialization: (() async throws -> Void)?
+    var materializeProjection: ((SurfaceResource, SurfaceRemoteView?, SurfaceDestination) throws -> SurfaceProjection)?
+    var onProjectionEnd: ((SurfaceProjection, SurfaceProjectionEndReason) -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
     /// The daemon cursor a projection reply carries. The real reply always has one.
@@ -36,6 +38,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     }
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await beforeMaterialization?()
+        if let materializeProjection { return try materializeProjection(resource, remoteView, destination) }
         return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
                           remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
     }
@@ -55,6 +58,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
         try await renameRemoteTab(id: try #require(context.projection.remoteTabID), name: name)
     }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        onProjectionEnd?(projection, reason)
+    }
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         events.append("move-start:" + remoteWorkspaceID)
         try await beforeMutation?()

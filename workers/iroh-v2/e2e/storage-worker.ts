@@ -5,6 +5,7 @@ import { applyStorageMigrations as applyDeployedMigrations } from "./fixtures/sc
 import { applyStorageMigrations } from "../src/storage/migrations";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { sql } from "drizzle-orm";
+import { OperationError } from "../src/errors";
 
 const scope: TeamScope = { environment: "test", projectId: "iroh-v2-test", teamId: "team-e2e" };
 
@@ -63,6 +64,14 @@ export class StorageTestDO {
       if (path === "/schema") return Response.json(Array.from(this.team.storage.sql.exec("SELECT version FROM schema_history ORDER BY version")));
       if (path === "/revision") return Response.json({ revision: this.team.readRevision() });
       if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
+      // Models the first directory/relay request after an existing authority
+      // lease is renewed on a v6-compatible store. Both production operations
+      // pass through observeAuthority before reading private state.
+      if (path === "/authority/renewal") {
+        const revision = this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now);
+        const devices = this.team.listDirectoryDevices(body.requester, body.now);
+        return Response.json({ revision, devices: devices.length });
+      }
       if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));
       if (path === "/audit/fill") {
         const db = drizzle((this.team.storage));
@@ -89,7 +98,9 @@ export class StorageTestDO {
       }
       return new Response("not found", { status: 404 });
     } catch (error) {
-      const code = error instanceof Error ? error.message : "unknown";
+      // Classified failures report their public code so tests can tell a
+      // retryable capacity signal from an unclassified internal error.
+      const code = error instanceof OperationError ? error.code : error instanceof Error ? error.message : "unknown";
       return Response.json({ code }, { status: 500 });
     }
   }
