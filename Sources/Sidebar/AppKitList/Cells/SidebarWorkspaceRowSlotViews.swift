@@ -319,13 +319,11 @@ final class SidebarRowTextView: NSTextField {
             accessibilityLinksAreStale = true
         }
         materializeAccessibilityLinks()
-        var children = super.accessibilityChildren() ?? []
-        for link in accessibilityLinks where !children.contains(where: {
-            ($0 as? SidebarRowTextAccessibilityLink) === link
-        }) {
-            children.append(link)
-        }
-        return children
+        // This read-only field exposes its text value directly. Forwarding
+        // NSTextField's cell children can alias the field itself and create an
+        // accessibility cycle through NSTableView's cell mock element. Only
+        // the row-owned link proxies are children of this view.
+        return accessibilityLinks
     }
 
     /// Applies the row palette to rendered Markdown while retaining ownership
