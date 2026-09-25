@@ -39354,7 +39354,10 @@ export default CMUXSessionRestore;
     ) throws {
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard source == "codex" else {
-            throw CLIError(message: "cmux hooks feed --stream requires --source codex")
+            throw CLIError(message: String(
+                localized: "cli.hooks.feedStream.error.codexOnly",
+                defaultValue: "cmux hooks feed --stream requires --source codex"
+            ))
         }
         while let line = readLine(strippingNewline: true) {
             guard let lineData = line.data(using: .utf8),

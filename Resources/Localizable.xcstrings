@@ -556715,6 +556715,65 @@
                 }
             }
         }
+    },
+    "cli.hooks.feedStream.error.codexOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream requires --source codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream には --source codex が必要です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream erfordert --source codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream nécessite --source codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب cmux hooks feed --stream الخيار --source codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream requiere --source codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream 需要 --source codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream 需要 --source codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks feed --stream에는 --source codex가 필요합니다"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
