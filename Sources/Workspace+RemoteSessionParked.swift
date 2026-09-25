@@ -14,16 +14,23 @@ extension Workspace {
 
     /// Whether no controller or transition can make this remote session ready
     /// without an explicit Reconnect. This also covers a deliberate
-    /// Disconnect after its cleanup transition has completed.
+    /// Disconnect as soon as its disconnected state is published.
     var remoteSessionIsWaitingForReconnect: Bool {
-        guard remoteSessionController == nil,
-              remoteSessionTransitionTask == nil else {
+        guard remoteSessionController == nil else {
+            return false
+        }
+        // Disconnect publishes both states before its cleanup task starts;
+        // attach attempts must observe that terminal verdict during cleanup as
+        // well as after it finishes.
+        if remoteControllerConnectionState == .disconnected,
+           remoteConnectionState == .disconnected {
+            return true
+        }
+        guard remoteSessionTransitionTask == nil else {
             return false
         }
         return remoteControllerIsParked ||
-            remoteConnectionState == .error ||
-            (remoteControllerConnectionState == .disconnected &&
-                remoteConnectionState == .disconnected)
+            remoteConnectionState == .error
     }
 
     /// The user-facing reason when no remote session controller exists and
