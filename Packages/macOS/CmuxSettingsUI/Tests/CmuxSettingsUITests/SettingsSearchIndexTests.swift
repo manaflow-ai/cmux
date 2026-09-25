@@ -99,23 +99,34 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
-    @Test(arguments: ["Computers", "devices"])
-    func computersSearchAliasTargetsMobileSubsection(query: String) throws {
+    @Test func exactComputersSearchTargetsMobileSubsection() throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
-        let result = try #require(index.match(query).first)
+        let result = try #require(index.match("Computers").first)
 
         #expect(result.id == "section:computers")
         #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
         #expect(result.kind == .section)
     }
 
-    @Test(arguments: ["mac", "tailscale", "remote"])
+    @Test(arguments: ["devices", "mac", "tailscale", "remote"])
     func computersSectionAliasesPreserveSearchRanking(query: String) throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = try #require(index.match(query).first { $0.kind == .section })
 
         #expect(result.id == "section:computers")
         #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
+    }
+
+    /// `devices` legitimately ranks the phone-push row first because its
+    /// subtitle contains an exact `devices` token. The Computers section
+    /// must still outrank the less-specific Mobile Pairing result.
+    @Test func devicesAliasRanksComputersAboveMobilePairing() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let results = index.match("devices")
+        let computersIndex = try #require(results.firstIndex { $0.id == "section:computers" })
+        let mobilePairingIndex = try #require(results.firstIndex { $0.id == "setting:mobile:pairDevice" })
+
+        #expect(computersIndex < mobilePairingIndex)
     }
 
     /// Typing an exact section name navigates to that section first.
