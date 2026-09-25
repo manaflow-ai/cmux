@@ -92,6 +92,29 @@ import Testing
         )
     }
 
+    @Test func rootSplitWorkspaceActionRoutesTheEntireTmuxWindow() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            connectedTransport: true
+        )
+        defer { harness.tearDown() }
+
+        let outcome = harness.workspace.newTerminalRootSplitOutcome(direction: .right)
+        #expect(outcome.isAccepted)
+
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = try #require(String(
+            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        let splitCommands = commands.split(separator: "\n").filter {
+            $0.hasPrefix("split-window ")
+        }
+        #expect(splitCommands.count == 1)
+        #expect(splitCommands.first?.split(separator: " ").contains("-f") == true)
+    }
+
     @Test func projectedForkSplitPreservesBeforePlacementAndRemoteLaunchContext() throws {
         let command = try #require(
             RemoteTmuxSplitFocusIntent.focusCreatedPane.agentForkCommand(
