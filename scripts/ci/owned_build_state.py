@@ -114,10 +114,11 @@ runner (owned_warm_state.py, pr_runner_pool.py warm affinity):
 The kept build's merge base comes first, when its stamp matches FINGERPRINT,
 then `pr-<n>` for the pull request it built (`keep`'s PR_NUMBER, so a re-push
 goes back to its previous push's build), then the same two keys of the mini's
-other canonical roots, then the commits of the seeds this Mac keeps for
-FINGERPRINT (CMUX_SEED_LOCAL_CACHE, set only when CI_OWNED_PREFER_SEED lets
-`prefer` clone them), most recently used first, MAX_WARM_KEYS in all. It never
-fails: anything it cannot read leaves that key out.
+other canonical roots, then, on a mini with a single root, the commits of the
+seeds this Mac keeps for FINGERPRINT (CMUX_SEED_LOCAL_CACHE, set only when
+CI_OWNED_PREFER_SEED lets `prefer` clone them), most recently used first,
+MAX_WARM_KEYS in all. It never fails: anything it cannot read leaves that key
+out.
 
 The other roots count because a job's root follows glaeda's free token, not
 the runner: the janitor records the keys against the runner that ran
@@ -125,7 +126,14 @@ admission, and glaeda-cmux-runner-hook gives a routed admission the root
 whose stamp is warm for it. Root k>1 keeps its state in STORE/cmux-ci-<k>
 (ci-macos.yml build-slot), root 1 in STORE itself. Another root's fingerprint
 includes its root (compile-app-host-test-product.sh), so its stamp is checked
-by STATE_VERSION only.
+by STATE_VERSION only. Seeds are left out once the mini has a second root
+(any STORE/cmux-ci-<k>): each root keeps its own seeds for its own
+fingerprint, and the hook routes by stamps only, so a routed admission lands
+on its runner's own root (or any free one), not on the root that listed the
+seed. A seed key recorded against the runner would send it there to miss.
+A second root counts once its store directory exists: one whose store was
+never created still lists seeds, and a store left behind after a mini goes back to
+one root keeps them out, which costs affinity but never a wrong route.
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
@@ -404,9 +412,13 @@ def other_root_stores(store: Path) -> list[Path]:
 def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dict[str, object]:
     """The main commits and pull requests this Mac starts from cheaply, as owned_warm_state.py reads them."""
     found: list[str] = stamp_keys(store, fingerprint)
-    for other in other_root_stores(store):
+    others = other_root_stores(store)
+    for other in others:
         found.extend(stamp_keys(other, ""))
-    cache = seed.local_cache()
+    # A seed sits in one root's store, and glaeda routes by stamps only: on a
+    # mini with more than one root, a routed admission may start at another
+    # root, whose store lacks the seed and whose fingerprint rules it out.
+    cache = None if others else seed.local_cache()
     seeds: list[tuple[float, str]] = []
     try:
         entries = list(cache.iterdir()) if cache is not None and cache.is_dir() else []
