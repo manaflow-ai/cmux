@@ -132,7 +132,7 @@ extension GhosttyNSView {
         numpadIMECommitDeduplicator.recordFallback(
             text: text,
             event: event,
-            sourceId: KeyboardLayout.id
+            sourceId: readInputSource().id
         )
     }
 
@@ -140,7 +140,7 @@ extension GhosttyNSView {
         numpadIMECommitDeduplicator.shouldSuppressCommit(
             text,
             currentEvent: NSApp.currentEvent,
-            sourceId: KeyboardLayout.id,
+            sourceId: readInputSource().id,
             externalCommittedTextDepth: externalCommittedTextDepth,
             keyTextAccumulatorIsActive: keyTextAccumulator != nil
         )

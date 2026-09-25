@@ -17,15 +17,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let surfaceView: GhosttyNSView
     }
 
-    private func makeHostedTerminalWindow() async throws -> HostedTerminalWindow {
+    private func makeHostedTerminalWindow(
+        sourceId: String = "com.apple.inputmethod.TCIM.Zhuyin"
+    ) async throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = CJKIMEInputSourceFixture(snapshot: .init(id: sourceId)).makeSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -202,17 +199,14 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             let window = hostedTerminal.window
             let surfaceView = hostedTerminal.surfaceView
             let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-            let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
             let previousInterpretHook = cjkIMEInterpretKeyEventsHook
             defer {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-                KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
                 cjkIMEInterpretKeyEventsHook = previousInterpretHook
                 window.orderOut(nil)
                 withExtendedLifetime(terminalSurface) {}
             }
 
-            KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
             installCJKIMEInterpretKeyEventsSwizzle()
             cjkIMEInterpretKeyEventsHook = { candidateView, _ in
                 guard candidateView === surfaceView else { return false }
@@ -249,16 +243,16 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
     func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            let hostedTerminal = try await makeHostedTerminalWindow()
+            let hostedTerminal = try await makeHostedTerminalWindow(
+                sourceId: "com.apple.inputmethod.Korean.2SetKorean"
+            )
             let terminalSurface = hostedTerminal.surface
             let window = hostedTerminal.window
             let surfaceView = hostedTerminal.surfaceView
             let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-            let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
             let previousInterpretHook = cjkIMEInterpretKeyEventsHook
             defer {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-                KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
                 cjkIMEInterpretKeyEventsHook = previousInterpretHook
                 window.orderOut(nil)
                 withExtendedLifetime(terminalSurface) {}
@@ -284,7 +278,6 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             }
 
             AppDelegate.installWindowResponderSwizzlesForTesting()
-            KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
             installCJKIMEInterpretKeyEventsSwizzle()
             cjkIMEInterpretKeyEventsHook = { candidateView, events in
                 guard candidateView === surfaceView,
@@ -389,14 +382,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     }
 
     func testBuffersZhuyinComponentInsertTextAsPreedit() {
-        let view = GhosttyNSView(frame: .zero)
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let source = KeyboardLayout.InputSourceSnapshot(id: "com.apple.inputmethod.TCIM.Zhuyin")
+        let view = GhosttyNSView(frame: .zero, readInputSource: { source })
         defer {
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             view.setKeyTextAccumulatorForTesting(nil)
         }
 
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
         view.setKeyTextAccumulatorForTesting([])
 
         view.insertText("ㄉ", replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -415,14 +406,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     }
 
     func testBuffersZhuyinComponentInsertTextAtMarkedSelection() {
-        let view = GhosttyNSView(frame: .zero)
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let source = KeyboardLayout.InputSourceSnapshot(id: "com.apple.inputmethod.TCIM.Zhuyin")
+        let view = GhosttyNSView(frame: .zero, readInputSource: { source })
         defer {
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             view.setKeyTextAccumulatorForTesting(nil)
         }
 
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
         view.setKeyTextAccumulatorForTesting([])
         view.setMarkedText(
             "ㄉㄚ",
@@ -442,14 +431,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     }
 
     func testCommittedZhuyinCandidateStillReachesTerminalAccumulator() {
-        let view = GhosttyNSView(frame: .zero)
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let source = KeyboardLayout.InputSourceSnapshot(id: "com.apple.inputmethod.TCIM.Zhuyin")
+        let view = GhosttyNSView(frame: .zero, readInputSource: { source })
         defer {
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             view.setKeyTextAccumulatorForTesting(nil)
         }
 
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
         view.setKeyTextAccumulatorForTesting([])
         view.setMarkedText(
             "ㄉㄚˋ",

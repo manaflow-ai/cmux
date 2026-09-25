@@ -4109,6 +4109,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// native runtime generation.
     private var deferredGhosttyMouseRepairTask: Task<Void, Never>?
     let imageTransferPreparation: TerminalImageTransferPreparationService?
+    /// Reads a fresh metadata snapshot at each input-system boundary.
+    let readInputSource: @MainActor () -> KeyboardLayout.InputSourceSnapshot
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -4151,14 +4153,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override init(frame frameRect: NSRect) {
         imageTransferPreparation = nil
+        readInputSource = { KeyboardLayout.currentInputSourceSnapshot }
         super.init(frame: frameRect)
         setup()
     }
 
     init(
         frame frameRect: NSRect,
-        imageTransferPreparation: TerminalImageTransferPreparationService
+        imageTransferPreparation: TerminalImageTransferPreparationService? = nil,
+        readInputSource: @escaping @MainActor () -> KeyboardLayout.InputSourceSnapshot = {
+            KeyboardLayout.currentInputSourceSnapshot
+        }
     ) {
+        self.readInputSource = readInputSource
         self.imageTransferPreparation = imageTransferPreparation
         super.init(frame: frameRect)
         setup()
@@ -4166,6 +4173,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     required init?(coder: NSCoder) {
         imageTransferPreparation = nil
+        readInputSource = { KeyboardLayout.currentInputSourceSnapshot }
         super.init(coder: coder)
         setup()
     }
@@ -6804,7 +6812,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Capture the keyboard layout ID before interpretation so the IME
         // forwarding decision uses the source that saw this key.
-        let keyboardIdBefore = KeyboardLayout.id
+        let keyboardIdBefore = readInputSource().id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -6834,7 +6842,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
-        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != readInputSource().id {
             imeConsumedKeyUps.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
@@ -7621,9 +7629,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Korean IME: Enter commits the syllable AND executes the command (single step).
         // Japanese/Chinese IME: Enter only confirms the conversion; a second Enter executes.
         // Only send the extra Return key for Korean input sources.
+        let inputSource = readInputSource()
         return TerminalCommittedIMEReturnInputSourcePolicy().shouldForwardReturn(
-            sourceId: KeyboardLayout.id,
-            languages: KeyboardLayout.languages
+            sourceId: inputSource.id,
+            languages: inputSource.languages
         )
     }
 

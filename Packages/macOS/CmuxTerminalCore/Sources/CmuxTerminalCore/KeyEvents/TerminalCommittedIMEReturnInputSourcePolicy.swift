@@ -12,6 +12,7 @@ public struct TerminalCommittedIMEReturnInputSourcePolicy: Sendable {
     ///   - languages: The input-source languages, ordered with the primary language first.
     public func shouldForwardReturn(sourceId: String?, languages: [String]) -> Bool {
         guard let sourceId else { return false }
-        return sourceId.range(of: "korean", options: .caseInsensitive) != nil
+        if sourceId.range(of: "korean", options: .caseInsensitive) != nil { return true }
+        return languages.first == "ko"
     }
 }

@@ -1111,15 +1111,46 @@ final class GhosttySpaceReleaseRegressionTests: XCTestCase {
 @MainActor
 final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
     func testReturnAfterKoreanCommitAlsoSendsReturnToSurface() async {
+        await assertCommittedReturn(
+            source: .init(id: "com.apple.inputmethod.Korean.2SetKorean"),
+            text: "한",
+            forwardsReturn: true
+        )
+    }
+
+    func testReturnAfterGureumCommitUsesPrimaryLanguage() async {
+        await assertCommittedReturn(
+            source: .init(id: "org.youknowone.inputmethod.Gureum.han2", languages: ["ko"]),
+            text: "한",
+            forwardsReturn: true
+        )
+    }
+
+    func testJapaneseCommitDoesNotExecuteCommand() async {
+        await assertCommittedReturn(
+            source: .init(id: "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese", languages: ["ja"]),
+            text: "日本",
+            forwardsReturn: false
+        )
+    }
+
+    func testChineseCommitDoesNotExecuteCommand() async {
+        await assertCommittedReturn(
+            source: .init(id: "com.apple.inputmethod.SCIM.ITABC", languages: ["zh-Hans"]),
+            text: "中文",
+            forwardsReturn: false
+        )
+    }
+
+    private func assertCommittedReturn(
+        source: KeyboardLayout.InputSourceSnapshot,
+        text: String,
+        forwardsReturn: Bool
+    ) async {
         await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
 
-            let surface = TerminalSurface(
-                tabId: UUID(),
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
-                workingDirectory: nil
-            )
+            let surface = CJKIMEInputSourceFixture(snapshot: source).makeSurface()
             let hostedView = surface.hostedView
 
             let window = NSWindow(
@@ -1155,18 +1186,15 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
                 return
             }
 
-            view.setMarkedText("한", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
+            view.setMarkedText(text, selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
 
-            // Simulate Korean input source so shouldSendCommittedIMEConfirmKey fires
-            KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
             installCJKIMEInterpretKeyEventsSwizzle()
             cjkIMEInterpretKeyEventsHook = { candidateView, _ in
                 guard candidateView === view else { return false }
-                candidateView.insertText("한", replacementRange: NSRange(location: NSNotFound, length: 0))
+                candidateView.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
                 return true
             }
             defer {
-                KeyboardLayout.debugInputSourceIdOverride = nil
                 cjkIMEInterpretKeyEventsHook = nil
             }
 
@@ -1197,8 +1225,8 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
             window.makeFirstResponder(view)
             view.keyDown(with: event)
 
-            XCTAssertFalse(view.hasMarkedText(), "Return should commit the active Hangul composition")
-            XCTAssertTrue(sawReturnPress, "Return should still be forwarded after IME commit so the command executes once")
+            XCTAssertFalse(view.hasMarkedText(), "Return should commit the active IME composition")
+            XCTAssertEqual(sawReturnPress, forwardsReturn, "Only Korean input sources should execute on the same Return that commits text")
         }
     }
 }
@@ -1209,12 +1237,9 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
         await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
 
-            let surface = TerminalSurface(
-                tabId: UUID(),
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
-                workingDirectory: nil
-            )
+            let surface = CJKIMEInputSourceFixture(snapshot: .init(
+                id: "com.apple.inputmethod.Korean.2SetKorean"
+            )).makeSurface()
             let hostedView = surface.hostedView
 
             let window = NSWindow(
@@ -1224,11 +1249,9 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
                 defer: false
             )
             let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-            let previousInputSource = KeyboardLayout.debugInputSourceIdOverride
             let previousInterpretKeyEventsHook = cjkIMEInterpretKeyEventsHook
             defer {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-                KeyboardLayout.debugInputSourceIdOverride = previousInputSource
                 cjkIMEInterpretKeyEventsHook = previousInterpretKeyEventsHook
                 window.orderOut(nil)
             }
@@ -1262,7 +1285,6 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
                 replacementRange: NSRange(location: NSNotFound, length: 0)
             )
 
-            KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
             installCJKIMEInterpretKeyEventsSwizzle()
             cjkIMEInterpretKeyEventsHook = { candidateView, _ in
                 guard candidateView === view else { return false }

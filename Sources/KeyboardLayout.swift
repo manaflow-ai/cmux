@@ -8,34 +8,39 @@ class KeyboardLayout {
         case textInput
     }
 
-    /// Test-only override for the current input source ID.
-    #if DEBUG
-    static var debugInputSourceIdOverride: String?
-    #endif
+    /// A value snapshot of the input-source metadata used by one input event.
+    struct InputSourceSnapshot: Equatable, Sendable {
+        let id: String?
+        let languages: [String]
 
-    /// Return a string ID of the current keyboard input source.
-    static var id: String? {
-        #if DEBUG
-        if let override = debugInputSourceIdOverride { return override }
-        #endif
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-           let sourceIdPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) {
-            let sourceId = Unmanaged<CFString>.fromOpaque(sourceIdPointer).takeUnretainedValue()
-            return sourceId as String
+        init(id: String?, languages: [String] = []) {
+            self.id = id
+            self.languages = languages
         }
-
-        return nil
     }
 
-    /// Return the BCP-47 languages declared by the current input source.
-    static var languages: [String] {
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-           let languagesPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) {
-            let languages = Unmanaged<CFArray>.fromOpaque(languagesPointer).takeUnretainedValue()
-            return (languages as? [String]) ?? []
+    /// Reads the current input source once so related decisions share one metadata snapshot.
+    static var currentInputSourceSnapshot: InputSourceSnapshot {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
+            return InputSourceSnapshot(id: nil)
         }
 
-        return []
+        let id: String?
+        if let sourceIdPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) {
+            let sourceId = Unmanaged<CFString>.fromOpaque(sourceIdPointer).takeUnretainedValue()
+            id = sourceId as String
+        } else {
+            id = nil
+        }
+        let languages: [String]
+        if let languagesPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) {
+            let sourceLanguages = Unmanaged<CFArray>.fromOpaque(languagesPointer).takeUnretainedValue()
+            languages = (sourceLanguages as? [String]) ?? []
+        } else {
+            languages = []
+        }
+
+        return InputSourceSnapshot(id: id, languages: languages)
     }
 
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,

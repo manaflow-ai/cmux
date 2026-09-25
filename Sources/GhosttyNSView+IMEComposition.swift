@@ -142,7 +142,7 @@ extension GhosttyNSView {
 
     func shouldBufferBopomofoInsertedPreedit(_ text: String, inputSourceId: String? = nil) -> Bool {
         guard !text.isEmpty else { return false }
-        guard isBopomofoInputSource(inputSourceId ?? KeyboardLayout.id) else { return false }
+        guard isBopomofoInputSource(inputSourceId ?? readInputSource().id) else { return false }
         return text.unicodeScalars.allSatisfy(isBopomofoPreeditScalar)
     }
 
