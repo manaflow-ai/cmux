@@ -31,7 +31,9 @@ def sdk_version():
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
-    return version_key({"version": out})[:2] or None
+    if not out:
+        return None
+    return (version_key({"version": out}) + (0,))[:2]
 
 
 def runtime_key_version(identifier: str):
@@ -39,7 +41,7 @@ def runtime_key_version(identifier: str):
     tail = identifier.rsplit(".", 1)[-1]
     if not tail.startswith("iOS-"):
         return None
-    return version_key({"version": tail[4:].replace("-", ".")})[:2]
+    return (version_key({"version": tail[4:].replace("-", ".")}) + (0,))[:2]
 
 
 def main() -> None:
@@ -81,7 +83,7 @@ def main() -> None:
                 or "iOS" in runtime.get("name", "")
                 or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
             )
-            and (sdk is None or version_key(runtime)[:2] <= sdk)
+            and (sdk is None or (version_key(runtime) + (0,))[:2] <= sdk)
         ]
         device_types = [
             device_type
