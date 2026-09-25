@@ -8,6 +8,11 @@ declaration is named, the name is searched for in cmuxTests/, a referencing
 line inside a helper continues the trail through the helper's own name (as in
 test_impact.py), and a referencing line inside a suite selects that suite.
 
+Tests that drive the CLI binary or the socket never name the Swift code they
+exercise; they assert on its text. So a string literal the diff adds or
+removes, in app code or in CLI/, is searched for too, and a suite that spells
+it out is selected the same way.
+
 A name that says nothing specific is dropped rather than followed: Swift and
 Foundation vocabulary (`init`, `name`, `update`), a name more than HOT_TEST_FILES
 test files mention, or a name several app files declare that the test does not
@@ -75,6 +80,70 @@ GENERIC_NAMES = frozenset({
 APP_DECLARATION_RE = re.compile(
     r"\b(?:func|var|let|case|class|struct|enum|actor|protocol|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)"
 )
+
+
+# Changed string literals shorter than this ("ok", "--json") match too much.
+MIN_LITERAL_CHARS = 8
+# Each literal is a text search over all of cmuxTests/; a diff with more than
+# this many (a generated file, a mass rename) keeps the job inside its timeout.
+MAX_LITERAL_SEEDS = 1500
+STRING_LITERAL_RE = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+# `\(value)` inside a literal; the text on either side is what a test sees.
+INTERPOLATION_RE = re.compile(r"\\\((?:[^()]|\([^()]*\))*\)")
+
+
+def is_literal_source(path: str) -> bool:
+    """Swift whose string literals a cmuxTests/ suite can observe: app code, and CLI/."""
+    return path.endswith(".swift") and (is_app_path(path) or path.startswith("CLI/"))
+
+
+def literal_pieces(text: str) -> set[str]:
+    """The distinctive text of the string literals on one line of Swift."""
+    if text.lstrip().startswith("//"):
+        return set()
+    pieces: set[str] = set()
+    for match in STRING_LITERAL_RE.finditer(text):
+        for piece in INTERPOLATION_RE.split(match.group(1)):
+            # Kept as written: a Swift test spells it with the same escapes.
+            piece = piece.strip()
+            if len(piece) >= MIN_LITERAL_CHARS and re.search(r"[A-Za-z]{3}", piece):
+                pieces.add(piece)
+    return pieces
+
+
+def changed_literals(diff: str) -> dict[str, set[str]]:
+    """Per file, the literals only one side of the whole diff has.
+
+    A literal on both a removed and an added line, in any file, only moved or
+    was reformatted; one on a single side is text a test may still expect.
+    Only single-line literals are read: text in a multi-line block or a raw
+    string with inner quotes is not followed, which costs recall only.
+    """
+    removed: dict[str, set[str]] = {}
+    added: dict[str, set[str]] = {}
+    old: str | None = None
+    new: str | None = None
+    for line in diff.splitlines():
+        if line.startswith("--- "):
+            old = line[6:].split("\t")[0] if line.startswith("--- a/") else None
+            continue
+        if line.startswith("+++ "):
+            new = line[6:].split("\t")[0] if line.startswith("+++ b/") else None
+            continue
+        if line.startswith("-") and old is not None:
+            removed.setdefault(old, set()).update(literal_pieces(line[1:]))
+        elif line.startswith("+") and new is not None:
+            added.setdefault(new, set()).update(literal_pieces(line[1:]))
+    sources = {path for path in set(removed) | set(added) if is_literal_source(path)}
+    moved = set().union(*(removed.get(path, set()) for path in sources)) & set().union(
+        *(added.get(path, set()) for path in sources)
+    )
+    changed: dict[str, set[str]] = {}
+    for path in sources:
+        literals = (removed.get(path, set()) | added.get(path, set())) - moved
+        if literals:
+            changed[path] = literals
+    return changed
 
 
 def is_app_path(path: str) -> bool:
@@ -179,7 +248,10 @@ class TestIndex:
     """cmuxTests/ text, which files mention each identifier, and outlines."""
 
     def __init__(self, files: dict[str, str]):
-        self.lines = {path: text.splitlines() for path, text in files.items() if path.startswith("cmuxTests/")}
+        self.text = {path: text for path, text in files.items() if path.startswith("cmuxTests/")}
+        self.lines = {path: text.splitlines() for path, text in self.text.items()}
+        # One search here rules out most changed text before a per-file scan.
+        self.all_text = "\n".join(self.text.values())
         self.mentions: dict[str, set[str]] = {}
         for path, lines in self.lines.items():
             for word in set(IDENTIFIER_RE.findall("\n".join(lines))):
@@ -199,8 +271,11 @@ def reach(
 
     A helper name further along the trail that is too common to follow is
     recorded in `skipped`, so the report shows where recall was given up.
+    A seed whose `how` is "string" is a literal: the first search is for the
+    text itself, and the trail continues from there through helper names.
     """
-    if seed.name in GENERIC_NAMES:
+    literal = seed.how == "string"
+    if seed.name in GENERIC_NAMES and not literal:
         return "generic name"
     suites: set[str] = set()
     test_files: set[str] = set()
@@ -212,11 +287,19 @@ def reach(
         if (name, owner) in searched:
             continue
         searched.add((name, owner))
-        scope = set(tests.mentions.get(name, ()))
+        text_search = literal and first
+        if text_search:
+            if name not in tests.all_text:
+                continue
+            scope = {path for path, text in tests.text.items() if name in text}
+        else:
+            scope = set(tests.mentions.get(name, ()))
         if not scope:
             continue
         cap = HOT_TEST_FILES if first else HOT_HELPER_TEST_FILES
-        ambiguous = declared.get(name, 0) >= AMBIGUOUS_APP_DECLARATIONS
+        # Text is matched as written, so a JSON key that is also a common
+        # property name is still specific.
+        ambiguous = not text_search and declared.get(name, 0) >= AMBIGUOUS_APP_DECLARATIONS
         if (ambiguous or len(scope) > cap) and owner and owner in tests.mentions:
             scope &= tests.mentions[owner]
         if len(scope) > cap or (ambiguous and not owner):
@@ -228,7 +311,7 @@ def reach(
                 skipped.append(f"hot helper {name} (from {seed.name}): {len(scope)} test files")
             continue
         first = False
-        pattern = re.compile(rf"\b{re.escape(name)}\b")
+        pattern = re.compile(re.escape(name) if text_search else rf"\b{re.escape(name)}\b")
         for path in sorted(scope):
             file_outline = tests.outline(path)
             for number, text in enumerate(tests.lines[path], start=1):
@@ -273,8 +356,23 @@ def select(files: dict[str, str], diff: str | None) -> Selection:
         selection.fallback = "cmuxTests/ not found"
         return selection
     seeds: list[Seed] = []
-    for path in sorted(hunks):
-        if not is_app_path(path):
+    literals = changed_literals(diff)
+    searched_literals: set[str] = set()
+    for path in sorted(set(hunks) | set(literals)):
+        for literal in sorted(literals.get(path, ())):
+            if literal in searched_literals:
+                continue
+            if len(searched_literals) >= MAX_LITERAL_SEEDS:
+                selection.untraceable.append(f"{path} literals over the cap of {MAX_LITERAL_SEEDS}")
+                break
+            searched_literals.add(literal)
+            seeds.append(Seed(literal, None, "string"))
+        if path.startswith("CLI/"):
+            # The CLI is its own module; cmuxTests/ reaches it only through
+            # the binary, so its literals are all there is to follow.
+            selection.app_files.append(path)
+            continue
+        if not is_app_path(path) or path not in hunks:
             continue
         selection.app_files.append(path)
         if not path.endswith(".swift"):
@@ -296,14 +394,17 @@ def select(files: dict[str, str], diff: str | None) -> Selection:
         if not path.startswith("cmuxTests/"):
             for word in set(APP_DECLARATION_RE.findall(text)):
                 declared[word] = declared.get(word, 0) + 1
-    seen: set[tuple[str, str | None]] = set()
+    seen: set[tuple[str, str | None, bool]] = set()
     for seed in seeds:
-        if not seed.name or (seed.name, seed.owner) in seen:
+        key = (seed.name, seed.owner, seed.how == "string")
+        if not seed.name or key in seen:
             continue
-        seen.add((seed.name, seed.owner))
+        seen.add(key)
         result = reach(seed, tests, declared, selection.untraceable)
         if isinstance(result, str):
             selection.dropped.append((seed, result))
+        elif seed.how == "string" and not result[0]:
+            continue  # most changed text is not asserted on anywhere
         else:
             selection.reached[seed] = result
     return selection
@@ -349,6 +450,9 @@ def budgeted(
 
 
 def seed_label(seed: Seed) -> str:
+    if seed.how == "string":
+        # Backticks would close the summary's code span around the label.
+        return json.dumps(seed.name).replace("`", "\\u0060")
     return f"{seed.owner}.{seed.name}" if seed.owner else seed.name
 
 
@@ -471,7 +575,7 @@ def run(args: argparse.Namespace) -> dict:
             extract_revision(args.repo, args.head, root)
             diff = git(
                 args.repo, "diff", "--no-renames", "-U0", args.base or f"{args.head}^1", args.head,
-                "--", "Sources", "Packages/macOS", "Packages/Shared",
+                "--", "Sources", "Packages/macOS", "Packages/Shared", "CLI",
             ).decode("utf-8", "replace")
         elif args.diff_from:
             try:
@@ -486,7 +590,7 @@ def run(args: argparse.Namespace) -> dict:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="checkout holding the diff's new side")
-    parser.add_argument("--diff-from", help="`git diff -U0` of Sources/ and Packages/; omit when unreadable")
+    parser.add_argument("--diff-from", help="`git diff -U0` of Sources/, Packages/ and CLI/; omit when unreadable")
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="with --head: the repository to read")
     parser.add_argument("--head", help="read the new side from this revision instead of --root")
     parser.add_argument("--base", help="with --head: the old side (default: its first parent)")
