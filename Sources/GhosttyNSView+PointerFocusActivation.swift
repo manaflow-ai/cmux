@@ -7,6 +7,8 @@ extension GhosttyNSView {
 
         switch terminalSurface.focusPlacement {
         case .workspace:
+        case .pictureInPicture:
+            return true
             AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
                 workspaceId: terminalSurface.tabId,
                 panelId: terminalSurface.id,

@@ -825,6 +825,7 @@ extension CMUXCLI {
                cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>]
                                  [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--json] [-- <command...>]
                cmux surface resume …   (restart metadata; see `cmux surface resume --help`)
+               cmux surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
         Surfaces are terminals, VNC displays and browsers on This Mac or on a cloud machine;
         panes project them. `surface ls` is the catalog (same as `cmux vm tree`, including

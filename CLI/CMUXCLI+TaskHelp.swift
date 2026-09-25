@@ -195,6 +195,7 @@ extension CMUXCLI {
         local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]
         tmux attach [session] [options]                         (local-tmux alias)
         surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
         """
     }
 

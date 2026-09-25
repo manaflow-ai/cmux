@@ -557,6 +557,7 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
+    lazy var surfacePipController = SurfacePipController(appDelegate: self)
     nonisolated(unsafe) static var shared: AppDelegate?
     private(set) var devicesRegistry: DeviceSurfaceProviderRegistry?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
@@ -3606,7 +3607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
-        startupSessionSnapshot = sanitizedStartupSnapshot
+        startupSessionSnapshot = sanitizedStartupSnapshot?.restoringPipSurfacesAsWorkspaceTabs()
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -3905,8 +3906,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
             return false
         }
+        let restoredSnapshot = snapshot.restoringPipSurfacesAsWorkspaceTabs()
         let snapshotWindows = Array(
-            snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+            restoredSnapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
         guard !snapshotWindows.isEmpty else { return false }
 
@@ -5085,12 +5087,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
+        let pipSurfaces = sessionPipSurfaceSnapshots(includeScrollback: includeScrollback)
         let preflightRoutes = orderedSessionRouteSnapshots(
             restorableAgentIndex: suppliedRestorableAgentIndex,
             surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
             freezeWindowlessRoutes: includeScrollback
         )
-        guard !preflightRoutes.isEmpty else { return (nil, false) }
+        guard !preflightRoutes.isEmpty || !pipSurfaces.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
         let routes = suppliedRestorableAgentIndex == nil
             ? orderedSessionRouteSnapshots(
@@ -5140,12 +5143,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard !windows.isEmpty else { return (nil, didRemoveCrashDiagnosticData) }
+        guard !windows.isEmpty || !pipSurfaces.isEmpty else { return (nil, didRemoveCrashDiagnosticData) }
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: createdAt,
-            windows: windows
-        )
+            windows: windows,
+            pipSurfaces: pipSurfaces.isEmpty ? nil : pipSurfaces
+        ).restoringPipSurfacesAsWorkspaceTabs()
         return (snapshot, didRemoveCrashDiagnosticData)
     }
 
@@ -15382,6 +15386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
+            if returnFocusedSurfacePipForCloseCommand(window: mainWindowForFocusedCloseShortcut(event: event)) { return true }
             let panels = allBrowserPanelsForInspectorWindowClose()
             if closeDetachedInspectorWindowForCloseShortcut(event: event, panels: panels) {
                 return true
@@ -15835,6 +15840,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             tabManager?.newSurface()
             return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleSurfacePip) {
+            return toggleSurfacePipForCurrentContext(event: event)
         }
 
         // Open browser: Cmd+Shift+L

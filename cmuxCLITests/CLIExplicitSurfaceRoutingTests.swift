@@ -4,6 +4,49 @@ import Testing
 
 @Suite(.serialized)
 struct CLIExplicitSurfaceRoutingTests {
+    @Test func surfacePipWithoutExplicitSurfaceUsesSocketResolver() throws {
+        let (result, state) = try runMockCommand(
+            arguments: ["surface", "pip", "--action", "return"],
+            socketName: "pip-default",
+            includeCallerSurface: false
+        ) { line in
+            guard let request = Self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "surface.pip" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            let params = request["params"] as? [String: Any]
+            if params?["surface_id"] != nil {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_surface_id", "message": "surface_id must be omitted"]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "surface_id": Self.targetSurfaceRef,
+                    "in_picture_in_picture": false,
+                    "action": "return",
+                ]
+            )
+        }
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.pip"])
+    }
+
     @Test func explicitSurfaceCommandsDoNotInheritCallerWorkspace() throws {
         try assertExplicitSurfaceCommand(
             arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--lines", "5"],
@@ -563,6 +606,7 @@ struct CLIExplicitSurfaceRoutingTests {
     private func runMockCommand(
         arguments: [String],
         socketName: String,
+        includeCallerSurface: Bool = true,
         environmentOverrides: [String: String] = [:],
         handler: @escaping @Sendable (String) -> String
     ) throws -> (result: ProcessRunResult, state: ServerState) {
@@ -579,7 +623,7 @@ struct CLIExplicitSurfaceRoutingTests {
             state: state,
             handler: handler
         )
-        var environment = cliEnvironment(socketPath: socketPath)
+        var environment = cliEnvironment(socketPath: socketPath, includeCallerSurface: includeCallerSurface)
         environment.merge(environmentOverrides) { _, replacement in replacement }
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
@@ -642,11 +686,15 @@ struct CLIExplicitSurfaceRoutingTests {
         return (result, try state.requestObjects())
     }
 
-    private func cliEnvironment(socketPath: String) -> [String: String] {
+    private func cliEnvironment(socketPath: String, includeCallerSurface: Bool = true) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = Self.callerWorkspaceId
-        environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
+        if includeCallerSurface {
+            environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
+        } else {
+            environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         return environment

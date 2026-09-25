@@ -1616,6 +1616,7 @@ struct cmuxApp: App {
     }
 
     private func closeTabOrWindow() {
+        if appDelegate.returnFocusedSurfacePipForCloseCommand(window: NSApp.keyWindow ?? NSApp.mainWindow) { return }
         activeTabManager.closeCurrentTabWithConfirmation()
     }
 

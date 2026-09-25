@@ -21,5 +21,8 @@ extension BrowserPanel {
             return BrowserActionDispatcher(appDelegate: app)
                 .perform(.moveToNewWorkspace, on: target)
         }
+        webView.contextMenuSurfacePipPanelId = { [weak self] in
+            self?.id
+        }
     }
 }

@@ -148,7 +148,7 @@ enum KeyboardShortcutSettings {
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedWorkspace
         case reopenClosedBrowserPanel
-        case newSurface
+        case newSurface, toggleSurfacePip
         case toggleTerminalCopyMode
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
@@ -307,6 +307,7 @@ enum KeyboardShortcutSettings {
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedWorkspace: return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
+            case .toggleSurfacePip: return String(localized: "shortcut.toggleSurfacePip.label", defaultValue: "Toggle Surface Picture in Picture")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
@@ -617,6 +618,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↓", command: true, shift: true, option: true, control: false)
             case .selectSurfaceByNumber:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+            case .toggleSurfacePip:
+                return StoredShortcut(key: "p", command: true, shift: false, option: false, control: true)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:

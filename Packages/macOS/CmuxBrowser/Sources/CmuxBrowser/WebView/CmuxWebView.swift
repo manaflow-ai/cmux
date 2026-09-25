@@ -332,6 +332,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     public var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     public var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?
     public var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    public var contextMenuSurfacePipPanelId: (() -> UUID?)?
     public var cmuxDownloadDelegate: (any WKDownloadDelegate)? {
         get {
             objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? any WKDownloadDelegate
@@ -2327,6 +2328,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
         host?.appendScreenshotContextMenuItems(to: menu, for: self)
+        appendSurfacePipContextMenuItem(to: menu)
         appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
         appendBrowserFocusModeContextMenuItem(to: menu)
     }

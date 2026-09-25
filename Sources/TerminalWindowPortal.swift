@@ -819,13 +819,13 @@ final class WindowTerminalPortal: NSObject {
 
     weak var window: NSWindow?
     let hostView = WindowTerminalHostView(frame: .zero)
-    private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
-    private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
+    let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
+    let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private var paneSwapSelectionObservers: [NSObjectProtocol] = []
     private var paneSwapSourceWorkspaceID: UUID?
     private weak var paneSwapPreviousFirstResponder: NSResponder?
-    private weak var installedContainerView: NSView?
+    weak var installedContainerView: NSView?
     weak var installedReferenceView: NSView?
     private var referenceGeometryObservers: [NSObjectProtocol] = []
     private var hasDeferredFullSyncScheduled = false
@@ -1393,30 +1393,6 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    private func ensureDividerOverlayOnTop() {
-        if dividerOverlayView.superview !== hostView {
-            dividerOverlayView.frame = hostView.bounds
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-        }
-
-        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
-            dividerOverlayView.frame = hostView.bounds
-        }
-        dividerOverlayView.needsDisplay = true
-
-        if paneSwapOverlayView.superview !== hostView {
-            paneSwapOverlayView.frame = hostView.bounds
-            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: dividerOverlayView)
-        } else if hostView.subviews.last !== paneSwapOverlayView {
-            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: nil)
-        }
-
-        if !Self.rectApproximatelyEqual(paneSwapOverlayView.frame, hostView.bounds) {
-            paneSwapOverlayView.frame = hostView.bounds
-        }
-        paneSwapOverlayView.needsDisplay = true
-    }
-
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
         guard let window else { return false }
@@ -1428,7 +1404,7 @@ final class WindowTerminalPortal: NSObject {
             installedContainerView !== container ||
             installedReferenceView !== reference {
             hostView.removeFromSuperview()
-            if let browserHost {
+            if let browserHost, !hasRaisedVisibleEntries {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
             } else {
                 container.addSubview(hostView, positioned: .above, relativeTo: reference)
@@ -1453,7 +1429,7 @@ final class WindowTerminalPortal: NSObject {
             installedContainerView = container
             installedReferenceView = reference
             installReferenceGeometryObservers(reference: reference)
-        } else if let browserHost {
+        } else if let browserHost, !hasRaisedVisibleEntries {
             if !Self.isView(browserHost, above: hostView, in: container) {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
             }
@@ -1472,6 +1448,7 @@ final class WindowTerminalPortal: NSObject {
             synchronizeLayoutHierarchy()
         }
         _ = synchronizeHostFrameToReference()
+        refreshHostPlacementForRaisedEntries()
         ensureDividerOverlayOnTop()
 
         return true
@@ -1536,7 +1513,7 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
+    static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
         guard let viewIndex = container.subviews.firstIndex(of: view),
               let referenceIndex = container.subviews.firstIndex(of: reference) else {
             return false
@@ -1544,7 +1521,7 @@ final class WindowTerminalPortal: NSObject {
         return viewIndex > referenceIndex
     }
 
-    private func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
+    func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
         container.subviews.last(where: { $0 is WindowBrowserHostView }) as? WindowBrowserHostView
     }
 
@@ -1735,6 +1712,8 @@ final class WindowTerminalPortal: NSObject {
         if becameVisible || becameHidden {
             scheduleExternalGeometrySynchronize(forceImmediate: false)
         }
+        refreshHostPlacementForRaisedEntries()
+        refreshPortalZOrder()
         return needsReattach
     }
 
@@ -1918,6 +1897,8 @@ final class WindowTerminalPortal: NSObject {
             hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
         }
 
+        refreshHostPlacementForRaisedEntries()
+        refreshPortalZOrder()
         ensureDividerOverlayOnTop()
 
         synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
