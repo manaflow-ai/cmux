@@ -7394,7 +7394,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
-    private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+    private func updateUsingLocalInlineHosting(
+        _ nsView: NSView,
+        coordinator: Coordinator,
+        webView: WKWebView
+    ) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         host.setWindowPortalHosting(false)
         let slotView = host.ensureLocalInlineSlotView()
@@ -7407,10 +7411,28 @@ struct WebViewRepresentable: NSViewRepresentable {
         let didAttachWebViewToLocalHost =
             !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
-        let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.attachGeneration += 1
+        let generation = coordinator.attachGeneration
+
+        // A Canvas host may be created before joining its window while the
+        // page still belongs to an automation preload or previous pane host.
+        // Complete that deferred handoff on window arrival, even if SwiftUI
+        // has no further state change to trigger updateNSView.
+        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator] in
+            guard let host, host.window != nil,
+                  let webView, let coordinator,
+                  coordinator.attachGeneration == generation,
+                  coordinator.webView === webView,
+                  panel.webView === webView else { return }
+            let ownsWebView = updateUsingLocalInlineHosting(
+                host,
+                coordinator: coordinator,
+                webView: webView
+            )
+            applyAttachmentPresentation(host, webView: webView, hostOwnsWebView: ownsWebView)
+        }
 
         if panel.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(host),
@@ -7841,7 +7863,6 @@ struct WebViewRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
         let coordinator = context.coordinator
-        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         if let previousWebView = coordinator.webView, previousWebView !== webView {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
@@ -7852,23 +7873,32 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         Self.clearPortalCallbacks(for: nsView)
         let hostOwnsPortal = useLocalInlineHosting
-            ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
+            ? updateUsingLocalInlineHosting(nsView, coordinator: coordinator, webView: webView)
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
-        if hostOwnsPortal {
+        applyAttachmentPresentation(nsView, webView: webView, hostOwnsWebView: hostOwnsPortal)
+    }
+
+    private func applyAttachmentPresentation(
+        _ nsView: NSView,
+        webView: WKWebView,
+        hostOwnsWebView: Bool
+    ) {
+        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
+        if hostOwnsWebView {
             panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
         }
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsWebView
         )
 
         Self.applyFocus(
             panel: panel,
             webView: webView,
             nsView: nsView,
-            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsPortal,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
+            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsWebView,
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsWebView
         )
     }
 
