@@ -88,7 +88,6 @@ jobs:
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
-            CI_SEED_KEEP_LOCAL_RUNNERS=${{ vars.CI_SEED_KEEP_LOCAL_RUNNERS }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
