@@ -76,7 +76,7 @@ disableEnvironmentVariable: "CMUX_CODEX_HOOKS_DISABLED", identityMarker: "cmux-c
         for _ in range(8):
             self.run_hook(command, payload)
         self.assertFalse(self.log.exists(), 'tool hooks must not spawn a CLI per event')
-        records = list(self.spool.iterdir())
+        records = [p for p in self.spool.iterdir() if not p.name.endswith(".ready")]
         self.assertGreater(len(records), 0, 'telemetry must still be delivered')
         for record in records:
             self.assertEqual(record.read_bytes(), b'pre-tool-use\n' + payload.encode() + b'\0')
@@ -86,7 +86,7 @@ disableEnvironmentVariable: "CMUX_CODEX_HOOKS_DISABLED", identityMarker: "cmux-c
         for _ in range(70):
             self.run_hook(command, '{"tool_name":"Read"}')
         self.assertFalse(self.log.exists())
-        self.assertLessEqual(len(list(self.spool.iterdir())), 32)
+        self.assertLessEqual(len([p for p in self.spool.iterdir() if not p.name.endswith(".ready")]), 32)
 
     def test_parallel_writers_never_mix_records(self):
         command = self.command()
@@ -94,20 +94,20 @@ disableEnvironmentVariable: "CMUX_CODEX_HOOKS_DISABLED", identityMarker: "cmux-c
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(lambda p: self.run_hook(command, p), payloads))
         expected = {b'pre-tool-use\n' + p.encode() + b'\0' for p in payloads}
-        records = list(self.spool.iterdir())
+        records = [p for p in self.spool.iterdir() if not p.name.endswith(".ready")]
         self.assertGreater(len(records), 0)
         self.assertTrue(all(p.read_bytes() in expected for p in records))
         self.assertFalse(self.log.exists())
 
     def test_oversized_payload_is_dropped_without_process_fallback(self):
         self.run_hook(self.command(), '{"output":"' + 'x' * 100000 + '"}')
-        self.assertEqual(list(self.spool.iterdir()), [])
+        self.assertEqual([p for p in self.spool.iterdir() if not p.name.endswith(".ready")], [])
         self.assertFalse(self.log.exists())
 
     def test_disabled_hook_does_not_publish(self):
         env = dict(self.env, CMUX_CODEX_HOOKS_DISABLED='1')
         self.run_hook(self.command(), '{}', env)
-        self.assertEqual(list(self.spool.iterdir()), [])
+        self.assertEqual([p for p in self.spool.iterdir() if not p.name.endswith(".ready")], [])
         self.assertFalse(self.log.exists())
 
     def test_missing_spool_does_not_fall_back_to_process_storm(self):

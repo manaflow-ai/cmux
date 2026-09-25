@@ -737,6 +737,19 @@ if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
     fi
 fi
 
+# One private spool/forwarder per invocation. The wrapper exec below preserves
+# this PID, and the forwarder observes its exit to close the socket and clean up.
+# Clear a parent's spool even when startup fails; nested agents own their lane.
+unset CMUX_CODEX_FEED_DIR
+if [[ "$OSTYPE" == darwin* && -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI"
+      && "${CMUX_SOCKET_PATH:-/}" == /* && -z "${CMUX_RELAY_ID:-}" ]]; then
+    cmux_codex_feed_dir="$(umask 077; mktemp -d "${TMPDIR:-/tmp}/cmux-codex-feed.XXXXXXXX")"
+    if [[ -n "$cmux_codex_feed_dir" ]]; then
+        export CMUX_CODEX_FEED_DIR="$cmux_codex_feed_dir"
+        "$CMUX_INJECT_CLI" hooks codex tool-feed-worker </dev/null >/dev/null 2>&1 &
+    fi
+fi
+
 if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" \
         "${cmux_codex_native_computer_use_args[@]}" \
