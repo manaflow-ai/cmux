@@ -145,7 +145,8 @@ run there compiles cold, 10 to 20 minutes longer, about one job's length.
 | --- | --- | --- |
 | `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
 | `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
-| `CI_PR_POOL_MAX_QUEUED` | `0` | a pool still takes a run with up to this many macOS jobs queued once it arrives; `0` rolls over as soon as a pool is full |
+| `CI_PR_POOL_MAX_QUEUED` | `0` | a pool still takes a run with up to this many macOS jobs queued once it arrives, when that is more than `CI_PR_POOL_QUEUE_ROUNDS` allows |
+| `CI_PR_POOL_QUEUE_ROUNDS` | `1` | rounds of queue a pool may hold once a run arrives, each as many jobs as the pool has machines (about one job length of wait). An owned pool takes a run while its taken machines plus the run's peak stay within machines x (1 + rounds), and its root runners the same over their count. `0` rolls a full pool over at once and takes an owned pool only when the run's peak is free; at most `3`. With live runner counts the allowance is still rounds x the slot count, charged against busy runners and recent runs |
 
 The two macOS 26 pools share the lane's Xcode. A run on
 `blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
@@ -256,7 +257,10 @@ janitor reads the run's peak and pool from its name), and the
 `owned-pool-watch` job dispatches `ci-owned-pool-rescue.yml` (from `main`, with
 Actions write) to watch that run. A run on an ephemeral pool starts no watcher.
 If one of its jobs waits for a persistent runner longer than
-`CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), the watcher confirms the
+`CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), plus 900 seconds per
+`CI_PR_POOL_QUEUE_ROUNDS` round for a CI run whose picker placed a job in the
+queue allowance (it uploads a `macos-pool-queued-<run>-<attempt>-owned`
+marker), the watcher confirms the
 pull request head has not moved, cancels the run, and re-runs it. A retry
 attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
 whole, and so does a manual "Re-run all jobs".
@@ -323,7 +327,7 @@ an owned pool.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_OWNED_POOL_RESCUE` | unset (on while `CI_PR_POOL_OWNED` is 1) | `0` turns the watcher off |
-| `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith |
+| `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith; a CI run the picker queued on purpose gets 900 s more per `CI_PR_POOL_QUEUE_ROUNDS` round |
 
 The watcher makes no API request while owned pools are off. A run on an
 ephemeral pool costs it a few jobs listings until `changes` finishes, plus one
