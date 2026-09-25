@@ -28,6 +28,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var adoptedPanels: [UUID] = []
     var closedTerminalIDs: [SurfaceResourceID] = []
     var closedWorkspaceIDs: [String] = []
+    var onRemoteClose: (@MainActor () -> Void)?
 
     init(catalog: SurfaceCatalog) {
         self.catalog = catalog
@@ -83,10 +84,12 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         closedTerminalIDs.append(id)
+        onRemoteClose?()
     }
 
     func closeRemoteWorkspace(id: String) async throws {
         closedWorkspaceIDs.append(id)
+        onRemoteClose?()
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

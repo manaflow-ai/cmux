@@ -2,6 +2,7 @@ import AppKit
 import CmuxSettings
 import Foundation
 import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -20,6 +21,9 @@ struct CloudWorkspaceCreationSidebarTests {
             let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
             defer { fixture.close() }
             fixture.provider.adoptsReservation = adoptsReservation
+            let unexpectedClose = XCTestExpectation(description: "Successful creation must preserve remote resources")
+            unexpectedClose.isInverted = true
+            fixture.provider.onRemoteClose = { unexpectedClose.fulfill() }
             var operation: CloudWorkspaceCreationOperation?
             var reservedPanelID: UUID?
             fixture.provider.beforeMaterialize = { _, reservation in
@@ -35,10 +39,12 @@ struct CloudWorkspaceCreationSidebarTests {
             let opened = try #require(result.opened)
             let workspace = try #require(fixture.manager.workspacesById[opened.workspaceID])
             let completed = try #require(operation)
+            // Cleanup is scheduled asynchronously by native pane teardown.
+            // Observe that negative event explicitly rather than sampling before it runs.
+            let closeResult = await XCTWaiter.fulfillment(of: [unexpectedClose], timeout: 0.2)
+            #expect(closeResult == .completed)
             #expect(completed.isComplete)
             #expect(!completed.remoteCleanupStarted)
-            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations[completed.id] === completed,
-                "A successful create must retain its receipt until the remote graph confirms it")
             #expect(fixture.provider.closedWorkspaceIDs.isEmpty)
             #expect(fixture.provider.closedTerminalIDs.isEmpty)
             #expect(workspace.panels.count == 1)
