@@ -194,7 +194,9 @@ def escape(name: str) -> str:
     """A check name as inert Markdown text: a pull request's own workflow can name its checks."""
     name = " ".join(name.split())[:100]
     name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return re.sub(r"([\\`*_\[\]#|~!@])", r"\\\1", name)
+    # GitHub links @user and #123 even after a backslash; a zero-width space breaks both.
+    name = name.replace("@", "@\u200b").replace("#", "#\u200b")
+    return re.sub(r"([\\`*_\[\]|~!])", r"\\\1", name)
 
 
 def listed(items: list[str]) -> str:

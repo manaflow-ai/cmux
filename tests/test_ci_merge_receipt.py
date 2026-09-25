@@ -154,9 +154,9 @@ class ReceiptTests(unittest.TestCase):
 
     def test_check_names_are_inert_markdown(self):
         result = MODULE.receipt(snapshot(
-            run("ci-status", required=True), run("@team <!-- hide `x`", "FAILURE"),
+            run("ci-status", required=True), run("@team #12 <!-- hide `x`", "FAILURE"),
         ))
-        self.assertIn("\\@team &lt;\\!-- hide \\`x\\` (failure)", result.body)
+        self.assertIn("@\u200bteam #\u200b12 &lt;\\!-- hide \\`x\\` (failure)", result.body)
         self.assertEqual(result.body.count("<!--"), 1)  # only the marker
 
 
