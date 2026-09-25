@@ -1351,7 +1351,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "malformed slots": dict(slots={MINI: "8"}),
             "another Xcode pin": dict(pin="/Applications/Xcode_26.5.app"),
             "no Xcode pin": dict(pin=""),
-            "snapshot too old for an owned pool": dict(age=30),
+            "snapshot too old for an owned pool": dict(age=self.pool.pr_runner_pool.OWNED_MAX_AGE_MINUTES + 1),
             "a UI run": dict(test_filter="ExampleUITests"),
             "a mixed filter": dict(test_filter="cmuxTests/A, cmuxUITests/B"),
         }
