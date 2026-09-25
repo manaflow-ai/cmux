@@ -122,6 +122,60 @@ struct SidebarWorkspaceSnapshotFactory {
         )
     }
 
+    /// Updates only fields owned by the immediate sidebar observation stream.
+    /// The cached snapshot supplies branch, directory, pull-request, metadata,
+    /// and Finder fields so title churn never walks structured panel details.
+    func makeSummarySnapshot(
+        from cached: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let statusHidden = workspace.todoState.statusHidden
+        let statusVisible = WorkspaceTodoFeature.isEnabled && !statusHidden
+        let inferredTaskStatus = statusVisible ? cached.taskStatusInput.inferred : nil
+        let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
+            WorkspaceTaskStatusOverride.effectiveStatus(
+                override: workspace.todoState.statusOverride,
+                inferred: inferred
+            )
+        }
+        let hasManualTaskStatus = inferredTaskStatus != nil
+            && workspace.todoState.statusOverride != nil
+            && taskStatusResolution?.shouldClearOverride == false
+        let todoStatusMenuModel = inferredTaskStatus.map { inferred in
+            SidebarWorkspaceCompactStatusMenuModel.resolve(
+                inferred: inferred,
+                override: workspace.todoState.statusOverride
+            )
+        }
+        let checklistProgress = workspace.checklistProgressSummary
+        let summary = SidebarWorkspaceSnapshotBuilder.Summary(
+            title: workspace.title,
+            customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
+            isPinned: workspace.isPinned,
+            isMuted: workspace.isMuted,
+            customColorHex: workspace.customColor,
+            latestConversationMessage: workspace.latestConversationMessage,
+            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: showsAgentActivity,
+                statesByPanelId: workspace.agentLifecycleStatesByPanelId
+            ),
+            taskStatus: taskStatusResolution?.effective,
+            todoStatusMenuModel: todoStatusMenuModel,
+            hasManualTaskStatus: hasManualTaskStatus,
+            checklistItems: workspace.todoState.checklist,
+            checklistCompletedCount: checklistProgress.completedCount,
+            checklistTotalCount: checklistProgress.totalCount,
+            checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
+            taskStatusInput: SidebarWorkspaceTaskStatusSnapshot(
+                inferred: cached.taskStatusInput.inferred,
+                activeOverride: taskStatusResolution?.shouldClearOverride == true
+                    ? nil
+                    : workspace.todoState.statusOverride?.status,
+                isHidden: statusHidden
+            )
+        )
+        return cached.applying(summary: summary)
+    }
+
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
         Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
     }

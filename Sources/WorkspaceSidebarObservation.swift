@@ -27,7 +27,8 @@ extension View {
         workspaces: [Workspace],
         debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
         deliverInitialValue: Bool = true,
-        onChange: @MainActor @escaping (UUID) -> Void
+        onImmediateChange: @MainActor @escaping (UUID) -> Void,
+        onDetailChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
             await withTaskGroup(of: Void.self) { group in
@@ -50,7 +51,7 @@ extension View {
                             if Task.isCancelled { break }
                             if first && !deliverInitialValue { first = false; continue }
                             first = false
-                            onChange(id)
+                            onDetailChange(id)
                         }
                     }
                     group.addTask { @MainActor in
@@ -59,7 +60,7 @@ extension View {
                             if Task.isCancelled { break }
                             if first && !deliverInitialValue { first = false; continue }
                             first = false
-                            onChange(id)
+                            onImmediateChange(id)
                         }
                     }
                     group.addTask { @MainActor in
@@ -68,7 +69,7 @@ extension View {
                             if Task.isCancelled { break }
                             if first && !deliverInitialValue { first = false; continue }
                             first = false
-                            onChange(id)
+                            onDetailChange(id)
                         }
                     }
                 }

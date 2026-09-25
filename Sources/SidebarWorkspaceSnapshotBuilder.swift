@@ -31,6 +31,27 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isStale: Bool
     }
 
+    /// The fields that can change on the sidebar's immediate observation path.
+    /// Structured branch, directory, and pull-request details stay in the
+    /// existing snapshot until the debounced detail observation refreshes it.
+    struct Summary: Equatable {
+        let title: String
+        let customDescription: String?
+        let isPinned: Bool
+        let isMuted: Bool
+        let customColorHex: String?
+        let latestConversationMessage: String?
+        let activeCodingAgentCount: Int
+        let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
+        let hasManualTaskStatus: Bool
+        let checklistItems: [WorkspaceChecklistItem]
+        let checklistCompletedCount: Int
+        let checklistTotalCount: Int
+        let checklistFirstUncheckedText: String?
+        let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
+    }
+
     struct Snapshot: Equatable {
         let presentationKey: PresentationKey
         let title: String
@@ -86,6 +107,47 @@ struct SidebarWorkspaceSnapshotBuilder {
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
             return [position, remoteWorkspaceBadgeLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
+        }
+
+        func applying(summary: Summary) -> Self {
+            Self(
+                presentationKey: presentationKey,
+                title: summary.title,
+                customDescription: summary.customDescription,
+                isPinned: summary.isPinned,
+                isMuted: summary.isMuted,
+                customColorHex: summary.customColorHex,
+                cloudWorkspaceLabel: cloudWorkspaceLabel,
+                remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
+                remoteConnectionStatusText: remoteConnectionStatusText,
+                remoteStateHelpText: remoteStateHelpText,
+                showsRemoteReconnectAffordance: showsRemoteReconnectAffordance,
+                copyableSidebarSSHError: copyableSidebarSSHError,
+                latestConversationMessage: summary.latestConversationMessage,
+                metadataEntries: metadataEntries,
+                metadataBlocks: metadataBlocks,
+                latestLog: latestLog,
+                progress: progress,
+                activeCodingAgentCount: summary.activeCodingAgentCount,
+                compactGitBranchSummaryText: compactGitBranchSummaryText,
+                compactDirectoryCandidates: compactDirectoryCandidates,
+                compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
+                branchDirectoryLines: branchDirectoryLines,
+                branchLinesContainBranch: branchLinesContainBranch,
+                pullRequestRows: pullRequestRows,
+                listeningPorts: listeningPorts,
+                finderDirectoryPath: finderDirectoryPath,
+                mediaActivity: mediaActivity,
+                taskStatus: summary.taskStatus,
+                todoStatusMenuModel: summary.todoStatusMenuModel,
+                hasManualTaskStatus: summary.hasManualTaskStatus,
+                checklistItems: summary.checklistItems,
+                checklistCompletedCount: summary.checklistCompletedCount,
+                checklistTotalCount: summary.checklistTotalCount,
+                checklistFirstUncheckedText: summary.checklistFirstUncheckedText,
+                taskStatusInput: summary.taskStatusInput,
+                deviceWorkspaceLabel: deviceWorkspaceLabel
+            )
         }
     }
 }
