@@ -59,6 +59,7 @@ cmux surface ls [--json]               # same catalog; `surface open <resource>`
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
+cmux vm network <id>                   # outbound policy: mode, presets, domains, ranges, applied state
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
@@ -167,6 +168,36 @@ returns the stats object. A resize can take a provider minute and consumes plan
 resources, so confirm the machine and desired sizes before running it, then use
 `cmux vm stats <id>` to verify the result. Sidebar: machine row › Resize machine
 › Increase CPU / Increase Memory / Increase Disk uses the same action path.
+
+### `cmux vm network`
+
+```bash
+cmux vm network <id> [--json]                                   # show the policy and preset ids
+cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]
+cmux vm network <id> preset add anthropic openai                # quick-add exact HTTPS hosts
+cmux vm network <id> add-domain api.example.com                 # exact HTTPS name, no wildcards
+cmux vm network <id> add-range 203.0.113.0/24 --port 443 --protocol tcp
+cmux vm network <id> remove-domain api.example.com
+cmux vm new --network allowlist   # or --network-policy '<json>' to choose at create
+```
+
+Controls where the machine can connect out. `full` (the default) reaches any
+public address. `allowlist` reaches only listed domains and IP ranges; `none`
+reaches only the hosts cmux needs (`files.cmux.com` and the GitHub release hosts).
+Model traffic through CodeRouter keeps working in every mode. Changes apply to a
+running machine in a few seconds with no restart, and the text result ends with
+`applied=applied` once the provider confirmed them.
+
+Domains are exact names on HTTPS/443, steered through the machine's
+`/etc/hosts`; tools that bypass `/etc/hosts` (a container with its own DNS) or pin
+certificates are not steered, so give them an IP range instead. `--dns on` lets
+tools resolve names for IP ranges but is itself an outbound channel. Before
+restricting a machine an agent is using, add the hosts its task needs (package
+registries, the git remote, model providers), then check with
+`cmux vm exec <id> -- curl -sS -o /dev/null -w '%{http_code}' https://<host>`.
+Socket methods `vm.network_get {id}` and `vm.network_update {id, edits}`; the
+machine row's Network… menu, the web dashboard, and `PUT /api/vm/<id>/network`
+use the same policy.
 
 ### `cmux vm wait`
 
