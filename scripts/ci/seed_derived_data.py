@@ -77,7 +77,9 @@ R2_CACHE = Path(__file__).resolve().parent / "r2-cache.sh"
 # main seeds about one commit in ten, so fifty ancestors reach back several
 # seeds; past that the newest pointer is as good as anything.
 ANCESTOR_LIMIT = 50
-# The widths seed-derived-data.yml seeds at: the 12 and 6 vCPU macOS 26 pools.
+# The widths seed-derived-data.yml seeds at: 12 on the 12 vCPU macOS 26 pool,
+# 6 on the 6 vCPU macOS 26 and macOS 15 pools. The macOS 15 seeds carry their
+# own Xcode in the key's fingerprint, so a width is shared, never a seed.
 SEEDED_JOB_WIDTHS = (12, 6)
 USER_AGENT = "cmux-ci-seed-derived-data"
 # Shorter than the adopt step's 8-minute timeout, so adopt stops the detached

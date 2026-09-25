@@ -4197,19 +4197,11 @@ struct CMUXCLI {
     /// Restored terminals start the app and then race its listener bind. Keep
     /// the implicit restore connection alive long enough for that lifecycle,
     /// while explicit socket paths retain their immediate failure semantics.
-    private static let defaultRestoreSocketStartupTimeoutSeconds: TimeInterval = 45
-    /// Tests that exercise the "still opening" failure set
-    /// `CMUX_RESTORE_SOCKET_STARTUP_TIMEOUT_SECONDS` so they do not wait out
-    /// the full startup budget. It can only shorten the default.
-    private static var restoreSocketStartupTimeoutSeconds: TimeInterval {
-        let key = "CMUX_RESTORE_SOCKET_STARTUP_TIMEOUT_SECONDS"
-        guard let raw = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let value = TimeInterval(raw),
-              value.isFinite else {
-            return defaultRestoreSocketStartupTimeoutSeconds
-        }
-        return min(max(value, 0.05), defaultRestoreSocketStartupTimeoutSeconds)
-    }
+    ///
+    /// ``SocketStartupWaiter`` owns the default window and its environment
+    /// override, so the CLI and the socket package cannot drift apart.
+    private static let restoreSocketStartupTimeoutSeconds: TimeInterval =
+        SocketClient.appStartupWaitTimeoutSeconds
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
