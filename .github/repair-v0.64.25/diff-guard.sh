@@ -3,8 +3,9 @@
 # cmux-cua binaries and the signatures, tickets and helper Info.plist nonce
 # that re-signing and notarization necessarily rewrite.
 set -euo pipefail
-ORIG="$1"
-NEW="$2"
+# Absolute paths: sig() below runs codesign from a scratch directory.
+ORIG="$(cd "$1" && pwd -P)"
+NEW="$(cd "$2" && pwd -P)"
 OUT="$3"
 mkdir -p "$OUT"
 manifest() {
@@ -46,10 +47,17 @@ if a != b:
 print("helper Info.plist: only CMUXNotarizationSubmission differs")
 PY
 # Signing identity, requirements and entitlements must match the shipped code.
+# Each side is captured to a file and checked for real content first, so an
+# extraction failure can never compare equal as two empty outputs.
 sig() {
   local target="$1" certs
   certs="$(mktemp -d)"
-  ( cd "$certs" && /usr/bin/codesign -d --extract-certificates=cert "$target" >/dev/null 2>&1 )
+  /usr/bin/codesign -d --extract-certificates="$certs/cert" "$target" >/dev/null 2>&1 || true
+  if [ ! -s "$certs/cert0" ]; then
+    echo "::error::could not extract the signing certificate from $target" >&2
+    rm -rf "$certs"
+    return 1
+  fi
   echo "leaf-cert-sha256=$(shasum -a 256 < "$certs/cert0" | awk '{print $1}')"
   rm -rf "$certs"
   /usr/bin/codesign -d --entitlements - --xml "$target" 2>/dev/null | plutil -convert xml1 -o - - 2>/dev/null || true
@@ -57,10 +65,19 @@ sig() {
   /usr/bin/codesign -dvv "$target" 2>&1 \
     | sed -nE '/^(Identifier|Format|Authority|TeamIdentifier|Runtime Version)=/p; s/^CodeDirectory .*(flags=[^ ]+).*/\1/p'
 }
+i=0
 for rel in . Contents/Resources/bin/cmux-cua "Contents/Library/cmux Computer Use.app"; do
-  if ! diff -u <(sig "$ORIG/$rel") <(sig "$NEW/$rel"); then
+  i=$((i + 1))
+  sig "$ORIG/$rel" > "$OUT/sig-$i-original.txt"
+  sig "$NEW/$rel" > "$OUT/sig-$i-repaired.txt"
+  for f in "$OUT/sig-$i-original.txt" "$OUT/sig-$i-repaired.txt"; do
+    for key in '^leaf-cert-sha256=[0-9a-f]{64}$' '^designated => ' '^Identifier=' '^TeamIdentifier=' '^flags='; do
+      grep -qE "$key" "$f" || { echo "::error::$f is missing $key for $rel"; exit 1; }
+    done
+  done
+  if ! diff -u "$OUT/sig-$i-original.txt" "$OUT/sig-$i-repaired.txt"; then
     echo "::error::signature metadata changed for $rel"
     exit 1
   fi
-  echo "signature metadata unchanged: $rel"
+  echo "signature metadata unchanged: $rel ($(head -1 "$OUT/sig-$i-original.txt"))"
 done
