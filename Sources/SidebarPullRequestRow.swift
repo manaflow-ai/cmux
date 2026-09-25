@@ -15,7 +15,13 @@ struct SidebarPullRequestRow: View {
             if clickable {
                 Button(action: onOpen) { label }
                     .buttonStyle(.plain)
-                    .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open pull request"))
+                    .safeHelp(
+                        String(
+                            format: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open %1$@ #%2$lld"),
+                            display.label,
+                            Int64(display.number)
+                        )
+                    )
             } else {
                 label
             }

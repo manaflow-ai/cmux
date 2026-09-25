@@ -52,14 +52,14 @@ struct IrxLivenessTests {
         let host = try await IrxLivenessTestHost.make(behavior: .delayFirstProbe)
         defer { Task { await host.stop() } }
         let session = try await host.dial()
+        let probe = Task { await session.connection.probeLiveness(deadline: .seconds(30)) }
+        try await waitUntil { await host.probeCount == 1 }
         try await session.connection.startClientKeepalive(interval: .milliseconds(10), deadline: .milliseconds(100)) {
             await host.recordDeath()
         }
-        try await waitUntil { await host.probeCount == 1 }
         await session.connection.setApplicationActive(false)
-        // Deliberately outlast the cancelled probe deadline. This represents time
-        // during which iOS is backgrounded and cannot perform application work.
-        try await Task.sleep(for: .milliseconds(250))
+        #expect(await probe.value == false)
+        try await expectControlRoundTrip(on: session, message: "control-survives-suspension")
         #expect(host.journal.counterSnapshot()["miss", default: 0] == 0)
         #expect(await host.deathCount == 0)
         #expect(await host.probeCount == 1)
@@ -216,7 +216,7 @@ private actor IrxLivenessTestHost {
                 do {
                     let native = try await incoming.accept().connect()
                     let connection = IrxConnection(connection: native, role: .acceptor, journal: journal)
-                    guard let (_, control, _) = await IrxAdmission.performServer(connection: connection,
+                    guard let (_, control, _) = await IrxAdmission().performServer(connection: connection,
                         judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"), journal: journal) else { continue }
                     connections.append(connection)
                     let index = connections.count
@@ -258,9 +258,9 @@ private actor IrxLivenessTestHost {
     }
 
     func dial(age: Duration = .zero) async throws -> IrxClientSession {
-        let native = try await client.connect(addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let native = try await client.connect(addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let connection = IrxConnection(connection: native, role: .dialer, journal: journal)
-        let (admit, control) = try await IrxAdmission.performClient(connection: connection, grantJWS: "good-grant", journal: journal)
+        let (admit, control) = try await IrxAdmission().performClient(connection: connection, grantJWS: "good-grant", journal: journal)
         return IrxClientSession(connection: connection, admit: admit, control: control,
             establishedAt: Date(), establishedAtMonotonic: .now - age)
     }

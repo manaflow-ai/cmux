@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useCtx } from "../context";
+import { agentChatText } from "../i18n";
 import { readStoredProviderOptions, persistOptionsSnapshot, updateStoredProviderOption } from "../options-store";
 import type { OptionValue, SessionOption } from "../session";
 import { ArrowUp } from "./icons";
@@ -54,7 +55,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, reply, stop, setOption, fork, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, handoffPending, reply, stop, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -133,11 +134,18 @@ export function Chat() {
           actions={actions}
           onFork={fork}
           forkPending={forkPending}
+          onHandoff={handoff}
+          handoffPending={handoffPending}
           fileDiffs={fileDiffs}
           onFileDiff={(path) => { if (session) requestFileDiff(session.id, path); }}
         />
       </div>
       <div id="chat-input-row">
+        {routing?.phase === "handoff" ? (
+          <div className="routing-notice" role="status">{agentChatText("continuedNewChat")}</div>
+        ) : routing?.phase === "rerouted" ? (
+          <div className="routing-notice" role="status">{agentChatText("movedServingRoute")}</div>
+        ) : null}
         <div id="chat-card">
           <div className="input-wrap chat-text-wrap">
             <textarea

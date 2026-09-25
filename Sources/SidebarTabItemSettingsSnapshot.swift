@@ -9,6 +9,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
     let showsWorkspaceDescription: Bool
+    let workspaceDescriptionColorHex: String?
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
@@ -68,6 +69,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             hideAllDetails: hidesAllDetails
         )
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
+        workspaceDescriptionColorHex = settings.value(for: sidebar.workspaceDescriptionColorHex).nilIfEmpty
         showsNotificationMessage = detailVisibility.showsNotificationMessage
         notificationMessageLineLimit = min(
             max(

@@ -44,6 +44,11 @@ import {
 
 /** Ledger request id, echoed on every coderouter response. */
 export const CODEROUTER_REQUEST_ID_HEADER = "x-coderouter-request-id";
+/**
+ * Vercel may strip or rewrite `Server-Timing` at the edge, so every coderouter
+ * response carries the same standards-formatted value under this header too.
+ */
+export const CODEROUTER_SERVER_TIMING_HEADER = "x-coderouter-server-timing";
 /** Marker for proxy helpers invoked outside a route context, such as tests. */
 export const UNSCOPED_CODEROUTER_REQUEST_ID = "unscoped";
 /** Nginx's conventional status for a request closed by the client. */
@@ -61,6 +66,7 @@ export type CoderouterSurface =
   | "claude_upstream"
   | "vm_usage"
   | "vm_reflection"
+  | "vm_reflection_name"
   | "analytics"
   | "health";
 
@@ -104,7 +110,7 @@ export type CoderouterRequestContext = {
   readonly startedAt: number;
   readonly startedAtEpochMs: number;
   readonly vercelRequestId?: string;
-  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
+  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">;
   authMode?: "api_key" | "route_token" | "control_plane";
   /** Stack user id for control-plane routes (no route token). */
   userId?: string;
@@ -158,7 +164,7 @@ export function currentCoderouterRequestId(): string {
 }
 
 export function recordCoderouterIdentity(
-  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">,
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">,
   authMode: "api_key" | "route_token" | "control_plane" = identity.apiKeyId ? "api_key" : "route_token",
 ): void {
   const context = storage.getStore();
@@ -167,6 +173,7 @@ export function recordCoderouterIdentity(
     teamId: identity.teamId,
     stackUserId: identity.stackUserId,
     vmId: identity.vmId,
+    ...(identity.poolId ? { poolId: identity.poolId } : {}),
     ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
   };
   context.authMode = authMode;
@@ -176,6 +183,7 @@ export function recordCoderouterIdentity(
       "cmux.coderouter.bound_to_vm": identity.vmId !== null,
       "cmux.coderouter.vm_id": identity.vmId ?? undefined,
       "cmux.coderouter.auth_mode": authMode,
+      "cmux.coderouter.pool_id": identity.poolId ?? undefined,
     });
   }
 }
@@ -548,7 +556,7 @@ export function withCoderouterRoute<Context = unknown>(
                 response = options.unavailable(request);
               }
             }
-            response = withRequestIdHeader(response, context.requestId, context.traceId);
+            response = withRequestHeaders(response, context);
             finalize(context, span, response, thrown, options.telemetry);
             return response;
           },
@@ -565,17 +573,37 @@ function isCallerCancellation(request: Request): boolean {
   return request.signal.aborted;
 }
 
-function withRequestIdHeader(response: Response, requestId: string, traceId?: string): Response {
+function withRequestHeaders(response: Response, context: CoderouterRequestContext): Response {
+  const headers: [string, string][] = [[CODEROUTER_REQUEST_ID_HEADER, context.requestId]];
+  if (context.traceId) headers.push([TRACE_ID_RESPONSE_HEADER, context.traceId]);
+  // A route that reports its own phases keeps them.
+  if (!response.headers.has(CODEROUTER_SERVER_TIMING_HEADER)) {
+    const timing = serverTiming(context);
+    headers.push(["server-timing", timing], [CODEROUTER_SERVER_TIMING_HEADER, timing]);
+  }
   try {
-    response.headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
-    if (traceId) response.headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
+    for (const [name, value] of headers) response.headers.set(name, value);
     return response;
   } catch {
-    const headers = new Headers(response.headers);
-    headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
-    if (traceId) headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
-    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    const copy = new Headers(response.headers);
+    for (const [name, value] of headers) copy.set(name, value);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers: copy });
   }
+}
+
+/**
+ * `Server-Timing` for the phases recorded as spans, summed by name, plus
+ * `total`: the time until the response headers, which for a stream is the
+ * time to first byte rather than the full body.
+ */
+export function serverTiming(context: CoderouterRequestContext, now = performance.now()): string {
+  const phases = new Map<string, number>();
+  for (const span of context.spans) {
+    const name = span.name.replace(/[^A-Za-z0-9_-]/g, "_");
+    phases.set(name, (phases.get(name) ?? 0) + span.durationMs);
+  }
+  phases.set("total", Math.max(0, now - context.startedAt));
+  return [...phases].map(([name, ms]) => `${name};dur=${ms.toFixed(1)}`).join(", ");
 }
 
 function finalize(

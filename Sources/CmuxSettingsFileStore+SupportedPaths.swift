@@ -28,6 +28,7 @@ extension CmuxSettingsFileStore {
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
         "app.confirmQuit",
+        "app.globalFontMagnification",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
         "app.warnBeforeClosingTabXButton",
@@ -39,6 +40,7 @@ extension CmuxSettingsFileStore {
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
+        "terminal.textEditingGestures",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
@@ -73,6 +75,7 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
+        "sidebar.workspaceDescriptionColor",
         "sidebar.beta.workspaceTodos.controls.enabled",
         "sidebar.beta.workspaceTodos.checklistStyle",
         "sidebar.branchLayout",
@@ -153,5 +156,6 @@ extension CmuxSettingsFileStore {
         "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
+        "shortcuts.showModifierHoldHints",
     ]
 }

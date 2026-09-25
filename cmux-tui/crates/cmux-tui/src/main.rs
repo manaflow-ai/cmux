@@ -1286,7 +1286,10 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 index += 1;
             }
             "-h" | "--help" => return,
-            "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
+            scope
+                if cli::canonical_scope(scope) == "server"
+                    && args.get(index + 1).map(String::as_str) == Some("start") =>
+            {
                 let start_args = &args[index + 2..];
                 if (output_mode && !has_inline_relay_ticket_argument(start_args))
                     || server_start_has_cli_routing_flag(start_args)
@@ -1529,7 +1532,40 @@ fn main() {
     client_log::flush_for_exit();
 }
 
+/// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
+/// this daemon only (see SurfaceOptions::adopt_template_terminal).
+struct CloudTemplateEnv {
+    adopt: bool,
+    bound_file: Option<PathBuf>,
+    workspace_name: Option<String>,
+}
+
+static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
+
+/// Read the Cloud template settings and remove them from this process's
+/// environment, so no terminal host, shell, agent, or plugin it spawns
+/// inherits them. Must run before any thread starts.
+fn take_cloud_template_env() {
+    const KEYS: [&str; 3] = [
+        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+        "CMUX_TUI_TEMPLATE_BOUND_FILE",
+        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+    ];
+    let settings = CloudTemplateEnv {
+        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
+        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
+        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
+    };
+    for key in KEYS {
+        // SAFETY: called first in run_main, before this process starts any
+        // thread, so no other thread can read the environment concurrently.
+        unsafe { std::env::remove_var(key) };
+    }
+    let _ = CLOUD_TEMPLATE_ENV.set(settings);
+}
+
 fn run_main() {
+    take_cloud_template_env();
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
@@ -2056,6 +2092,13 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        // Set by the Cloud VM boot supervisor on a snapshot clone; see
+        // SurfaceOptions::adopt_template_terminal.
+        if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
+            surface_options.adopt_template_terminal = template.adopt;
+            surface_options.template_bound_file = template.bound_file.clone();
+            surface_options.template_workspace_name = template.workspace_name.clone();
+        }
     }
     let provider_management_pending = provider_management_listener.is_some();
     let mux =
@@ -2118,6 +2161,7 @@ fn run_server(
         owner_host_colors,
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2214,6 +2258,7 @@ fn run_server(
         );
     }
     let served_socket = pending_server.into_bound_path();
+    mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
     // Cloud VMs carry coderouter identity in their model-plane env; every
     // other host resolves no source and gets no poller.
@@ -2499,10 +2544,7 @@ fn start_detached_owner_session(
     // Capture the client's truthful terminal identity once. The detached
     // owner may outlive this client and must not derive TERM from a different
     // launch environment, or prompt palettes can diverge between clients.
-    let owner_term = args
-        .term
-        .clone()
-        .unwrap_or_else(cmux_tui_core::default_child_term);
+    let owner_term = args.term.clone().unwrap_or_else(cmux_tui_core::default_child_term);
     let spec = local_owner::OwnerSpec {
         session: args.session.clone(),
         socket: socket_path.clone(),
@@ -2923,6 +2965,15 @@ fn usage_exit(msg: &str) -> ! {
 #[cfg(all(test, unix))]
 mod remote_args_tests {
     use super::*;
+
+    #[test]
+    fn shorthand_server_start_uses_the_existing_lifecycle() {
+        let mut args = ["--session", "shorthand-test", "srv", "start", "--ephemeral"]
+            .map(str::to_string)
+            .to_vec();
+        rewrite_server_start(&mut args);
+        assert_eq!(args, ["--headless", "--session", "shorthand-test", "--ephemeral"]);
+    }
 
     #[test]
     fn daemon_accepts_native_and_durable_object_relay_registrations() {

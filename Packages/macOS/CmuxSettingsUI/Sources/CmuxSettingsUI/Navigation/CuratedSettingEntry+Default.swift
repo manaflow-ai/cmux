@@ -16,7 +16,7 @@ extension Array where Element == CuratedSettingEntry {
     /// so both languages find the same setting. Tests and hosts that want
     /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
-    public static var cmuxDefault: [CuratedSettingEntry] {
+    public static func cmuxDefault(catalog: SettingCatalog) -> [CuratedSettingEntry] {
         [
             // Account / integrations
             .init(section: .account, id: "account", title: String(localized: "settings.section.account", defaultValue: "Account"), synonyms: "Account auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
@@ -85,10 +85,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "menu-bar-only", title: String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), synonyms: "Menu Bar Only app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
             .init(section: .app, id: "telemetry", title: String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), synonyms: "Send anonymous telemetry app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
-            .init(section: .app, id: "warn-before-closing-tab", title: String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), synonyms: "Warn Before Closing Tab app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+            .init(userFacing: catalog.app.warnBeforeClosingTab),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
-            .init(section: .app, id: "hide-tab-close-button", title: String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"), synonyms: "Hide Tab Close Button app.hideTabCloseButton hide x button close tab terminal surface"),
-            .init(section: .app, id: "rename-selects-name", title: String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), synonyms: "Rename Selects Existing Name app.renameSelectsExistingName rename select all existing title command palette workspace name"),
+            .init(userFacing: catalog.app.hideTabCloseButton),
+            .init(userFacing: catalog.app.renameSelectsExistingName),
             .init(section: .app, id: "palette-search-all", title: String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), synonyms: "Command Palette Searches All Surfaces app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
             .init(
                 section: .app,
@@ -170,6 +170,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+            .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(section: .terminal, id: "agent-hibernation", title: String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), synonyms: "Agent Hibernation terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: String(localized: "settings.terminal.agentHibernation.idleSeconds", defaultValue: "Hibernate After Idle Seconds"), synonyms: "Hibernate After Idle Seconds terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
@@ -219,6 +220,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), synonyms: "Hide All Sidebar Details sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
             .init(section: .sidebarAppearance, id: "wrap-workspace-titles", title: String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), synonyms: "Wrap Workspace Titles in Sidebar sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
             .init(section: .sidebarAppearance, id: "show-workspace-description", title: String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), synonyms: "Show Workspace Description in Sidebar sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
+            .init(section: .sidebarAppearance, id: "workspace-description-color", title: String(localized: "settings.app.workspaceDescriptionColor", defaultValue: "Workspace Description Color"), synonyms: "Workspace Description Color sidebar.workspaceDescriptionColor description text color notes markdown sidebar"),
             .init(section: .sidebarAppearance, id: "sidebar-branch-layout", title: String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), synonyms: "Sidebar Branch Layout sidebar.branchLayout sidebar.branchVerticalLayout git branch layout vertical inline cwd directory"),
             .init(section: .sidebarAppearance, id: "stack-branch-directory", title: String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"), synonyms: "Stack Branch and Directory sidebar.stackBranchDirectory git branch directory cwd path stack stacked separate lines two rows"),
             .init(section: .sidebarAppearance, id: "path-last-segment-only", title: String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"), synonyms: "Truncate Path From Start sidebar.pathLastSegmentOnly cwd path directory last segment basename short truncate folder repo"),
@@ -401,7 +403,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "enabled",
-                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
+                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable cmux Computer Use"),
                 paths: ["computerUse.enabled"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.enabled", defaultValue: "computerUse.enabled enable disable computer use cua mcp agent sessions")
             ),
@@ -414,7 +416,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "show-in-menu-bar",
-                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show Computer Use in Menu Bar"),
+                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show cmux Computer Use in Menu Bar"),
                 paths: ["computerUse.showInMenuBar"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
             ),

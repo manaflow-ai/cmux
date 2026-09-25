@@ -184,7 +184,12 @@ struct WorkspaceContentView: View {
 
     var body: some View {
 #if DEBUG
-        let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
+        let _ = {
+            if minimalModeInvalidationProbe.shouldTraceBodyChanges?() == true {
+                Self._printChanges()
+            }
+            minimalModeInvalidationProbe.workspaceContentBody?()
+        }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
@@ -422,7 +427,11 @@ struct WorkspaceContentView: View {
         // A workspace is a page: accept the parent proposal instead of
         // contributing a hidden child's content-derived ideal to its ZStack.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(CloudPaneCreationFailurePresentation(failureStore: workspace.cloudPaneCreationFailureStore))
+        .modifier(CloudPaneCreationFailurePresentation(
+            failureStore: workspace.cloudPaneCreationFailureStore,
+            isWorkspaceVisible: isWorkspaceVisible,
+            sourceView: workspace.cloudPaneCreationFailureSourceView
+        ))
     }
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds

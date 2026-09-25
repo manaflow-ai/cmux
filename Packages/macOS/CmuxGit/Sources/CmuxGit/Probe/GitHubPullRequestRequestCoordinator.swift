@@ -316,11 +316,11 @@ public actor GitHubPullRequestRequestCoordinator {
         }
 
         if response.statusCode == 403 || response.statusCode == 429,
-           let retryAfterSeconds = CmxRetryAfterPolicy.seconds(
+           let retryAfterSeconds = CmxRetryAfterPolicy().seconds(
                from: response,
                now: now(),
                defaultSeconds: response.statusCode == 429
-                   ? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                   ? CmxRetryAfterPolicy().defaultRateLimitSeconds
                    : nil
            ) {
             extendRateLimitRetryDate(

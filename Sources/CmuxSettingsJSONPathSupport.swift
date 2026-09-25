@@ -238,6 +238,11 @@ enum TerminalSettingsFileMapping {
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
         ),
+        .init(
+            jsonKey: "textEditingGestures",
+            defaultsKey: terminal.textEditingGestures.userDefaultsKey,
+            invalidPath: terminal.textEditingGestures.id
+        ),
     ]
 }
 

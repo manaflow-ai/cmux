@@ -52,13 +52,34 @@ final class BrowserPaneDropTargetView: NSView {
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false,
         hasLiveTabTransfer: Bool = false,
         hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+        let hasLiveInternalTransfer = hasLiveTabTransfer
+            || (hasFilePreviewTransfer && hasLiveFileDropPayload)
+        // Mouse-up belongs to a drop destination only while its native drag
+        // registration is live. Pasteboard payloads outlive completed drags.
+        if routingContext.eventKind == .pointerUp,
+           !hasActiveDropDrag,
+           !hasLiveInternalTransfer {
+            return false
+        }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+        // A Finder file URL remains on NSPasteboard.Name.drag after the drag
+        // ends. During ordinary hover, require the registered native drag
+        // session before letting that stale payload own the hit test.
+        if hasFileURL,
+           !hasFilePreviewTransfer,
+           !hasLiveTabTransfer,
+           !hasActiveDropDrag,
+           routingContext.eventKind == .pointerHover || routingContext.eventKind == .appKitRouting {
+            return false
+        }
         // Dock-hosted status is deliberately not consulted here: it cannot change
         // the capture result (a file-URL payload always yields a disposition, so
         // `shouldCaptureFileDrop` is true either way; without a file URL the
@@ -108,6 +129,7 @@ final class BrowserPaneDropTargetView: NSView {
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType,
+            hasActiveDropDrag: enclosingPaneDropRoutingHost?.hasActivePaneDropDrag ?? false,
             hasLiveTabTransfer: hasLiveTabTransfer,
             hasLiveFileDropPayload: hasLiveFileDropPayload
         )
@@ -115,6 +137,17 @@ final class BrowserPaneDropTargetView: NSView {
         logHitTestDecision(capture: capture, pasteboardTypes: pasteboardTypes, eventType: eventType)
 #endif
         return capture ? self : nil
+    }
+
+    private var enclosingPaneDropRoutingHost: (any PaneDropRoutingHost)? {
+        var ancestor = superview
+        while let view = ancestor {
+            if let host = view as? any PaneDropRoutingHost {
+                return host
+            }
+            ancestor = view.superview
+        }
+        return nil
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
