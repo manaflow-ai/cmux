@@ -556656,6 +556656,596 @@
                 }
             }
         }
+    },
+    "cli.agent.goalState.error.agentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent is required."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent ist erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent est requis."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent مطلوب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent es obligatorio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 --agent。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 --agent。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent は必須です。"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.error.identityRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session and --generation are required."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session und --generation sind erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session et --generation sont requis."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session و--generation مطلوبان."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session y --generation son obligatorios."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 --session 與 --generation。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 --session 和 --generation。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session 및 --generation이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session と --generation は必須です。"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.error.invalidState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid goal state '%@'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiger Zielstatus '%@'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "État d’objectif invalide « %@ ». "
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة الهدف '%@' غير صالحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El estado del objetivo '%@' no es válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標狀態「%@」無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标状态“%@”无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목표 상태 '%@'이(가) 잘못되었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標状態 '%@' は無効です。"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.error.invalidTimestamp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms must be a non-negative integer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms muss eine nichtnegative Ganzzahl sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms doit être un entier non négatif."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون --updated-at-ms عددًا صحيحًا غير سالب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms debe ser un entero no negativo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms 必須是非負整數。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms 必须是非负整数。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms는 음이 아닌 정수여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms は 0 以上の整数で指定してください。"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.error.rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goal lifecycle update was rejected."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktualisierung des Ziellifecycles wurde abgelehnt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La mise à jour du cycle de vie de l’objectif a été refusée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رُفض تحديث دورة حياة الهدف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se rechazó la actualización del ciclo de vida del objetivo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標生命週期更新遭到拒絕。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标生命周期更新被拒绝。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목표 수명 주기 업데이트가 거부되었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標ライフサイクルの更新は拒否されました。"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.error.targetRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace and surface identity are required; pass --workspace and --surface or use the cmux hook environment."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichs- und Oberflächenkennung erforderlich; übergib --workspace und --surface oder verwende die cmux-Hook-Umgebung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les identifiants de l’espace de travail et de la surface sont requis ; indiquez --workspace et --surface ou utilisez l’environnement du hook cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطلوب معرّف مساحة العمل والسطح؛ مرّر --workspace و--surface أو استخدم بيئة خطاف cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requieren los identificadores del espacio de trabajo y la superficie; pasa --workspace y --surface o usa el entorno del hook de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要工作區與表面識別碼；請傳入 --workspace 和 --surface，或使用 cmux hook 環境。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要工作区和表面标识；请传入 --workspace 和 --surface，或使用 cmux hook 环境。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스와 표면 식별자가 필요합니다. --workspace 및 --surface를 전달하거나 cmux 훅 환경을 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースとサーフェスの識別子が必要です。--workspace と --surface を指定するか、cmux フック環境を使用してください。"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.error.unknownAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown agent '%@'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Agent '%@'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent inconnu « %@ ». "
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكيل '%@' غير معروف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente desconocido '%@'."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的代理程式「%@」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知代理“%@”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 에이전트 '%@'입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なエージェント '%@' です。"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.error.invalidValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid goal lifecycle value: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiger Zielstatuswert: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valeur de cycle de vie d’objectif invalide : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة دورة حياة الهدف غير صالحة: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor de ciclo de vida del objetivo no válido: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標生命週期值無效：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标生命周期值无效：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 목표 수명 주기 값: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標ライフサイクルの値が無効です: %@"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record authoritative objective state for one exact agent session. The generation fences late updates from an earlier objective."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet den verbindlichen Zielstatus einer einzelnen Agentensitzung auf. Die Generation blockiert verspätete Updates eines früheren Ziels."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistre l’état d’objectif faisant autorité pour une session précise. La génération bloque les mises à jour tardives d’un objectif précédent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسجل حالة الهدف المعتمدة لجلسة وكيل محددة. يمنع رقم الجيل التحديثات المتأخرة لهدف سابق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra el estado autorizado del objetivo para una sesión exacta. La generación bloquea actualizaciones tardías de un objetivo anterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記錄特定代理程式工作階段的權威目標狀態。世代識別碼會阻擋先前目標的延遲更新。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录特定代理会话的权威目标状态。代际标识会阻止先前目标的延迟更新。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정확한 에이전트 세션의 권위 있는 목표 상태를 기록합니다. 세대 식별자가 이전 목표의 늦은 업데이트를 차단합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "特定のエージェントセッションの目標状態を記録します。世代識別子が以前の目標からの遅延更新を遮断します。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

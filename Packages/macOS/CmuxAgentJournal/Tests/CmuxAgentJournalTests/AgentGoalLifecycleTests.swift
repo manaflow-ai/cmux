@@ -31,4 +31,11 @@ struct AgentGoalLifecycleTests {
         #expect(!AgentGoalLifecycleState.unmanaged.isTerminal)
         #expect(!AgentGoalLifecycleState.unknown.isTerminal)
     }
+
+    @Test("provider statuses fail closed")
+    func providerStatusMapping() {
+        #expect(AgentGoalLifecycleState.fromProviderValue("usageLimited") == .blocked)
+        #expect(AgentGoalLifecycleState.fromProviderValue("budgetLimited") == .blocked)
+        #expect(AgentGoalLifecycleState.fromProviderValue("future-status") == .unknown)
+    }
 }

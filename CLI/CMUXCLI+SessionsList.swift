@@ -1,3 +1,4 @@
+import CmuxAgentJournal
 import Foundation
 
 extension CMUXCLI {
@@ -120,6 +121,8 @@ extension CMUXCLI {
         var stores: [[String: Any]] = []
 
         let decoder = JSONDecoder()
+        let goalStore = sessionsListGoalStore(processEnv: processEnv)
+        defer { goalStore?.close() }
         for spec in selectedSpecs {
             let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
                 .appendingPathComponent("\(spec.sessionStoreSuffix)-hook-sessions.json", isDirectory: false)
@@ -169,6 +172,12 @@ extension CMUXCLI {
                     "updated_at": sessionsListTimestamp(record.updatedAt),
                     "updated_at_unix": record.updatedAt
                 ]
+                let goalLifecycle = goalStore.flatMap {
+                    try? $0.goalLifecycle(source: spec.name, sessionId: record.sessionId)
+                }
+                let goalCapability = goalLifecycle == nil
+                    ? (spec.name == "codex" ? "unknown" : "unmanaged")
+                    : "supported"
                 if rawRecord.sessionId != record.sessionId {
                     payload["hook_session_id"] = rawRecord.sessionId
                 }
@@ -177,6 +186,17 @@ extension CMUXCLI {
                 payload["pid"] = record.pid ?? NSNull()
                 payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
                 payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
+                payload["goal_lifecycle"] = goalLifecycle?.state.rawValue
+                    ?? (goalCapability == "unknown" ? AgentGoalLifecycleState.unknown.rawValue : AgentGoalLifecycleState.unmanaged.rawValue)
+                payload["goal_generation"] = goalLifecycle?.generation ?? NSNull()
+                payload["goal_updated_at"] = goalLifecycle.map {
+                    sessionsListTimestamp(Double($0.updatedAtMs) / 1_000)
+                } ?? NSNull()
+                payload["goal_updated_at_unix"] = goalLifecycle.map {
+                    Double($0.updatedAtMs) / 1_000
+                } ?? NSNull()
+                payload["goal_provenance"] = goalLifecycle?.provenance ?? NSNull()
+                payload["goal_capability"] = goalCapability
                 payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
@@ -416,6 +436,7 @@ extension CMUXCLI {
         let sessionDir = (payload["session_dir"] as? String) ?? "-"
         let activeWorkspace = ((payload["active_for_workspace"] as? Bool) == true) ? "yes" : "no"
         let activeSurface = ((payload["active_for_surface"] as? Bool) == true) ? "yes" : "no"
+        let goalLifecycle = (payload["goal_lifecycle"] as? String) ?? "unmanaged"
         var parts = [
             "\(agent) \(sessionId)",
             "workspace=\(workspaceId)",
@@ -423,7 +444,8 @@ extension CMUXCLI {
             "cwd=\(cwd)",
             "active_ws=\(activeWorkspace)",
             "active_surface=\(activeSurface)",
-            "updated=\(updatedAt)"
+            "updated=\(updatedAt)",
+            "goal=\(goalLifecycle)"
         ]
         if agent == "codex" {
             parts.append("session_home=\(sessionHome)")
@@ -471,6 +493,28 @@ extension CMUXCLI {
             return uuid
         }
         return normalized
+    }
+
+    private func sessionsListGoalStore(processEnv: [String: String]) -> AgentJournalStore? {
+        let path: URL
+        if let override = sessionsListNormalized(processEnv["CMUX_AGENT_JOURNAL_PATH"]) {
+            path = URL(fileURLWithPath: sessionsListExpandedPath(override))
+        } else {
+            guard let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first else { return nil }
+            let bundleID = sessionsListNormalized(processEnv["CMUX_BUNDLE_ID"]) ?? "com.cmuxterm.app"
+            let safeBundleID = bundleID.replacingOccurrences(
+                of: "[^A-Za-z0-9._-]",
+                with: "_",
+                options: .regularExpression
+            )
+            path = appSupport
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("agent-journal-\(safeBundleID).sqlite3")
+        }
+        return try? AgentJournalStore(databaseURL: path)
     }
 
 }

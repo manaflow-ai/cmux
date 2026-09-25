@@ -5506,7 +5506,11 @@ struct CMUXCLI {
             }
 
         case "agent":
-            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            if commandArgs.first == "goal-state" {
+                try runAgentGoalStateCommand(commandArgs: commandArgs, client: client, processEnv: processEnv, jsonOutput: jsonOutput)
+            } else {
+                try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            }
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"

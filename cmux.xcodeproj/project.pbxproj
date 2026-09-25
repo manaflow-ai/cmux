@@ -1046,6 +1046,7 @@
 		CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
 		CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */ = {isa = PBXBuildFile; productRef = CA53A005CA53A005CA53A005 /* CmuxCanvasUI */; };
 		303E131D2D8A8F96C08F3825 /* CMUXCLI+AdmittedRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D3513BB67E65A937E22D56 /* CMUXCLI+AdmittedRestore.swift */; };
+		C0DE10942000000000000001 /* CMUXCLI+AgentGoalLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10942000000000000002 /* CMUXCLI+AgentGoalLifecycle.swift */; };
 		A12123000000000000000005 /* CMUXCLI+AgentHibernationSessionEnd.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000006 /* CMUXCLI+AgentHibernationSessionEnd.swift */; };
 		C85350000000000000000203 /* CMUXCLI+AgentHookAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85350000000000000000204 /* CMUXCLI+AgentHookAdmission.swift */; };
 		D4461A487C13945177EEE9A1 /* CMUXCLI+AgentHookCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */; };
@@ -5172,6 +5173,7 @@
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 		947194719471947194719471 /* CmuxBundledBinPathIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxBundledBinPathIntegrationTests.swift; sourceTree = "<group>"; };
 		35D3513BB67E65A937E22D56 /* CMUXCLI+AdmittedRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AdmittedRestore.swift"; sourceTree = "<group>"; };
+		C0DE10942000000000000002 /* CMUXCLI+AgentGoalLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentGoalLifecycle.swift"; sourceTree = "<group>"; };
 		A12123000000000000000006 /* CMUXCLI+AgentHibernationSessionEnd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHibernationSessionEnd.swift"; sourceTree = "<group>"; };
 		C85350000000000000000204 /* CMUXCLI+AgentHookAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookAdmission.swift"; sourceTree = "<group>"; };
 		61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookCatalog.swift"; sourceTree = "<group>"; };
@@ -11139,6 +11141,7 @@
 				A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */,
 				A10240070000000000000001 /* OwnedProcessSupervisor.swift */,
 				A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */,
+					C0DE10942000000000000002 /* CMUXCLI+AgentGoalLifecycle.swift */,
 					C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */,
 					C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */,
 					C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */,
@@ -15488,6 +15491,7 @@
 				C0DE1A060000000000000001 /* cmux_layout.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 				303E131D2D8A8F96C08F3825 /* CMUXCLI+AdmittedRestore.swift in Sources */,
+					C0DE10942000000000000001 /* CMUXCLI+AgentGoalLifecycle.swift in Sources */,
 				A12123000000000000000005 /* CMUXCLI+AgentHibernationSessionEnd.swift in Sources */,
 				C85350000000000000000203 /* CMUXCLI+AgentHookAdmission.swift in Sources */,
 				D4461A487C13945177EEE9A1 /* CMUXCLI+AgentHookCatalog.swift in Sources */,

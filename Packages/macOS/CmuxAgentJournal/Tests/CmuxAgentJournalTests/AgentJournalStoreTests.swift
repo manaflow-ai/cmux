@@ -161,6 +161,80 @@ struct AgentJournalStoreTests {
         #expect(events.count == 1)
     }
 
+    @Test func goalProjectionSurvivesReopenAndFencesGenerations() throws {
+        let (store, url) = try makeStore()
+        let workspace = UUID().uuidString
+        let surface = UUID().uuidString
+        func goalDraft(_ goal: AgentGoalLifecycle, eventId: String) -> AgentJournalEventDraft {
+            AgentJournalEventDraft(
+                eventId: eventId,
+                kind: .goalStateChanged,
+                occurredAtMs: goal.updatedAtMs,
+                source: "codex",
+                agentKey: "codex",
+                sessionId: "session-1",
+                workspaceId: workspace,
+                surfaceId: surface,
+                nativeEvent: "goal-state",
+                goalLifecycle: goal
+            )
+        }
+        let active = AgentGoalLifecycle(
+            state: .active, generation: "g1", updatedAtMs: 100, provenance: "provider_hook"
+        )
+        _ = try store.append(goalDraft(active, eventId: "goal-1"))
+        #expect(try store.goalLifecycle(source: "codex", sessionId: "session-1") == active)
+        store.close()
+
+        let reopened = try AgentJournalStore(databaseURL: url)
+        defer {
+            reopened.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        let complete = AgentGoalLifecycle(
+            state: .complete, generation: "g1", updatedAtMs: 200, provenance: "provider_hook"
+        )
+        _ = try reopened.append(goalDraft(complete, eventId: "goal-2"))
+        #expect(try reopened.goalLifecycle(source: "codex", sessionId: "session-1") == complete)
+
+        let stale = AgentGoalLifecycle(
+            state: .active, generation: "g1", updatedAtMs: 300, provenance: "provider_hook"
+        )
+        #expect(throws: AgentJournalStoreError.self) {
+            _ = try reopened.append(goalDraft(stale, eventId: "goal-stale"))
+        }
+        let next = AgentGoalLifecycle(
+            state: .active, generation: "g2", updatedAtMs: 400,
+            provenance: "provider_hook", previousGeneration: "g1"
+        )
+        _ = try reopened.append(goalDraft(next, eventId: "goal-3"))
+        #expect(try reopened.goalLifecycle(source: "codex", sessionId: "session-1") == next)
+        let missingFence = AgentGoalLifecycle(
+            state: .active, generation: "g3", updatedAtMs: 500, provenance: "provider_hook"
+        )
+        #expect(throws: AgentJournalStoreError.self) {
+            _ = try reopened.append(goalDraft(missingFence, eventId: "goal-4"))
+        }
+    }
+
+    @Test func goalEventRoundTripsItsPrivatePayload() throws {
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        let goal = AgentGoalLifecycle(
+            state: .paused, generation: "g1", updatedAtMs: 123, provenance: "generic_hook"
+        )
+        var event = draft(kind: .goalStateChanged)
+        event.goalLifecycle = goal
+        event.nativeEvent = "goal-state"
+        let outcome = try store.append(event)
+        let read = try #require(try store.events(afterSequence: outcome.sequence - 1, limit: 1).first)
+        #expect(read.goalLifecycle == goal)
+        #expect(read.draft == event)
+    }
+
     @Test func surfaceAliasChainsResolve() throws {
         let (store, url) = try makeStore()
         defer {

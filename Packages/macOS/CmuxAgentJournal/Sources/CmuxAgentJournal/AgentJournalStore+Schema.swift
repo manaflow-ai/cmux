@@ -92,6 +92,7 @@ extension AgentJournalStore {
                 binding: [.int(cutoff)]
             )
             try database.exec("DELETE FROM agent_attention_context WHERE event_id NOT IN (SELECT event_id FROM agent_journal);")
+            try database.exec("DELETE FROM agent_goal_context WHERE event_id NOT IN (SELECT event_id FROM agent_journal);")
             try installImmutabilityTriggers(database)
         }
     }

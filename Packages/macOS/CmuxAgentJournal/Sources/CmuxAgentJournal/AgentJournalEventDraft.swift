@@ -61,6 +61,9 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
 
     /// Structured causal identity and optional notification carried by this event.
     public var attention: AgentAttentionContext?
+    /// Objective state carried by a dedicated goal event. It is never inferred
+    /// from process or turn lifecycle.
+    public var goalLifecycle: AgentGoalLifecycle?
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -79,6 +82,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         case declaredPhase = "declared_phase"
         case detail
         case attention
+        case goalLifecycle = "goal_lifecycle"
     }
 
     /// Creates a draft, stamping the current schema version and truncating
@@ -115,7 +119,8 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         nativeEvent: String? = nil,
         declaredPhase: AgentLifecyclePhase? = nil,
         detail: String? = nil,
-        attention: AgentAttentionContext? = nil
+        attention: AgentAttentionContext? = nil,
+        goalLifecycle: AgentGoalLifecycle? = nil
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.eventId = eventId
@@ -133,6 +138,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         self.declaredPhase = declaredPhase
         self.detail = detail.map(Self.boundedDetail)
         self.attention = attention
+        self.goalLifecycle = goalLifecycle
     }
 
     /// Validates the draft for journal admission.
@@ -161,6 +167,22 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         }
         if let detail, detail.utf8.count > Self.maximumDetailLength {
             return "detail exceeds \(Self.maximumDetailLength) UTF-8 bytes"
+        }
+        if kind == .goalStateChanged, workspaceId == nil || surfaceId == nil
+            || isSubagent || pendingWork || attention != nil || detail != nil || declaredPhase != nil {
+            return "goal state events require an exact target and metadata only"
+        }
+        if kind == .goalStateChanged, sessionId?.isEmpty != false || (sessionId?.count ?? 0) > 256 {
+            return "goal state events require session_id"
+        }
+        if kind == .goalStateChanged, goalLifecycle == nil {
+            return "goal state events require goal_lifecycle"
+        }
+        if kind != .goalStateChanged, goalLifecycle != nil {
+            return "goal_lifecycle is only valid on goal state events"
+        }
+        if let goalLifecycle, let problem = goalLifecycle.validationProblem() {
+            return "goal_lifecycle: \(problem)"
         }
         return nil
     }
