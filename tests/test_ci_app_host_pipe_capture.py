@@ -22,19 +22,24 @@ def workflows_launching_app_host():
     app-host jobs moved to ci-macos.yml and the list did not follow, so the
     guard scanned a workflow with no launches at all and passed while the
     workflow that actually builds the app host went unchecked. Asking the
-    directory cannot drift that way.
+    directory cannot drift that way. Composite actions count too: test-e2e.yml
+    runs its tests through .github/actions/e2e-run-tests.
     """
+    candidates = sorted(WORKFLOW_DIR.glob("*.y*ml")) + sorted(
+        (WORKFLOW_DIR.parent / "actions").glob("*/action.y*ml")
+    )
     return [
-        path for path in sorted(WORKFLOW_DIR.glob("*.y*ml"))
+        path for path in candidates
         if APP_HOST_LAUNCHER in path.read_text(encoding="utf-8")
     ]
 
 
 def named_step_blocks(text: str):
     lines = text.splitlines()
+    # Workflow job steps sit at six spaces, composite action steps at four.
     starts = [
         index for index, line in enumerate(lines)
-        if line.startswith("      - name:")
+        if line.startswith("      - name:") or line.startswith("    - name:")
     ]
     starts.append(len(lines))
     for pos in range(len(starts) - 1):
@@ -62,6 +67,7 @@ def validate_common_capture_boundary() -> None:
 
 def validate_workflows() -> int:
     checked = 0
+    e2e_checked = False
     workflows = workflows_launching_app_host()
     if not workflows:
         raise SystemExit(
@@ -89,13 +95,16 @@ def validate_workflows() -> int:
                 raise SystemExit(
                     f"{path}: app-host xcodebuild step bypasses file-backed capture"
                 )
-        if path.name == "test-e2e.yml":
+        if path.parent.name == "e2e-run-tests":
             if "bash scripts/ci/run-and-capture.sh /tmp/xcodebuild-e2e.log" not in text:
                 raise SystemExit(
-                    "test-e2e.yml must use file-backed xcodebuild capture"
+                    "test-e2e.yml's test steps must use file-backed xcodebuild capture"
                 )
+            e2e_checked = True
     if checked == 0:
         raise SystemExit("no app-host xcodebuild workflow steps were found")
+    if not e2e_checked:
+        raise SystemExit("test-e2e.yml's test steps (e2e-run-tests) were not scanned")
     return checked
 
 

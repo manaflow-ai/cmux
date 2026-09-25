@@ -61121,7 +61121,136 @@
         }
       }
     },
-    "browser.import.error.title": {
+    "browser.import.error.scopeInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope is invalid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope が無効です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope가 유효하지 않습니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр scope недійсний."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 无效。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope ist ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope n’est pas valide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope غير صالح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope no es válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 無效。"
+          }
+        }
+      }
+    },
+    "browser.import.error.scopeRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope must be a non-empty string."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope は空でない文字列である必要があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope는 비어 있지 않은 문자열이어야 합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр scope має бути непорожнім рядком."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 必须是非空字符串。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope muss eine nicht leere Zeichenfolge sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope doit être une chaîne non vide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون scope سلسلة غير فارغة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope debe ser una cadena no vacía."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 必須是非空字串。"
+          }
+        }
+      }
+    },    "browser.import.error.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -551783,6 +551912,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークフローのひな形を探す："
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.predictedEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive local echo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予測ローカルエコー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预测性本地回显"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorausschauendes lokales Echo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écho local prédictif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدى المحلي التنبؤي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eco local predictivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預測性本機回顯"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예측 로컬 에코"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.predictedEcho.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows characters you type over a slow remote link before the remote echoes them, underlined until confirmed. Stays off at a password prompt and inside full-screen applications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低速なリモート接続で、リモートがエコーする前に入力した文字を表示し、確定するまで下線を付けます。パスワード入力時とフルスクリーンアプリケーションではオフのままです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在缓慢的远程连接上，于远端回显之前先显示你输入的字符，确认前以下划线标示。在密码提示和全屏应用程序中保持关闭。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt über eine langsame Remoteverbindung getippte Zeichen an, bevor die Gegenstelle sie zurücksendet; sie bleiben unterstrichen, bis sie bestätigt sind. Bei Passwortabfragen und in Vollbildanwendungen bleibt die Funktion aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les caractères que vous tapez sur une liaison distante lente avant que l'hôte ne les renvoie ; ils restent soulignés jusqu'à confirmation. Reste désactivé aux invites de mot de passe et dans les applications plein écran."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض الأحرف التي تكتبها عبر اتصال بعيد بطيء قبل أن يردّها الجهاز البعيد، مع تسطيرها حتى تأكيدها. يظل معطّلاً عند مطالبات كلمة المرور وداخل التطبيقات ملء الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los caracteres que escribes en una conexión remota lenta antes de que el host los devuelva; quedan subrayados hasta confirmarse. Permanece desactivado en las solicitudes de contraseña y en las aplicaciones a pantalla completa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在緩慢的遠端連線上，於遠端回顯之前先顯示你輸入的字元，確認前以底線標示。在密碼提示與全螢幕應用程式中保持關閉。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "느린 원격 연결에서 원격이 에코하기 전에 입력한 문자를 먼저 표시하며, 확인될 때까지 밑줄로 표시합니다. 비밀번호 프롬프트와 전체 화면 응용 프로그램에서는 꺼진 상태를 유지합니다."
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.predictedEcho.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waits for the remote to echo every character, so typing lags by one round trip."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートが各文字をエコーするのを待つため、入力が往復時間ぶん遅れます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待远端回显每个字符，因此输入会延迟一次往返传输的时间。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf das Echo jedes Zeichens, sodass die Eingabe um eine Übertragungsrunde verzögert ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attend que l'hôte renvoie chaque caractère, la saisie accuse donc un aller-retour de retard."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتظر أن يردّ الجهاز البعيد كل حرف، فتتأخر الكتابة بمقدار رحلة ذهاب وإياب واحدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espera a que el host devuelva cada carácter, por lo que la escritura se retrasa un viaje de ida y vuelta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待遠端回顯每個字元，因此輸入會延遲一次來回傳輸的時間。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격이 모든 문자를 에코할 때까지 기다리므로 입력이 왕복 시간만큼 지연됩니다."
           }
         }
       }
