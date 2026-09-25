@@ -745,9 +745,14 @@ jobs:
         if: ${{ steps.owned-state.outputs.warm == 'true' }}
         continue-on-error: true
         run: |
-          set -euo pipefail
-          python3 scripts/ci/owned_build_state.py adopt "$IOS_OWNED_STORE" "$IOS_DERIVED_DATA" "$PWD"
+          set -uo pipefail
+          # A failed adopt only rebuilds more; the steps below must still run.
+          python3 scripts/ci/owned_build_state.py adopt "$IOS_OWNED_STORE" "$IOS_DERIVED_DATA" "$PWD" \
+            || echo "::warning::Could not adopt the kept DerivedData; building from what is there"
           mkdir -p "$IOS_DERIVED_DATA/logs"
+          # The kept Build/Products still holds the last job's xctestrun, maybe
+          # for another test plan, and Stage and stamp needs exactly one.
+          rm -f "$IOS_DERIVED_DATA"/Build/Products/*.xctestrun
 
       - name: Record this owned Mac's iOS build inputs
         if: ${{ steps.owned-state.outputs.fingerprint != '' }}
