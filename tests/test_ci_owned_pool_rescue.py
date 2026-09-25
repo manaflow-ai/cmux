@@ -401,6 +401,45 @@ class Watching(unittest.TestCase):
         self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
         self.assertIn("the run is on an ephemeral pool", summary)
 
+    def test_jobs_late_placement_moved_are_watched_and_rescued(self):
+        # The picker put everything on Blacksmith (no marker), so ci.yml started the watch
+        # for late placement, which moved a shard onto an owned root runner that another
+        # run took first.
+        def jobs(seconds):
+            found = [changes()(seconds),
+                     job("macos / macOS compile admission", status="completed", labels=[BLACKSMITH], created=5),
+                     job("macos / swift-package-tests", status="in_progress", labels=[BLACKSMITH], created=5,
+                         runner="bs-1")]
+            if seconds >= 600:
+                found.append(job(rescue.LATE_JOB, status="completed", created=590))
+                found.append(job("macos / app-host unit tests (1/7)", labels=[MINI], created=600))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=lambda name: name.startswith("macos-pool-late-"))
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": "",
+                                                     "LATE_PLACEMENT": "1"})
+        self.assertIn(f"artifact:macos-pool-late-{RUN_ID}-1", api.calls)
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+        # The picker's marker is read once, not on every look while admission runs.
+        self.assertEqual(api.calls.count(f"artifact:macos-pool-persistent-{RUN_ID}-1-"), 1)
+
+    def test_late_placement_that_moved_nothing_ends_the_watch(self):
+        def jobs(seconds):
+            found = [changes()(seconds),
+                     job("macos / macOS compile admission", status="completed", labels=[BLACKSMITH], created=5),
+                     job("macos / swift-package-tests", status="in_progress", labels=[BLACKSMITH], created=5,
+                         runner="bs-1")]
+            if seconds >= 300:
+                found.append(job(rescue.LATE_JOB, status="completed", created=290))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=False)
+        _, summary = run_main(api, clock, env_extra={"LATE_PLACEMENT": "1"})
+        self.assertIn("late placement moved no job", summary)
+        self.assertNotIn("cancel", api.calls)
+        # Admission's minutes pass at IDLE_POLL_SECONDS: looks at 45, 165, 285 and 405 s.
+        self.assertLessEqual(api.calls.count("jobs"), 5)
+
     def test_waits_for_the_picker_before_looking_for_the_marker(self):
         clock = Clock()
         api = FakeAPI(clock, lambda s: [changes(done_at=100)(s)])
@@ -1046,6 +1085,66 @@ class MainDispatch(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
 
 
+class Tokens(unittest.TestCase):
+    """Reads may use the App's token; writes always use GITHUB_TOKEN."""
+
+    def open_with(self, fail_first_read=False):
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.get_method(), request.headers["Authorization"]))
+            if fail_first_read and len(seen) == 1:
+                raise rescue.urllib.error.HTTPError(request.full_url, 401, "expired", {}, None)
+            return Response(b"{}")
+        return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
+
+    def test_reads_use_the_app_token_and_writes_keep_github_token(self):
+        seen, patch = self.open_with()
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.run(1)
+            api.rerun_failed(1)
+            api.cancel(1)
+        # A re-run started by the App would not be github-actions[bot], which
+        # ci-macos.yml's attempt-2 routing requires.
+        self.assertEqual(seen, [("GET", "Bearer app-token"), ("POST", "Bearer repo-token"),
+                                ("POST", "Bearer repo-token")])
+
+    def test_an_expired_app_token_falls_back_for_the_rest_of_the_watch(self):
+        seen, patch = self.open_with(fail_first_read=True)
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.run(1)
+            api.run(1)
+        self.assertEqual(seen, [("GET", "Bearer app-token"), ("GET", "Bearer repo-token"),
+                                ("GET", "Bearer repo-token")])
+
+    def test_without_an_app_token_everything_uses_github_token(self):
+        seen, patch = self.open_with()
+        with patch:
+            rescue.GitHub("repo-token", "o/r").run(1)
+        self.assertEqual(seen, [("GET", "Bearer repo-token")])
+
+    def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(
+            encoding="utf-8"))["jobs"]["rescue"]["steps"]
+        mint = next(step for step in steps if step.get("id") == "read-token")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
+                         {"permission-actions": "read", "permission-contents": "read",
+                          "permission-pull-requests": "read"})
+        watch = next(step for step in steps if step.get("name") == "Watch the run's persistent pool jobs")
+        self.assertEqual(watch["env"]["READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        self.assertEqual(watch["env"]["GH_TOKEN"], "${{ github.token }}")
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
@@ -1117,9 +1216,15 @@ class Workflow(unittest.TestCase):
             # Fail-safe: ci.yml at job level (macos-admission-gate skips a job
             # that cannot fail); the dispatch workflows at step level.
             self.assertIs(job.get("continue-on-error", job["steps"][0].get("continue-on-error")), True, path)
+            # ci.yml also says whether to wait for late placement (the picker owned nothing).
+            late = ' -f late="$LATE"' if path.endswith("/ci.yml") else ""
             self.assertEqual(job["steps"][0]["run"],
                              'gh workflow run ci-owned-pool-rescue.yml --ref main '
-                             '-f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"', path)
+                             '-f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"' + late, path)
+        watch = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["owned-pool-watch"]
+        self.assertEqual(watch["steps"][0]["env"]["LATE"], "${{ needs.changes.outputs.macos_pr_owned_jobs == '' && '1' || '0' }}")
+        # A run the picker placed nothing owned is watched only where late placement can move jobs.
+        self.assertIn("github.event_name == 'pull_request' && vars.GLAEDA_ROUTE_APP_ID != ''", watch["if"])
         ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text(encoding="utf-8"))["jobs"]
         self.assertEqual(ios["runner"]["outputs"]["owned_marker"], "${{ steps.marker.outputs.path != '' }}")
         screenshots = yaml.safe_load((ROOT / ".github/workflows/ios-screenshots.yml").read_text(encoding="utf-8"))
