@@ -139,6 +139,14 @@ extension ControlCommandCoordinator {
                 "selected_surface_ref": paneRefs[index].selectedSurfaceRef,
                 "surface_count": .int(Int64(pane.surfaceIDs.count)),
             ]
+            if pane.stableSurfaceIDs.count == pane.surfaceIDs.count {
+                dict["stable_surface_ids"] = .array(
+                    pane.stableSurfaceIDs.map { .string($0.uuidString) }
+                )
+            }
+            if let stableSurfaceID = pane.selectedStableSurfaceID {
+                dict["selected_stable_surface_id"] = .string(stableSurfaceID.uuidString)
+            }
             if let frame = pane.pixelFrame {
                 dict["pixel_frame"] = .object([
                     "x": .double(frame.x),
@@ -281,6 +289,9 @@ extension ControlCommandCoordinator {
                     "type": orNull(surface.typeRawValue),
                     "selected": .bool(surface.isSelected),
                 ]
+                if let stableSurfaceID = surface.stableSurfaceID {
+                    item["stable_id"] = .string(stableSurfaceID.uuidString)
+                }
                 if let dockScope = surface.dockScopeRawValue {
                     item["dock_scope"] = .string(dockScope)
                 }

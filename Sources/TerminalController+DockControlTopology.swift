@@ -112,10 +112,19 @@ extension TerminalController {
 
         return dock.bonsplitController.allPaneIds.map { paneID in
             let tabs = dock.bonsplitController.tabs(inPane: paneID)
-            let surfaceIDs = tabs.compactMap { dock.panel(for: $0.id)?.id }
+            let resolvedSurfaces = tabs.compactMap { tab in
+                dock.panel(for: tab.id).map { panel in
+                    (surfaceID: panel.id, stableSurfaceID: panel.stableSurfaceId)
+                }
+            }
+            let surfaceIDs = resolvedSurfaces.map(\.surfaceID)
+            let stableSurfaceIDs = resolvedSurfaces.map(\.stableSurfaceID)
             let selectedSurfaceID = dock.bonsplitController
                 .selectedTab(inPane: paneID)
                 .flatMap { dock.panel(for: $0.id)?.id }
+            let selectedStableSurfaceID = dock.bonsplitController
+                .selectedTab(inPane: paneID)
+                .flatMap { dock.panel(for: $0.id)?.stableSurfaceId }
             let pixelFrame = includePixelFrames ? geometryByPaneID[paneID.id.uuidString].map {
                 ControlPanePixelFrame(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
             } : nil
@@ -127,7 +136,9 @@ extension TerminalController {
                 paneID: paneID.id,
                 isFocused: paneID == focusedPaneID,
                 surfaceIDs: surfaceIDs,
+                stableSurfaceIDs: stableSurfaceIDs,
                 selectedSurfaceID: selectedSurfaceID,
+                selectedStableSurfaceID: selectedStableSurfaceID,
                 pixelFrame: pixelFrame,
                 gridSize: gridSize,
                 dockScopeRawValue: dock.scope.rawValue
@@ -153,6 +164,7 @@ extension TerminalController {
             let panel = dock.panel(for: tab.id)
             return ControlPaneSurfaceSummary(
                 surfaceID: panel?.id,
+                stableSurfaceID: panel?.stableSurfaceId,
                 title: tab.title,
                 typeRawValue: panel?.panelType.rawValue,
                 isSelected: tab.id == selectedTab?.id,

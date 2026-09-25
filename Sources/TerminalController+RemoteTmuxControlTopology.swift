@@ -168,7 +168,9 @@ extension TerminalController {
                         paneID: pane.paneID.id,
                         isFocused: workspace.focusedPanelId == containerPanelID && pane.isFocused,
                         surfaceIDs: [pane.panel.id],
+                        stableSurfaceIDs: [pane.panel.stableSurfaceId],
                         selectedSurfaceID: pane.panel.id,
+                        selectedStableSurfaceID: pane.panel.stableSurfaceId,
                         pixelFrame: nil,
                         gridSize: controlGridSize(panel: pane.panel)
                     )
@@ -182,11 +184,19 @@ extension TerminalController {
             let selectedStandardSurfaceID = selectedPanelID.flatMap { panelID in
                 workspace.isRemoteTmuxControlContainer(panelID) ? nil : panelID
             }
+            let standardStableSurfaceIDs = standardSurfaceIDs.compactMap { panelID in
+                workspace.panels[panelID]?.stableSurfaceId
+            }
+            let selectedStandardStableSurfaceID = selectedStandardSurfaceID.flatMap { panelID in
+                workspace.panels[panelID]?.stableSurfaceId
+            }
             summaries.append(ControlPaneSummary(
                 paneID: paneID.id,
                 isFocused: paneID == focusedPaneId && selectedStandardSurfaceID != nil,
                 surfaceIDs: standardSurfaceIDs,
+                stableSurfaceIDs: standardStableSurfaceIDs,
                 selectedSurfaceID: selectedStandardSurfaceID,
+                selectedStableSurfaceID: selectedStandardStableSurfaceID,
                 pixelFrame: frame,
                 gridSize: selectedStandardSurfaceID
                     .flatMap { workspace.terminalPanel(for: $0) }
@@ -237,6 +247,7 @@ extension TerminalController {
                 windowID: v2ResolveWindowId(tabManager: tabManager),
                 surfaces: [ControlPaneSurfaceSummary(
                     surfaceID: remotePane.panel.id,
+                    stableSurfaceID: remotePane.panel.stableSurfaceId,
                     title: remotePane.title,
                     typeRawValue: remotePane.panel.panelType.rawValue,
                     isSelected: true
@@ -263,6 +274,7 @@ extension TerminalController {
             let panel = workspace.panels[panelID]
             return ControlPaneSurfaceSummary(
                 surfaceID: panelID,
+                stableSurfaceID: panel?.stableSurfaceId,
                 title: tab.title,
                 typeRawValue: panel?.panelType.rawValue,
                 isSelected: tab.id == selectedTab?.id

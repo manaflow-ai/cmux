@@ -36,6 +36,12 @@ struct CLIWorkspaceStableIDTests {
             let row = try #require(rows.first)
             #expect(row["id"] as? String == item.id, Comment(rawValue: "command=\(item.command) row=\(row)"))
             #expect(row["ref"] as? String == item.ref, Comment(rawValue: "command=\(item.command) row=\(row)"))
+            if item.key == "panes" {
+                #expect(row["stable_surface_ids"] as? [String] == [Self.stableSurfaceID])
+                #expect(row["selected_stable_surface_id"] as? String == Self.stableSurfaceID)
+            } else {
+                #expect(row["stable_id"] as? String == Self.stableSurfaceID)
+            }
         }
     }
 
@@ -103,6 +109,7 @@ struct CLIWorkspaceStableIDTests {
             let workspace = try workspaceRow(in: root)
             #expect(workspace["id"] as? String == Self.workspaceID, Comment(rawValue: "command=\(command) row=\(workspace)"))
             #expect(workspace["ref"] as? String == "workspace:1", Comment(rawValue: "command=\(command) row=\(workspace)"))
+            #expect(workspace["stable_id"] as? String == Self.stableWorkspaceID)
             assertDefaultIdentifierShape(in: root, command: command)
             if command.first == "top" {
                 let tag = try topTagRow(in: root)
@@ -226,6 +233,9 @@ struct CLIWorkspaceStableIDTests {
                     #expect(id == nil, Comment(rawValue: "command=\(command) row=\(dictionary)"))
                 }
             }
+            for key in dictionary.keys where key == "stable_id" || key.hasPrefix("stable_") {
+                #expect(dictionary[key] != nil, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+            }
             for kind in ["window", "workspace", "pane", "surface"] where dictionary["\(kind)_ref"] != nil {
                 let id = dictionary["\(kind)_id"] as? String
                 if kind == "workspace" {
@@ -265,6 +275,7 @@ struct CLIWorkspaceStableIDTests {
             }
 
             let singularPrefixes = Set(dictionary.keys.compactMap { key -> String? in
+                guard !key.hasPrefix("stable_") else { return nil }
                 if key.hasSuffix("_id") { return String(key.dropLast(3)) }
                 if key.hasSuffix("_ref") { return String(key.dropLast(4)) }
                 return nil
@@ -275,6 +286,7 @@ struct CLIWorkspaceStableIDTests {
             }
 
             let pluralPrefixes = Set(dictionary.keys.compactMap { key -> String? in
+                guard !key.hasPrefix("stable_") else { return nil }
                 if key.hasSuffix("_ids") { return String(key.dropLast(4)) }
                 if key.hasSuffix("_refs") { return String(key.dropLast(5)) }
                 return nil
@@ -356,4 +368,6 @@ struct CLIWorkspaceStableIDTests {
     private static let workspaceID = "22222222-2222-2222-2222-222222222222"
     private static let paneID = "33333333-3333-3333-3333-333333333333"
     private static let surfaceID = "44444444-4444-4444-4444-444444444444"
+    private static let stableWorkspaceID = "55555555-5555-5555-5555-555555555555"
+    private static let stableSurfaceID = "66666666-6666-6666-6666-666666666666"
 }
