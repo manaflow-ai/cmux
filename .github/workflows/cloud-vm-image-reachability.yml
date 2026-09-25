@@ -21,6 +21,8 @@ on:
     paths:
       - web/services/vms/images/manifest.json
       - web/services/vms/drivers/cmuxTuiDaemon.ts
+      - web/services/vms/images/devbox/**
+      - web/scripts/devbox-image-common.ts
       - web/scripts/check-devbox-image-reachable.ts
       - .github/workflows/cloud-vm-image-reachability.yml
   # The client moves without a commit here, so check daily. The cache skip
@@ -43,7 +45,7 @@ concurrency:
 
 jobs:
   reachable:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The provider key lives in this environment, not in a repo-wide secret,
     # so only a job that names it can read it. No reviewers and no branch
     # policy, or the daily run and PR runs could not use it; fork PRs get no
@@ -93,7 +95,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: web/.devbox-reachable
-          key: devbox-reachable-${{ steps.pair.outputs.key }}
+          key: devbox-reachable-${{ hashFiles('web/scripts/check-devbox-image-reachable.ts', 'web/scripts/devbox-image-common.ts', 'web/services/vms/drivers/cmuxTuiDaemon.ts', 'web/services/vms/images/**', '.github/workflows/cloud-vm-image-reachability.yml') }}-${{ steps.pair.outputs.key }}
 
       - name: Reach the shipped image
         if: steps.gate.outputs.run == 'true' && (steps.seen.outputs.cache-hit != 'true' || inputs.image != '')

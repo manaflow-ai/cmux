@@ -27,18 +27,29 @@ extension WorkspaceListView {
         }
 
         if rendersGroupedSections {
-            items.append(contentsOf: groupedItems.map { item in
-                switch item {
-                case .groupHeader(let group, _):
-                    .groupHeader(group.id)
-                case .groupFooter(let groupID):
-                    .groupFooter(groupID)
-                case .workspace(let workspace, let indented):
-                    .workspace(workspace.id, indented: indented)
-                }
-            })
+            if groupedItems.isEmpty
+                && trimmedQuery.isEmpty
+                && !activeFilter.isActive
+                && workspaces.isEmpty {
+                items.append(.emptyWorkspaceList)
+            } else {
+                items.append(contentsOf: groupedItems.map { item in
+                    switch item {
+                    case .groupHeader(let group, _):
+                        .groupHeader(group.id)
+                    case .groupFooter(let groupID):
+                        .groupFooter(groupID)
+                    case .workspace(let workspace, let indented):
+                        .workspace(workspace.id, indented: indented)
+                    }
+                })
+            }
         } else if showsWorkspaceTableFilterEmptyRow {
             items.append(.filterEmpty)
+        } else if trimmedQuery.isEmpty
+            && !activeFilter.isActive
+            && workspaces.isEmpty {
+            items.append(.emptyWorkspaceList)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
                 .workspace($0.id, indented: false)
@@ -74,6 +85,74 @@ extension WorkspaceListView {
                 : { @MainActor workspace in
                     openWorkspaceChanges(workspace)
                 }
+        let emptyStateRecoveryTarget = store?.workspaceListRecoveryTarget
+        let emptyStateMacDeviceID = emptyStateRecoveryTarget?.macDeviceID
+        let emptyStateMacInstanceTag = emptyStateRecoveryTarget?.instanceTag
+        let isRetryOwnerCurrentOnDisappear: (() -> Bool)? = store.map { store in
+            {
+                let currentTarget = store.workspaceListRecoveryTarget
+                if store.isRecoveringWorkspaceList {
+                    return store.isWorkspaceListRecoveryOwned(
+                        byMacDeviceID: emptyStateMacDeviceID,
+                        instanceTag: emptyStateMacInstanceTag
+                    )
+                        && currentTarget?.macDeviceID == emptyStateMacDeviceID
+                        && currentTarget?.instanceTag == emptyStateMacInstanceTag
+                }
+                return currentTarget?.macDeviceID == emptyStateMacDeviceID
+                    && currentTarget?.instanceTag == emptyStateMacInstanceTag
+            }
+        }
+        let shouldCancelRefreshOnDisappear: (() -> Bool)? = store.map { store in
+            {
+                let currentTarget = store.workspaceListRecoveryTarget
+                return currentTarget?.macDeviceID == emptyStateMacDeviceID
+                    && currentTarget?.instanceTag == emptyStateMacInstanceTag
+                    && store.workspaces.isEmpty
+                    // Hiding the empty row is itself part of the active
+                    // recovery transition. Do not let that structural
+                    // disappearance cancel the retry that owns recovery.
+                    && !store.isRecoveringWorkspaceList
+            }
+        }
+        let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
+            {
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    ownerScoped: true
+                )
+            }
+        } ?? cancelRefresh
+        let cancelRefreshOnDisappearForEmptyState: (() -> Void)? = store.map { store in
+            {
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    ownerScoped: true
+                )
+            }
+        }
+        let beginRefreshForEmptyState: (() -> UUID?)? = store.map { store in
+            {
+                store.prepareWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag
+                )
+            }
+        }
+        let cancelRefreshAttemptForEmptyState: ((UUID?) -> Void)? = store.map { store in
+            { generation in
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    expectedGeneration: generation,
+                    ownerScoped: true
+                )
+            }
+        } ?? cancelRefresh.map { suppliedCancel in
+            { _ in suppliedCancel() }
+        }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: workspacesByID,
@@ -89,6 +168,9 @@ extension WorkspaceListView {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             unreadBadgeDiameter: unreadBadgeDiameter,
             connectionStatus: connectionStatus,
+            workspaceOwnerID: emptyStateMacDeviceID,
+            workspaceOwnerInstanceTag: emptyStateMacInstanceTag,
+            showsWorkspaceEmptyState: connectionChrome.showsWorkspaceEmptyState,
             workspaceChangesCapable: workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             openWorkspaceChanges: openChanges,
@@ -148,7 +230,14 @@ extension WorkspaceListView {
             retryInitialConnection: initialConnectionTimedOut ? retryInitialConnection : nil,
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
             reconnect: reconnect,
-            refresh: refresh
+            refresh: refresh,
+            cancelRefresh: cancelRefreshForEmptyState,
+            cancelRefreshOnDisappear: cancelRefreshOnDisappearForEmptyState,
+            beginRefresh: beginRefreshForEmptyState,
+            cancelRefreshAttempt: cancelRefreshAttemptForEmptyState,
+            cancelRefreshAttemptOnDisappear: cancelRefreshAttemptForEmptyState,
+            shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear,
+            isRetryOwnerCurrentOnDisappear: isRetryOwnerCurrentOnDisappear
         )
     }
 }

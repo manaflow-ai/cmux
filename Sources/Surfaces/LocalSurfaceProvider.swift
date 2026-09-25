@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// This Mac as a surface provider.
@@ -59,7 +60,8 @@ final class LocalSurfaceProvider: SurfaceProvider {
     /// (markdown, file preview, tools, loading placeholders, …).
     func resource(for panel: any Panel, in workspace: Workspace) -> SurfaceResource? {
         let title = workspace.panelTitles[panel.id].flatMap { $0.isEmpty ? nil : $0 } ?? panel.displayTitle
-        if panel is TerminalPanel {
+        if let terminal = panel as? TerminalPanel {
+            guard terminal.surface.ioMode != .manualMirror else { return nil }
             return SurfaceResource(
                 id: Self.resourceID(forTerminalPanel: panel.id),
                 title: title,

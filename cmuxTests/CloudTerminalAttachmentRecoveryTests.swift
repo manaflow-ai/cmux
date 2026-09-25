@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxCloudTui
 import Darwin
 import Foundation
 import Testing
@@ -296,7 +298,7 @@ import Testing
             for waiter in pending { waiter.resume() }
         }
 
-        func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+        func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
             active += 1
             calls += 1
             maximumActive = max(maximumActive, active)
@@ -386,37 +388,31 @@ private final class ScriptedTuiCommandRunner: CloudTuiCommandRunning, @unchecked
     typealias Answer = @Sendable () throws -> Data
 
     private let lock = NSLock()
-    private var scripts: [(matches: @Sendable ([String]) -> Bool, answer: Answer)] = []
-    private var recorded: [[String]] = []
+    private var scripts: [(matches: @Sendable (CloudTuiRequest) -> Bool, answer: Answer)] = []
+    private var recorded: [CloudTuiRequest] = []
 
     /// Every invocation seen so far, in order.
-    var calls: [[String]] {
+    var calls: [CloudTuiRequest] {
         lock.lock(); defer { lock.unlock() }
         return recorded
     }
 
     /// Answers a `raw command --request-json {"cmd": <name>, …}` invocation.
     func onRawCommand(_ name: String, _ answer: @escaping Answer) {
-        on({ arguments in
-            guard let index = arguments.firstIndex(of: "--request-json"),
-                  arguments.indices.contains(index + 1),
-                  let data = arguments[index + 1].data(using: .utf8),
-                  let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-            return request["cmd"] as? String == name
-        }, answer)
+        on({ $0.raw && $0.operation == name }, answer)
     }
 
     /// Answers a resource-CLI invocation whose argv ends with `words`.
     func onSubcommand(_ words: [String], _ answer: @escaping Answer) {
-        on({ Array($0.suffix(words.count)) == words }, answer)
+        on({ $0.operation == "session.snapshot" && words == ["session", "current", "snapshot"] }, answer)
     }
 
-    private func on(_ matches: @escaping @Sendable ([String]) -> Bool, _ answer: @escaping Answer) {
+    private func on(_ matches: @escaping @Sendable (CloudTuiRequest) -> Bool, _ answer: @escaping Answer) {
         lock.lock(); defer { lock.unlock() }
         scripts.append((matches: matches, answer: answer))
     }
 
-    func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+    func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         lock.lock()
         recorded.append(arguments)
         let script = scripts.first { $0.matches(arguments) }
@@ -424,7 +420,7 @@ private final class ScriptedTuiCommandRunner: CloudTuiCommandRunning, @unchecked
         guard let script else {
             throw CloudMachineLink.LinkError.exited(
                 status: 2,
-                output: "unscripted cmux-tui invocation: \(arguments.joined(separator: " "))"
+                output: "unscripted cmux-tui invocation: \(arguments.operation)"
             )
         }
         return try script.answer()

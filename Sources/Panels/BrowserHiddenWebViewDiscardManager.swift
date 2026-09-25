@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Foundation
 
@@ -306,11 +307,7 @@ final class BrowserHiddenWebViewDiscardManager {
     func installPolicyObserver() {
         policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
         guard policyObserver == nil else { return }
-        policyObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        policyObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.handlePolicyDefaultsChanged()
             }

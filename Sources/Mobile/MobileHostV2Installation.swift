@@ -1,0 +1,113 @@
+import CmuxCloud
+import CryptoKit
+import CmuxIrxTransport
+import Foundation
+
+struct MobileHostV2Configuration: Sendable {
+    let baseURL: URL
+    let environment: String
+    let projectID: String
+    let namespace: String
+    let tag: String
+    let stateDirectory: URL
+
+    @MainActor
+    static func current(
+        values: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard,
+        bundle: Bundle = .main
+    ) throws -> Self {
+        let namespace = bundle.bundleIdentifier ?? "dev.cmux"
+        func configuredValue(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        for key in ["CMUX_IROH_V2_ENVIRONMENT", "CMUX_IROH_V2_BASE_URL", "CMUX_IROH_V2_FORCE_RELAY"] {
+            if let value = configuredValue(values[key]) {
+                defaults.set(value, forKey: "cmux.iroh.v2.config." + key)
+            }
+        }
+        func override(_ key: String) -> String? {
+            // Xcode expands unset Info.plist build settings to empty strings.
+            // They are absent overrides, not an environment or Worker URL.
+            configuredValue(values[key])
+                ?? configuredValue(defaults.string(forKey: "cmux.iroh.v2.config." + key))
+                ?? configuredValue(bundle.object(forInfoDictionaryKey: key) as? String)
+        }
+        #if DEBUG
+        let fallback = "development"
+        #else
+        let fallback = namespace.contains("staging") ? "staging" : "production"
+        #endif
+        let environment = override("CMUX_IROH_V2_ENVIRONMENT") ?? fallback
+        let origin: String
+        switch environment {
+        case "production": origin = "https://cmux-iroh-v2.debussy.workers.dev"
+        case "staging": origin = "https://cmux-iroh-v2-staging.debussy.workers.dev"
+        case "development": origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
+        default: throw V2ControlFailure.scopeMismatch
+        }
+        guard let url = URL(string: override("CMUX_IROH_V2_BASE_URL") ?? origin),
+              url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
+              url.query == nil, url.fragment == nil else { throw V2ControlFailure.scopeMismatch }
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return Self(baseURL: url, environment: environment, projectID: AuthEnvironment.stackProjectID,
+                    namespace: namespace, tag: MobileHostIdentity.instanceTag(),
+                    stateDirectory: support.appendingPathComponent(namespace, isDirectory: true))
+    }
+}
+
+/// Uses only new v2 storage. Stack credentials and pre-v2 identity files are untouched.
+actor MobileHostV2Installation {
+    private let configuration: MobileHostV2Configuration
+    private let keys: V2IdentityKeyStore
+    private let installationIDs: V2InstallationIDStore
+
+    init(configuration: MobileHostV2Configuration) {
+        self.configuration = configuration
+        keys = V2IdentityKeyStore(applicationNamespace: configuration.namespace)
+        installationIDs = V2InstallationIDStore(
+            applicationNamespace: configuration.namespace
+        )
+    }
+
+    func deviceID() throws -> String {
+        #if DEBUG
+        let file = try debugDirectory().appendingPathComponent("installation-id")
+        if FileManager.default.fileExists(atPath: file.path) {
+            let value = try String(contentsOf: file, encoding: .utf8)
+            guard UUID(uuidString: value) != nil else { throw V2ControlFailure.persistenceFailed }
+            return value
+        }
+        let value = UUID().uuidString.lowercased()
+        try Data(value.utf8).write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        return value
+        #else
+        return try installationIDs.loadOrCreate()
+        #endif
+    }
+
+    func key(identity: V2Identity) async throws -> V2IdentityKey {
+        #if DEBUG
+        let digest = SHA256.hash(data: try V2WireSigningCodec().encode(identity)).map { String(format: "%02x", $0) }.joined()
+        let file = try debugDirectory().appendingPathComponent(digest + ".key")
+        if FileManager.default.fileExists(atPath: file.path) { return try V2IdentityKey(secretKey: Data(contentsOf: file)) }
+        let key = V2IdentityKey()
+        try key.secretKey.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        return key
+        #else
+        return try await keys.loadOrCreate(identity: identity)
+        #endif
+    }
+
+    #if DEBUG
+    private func debugDirectory() throws -> URL {
+        let directory = configuration.stateDirectory.appendingPathComponent("cmux-iroh-v2/development-keys", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return directory
+    }
+    #endif
+}

@@ -181,7 +181,7 @@ public struct GhosttyConfigDiscovery {
     }
 
     /// Whether cmux should apply its managed default appearance across the
-    /// resolved config paths when enabled and no Ghostty directives are present
+    /// resolved config paths when enabled and no theme or terminal colors are set
     /// (delegates to ``GhosttyConfig``).
     public func shouldApplyManagedDefaultAppearance(
         configPaths: [String]? = nil,

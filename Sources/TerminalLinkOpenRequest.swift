@@ -6,4 +6,5 @@ struct TerminalLinkOpenRequest: Sendable {
     let sourceWorkspaceId: UUID?
     let sourcePanelId: UUID?
     let workingDirectory: String?
+    var focus: Bool = true
 }

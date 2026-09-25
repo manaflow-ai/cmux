@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
@@ -15,6 +16,13 @@ struct NewMachineSheet: View {
             if model.supportsSize {
                 sizeSection
             }
+            if model.hasNoAllowedMemoryOptions {
+                Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
+            }
             planSection
             if let errorText = model.errorText {
                 errorBox(errorText)
@@ -24,6 +32,19 @@ struct NewMachineSheet: View {
         .padding(24)
         .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
+        .confirmationDialog(
+            String(format: String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@"), NewMachineModel.planDisplayName(model.selectedUpgradePlanId)),
+            isPresented: $model.showsMaxUpgrade,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
+                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: model.selectedUpgradePlanId == "pro" ? .pro : .max)
+            }
+        } message: {
+            Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
+            + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
+        }
+
     }
 
     private var header: some View {
@@ -61,20 +82,45 @@ struct NewMachineSheet: View {
             }
 
             if let selectedSize = model.selectedSize {
-                Picker(selection: $model.memoryMb) {
+                Menu {
                     ForEach(model.memoryOptions, id: \.self) { memoryMb in
                         if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Text(size.menuTitle).tag(memoryMb)
+                            Button(size.menuTitle) { model.selectSize(memoryMb) }
+                        }
+                    }
+                    ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
+                        if let size = MachineSizeOption(memoryMb: memoryMb) {
+                            Button { model.selectSize(memoryMb) } label: {
+                                Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
+                            }
+                            .disabled(model.upgradePlan(for: memoryMb) == nil)
+                            .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
                         }
                     }
                 } label: {
                     Text(selectedSize.menuTitle)
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
                 .accessibilityIdentifier("NewMachineSheet.size")
                 .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
                 .accessibilityValue(selectedSize.menuTitle)
+            }
+
+            if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(note)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
+                    Spacer(minLength: 0)
+                    Button(upgradeTitle) {
+                        model.selectedUpgradePlanId = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
+                        model.showsMaxUpgrade = true
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("NewMachineSheet.size.upgrade")
+                }
             }
         }
         .accessibilityIdentifier("NewMachineSheet.sizeSection")
@@ -144,6 +190,7 @@ struct NewMachineSheet: View {
                 Button(createTitle) {
                     model.create()
                 }
+                .disabled(model.hasNoAllowedMemoryOptions)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("NewMachineSheet.create")
