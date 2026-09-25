@@ -521,6 +521,18 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         return token
     }
 
+    enum RevocationAction { case none, restart, awaitRecovery, stop }
+
+    nonisolated static func revocationAction(previous: V2CachedState?, current: V2CachedState,
+                                             status: V2ControlSnapshot.Status) -> RevocationAction {
+        guard current.authorityRevoked else { return .none }
+        guard current.authorityRevocationRecoverable == true else { return .stop }
+        if previous?.authorityRevoked != true { return .restart }
+        // A newly provisioned service restores the revoked cache before its
+        // first setup. Let it enroll instead of restarting on every snapshot.
+        return status == .stopped ? .stop : .awaitRecovery
+    }
+
     private func apply(_ snapshot: V2ControlSnapshot, token: UUID) async {
         guard isCurrent(token), let admission else { return }
         let status = String(describing: snapshot.status)
@@ -535,6 +547,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         // The service publishes an empty initial observation before loading disk.
         guard snapshot.cache.device != nil || cachedState?.device == nil || snapshot.cache.authorityRevoked else { return }
         let previousCredentials = cachedState?.relayCredentials
+        let revocation = Self.revocationAction(previous: cachedState, current: snapshot.cache, status: snapshot.status)
         cachedState = snapshot.cache
         _ = admission.apply(snapshot)
         await outgoingDeviceClient?.enforce(snapshot.cache)
@@ -547,6 +560,20 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             guard isCurrent(token), !Task.isCancelled else { return }
         }
         if snapshot.cache.authorityRevoked {
+            if snapshot.cache.authorityRevocationRecoverable == true,
+               wantsHost, isNetworkingAllowed,
+               let scope = auth?.authenticatedTeamScope,
+               signingOutScope != scope {
+                // The Durable Object delivered the owner's Forget event while
+                // this Mac was connected. Rebuild the complete host now so
+                // the replacement control service enrolls with fresh Stack
+                // authentication instead of waiting for foreground().
+                if revocation == .restart {
+                    await transition(to: scope)
+                    return
+                }
+                if revocation == .awaitRecovery { return }
+            }
             admission.invalidate()
             let oldLegacy = legacyService
             legacyService = nil

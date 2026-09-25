@@ -103,6 +103,10 @@ public struct TerminalPredictionEngine: Sendable {
     private var scanner = TerminalOutputScanner()
     private var entries: [Entry] = []
     private var isAlternateScreen = false
+    /// Set once a mode switch has been seen in output. A switch the engine
+    /// saw can be newer than what the terminal's parser has applied, so it
+    /// outranks a seeded read.
+    private var hasObservedAlternateScreenSwitch = false
     /// Set by the first confirmed echo, cleared by any output we did not
     /// predict. Gates display entirely.
     private var isEchoRunActive = false
@@ -190,6 +194,20 @@ public struct TerminalPredictionEngine: Sendable {
         guard let latency = smoothedEchoLatency else { return .listening }
         guard latency > configuration.engageAboveEchoLatency else { return .linkIsFastEnough }
         return .predicting
+    }
+
+    /// Seeds whether a full-screen application already owns the screen.
+    ///
+    /// The engine otherwise learns this only from the mode switches it sees
+    /// in output, so a surface that was already in the alternate screen when
+    /// prediction started (the setting turned on, or the surface registered,
+    /// with vim or htop open) would predict inside it. The host reads the
+    /// terminal's current mode and passes it here before the first keystroke.
+    /// Ignored once a mode switch has been seen in output, because output is
+    /// teed ahead of the terminal's parser and may be newer than the read.
+    public mutating func seedAlternateScreen(_ isActive: Bool) {
+        guard !hasObservedAlternateScreenSwitch else { return }
+        isAlternateScreen = isActive
     }
 
     // MARK: Input
@@ -315,6 +333,7 @@ public struct TerminalPredictionEngine: Sendable {
 
             case .alternateScreen(let entered):
                 isAlternateScreen = entered
+                hasObservedAlternateScreenSwitch = true
                 changed = withdrawAll(countingMisprediction: false, at: now) || changed
 
             case .disruptive:
@@ -409,8 +428,15 @@ public struct TerminalPredictionEngine: Sendable {
         _ signal: TerminalOutputSignal,
         at now: PredictionInstant
     ) -> Bool {
-        guard let index = entries.firstIndex(where: { $0.standing == .speculative }),
-              case .erase = entries[index].keystroke else {
+        guard let index = entries.firstIndex(where: { $0.standing == .speculative }) else {
+            return withdrawAll(countingMisprediction: true, at: now)
+        }
+        guard now >= entries[index].typedAt else {
+            // Already in flight when the key was typed, as in
+            // `consumePrintable`: not its echo, and not a wrong guess.
+            return withdrawAll(countingMisprediction: false, at: now)
+        }
+        guard case .erase = entries[index].keystroke else {
             return withdrawAll(countingMisprediction: true, at: now)
         }
         return advanceErase(at: index, by: signal, at: now)
