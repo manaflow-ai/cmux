@@ -15,6 +15,39 @@ private typealias AppStoredShortcut = cmux.StoredShortcut
 @MainActor
 @Suite("Reopen last closed", .serialized)
 struct ReopenLastClosedTests {
+    @Test
+    func parkedWorkspaceManifestPersistsAndSearchesByTitle() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-parked-workspace-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        snapshot.customTitle = "Benchmark waiting room"
+        let store = ParkedWorkspaceStore(
+            fileURL: directory.appendingPathComponent("parked.json"),
+            loadPersisted: false,
+            persistsSynchronously: true
+        )
+        store.append(ParkedWorkspaceRecord(
+            id: workspace.id,
+            workspaceIndex: 0,
+            windowId: nil,
+            snapshot: snapshot
+        ))
+
+        let restored = ParkedWorkspaceStore(
+            fileURL: directory.appendingPathComponent("parked.json"),
+            loadPersisted: true,
+            persistsSynchronously: true
+        )
+        #expect(restored.search("benchmark").map(\.id) == [workspace.id])
+        #expect(restored.remove(id: workspace.id)?.snapshot.customTitle == "Benchmark waiting room")
+        #expect(restored.isEmpty)
+    }
+
     private enum RestoredKind: Equatable {
         case panel
         case window
