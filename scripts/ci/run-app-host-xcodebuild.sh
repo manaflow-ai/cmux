@@ -26,7 +26,13 @@ export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NO
 # the wrapper aborts it (https://github.com/manaflow-ai/cmux/issues/13707).
 export CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET="${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET:-2}"
 restart_budget_exit_code=123
-echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}, restart budget: ${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET}"
+# A test runner that never connects used to cost xcodebuild's own ~700s per
+# attempt, three attempts in a row, before the job failed. Normal runs print
+# their first test line seconds after "Testing started", so bound that gap.
+export CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS:-180}"
+startup_hang_exit_code=122
+startup_hangs=0
+echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, startup timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS}s, attempts: ${max_attempts}, restart budget: ${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET}"
 
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
@@ -362,16 +368,32 @@ while [ "$attempt" -le "$max_attempts" ]; do
       exit "$status"
     fi
     retry_reason=""
-    if [ "$status" -eq 124 ]; then
+    startup_hang=0
+    if [ "$status" -eq "$startup_hang_exit_code" ]; then
+      retry_reason="XCTest startup hang (no test within ${CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS}s)"
+      startup_hang=1
+    elif [ "$status" -eq 124 ]; then
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
     elif grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
       retry_reason="XCTest startup hang"
+      startup_hang=1
     elif grep -Fq 'Failed to establish communication with the test runner' "$log_path"; then
       retry_reason="test runner communication failure"
     elif grep -Fq 'com.apple.testmanagerd.control was invalidated' "$log_path"; then
       retry_reason="testmanagerd connection invalidated"
     elif grep -Fq "Couldn't communicate with a helper application" "$log_path"; then
       retry_reason="test helper communication failure"
+    fi
+
+    if [ "$startup_hang" -eq 1 ]; then
+      startup_hangs=$((startup_hangs + 1))
+      # Two startup hangs in a row mean this Mac's testmanagerd refuses the
+      # IDE channel; every further attempt hangs the same way. Stop and say
+      # so, so the rerun lands on another runner instead of burning this one.
+      if [ "$startup_hangs" -ge 2 ]; then
+        echo "::error title=App-host runner fault::${RUNNER_NAME:-this runner}: the XCTest runner never connected in $startup_hangs launches (testmanagerd refused xcodebuild). Runner fault, not a test verdict; rerun the job." >&2
+        exit "$status"
+      fi
     fi
 
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
@@ -381,6 +403,13 @@ while [ "$attempt" -le "$max_attempts" ]; do
       fi
       echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
       kill_stale_app_host
+      if [ "$startup_hang" -eq 1 ]; then
+        # testmanagerd is this user's on-demand launchd agent; launchd starts
+        # a fresh one for the next session. Safe here because the app-host
+        # lock guarantees no other app-host test on this Mac is using it.
+        launchctl kickstart -k "gui/$(id -u)/com.apple.testmanagerd" >&2 \
+          || echo "warning: could not restart testmanagerd before retrying" >&2
+      fi
       attempt=$((attempt + 1))
       continue
     fi
