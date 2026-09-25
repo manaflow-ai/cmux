@@ -9398,10 +9398,18 @@ struct CMUXCLI {
         let payload = try client.sendV2(method: "surface.pip", params: params)
         let formattedSurface = formatTabHandle(payload, idFormat: idFormat) ?? "surface"
         let inPip = (payload["in_picture_in_picture"] as? Bool) == true
-        let fallbackKey = inPip ? "cli.surfacePip.result.popped" : "cli.surfacePip.result.returned"
-        let fallbackFormat = inPip
-            ? String(localized: fallbackKey, defaultValue: "Popped out %@ into Picture in Picture")
-            : String(localized: fallbackKey, defaultValue: "Returned %@ from Picture in Picture")
+        let fallbackFormat: String
+        if inPip {
+            fallbackFormat = String(
+                localized: "cli.surfacePip.result.popped",
+                defaultValue: "Popped out %@ into Picture in Picture"
+            )
+        } else {
+            fallbackFormat = String(
+                localized: "cli.surfacePip.result.returned",
+                defaultValue: "Returned %@ from Picture in Picture"
+            )
+        }
         let fallback = String(format: fallbackFormat, formattedSurface)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }
