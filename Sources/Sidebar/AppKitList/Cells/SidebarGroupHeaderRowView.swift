@@ -414,7 +414,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
         let nameAvailable = max(1, plusX - 4 - x - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
-        let descriptionWidth = max(1, contentMaxX - x)
+        // Keep the description inside the same trailing control boundary as
+        // the title. Without this reservation, a short title leaves the
+        // description free to draw beneath the hover-revealed plus button.
+        let descriptionWidth = max(1, plusX - 4 - x)
         let titleHeight = nameField.measuredHeight(width: nameAvailable)
         let descriptionHeight = descriptionView.measuredHeight(width: descriptionWidth)
         let spacing = descriptionView.isHidden ? 0 : SidebarWorkspaceGroupHeaderMetrics.descriptionSpacing
