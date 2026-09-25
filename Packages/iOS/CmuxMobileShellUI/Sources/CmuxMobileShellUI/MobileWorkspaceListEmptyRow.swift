@@ -18,7 +18,7 @@ private struct MobileDocsSafariView: UIViewControllerRepresentable {
 }
 
 struct MobileWorkspaceListEmptyRow: View {
-    private static let docsURL = URL(string: "https://cmux.com/docs/ios#setup")!
+    private static let docsURL = URL(string: "https://cmux.com/docs/ios#prerequisites")!
     private static let retryTimeout: Duration = .seconds(30)
 
     let retry: (@Sendable () async -> Void)?
