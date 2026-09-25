@@ -50,7 +50,9 @@ import CmuxGit
         )
         service.attach(host: host)
         let key = WorkspaceGitProbeKey(workspaceId: workspace, panelId: panel)
-        #expect(service.requiresFreshPullRequestChecks(for: [key]))
+        // No badge means no associated PR to refresh; a successful notFound
+        // result must keep the repository metadata cache eligible.
+        #expect(!service.requiresFreshPullRequestChecks(for: [key]))
         host.updatePanelPullRequest(workspaceId: workspace, panelId: panel, badge: SidebarPullRequestBadge(
             number: 1, label: "PR", url: URL(string: "https://github.com/o/r/pull/1")!, status: .open,
             checks: PullRequestChecksSummary(status: .success, checks: [], mergeStatus: .ready)

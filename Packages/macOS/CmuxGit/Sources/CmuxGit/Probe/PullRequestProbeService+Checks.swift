@@ -43,7 +43,28 @@ extension PullRequestProbeService {
             currentSHA = page.headSHA
             mergeStatus = page.mergeStatus
             for context in page.contexts {
-                if let previous = contexts[context.identity], previous.isNewer(than: context) { continue }
+                if let previous = contexts[context.identity] {
+                    switch previous.ordering(against: context) {
+                    case .newer:
+                        continue
+                    case .older:
+                        break
+                    case .ambiguous:
+                        let unavailable = PullRequestCheck(
+                            id: context.check.id,
+                            name: context.check.name,
+                            status: .unavailable,
+                            detailsURL: context.check.detailsURL
+                        )
+                        contexts[context.identity] = PullRequestCheckContext(
+                            check: unavailable,
+                            identity: context.identity,
+                            startedAt: context.startedAt,
+                            runNumber: context.runNumber
+                        )
+                        continue
+                    }
+                }
                 contexts[context.identity] = context
             }
             guard let next = page.nextCursor else { complete = true; break }

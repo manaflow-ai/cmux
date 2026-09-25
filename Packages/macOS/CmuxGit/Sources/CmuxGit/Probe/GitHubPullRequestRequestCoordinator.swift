@@ -38,10 +38,26 @@ public actor GitHubPullRequestRequestCoordinator {
         return "\(userAgentProductToken)/\(version)"
     }
 
+    enum RateLimitResource: Hashable, Sendable {
+        case rest
+        case graphql
+    }
+
+    private enum RateLimitScope: Hashable, Sendable {
+        case primary(RateLimitResource)
+        case secondary
+    }
+
+    private struct RateLimitKey: Hashable, Sendable {
+        let authorizationFingerprint: Data
+        let scope: RateLimitScope
+    }
+
     internal struct RequestKey: Hashable, Sendable {
         let endpoint: String
         let body: Data?
         let authorizationFingerprint: Data
+        let rateLimitResource: RateLimitResource
     }
 
     private struct CachedResponse: Sendable {
@@ -74,8 +90,8 @@ public actor GitHubPullRequestRequestCoordinator {
     internal var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
     private var activeTransportCount = 0
     internal var queuedTransports: [QueuedTransport] = []
-    private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
-    private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
+    private var rateLimitRetryDateByKey: [RateLimitKey: Date] = [:]
+    private var rateLimitKeysInInsertionOrder: [RateLimitKey] = []
 
     /// Creates a coordinator with the default shared-transport configuration.
     ///
@@ -118,10 +134,12 @@ public actor GitHubPullRequestRequestCoordinator {
         let requestKey = RequestKey(
             endpoint: endpoint,
             body: body,
-            authorizationFingerprint: githubAuthorizationFingerprint(for: authHeader)
+            authorizationFingerprint: githubAuthorizationFingerprint(for: authHeader),
+            rateLimitResource: endpoint == "graphql" ? .graphql : .rest
         )
         guard activeRateLimitRetryDate(
-            for: requestKey.authorizationFingerprint
+            for: requestKey.authorizationFingerprint,
+            resource: requestKey.rateLimitResource
         ) == nil else { return nil }
         guard !Task.isCancelled else { return nil }
 
@@ -171,12 +189,16 @@ public actor GitHubPullRequestRequestCoordinator {
         }
     }
 
-    func retryDate(authHeader: String) -> Date? {
+    func retryDate(
+        authHeader: String,
+        resource: RateLimitResource = .rest
+    ) -> Date? {
         guard !authHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
         return activeRateLimitRetryDate(
-            for: githubAuthorizationFingerprint(for: authHeader)
+            for: githubAuthorizationFingerprint(for: authHeader),
+            resource: resource
         )
     }
 
@@ -189,7 +211,8 @@ public actor GitHubPullRequestRequestCoordinator {
         defer { releaseTransportPermit() }
         guard !Task.isCancelled else { return nil }
         guard activeRateLimitRetryDate(
-            for: requestKey.authorizationFingerprint
+            for: requestKey.authorizationFingerprint,
+            resource: requestKey.rateLimitResource
         ) == nil,
               let url = URL(string: "https://api.github.com/\(requestKey.endpoint)") else {
             return nil
@@ -216,7 +239,8 @@ public actor GitHubPullRequestRequestCoordinator {
             }
             updateRateLimit(
                 from: httpResponse,
-                authorizationFingerprint: requestKey.authorizationFingerprint
+                authorizationFingerprint: requestKey.authorizationFingerprint,
+                resource: requestKey.rateLimitResource
             )
 
             if httpResponse.statusCode == 304, let cachedResponse {
@@ -301,7 +325,8 @@ public actor GitHubPullRequestRequestCoordinator {
 
     private func updateRateLimit(
         from response: HTTPURLResponse,
-        authorizationFingerprint: Data
+        authorizationFingerprint: Data,
+        resource: RateLimitResource
     ) {
         if response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0",
            let rawReset = response.value(forHTTPHeaderField: "X-RateLimit-Reset"),
@@ -311,7 +336,8 @@ public actor GitHubPullRequestRequestCoordinator {
             // exhausted response.
             extendRateLimitRetryDate(
                 to: Date(timeIntervalSince1970: resetSeconds + 1),
-                authorizationFingerprint: authorizationFingerprint
+                authorizationFingerprint: authorizationFingerprint,
+                resource: resource
             )
         }
 
@@ -325,27 +351,28 @@ public actor GitHubPullRequestRequestCoordinator {
            ) {
             extendRateLimitRetryDate(
                 to: now().addingTimeInterval(TimeInterval(retryAfterSeconds)),
-                authorizationFingerprint: authorizationFingerprint
+                authorizationFingerprint: authorizationFingerprint,
+                resource: resource
             )
         }
     }
 
     private func extendRateLimitRetryDate(
         to retryDate: Date,
-        authorizationFingerprint: Data
+        authorizationFingerprint: Data,
+        resource: RateLimitResource
     ) {
         guard retryDate > now() else { return }
         removeExpiredRateLimitRetryDates()
-        rateLimitAuthorizationFingerprintsInInsertionOrder.removeAll { $0 == authorizationFingerprint }
-        rateLimitAuthorizationFingerprintsInInsertionOrder.append(authorizationFingerprint)
-        rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] = max(
-            rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] ?? .distantPast,
-            retryDate
-        )
-        while rateLimitRetryDateByAuthorizationFingerprint.count > Self.maximumRateLimitIdentityCount {
-            guard let oldestFingerprint = rateLimitAuthorizationFingerprintsInInsertionOrder.first else { break }
-            rateLimitAuthorizationFingerprintsInInsertionOrder.removeFirst()
-            rateLimitRetryDateByAuthorizationFingerprint.removeValue(forKey: oldestFingerprint)
+        let scope: RateLimitScope = resource == .rest ? .secondary : .primary(resource)
+        let key = RateLimitKey(authorizationFingerprint: authorizationFingerprint, scope: scope)
+        rateLimitKeysInInsertionOrder.removeAll { $0 == key }
+        rateLimitKeysInInsertionOrder.append(key)
+        rateLimitRetryDateByKey[key] = max(rateLimitRetryDateByKey[key] ?? .distantPast, retryDate)
+        while rateLimitRetryDateByKey.count > Self.maximumRateLimitIdentityCount {
+            guard let oldestKey = rateLimitKeysInInsertionOrder.first else { break }
+            rateLimitKeysInInsertionOrder.removeFirst()
+            rateLimitRetryDateByKey.removeValue(forKey: oldestKey)
         }
     }
 
@@ -375,18 +402,25 @@ public actor GitHubPullRequestRequestCoordinator {
         cachedResponseKeysInInsertionOrder.removeAll { $0 == requestKey }
     }
 
-    private func activeRateLimitRetryDate(for authorizationFingerprint: Data) -> Date? {
+    private func activeRateLimitRetryDate(
+        for authorizationFingerprint: Data,
+        resource: RateLimitResource
+    ) -> Date? {
         removeExpiredRateLimitRetryDates()
-        return rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint]
+        let primary = rateLimitRetryDateByKey[RateLimitKey(
+            authorizationFingerprint: authorizationFingerprint,
+            scope: .primary(resource)
+        )]
+        let secondary = rateLimitRetryDateByKey[RateLimitKey(
+            authorizationFingerprint: authorizationFingerprint,
+            scope: .secondary
+        )]
+        return [primary, secondary].compactMap { $0 }.max()
     }
 
     private func removeExpiredRateLimitRetryDates() {
         let currentDate = now()
-        rateLimitRetryDateByAuthorizationFingerprint = rateLimitRetryDateByAuthorizationFingerprint.filter {
-            $0.value > currentDate
-        }
-        rateLimitAuthorizationFingerprintsInInsertionOrder.removeAll {
-            rateLimitRetryDateByAuthorizationFingerprint[$0] == nil
-        }
+        rateLimitRetryDateByKey = rateLimitRetryDateByKey.filter { $0.value > currentDate }
+        rateLimitKeysInInsertionOrder.removeAll { rateLimitRetryDateByKey[$0] == nil }
     }
 }

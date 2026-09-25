@@ -37,7 +37,7 @@ extension PullRequestProbeService {
         }
         let retryDate: Date?
         if let header = await authHeaderValue() {
-            retryDate = await requestCoordinator.retryDate(authHeader: header)
+            retryDate = await requestCoordinator.retryDate(authHeader: header, resource: .graphql)
         } else {
             retryDate = nil
         }

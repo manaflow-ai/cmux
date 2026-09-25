@@ -48,12 +48,32 @@ struct PullRequestCheckContext: Sendable {
         }
     }
 
-    /// Check-run numbers preserve attempt order before a queued rerun starts.
-    /// Legacy status contexts use their creation timestamps.
-    func isNewer(than other: Self) -> Bool {
-        if let runNumber, let otherNumber = other.runNumber {
-            return runNumber > otherNumber
+    enum Ordering {
+        case newer
+        case older
+        case ambiguous
+    }
+
+    /// Compares attempts using the provider's numeric identifier when present.
+    /// Missing identifiers and timestamps fail closed instead of guessing which
+    /// queued or completed attempt should win.
+    func ordering(against other: Self) -> Ordering {
+        if runNumber != nil || other.runNumber != nil {
+            guard let runNumber, let otherNumber = other.runNumber, runNumber != otherNumber else {
+                return .ambiguous
+            }
+            return runNumber > otherNumber ? .newer : .older
         }
-        return startedAt > other.startedAt
+        guard !startedAt.isEmpty, !other.startedAt.isEmpty, startedAt != other.startedAt else {
+            return .ambiguous
+        }
+        return startedAt > other.startedAt ? .newer : .older
+    }
+
+    init(check: PullRequestCheck, identity: PullRequestCheckIdentity, startedAt: String, runNumber: Int64?) {
+        self.check = check
+        self.identity = identity
+        self.startedAt = startedAt
+        self.runNumber = runNumber
     }
 }
