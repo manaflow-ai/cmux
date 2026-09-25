@@ -46,4 +46,28 @@ struct AgentFooterOSCParserTests {
         #expect(parser.consume(Data("\u{1B}]0;699;agent=wrong\u{07}".utf8)) == nil)
         #expect(parser.consume(Data("\u{1B}]699;agent=codex;context=101%\u{07}".utf8)) == nil)
     }
+
+    @Test("Does not treat a UTF-8 continuation byte as a C1 OSC control")
+    func preservesUTF8ContinuationBeforeFooter() {
+        var parser = AgentFooterOSCParser()
+        let text = "prefix”\u{1B}]699;agent=codex;context=10%\u{07}"
+
+        #expect(parser.consume(Data(text.utf8)) == AgentFooterState(agent: "codex", contextPercent: 10))
+    }
+
+    @Test("Preserves UTF-8 continuation bytes inside the agent name")
+    func preservesUTF8ContinuationInPayload() {
+        var parser = AgentFooterOSCParser()
+        let text = "\u{1B}]699;agent=curly“;context=10%\u{07}"
+
+        #expect(parser.consume(Data(text.utf8)) == AgentFooterState(agent: "curly“", contextPercent: 10))
+    }
+
+    @Test("Resynchronizes a new OSC after an incomplete escape")
+    func resynchronizesAfterIncompleteEscape() {
+        var parser = AgentFooterOSCParser()
+        let text = "\u{1B}]1;stale\u{1B}]699;agent=codex;context=10%\u{07}"
+
+        #expect(parser.consume(Data(text.utf8)) == AgentFooterState(agent: "codex", contextPercent: 10))
+    }
 }

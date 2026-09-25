@@ -26,6 +26,7 @@ public struct AgentFooterOSCParser: Sendable {
     private static let maximumCodeBytes = 3
     private static let maximumPayloadBytes = 1_024
     private var phase: Phase = .ground
+    private var pendingUTF8ContinuationBytes = 0
 
     /// Creates an empty parser.
     public init() {}
@@ -57,12 +58,25 @@ public struct AgentFooterOSCParser: Sendable {
         }
     }
 
-    private mutating func consume(_ byte: UInt8) -> AgentFooterState? {
+    private mutating func consume(_ byte: UInt8, isUTF8Continuation: Bool = false) -> AgentFooterState? {
+        if !isUTF8Continuation {
+            if pendingUTF8ContinuationBytes > 0 {
+                guard (0x80...0xBF).contains(byte) else {
+                    pendingUTF8ContinuationBytes = 0
+                    return consume(byte)
+                }
+                return consume(byte, isUTF8Continuation: true)
+            }
+            pendingUTF8ContinuationBytes = Self.utf8ContinuationCount(for: byte)
+        } else if pendingUTF8ContinuationBytes > 0 {
+            pendingUTF8ContinuationBytes -= 1
+        }
+
         switch phase {
         case .ground:
             if byte == 0x1B {
                 phase = .escape
-            } else if byte == 0x9D {
+            } else if !isUTF8Continuation, byte == 0x9D {
                 phase = .oscCode([])
             }
         case .escape:
@@ -78,7 +92,7 @@ public struct AgentFooterOSCParser: Sendable {
                 phase = .ground
                 return nil
             }
-            if byte == 0x9C {
+            if !isUTF8Continuation, byte == 0x9C {
                 phase = .ground
                 return nil
             }
@@ -105,7 +119,7 @@ public struct AgentFooterOSCParser: Sendable {
         case .otherOSC:
             if byte == 0x07 {
                 phase = .ground
-            } else if byte == 0x9C {
+            } else if !isUTF8Continuation, byte == 0x9C {
                 phase = .ground
             } else if byte == 0x1B {
                 phase = .otherOSCEscape
@@ -113,6 +127,8 @@ public struct AgentFooterOSCParser: Sendable {
         case .otherOSCEscape:
             if byte == 0x5C {
                 phase = .ground
+            } else if byte == 0x5D {
+                phase = .oscCode([])
             } else if byte == 0x1B {
                 phase = .otherOSCEscape
             } else {
@@ -123,7 +139,7 @@ public struct AgentFooterOSCParser: Sendable {
                 phase = .ground
                 return Self.state(from: payload)
             }
-            if byte == 0x9C {
+            if !isUTF8Continuation, byte == 0x9C {
                 phase = .ground
                 return Self.state(from: payload)
             }
@@ -147,7 +163,7 @@ public struct AgentFooterOSCParser: Sendable {
         case .discardFooterPayload:
             if byte == 0x07 {
                 phase = .ground
-            } else if byte == 0x9C {
+            } else if !isUTF8Continuation, byte == 0x9C {
                 phase = .ground
             } else if byte == 0x1B {
                 phase = .discardFooterPayloadEscape
@@ -165,6 +181,19 @@ public struct AgentFooterOSCParser: Sendable {
     private static func append(_ byte: UInt8, to payload: [UInt8]) -> [UInt8] {
         guard payload.count < maximumPayloadBytes else { return payload }
         return payload + [byte]
+    }
+
+    private static func utf8ContinuationCount(for byte: UInt8) -> Int {
+        switch byte {
+        case 0xC2...0xDF:
+            1
+        case 0xE0...0xEF:
+            2
+        case 0xF0...0xF4:
+            3
+        default:
+            0
+        }
     }
 
     private static func state(from payload: [UInt8]) -> AgentFooterState? {
