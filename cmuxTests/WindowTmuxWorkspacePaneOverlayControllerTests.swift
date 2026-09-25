@@ -33,7 +33,7 @@ struct WindowTmuxWorkspacePaneOverlayControllerTests {
 
         #expect(ordinaryHostingView.safeAreaInsets.top == inset.top)
         #expect(ordinaryHostingView.safeAreaRect.minY == inset.top)
-        #expect(overlayHostingView.safeAreaInsets == NSEdgeInsetsZero)
+        #expect(NSEdgeInsetsEqual(overlayHostingView.safeAreaInsets, NSEdgeInsetsZero))
         #expect(overlayHostingView.safeAreaRect == overlayHostingView.bounds)
     }
 }
