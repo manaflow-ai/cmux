@@ -59,9 +59,11 @@ struct SidebarAccessibilityTreeTests {
             panel.loadState.model != nil || panel.lastLoadError != nil
         }
         try #require(loaded && panel.loadState.model != nil, "Project fixture must load: \(panel.lastLoadError ?? "")")
+        // An in-process accessibility test has no external assistive client
+        // to enable SwiftUI's accessibility output for this hosted hierarchy.
         let projectView = NSHostingView(rootView: ProjectPanelView(
             panel: panel, isFocused: false, onRequestPanelFocus: {}
-        ))
+        ).environment(\.accessibilityEnabled, true))
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 820, height: 300))
         container.frame = NSRect(x: 0, y: 0, width: 360, height: 300)
         projectView.frame = NSRect(x: 360, y: 0, width: 460, height: 300)
