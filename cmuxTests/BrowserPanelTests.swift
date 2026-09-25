@@ -41,6 +41,79 @@ struct BrowserWebViewUserAgentRegressionTests {
     }
 }
 
+@MainActor
+@Suite(.serialized)
+struct BrowserLocalFileEncodingTests {
+    private struct DocumentSnapshot {
+        let characterSet: String
+        let text: String
+    }
+
+    @Test func utf8LocalTextSurvivesNavigationAwayBackAndReload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-utf8-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fileURL = directory.appendingPathComponent("notes.txt")
+        let expectedText = "# 산책의 즐거움"
+        try XCTUnwrap(expectedText.data(using: .utf8)).write(to: fileURL)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        panel.navigate(to: fileURL)
+        let initial = try await waitForDocument(at: fileURL, in: panel)
+        #expect(initial.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(initial.text.contains(expectedText))
+
+        panel.navigate(to: URL(string: "about:blank")!)
+        _ = try await waitForDocument(at: URL(string: "about:blank")!, in: panel)
+
+        panel.goBack()
+        let afterBack = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterBack.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterBack.text.contains(expectedText))
+
+        panel.reload()
+        let afterReload = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterReload.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterReload.text.contains(expectedText))
+    }
+
+    private func waitForDocument(
+        at url: URL,
+        in panel: BrowserPanel,
+        timeout: Duration = .seconds(10)
+    ) async throws -> DocumentSnapshot {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if panel.webView.url?.absoluteString == url.absoluteString,
+               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
+               !panel.webView.isLoading,
+               let raw = try? await panel.webView.evaluateJavaScript(
+                   """
+                   ({
+                     characterSet: document.characterSet,
+                     text: document.body?.textContent || document.documentElement?.textContent || ''
+                   })
+                   """
+               ) as? [String: Any],
+               let characterSet = raw["characterSet"] as? String,
+               let text = raw["text"] as? String {
+                return DocumentSnapshot(characterSet: characterSet, text: text)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        throw NSError(
+            domain: "BrowserLocalFileEncodingTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(url.absoluteString)"]
+        )
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
