@@ -23,8 +23,17 @@ extension CMUXCLI {
         workspaceArgument: String?,
         surfaceArgument: String?
     ) throws {
-        let hasWorkspace = workspaceArgument?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        let hasSurface = surfaceArgument?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        func isUsableTarget(_ argument: String?) -> Bool {
+            guard let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty,
+                  !trimmed.hasPrefix("-") else {
+                return false
+            }
+            return true
+        }
+
+        let hasWorkspace = isUsableTarget(workspaceArgument)
+        let hasSurface = isUsableTarget(surfaceArgument)
         guard hasWorkspace || hasSurface else {
             let message = String(
                 format: String(
