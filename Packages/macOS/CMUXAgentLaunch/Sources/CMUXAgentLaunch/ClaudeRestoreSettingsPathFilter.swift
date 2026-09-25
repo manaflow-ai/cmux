@@ -67,10 +67,10 @@ struct ClaudeRestoreSettingsPathFilter {
 
     private func isRestorable(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
         guard let first = trimmed.first, first != "{", first != "[" else {
             return true
         }
         return isReadableFile((trimmed as NSString).expandingTildeInPath)
     }
 }
-

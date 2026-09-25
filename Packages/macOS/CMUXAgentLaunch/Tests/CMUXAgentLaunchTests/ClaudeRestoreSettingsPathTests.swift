@@ -56,6 +56,18 @@ struct ClaudeRestoreSettingsPathTests {
         #expect(invocation.arguments == ["claude", "--resume", sessionID, "--settings", inline, "--settings=\(inline)"])
     }
 
+    @Test("Empty --settings values are preserved")
+    func emptySettingsValuesArePreserved() throws {
+        let invocation = try #require(plan(
+            mode: .resumeAgent,
+            arguments: ["/opt/homebrew/bin/claude", "--settings", "", "--settings=", "--model", "opus"],
+            readable: []
+        ))
+        #expect(invocation.arguments == [
+            "claude", "--resume", sessionID, "--settings", "", "--settings=", "--model", "opus"
+        ])
+    }
+
     @Test("A tilde --settings path is checked after expansion")
     func tildeSettingsPathIsExpandedBeforeCheck() throws {
         let home = NSHomeDirectory()
