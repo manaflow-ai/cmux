@@ -198,6 +198,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     private static let touchedKeys = [
         "workspacePresentationMode",          // Minimal Mode (default .standard)
         "workspaceInheritWorkingDirectory",   // Inherit CWD (default true)
+        "workspaceTitlebarVisible",
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
         "commandPalette.switcherSearchAllSurfaces", // Palette all surfaces (default false)
@@ -298,6 +299,48 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     }
 
     // MARK: - TIER 1: Minimal Mode subtitle swap
+
+    func testHidingWorkspaceTitlebarKeepsPaneTabsAndReclaimsHeaderSpace() throws {
+        let app = XCUIApplication.cmuxTestApplication()
+        let capturePath = "/tmp/cmux-titlebar-visibility-\(UUID().uuidString).json"
+        app.launchArguments += settingsLaunchArguments
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = capturePath
+        launchAndActivate(app)
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: capturePath)
+        }
+        let alpha = app.buttons["UITest Alpha"]
+        let beta = app.buttons["UITest Beta"]
+        XCTAssertTrue(alpha.waitForExistence(timeout: 25))
+        XCTAssertTrue(beta.waitForExistence(timeout: 5))
+        let originalY = alpha.frame.minY
+
+        var settings = openAppSection(app)
+        let minimal = toggle(settings, id: "SettingsMinimalModeToggle")
+        XCTAssertEqual(minimal.value as? String, "0")
+        toggle(settings, id: "SettingsWorkspaceTitlebarToggle").click()
+        XCTAssertEqual(minimal.value as? String, "0", "Hiding the title bar must not enable Minimal Mode")
+        closeSettings(app, settings)
+
+        XCTAssertTrue(poll(timeout: 5) { alpha.exists && beta.exists && alpha.frame.minY < originalY - 20 },
+                      "Hiding the title bar must remove its space while preserving both pane tabs")
+        XCTAssertTrue(alpha.isHittable && beta.isHittable)
+        beta.click()
+        alpha.click()
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        screenshot.name = "Hidden workspace title bar with both pane tabs"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        settings = openAppSection(app)
+        toggle(settings, id: "SettingsWorkspaceTitlebarToggle").click()
+        closeSettings(app, settings)
+        XCTAssertTrue(poll(timeout: 5) { abs(alpha.frame.minY - originalY) < 2 },
+                      "Showing the title bar again must restore the original tab position")
+    }
 
     /// Toggling Minimal Mode flips the row subtitle between the
     /// standard-title-bar and the hidden-title-bar wording. This proves

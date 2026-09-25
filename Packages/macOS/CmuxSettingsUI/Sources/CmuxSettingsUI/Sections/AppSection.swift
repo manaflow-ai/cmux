@@ -308,6 +308,7 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { workspaceTitlebarVisibility.current }, set: { workspaceTitlebarVisibility.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+                    .accessibilityIdentifier("SettingsWorkspaceTitlebarToggle")
             }
             SettingsCardDivider()
 
