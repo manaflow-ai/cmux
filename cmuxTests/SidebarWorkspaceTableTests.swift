@@ -1309,6 +1309,86 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func workspaceRowKeepsRefreshingAfterColorMenuMutation() async throws {
+        let workspace = Workspace()
+        let initialModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: "before color",
+            workspaceId: workspace.id
+        )
+        let coloredModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: "after color",
+            workspaceId: workspace.id
+        )
+        let clearedModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: "after telemetry clear",
+            workspaceId: workspace.id
+        )
+        var currentModel = initialModel
+        let row = SidebarWorkspaceTableRowConfiguration.liveWorkspaceRow(
+            workspaceRowModel: initialModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: initialModel,
+                workspace: workspace
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .dark,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            ),
+            workspace: workspace,
+            rebuild: { currentModel },
+            unreadRebuild: { _ in currentModel }
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [workspace.id],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+
+        currentModel = coloredModel
+        workspace.setCustomColor("#800080")
+        await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == "after color" }
+        #expect(
+            cell.currentModelForMeasurement?.snapshot.customDescription == "after color",
+            "Assigning a color must not retire the row's live workspace refresh pump."
+        )
+
+        currentModel = clearedModel
+        workspace.sidebarMetadata.invalidateWorkspaceObservation()
+        await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == "after telemetry clear" }
+        #expect(
+            cell.currentModelForMeasurement?.snapshot.customDescription == "after telemetry clear",
+            "Telemetry changes after the color menu closes must repaint the mounted row."
+        )
+    }
+
+    @Test
+    @MainActor
     func widthMismatchedPumpOverrideIsRenotedWhenApplyReleasesIt() async throws {
         let workspace = Workspace()
         let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)

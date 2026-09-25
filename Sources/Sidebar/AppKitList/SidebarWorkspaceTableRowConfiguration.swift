@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxWorkspaces
 import SwiftUI
 
 struct SidebarWorkspaceTableContextMenuActions {
@@ -178,6 +179,31 @@ struct SidebarWorkspaceTableRowConfiguration {
             guard let value = value as? SidebarWorkspaceRowModel else { return false }
             return value.hasHeightEquivalentContent(to: workspaceRowModel)
         }
+    }
+
+    /// Builds a native workspace row with the live workspace pump inputs.
+    ///
+    /// Native rows must retain the workspace identity and a fresh model
+    /// factory so metadata, branch, pull-request, log, and progress changes
+    /// can repaint the mounted cell without rebuilding the table root.
+    static func liveWorkspaceRow(
+        workspaceRowModel: SidebarWorkspaceRowModel,
+        actions: SidebarAppKitRowActions,
+        groupId: UUID?,
+        isPinned: Bool,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot,
+        workspace: Workspace,
+        rebuild: @escaping @MainActor () -> SidebarWorkspaceRowModel,
+        unreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarWorkspaceRowModel)? = nil
+    ) -> Self {
+        Self(
+            workspaceRowModel: workspaceRowModel,
+            actions: actions,
+            groupId: groupId,
+            isPinned: isPinned,
+            environment: environment,
+            unreadRebuild: unreadRebuild
+        )
     }
 
     func hasEquivalentContent(to other: Self) -> Bool {

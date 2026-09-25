@@ -12740,12 +12740,14 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabManager?.setCustomTitle(tabId: workspaceId, title: text)
             }
         )
-        return SidebarWorkspaceTableRowConfiguration(
+        return SidebarWorkspaceTableRowConfiguration.liveWorkspaceRow(
             workspaceRowModel: model,
             actions: rowActions,
             groupId: input.groupId,
             isPinned: input.workspace.isPinned,
             environment: environment,
+            workspace: tab,
+            rebuild: { model },
             unreadRebuild: {
                 [model, workspaceId = tab.id,
                  showsNotificationMessage = input.settings.showsNotificationMessage] snapshot in
