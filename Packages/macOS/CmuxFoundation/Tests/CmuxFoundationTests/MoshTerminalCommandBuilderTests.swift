@@ -202,7 +202,7 @@ struct MoshTerminalCommandBuilderTests {
     func largeDoubleQuotedCommandUsesExternalLauncher() throws {
         let command = "/bin/sh -c \"printf '%s' \\\"" + String(repeating: "bootstrap", count: 120_000) + "\\\"\""
         let writtenCommandURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-double-quoted-launcher-(UUID().uuidString)", isDirectory: false)
+            .appendingPathComponent("cmux-double-quoted-launcher-\(UUID().uuidString)", isDirectory: false)
         defer { try? FileManager.default.removeItem(at: writtenCommandURL) }
         let externalCommand = try #require(LocalCommandArgumentLimitPolicy().commandForSpawn(
             command: command,
