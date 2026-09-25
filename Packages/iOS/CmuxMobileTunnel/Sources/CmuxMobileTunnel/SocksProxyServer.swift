@@ -55,12 +55,14 @@ public final class SocksProxyServer: Sendable {
     public var isListening: Bool { listener.isActive }
 
     /// Number of tunnels currently relaying.
-    public var activeConnectionCount: Int { relays.count }
+    public var activeConnectionCount: Int {
+        get async { await relays.count }
+    }
 
     /// Stops accepting and aborts every open tunnel.
     public func stop() async {
         try? await listener.close()
-        relays.cancelAll()
+        await relays.cancelAll()
     }
 }
 
@@ -152,14 +154,10 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
     private func open(host: String, port: Int, context: ChannelHandlerContext) {
         onConnect?(host, port)
         let channel = context.channel
-        guard relays.reserve() else {
-            fail(.generalFailure, channel: channel)
-            return
-        }
         let backend = backend
         let relays = relays
         let handler = UncheckedSendableBox(self)
-        relays.start { [pendingAtOpen = pending] in
+        let body: @Sendable () async -> Void = { [pendingAtOpen = pending] in
             let exit: any TunnelByteStream
             do {
                 exit = try await backend.open(host: host, port: port)
@@ -185,7 +183,13 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
                 try? await channel.close().get()
                 return
             }
-            await TunnelRelay.run(inbound, exit)
+            await TunnelRelay(inbound, exit).run()
+        }
+        // Over the connection cap (or after `stop`), refuse instead of queueing.
+        Task {
+            if await !relays.start(body) {
+                _ = try? await channel.eventLoop.submit { handler.value.fail(.generalFailure, channel: channel) }.get()
+            }
         }
     }
 
@@ -197,65 +201,6 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
 
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         context.close(promise: nil)
-    }
-}
-
-/// Tracks running tunnel tasks so a stop can abort them, with a cap on how
-/// many run at once.
-final class TunnelTaskSet: @unchecked Sendable {
-    private let lock = NSLock()
-    private let limit: Int
-    private var reserved = 0
-    private var tasks: [UUID: Task<Void, Never>] = [:]
-    private var cancelled = false
-
-    init(limit: Int) {
-        self.limit = limit
-    }
-
-    var count: Int { lock.withLock { reserved } }
-
-    /// Claims a slot for a task about to `start`.
-    func reserve() -> Bool {
-        lock.withLock {
-            guard !cancelled, reserved < limit else { return false }
-            reserved += 1
-            return true
-        }
-    }
-
-    /// Runs `body` in a reserved slot; the slot frees when it returns.
-    func start(_ body: @escaping @Sendable () async -> Void) {
-        let id = UUID()
-        lock.lock()
-        let task = Task { [weak self] in
-            await body()
-            self?.finish(id)
-        }
-        if cancelled {
-            lock.unlock()
-            task.cancel()
-            return
-        }
-        tasks[id] = task
-        lock.unlock()
-    }
-
-    private func finish(_ id: UUID) {
-        lock.withLock {
-            tasks[id] = nil
-            reserved = max(0, reserved - 1)
-        }
-    }
-
-    func cancelAll() {
-        let running: [Task<Void, Never>] = lock.withLock {
-            cancelled = true
-            let running = Array(tasks.values)
-            tasks.removeAll()
-            return running
-        }
-        for task in running { task.cancel() }
     }
 }
 

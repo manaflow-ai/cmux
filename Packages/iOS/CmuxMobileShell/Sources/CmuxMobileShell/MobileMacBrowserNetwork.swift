@@ -55,7 +55,7 @@ public final class MobileMacBrowserNetwork {
         macDeviceID: String,
         openLane: @escaping OpenLane,
         listPorts: @escaping ListPorts,
-        registry: LoopbackPortRegistry = .shared,
+        registry: LoopbackPortRegistry,
         direct: any SocksConnectBackend = DirectConnectBackend(),
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
     ) {
@@ -134,7 +134,7 @@ public final class MobileMacBrowserNetwork {
         guard let fresh = try? await listPorts() else { return }
         listing = fresh
         listedAt = now()
-        exitPolicy.allowsNonLoopbackHosts = fresh.allowsNonLoopbackHosts
+        await exitPolicy.update(allowsNonLoopbackHosts: fresh.allowsNonLoopbackHosts)
     }
 
     /// Mirrors the Mac's listening loopback ports (the page's own first,
@@ -196,7 +196,7 @@ enum MacBrowserRoute: Equatable, Sendable {
     case direct
 
     static func of(host: String, macAllowsNonLoopbackHosts: Bool) -> MacBrowserRoute {
-        if TunnelLoopbackHost.isLoopback(host) { return .mac }
+        if host.isTunnelLoopbackHost { return .mac }
         return macAllowsNonLoopbackHosts ? .macThenDirect : .direct
     }
 }
@@ -208,7 +208,7 @@ struct MacBrowserRouter: SocksConnectBackend {
     let policy: MacTunnelExitPolicy
 
     func open(host: String, port: Int) async throws -> any TunnelByteStream {
-        switch MacBrowserRoute.of(host: host, macAllowsNonLoopbackHosts: policy.allowsNonLoopbackHosts) {
+        switch MacBrowserRoute.of(host: host, macAllowsNonLoopbackHosts: await policy.allowsNonLoopbackHosts) {
         case .mac:
             return try await mac.open(host: host, port: port)
         case .direct:
@@ -224,13 +224,12 @@ struct MacBrowserRouter: SocksConnectBackend {
 }
 
 /// The Mac's advertised policy, read by the proxy's router off the main actor.
-final class MacTunnelExitPolicy: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _allowsNonLoopbackHosts = false
+actor MacTunnelExitPolicy {
+    private(set) var allowsNonLoopbackHosts = false
 
-    var allowsNonLoopbackHosts: Bool {
-        get { lock.withLock { _allowsNonLoopbackHosts } }
-        set { lock.withLock { _allowsNonLoopbackHosts = newValue } }
+    /// Records the policy from the Mac's latest port listing.
+    func update(allowsNonLoopbackHosts: Bool) {
+        self.allowsNonLoopbackHosts = allowsNonLoopbackHosts
     }
 }
 
@@ -263,10 +262,12 @@ struct MacTunnelConnectBackend: SocksConnectBackend {
 }
 
 /// A Mac tunnel lane as a relay stream. Closing it returns its lane slot.
-final class MacTunnelByteStream: TunnelByteStream, @unchecked Sendable {
+///
+/// Reads and writes go straight to the lane; only closing, which must
+/// return the slot exactly once, is isolated.
+actor MacTunnelByteStream: TunnelByteStream {
     private let lane: any MobileTunnelLaneConnection
     private let lanes: TunnelConcurrencyLimit
-    private let lock = NSLock()
     private var released = false
 
     init(lane: any MobileTunnelLaneConnection, lanes: TunnelConcurrencyLimit) {
@@ -274,24 +275,22 @@ final class MacTunnelByteStream: TunnelByteStream, @unchecked Sendable {
         self.lanes = lanes
     }
 
-    func read() async throws -> Data? {
+    nonisolated func read() async throws -> Data? {
         try await lane.receive(maximumByteCount: 64 * 1024)
     }
 
-    func write(_ data: Data) async throws {
+    nonisolated func write(_ data: Data) async throws {
         try await lane.send(data)
     }
 
-    func finishWriting() async {
+    nonisolated func finishWriting() async {
         await lane.finishSending()
     }
 
     func close() async {
         await lane.close()
-        let first = lock.withLock { () -> Bool in
-            defer { released = true }
-            return !released
-        }
-        if first { await lanes.release() }
+        guard !released else { return }
+        released = true
+        await lanes.release()
     }
 }

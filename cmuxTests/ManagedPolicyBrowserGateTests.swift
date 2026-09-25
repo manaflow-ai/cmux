@@ -150,8 +150,8 @@ struct ManagedPolicyBrowserGateTests {
         #expect(!withoutBrowser.contains(MobileBrowserStreamCapability.createIdentifier))
         #expect(withoutBrowser.contains("terminal.bytes.v1"))
         // The phone browser tunnel is a browser affordance too.
-        #expect(withBrowser.contains(IrxTunnelCapability.identifier))
-        #expect(!withoutBrowser.contains(IrxTunnelCapability.identifier))
+        #expect(withBrowser.contains(IrxTunnelCapability.current.identifier))
+        #expect(!withoutBrowser.contains(IrxTunnelCapability.current.identifier))
     }
 
     @Test func browserTunnelIsUnavailableUnderManagedPolicy() {

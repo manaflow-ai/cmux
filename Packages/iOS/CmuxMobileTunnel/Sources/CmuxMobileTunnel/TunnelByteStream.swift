@@ -51,17 +51,28 @@ public protocol SocksConnectBackend: Sendable {
 }
 
 /// Copies bytes between two streams until both directions finish.
-public enum TunnelRelay {
+public struct TunnelRelay: Sendable {
+    private let first: any TunnelByteStream
+    private let second: any TunnelByteStream
+
+    /// Pairs two ends of one tunneled connection.
+    public init(_ first: any TunnelByteStream, _ second: any TunnelByteStream) {
+        self.first = first
+        self.second = second
+    }
+
     /// Runs until both sides have finished (half-closes pass through in
     /// each direction) or either fails, in which case both are aborted.
     /// Cancelling the calling task aborts both. Returns whether both
     /// directions ended cleanly.
     @discardableResult
-    public static func run(_ first: any TunnelByteStream, _ second: any TunnelByteStream) async -> Bool {
-        await withTaskCancellationHandler {
+    public func run() async -> Bool {
+        let first = first
+        let second = second
+        return await withTaskCancellationHandler {
             let clean = await withTaskGroup(of: Bool.self) { group -> Bool in
-                group.addTask { await pump(from: first, to: second) }
-                group.addTask { await pump(from: second, to: first) }
+                group.addTask { await Self.pump(from: first, to: second) }
+                group.addTask { await Self.pump(from: second, to: first) }
                 var clean = true
                 for await directionClean in group where !directionClean && clean {
                     clean = false

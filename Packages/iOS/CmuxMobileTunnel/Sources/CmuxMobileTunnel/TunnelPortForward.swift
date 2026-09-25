@@ -38,17 +38,16 @@ public final class TunnelPortForward: Sendable {
             .childChannelInitializer { inbound in
                 inbound.eventLoop.makeCompletedFuture {
                     let stream = try NIOChannelByteStream.installSync(on: inbound)
-                    guard relays.reserve() else {
-                        inbound.close(promise: nil)
-                        return
-                    }
-                    relays.start {
-                        do {
-                            let exit = try await backend.open(host: targetHost, port: targetPort)
-                            await TunnelRelay.run(stream, exit)
-                        } catch {
-                            await stream.close()
+                    Task {
+                        let started = await relays.start {
+                            do {
+                                let exit = try await backend.open(host: targetHost, port: targetPort)
+                                await TunnelRelay(stream, exit).run()
+                            } catch {
+                                await stream.close()
+                            }
                         }
+                        if !started { await stream.close() }
                     }
                 }
             }
@@ -70,6 +69,6 @@ public final class TunnelPortForward: Sendable {
     /// Stops accepting and aborts every open connection.
     public func stop() async {
         try? await listener.close()
-        relays.cancelAll()
+        await relays.cancelAll()
     }
 }

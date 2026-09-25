@@ -9,10 +9,20 @@ import Foundation
 /// Bounded work: at most `maximumProcesses` processes and
 /// `maximumDescriptorsPerProcess` descriptors each are inspected, and at most
 /// `maximumPorts` ports are returned.
-public enum IrxListeningPortScanner {
-    public static let maximumProcesses = 8_192
-    public static let maximumDescriptorsPerProcess = 4_096
-    public static let maximumPorts = 1_024
+public struct IrxListeningPortScanner: Sendable {
+    public let maximumProcesses: Int
+    public let maximumDescriptorsPerProcess: Int
+    public let maximumPorts: Int
+
+    /// - Parameters:
+    ///   - maximumProcesses: Processes inspected at most.
+    ///   - maximumDescriptorsPerProcess: Descriptors inspected per process at most.
+    ///   - maximumPorts: Ports returned at most.
+    public init(maximumProcesses: Int = 8_192, maximumDescriptorsPerProcess: Int = 4_096, maximumPorts: Int = 1_024) {
+        self.maximumProcesses = maximumProcesses
+        self.maximumDescriptorsPerProcess = maximumDescriptorsPerProcess
+        self.maximumPorts = maximumPorts
+    }
 
     /// One listening socket as the kernel reports it.
     public struct Listener: Equatable, Sendable {
@@ -31,7 +41,7 @@ public enum IrxListeningPortScanner {
 
     /// The loopback-reachable listening ports, one entry per port (IPv4
     /// preferred when a port listens on both), sorted by port.
-    public static func loopbackListeningPorts() -> [IrxListeningPort] {
+    public func loopbackListeningPorts() -> [IrxListeningPort] {
         #if os(macOS)
         return reachableFromLoopback(listeners())
         #else
@@ -42,7 +52,7 @@ public enum IrxListeningPortScanner {
     /// Maps raw listeners to connect targets: loopback-bound sockets keep
     /// their address, wildcards are reached via loopback, and sockets bound
     /// to another interface address are skipped (loopback cannot reach them).
-    public static func reachableFromLoopback(_ listeners: [Listener]) -> [IrxListeningPort] {
+    public func reachableFromLoopback(_ listeners: [Listener]) -> [IrxListeningPort] {
         var byPort: [Int: String] = [:]
         for listener in listeners where (1...65_535).contains(listener.port) {
             let target: String?
@@ -67,7 +77,7 @@ public enum IrxListeningPortScanner {
     }
 
     #if os(macOS)
-    static func listeners() -> [Listener] {
+    func listeners() -> [Listener] {
         var pids = [pid_t](repeating: 0, count: maximumProcesses)
         let pidBytes = pids.withUnsafeMutableBytes { buffer in
             proc_listallpids(buffer.baseAddress, Int32(buffer.count))
@@ -84,7 +94,7 @@ public enum IrxListeningPortScanner {
             guard bytes > 0 else { continue }
             let count = min(Int(bytes) / descriptorStride, maximumDescriptorsPerProcess)
             for descriptor in descriptors.prefix(count) where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
-                if let listener = listener(pid: pid, fd: descriptor.proc_fd) {
+                if let listener = Self.listener(pid: pid, fd: descriptor.proc_fd) {
                     result.append(listener)
                 }
             }

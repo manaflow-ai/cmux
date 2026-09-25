@@ -66,7 +66,7 @@ extension MobileSSHComputers {
         let proxy = try await task.value
         browserProxies[hostID] = proxy
         lastBrowserProxyPorts[hostID] = proxy.port
-        LoopbackPortRegistry.shared.register(port: proxy.port, owner: Self.loopbackOwner(hostID), pinned: true) {}
+        loopbackPorts.register(port: proxy.port, owner: Self.loopbackOwner(hostID), pinned: true) {}
         return proxy.port
     }
 
@@ -95,12 +95,12 @@ extension MobileSSHComputers {
         // lists them too.
         let ownPorts = Set(browserProxies.values.map(\.port))
             .union(forwardsByHost.values.flatMap { $0.map(\.localPort) })
-            .union(LoopbackPortRegistry.shared.pinnedPorts)
+            .union(loopbackPorts.pinnedPorts)
         targets = targets.filter { !ownPorts.contains($0.key) }
         // The page's own port first, then the rest, lowest first.
         let others = targets.keys.filter { $0 >= 1_024 && $0 != port }.sorted()
         let wanted = ([port].filter { targets[$0] != nil } + others).prefix(Self.maxLoopbackForwards)
-        let registry = LoopbackPortRegistry.shared
+        let registry = loopbackPorts
         let owner = Self.loopbackOwner(hostID)
         for localPort in wanted {
             guard let target = targets[localPort] else { continue }
@@ -140,8 +140,8 @@ extension MobileSSHComputers {
         let forwards = loopbackForwards.filter { $0.value.hostID == hostID }
         for port in forwards.keys { loopbackForwards[port] = nil }
         let owner = Self.loopbackOwner(hostID)
-        for port in LoopbackPortRegistry.shared.ports(ownedBy: owner) {
-            LoopbackPortRegistry.shared.release(port: port, owner: owner)
+        for port in loopbackPorts.ports(ownedBy: owner) {
+            loopbackPorts.release(port: port, owner: owner)
         }
         let previous = browserNetworkTeardowns[hostID]
         browserNetworkTeardowns[hostID] = Task {

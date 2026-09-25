@@ -199,7 +199,7 @@ extension MobileHostService {
             MobileBrowserStreamCapability.createIdentifier,
             // The phone's "On iPhone" browser tunnel (irx `tcpConnect` and
             // `listeningPorts` lanes, served by `MobileHostBrowserTunnel`).
-            IrxTunnelCapability.identifier,
+            IrxTunnelCapability.current.identifier,
             MobileSimulatorStreamCapability.current.identifier,
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
@@ -298,7 +298,7 @@ extension MobileHostService {
                 MobileBrowserStreamCapability.viewportIdentifier,
                 MobileBrowserStreamCapability.dialogIdentifier,
                 MobileBrowserStreamCapability.createIdentifier,
-                IrxTunnelCapability.identifier,
+                IrxTunnelCapability.current.identifier,
             ]
             capabilities.removeAll { browserCapabilities.contains($0) }
         }
