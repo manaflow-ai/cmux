@@ -106,8 +106,17 @@ class Workflow(unittest.TestCase):
                 self.assertIn("late-placement", spec["needs"])
                 late = (prefix % key).removeprefix("${{ ")
                 owner = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                # tests-build-and-lag keeps the fork-owner branch first (test_ci_fork_runner_routing).
-                self.assertTrue(spec["runs-on"].startswith("${{ " + late) or spec["runs-on"].startswith(owner + late),
+                # tests-build-and-lag keeps the fork-owner branch and then the fork
+                # pull-request branch first (test_ci_fork_runner_routing). Late
+                # placement skips fork heads, so its output is {} there anyway.
+                fork_pr = (
+                    "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
+                    " != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
+                    " || 'blacksmith-6vcpu-macos-15') || "
+                )
+                self.assertTrue(spec["runs-on"].startswith("${{ " + late)
+                                or spec["runs-on"].startswith(owner + late)
+                                or spec["runs-on"].startswith(owner + fork_pr + late),
                                 spec["runs-on"][:200])
                 # The job-level if never requires late-placement, so a skipped or failed one
                 # leaves the consumer running where the picker put it.
