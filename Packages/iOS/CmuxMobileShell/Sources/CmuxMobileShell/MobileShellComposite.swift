@@ -6606,6 +6606,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             foregroundIDSet = []
         }
         var foregroundIrohEndpointIDs = Set<String>()
+        // Before the foreground adopts a Mac identity, an in-flight Iroh dial
+        // with no authenticated tag could be reaching any saved build on that
+        // endpoint, so every row sharing it stays out of the secondary pool.
+        var unadoptedForegroundIrohEndpointID: String?
         if case let .peer(identity, _)? = activeRoute?.endpoint {
             foregroundIrohEndpointIDs.insert(
                 Self.scopedIrohEndpointID(
@@ -6613,6 +6617,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: activeMacInstanceTag
                 )
             )
+            if foregroundMacDeviceID == nil, activeMacInstanceTag == nil {
+                unadoptedForegroundIrohEndpointID = identity.endpointID
+            }
         }
         let activeTag = exclusionTag
         if let exclusionMacDeviceID {
@@ -6673,6 +6680,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // must not disqualify an individual pre-Iroh pairing.
                 return true
             }
+            if endpointID == unadoptedForegroundIrohEndpointID { return false }
             return !foregroundIrohEndpointIDs.contains(
                 Self.scopedIrohEndpointID(
                     endpointID: endpointID,
