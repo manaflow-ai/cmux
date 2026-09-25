@@ -794,6 +794,62 @@ class Wiring(unittest.TestCase):
         # Never the product publisher.
         self.assertNotIn("TRUSTED", seed_pools()[0])
 
+    def test_the_trusted_pool_seeds_each_extra_root_as_its_own_lane(self):
+        """An owned Mac's second compile slot builds in /private/tmp/cmux-ci-2,
+        which is part of the seed key (cmuxterm-hq#590). CI_SEED_TRUSTED_ROOTS
+        adds a trusted lane per extra root, and only the trusted pool may
+        build outside /private/tmp/cmux-ci."""
+        import subprocess
+        import tempfile
+        workflow = load("seed-derived-data.yml")
+        inputs = next(step for step in workflow["jobs"]["decide"]["steps"] if step.get("id") == "inputs")
+        self.assertEqual(inputs["env"]["SEED_TRUSTED_ROOTS"], "${{ vars.CI_SEED_TRUSTED_ROOTS || '1' }}")
+        label = "glaeda-trusted-std-xcode-26.6"
+        script = inputs["run"].replace("python3 scripts/ci/seed_decide.py", "printf '%s\\n'")
+
+        def pools(trusted, roots):
+            env = {"PATH": "/usr/bin:/bin", "SEED_POOL_1": "a", "SEED_POOL_2": "a", "SEED_POOL_3": "c-vcpu-macos-15",
+                   "SEED_TRUSTED_POOL": trusted, "SEED_TRUSTED_ROOTS": roots, "XCODE_APP": "X",
+                   "XCODE_APP_MACOS_15": "Y", "EVENT_NAME": "push", "GITHUB_OUTPUT": "/dev/null",
+                   "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+            out = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+            args = out.stdout.split()
+            # seed_decide.py drops an empty pool.
+            return out.returncode, [args[i + 1] for i, arg in enumerate(args)
+                                    if arg == "--pool" and not args[i + 1].startswith("=")]
+
+        self.assertEqual(pools("", "2"), (0, ["a=X", "a=X", "c-vcpu-macos-15=Y"]))
+        self.assertEqual(pools(label, "1")[1][-1], f"{label}=X")
+        self.assertEqual(pools(label, "2")[1][-2:], [f"{label}=X", f"{label}@2=X"])
+        self.assertNotEqual(pools(label, "x")[0], 0)
+
+        job = workflow["jobs"]["seed"]
+        self.assertEqual(job["env"]["CMUX_SEED_ROOT"], "${{ matrix.root }}")
+        self.assertIn("matrix.root", job["concurrency"]["group"])
+        _, prepare = named(job["steps"], "Prepare admission build paths")
+
+        def prepare_root(pool, root):
+            with tempfile.TemporaryDirectory() as tmp:
+                env_file = Path(tmp, "env")
+                env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(env_file), "MATRIX_POOL": pool,
+                       "TRUSTED_POOL": label, "CMUX_SEED_ROOT": root,
+                       "CMUX_CI_CANONICAL_ROOT": str(Path(tmp, "root1"))}
+                # Keep the step off the real /private/tmp.
+                text = prepare["run"].replace('root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"',
+                                              f'root="{tmp}/cmux-ci-$CMUX_SEED_ROOT"')
+                out = subprocess.run(["bash", "-c", text], env=env, capture_output=True, text=True)
+                lines = env_file.read_text().splitlines() if env_file.exists() else []
+                return out.returncode, [line.replace(tmp, "") for line in lines]
+
+        code, lines = prepare_root(label, "2")
+        self.assertEqual(code, 0)
+        self.assertEqual(lines[0], "CMUX_CI_CANONICAL_ROOT=/cmux-ci-2")
+        self.assertIn("CMUX_COMPILE_ADMISSION_DERIVED_DATA=/cmux-ci-2/derived-data-compile-admission", lines)
+        self.assertNotEqual(prepare_root("blacksmith-12vcpu-macos-26", "2")[0], 0)
+        self.assertNotEqual(prepare_root(label, "1")[0], 0)
+        code, lines = prepare_root("blacksmith-12vcpu-macos-26", "")
+        self.assertEqual((code, lines[0]), (0, "CMUX_COMPILE_ADMISSION_DERIVED_DATA=/root1/derived-data-compile-admission"))
+
     def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
         import sys as _sys
         _sys.path.insert(0, str(ROOT / "scripts" / "ci"))
