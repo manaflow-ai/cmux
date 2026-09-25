@@ -1042,6 +1042,16 @@ final class WindowDragHandleHitTests: XCTestCase {
                 "The titlebar drag surface must yield at the \(edge) resizable edge"
             )
         }
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                NSPoint(x: dragHandle.bounds.midX, y: dragHandle.bounds.midY),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "The titlebar drag surface should remain available away from the resizable edges"
+        )
     }
 
     func testDragHandleYieldsWhenSiblingClaimsPoint() {
