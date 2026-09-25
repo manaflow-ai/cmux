@@ -439,7 +439,7 @@ def main(argv: list[str]) -> int:
     if sys.platform != "linux":
         # test_ci_change_areas.py forks one worker per test on Linux and runs
         # serially elsewhere (about two minutes on a Mac) unless asked.
-        env.setdefault("CMUX_TEST_WORKERS", str(os.cpu_count() or 4))
+        env.setdefault("CMUX_TEST_WORKERS", str(max(2, (os.cpu_count() or 4) // 2)))
     started = time.monotonic()
     print(
         f"cmux guards: {len(units)} groups, {sum(len(u.steps) for u in units)} steps, "
