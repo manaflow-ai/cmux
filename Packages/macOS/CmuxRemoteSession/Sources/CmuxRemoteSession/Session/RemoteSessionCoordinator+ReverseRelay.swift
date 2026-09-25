@@ -227,7 +227,7 @@ extension RemoteSessionCoordinator {
               !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         let detail = stderrDetail ?? "status=\(process.terminationStatus)"
-        debugLog("remote.relay.exit \(detail)")
+        debugLog("remote.relay.exit \(detail.debugLogSnippet(limit: 8192))")
         publishReverseRelayFailureLocked(remotePath: remotePath)
     }
 
