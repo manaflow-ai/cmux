@@ -74,12 +74,17 @@ to 160 s from a seed a few commits behind. `prefer` runs on a warm Mac when
 CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
 DerivedData. It digests the workspace once and counts the inputs each would
 rebuild: those whose content differs from the kept RECORD, and from the
-MANIFEST of the nearest seed in this commit's history that this Mac keeps
-(seed_derived_data.py CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the
-one with fewer changed inputs wins, and the adopt that follows clones exactly
-that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 250 s,
-so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
-given. A kept DerivedData without a record replays nothing and rebuilds the
+MANIFEST of every seed in this commit's history that this Mac keeps
+(seed_derived_data.py CMUX_SEED_LOCAL_CACHE, up to 8 of them). All are a local
+clone, so the one with the fewest changed inputs wins, and the adopt that
+follows clones exactly that seed (CMUX_SEED_EXACT). A seed this Mac does not
+keep costs a download of about 250 s, worth about DOWNLOAD_INPUTS changed
+inputs, so it wins only when GitHub's compare of its commit with the checkout
+lists that many fewer files than the kept build changed, at most MAX_DISTANCE
+commits back, and only when MAX_DISTANCE is given. A commit count alone says
+little: main takes about 25 merges an hour and a seed about 15 minutes, so the
+newest seed is usually 5 to 8 commits behind. Without GitHub's answer, only a
+seed UNKNOWN_ESTIMATE_DISTANCE commits behind is downloaded. A kept DerivedData without a record replays nothing and rebuilds the
 whole `cmux` module, so any seed beats it. Every error keeps the warm path.
 
 The count alone misleads when a local package's source changed (Packages/,
@@ -354,6 +359,12 @@ UNCOMPARED = (".ci-source-packages/", "GhosttyKit.xcframework/")
 PACKAGE_SOURCES = ("Packages/", "vendor/", "Examples/")
 # GitHub's compare API lists at most this many files; a longer diff is unknown.
 COMPARE_FILE_LIMIT = 300
+# A download costs about 250 s on a mini, about what this many changed app
+# inputs cost to recompile, so a downloaded seed must change this many fewer.
+DOWNLOAD_INPUTS = 150
+# Without GitHub's compare, a downloaded seed is taken only this near: a bare
+# commit count says nothing about what changed in between.
+UNKNOWN_ESTIMATE_DISTANCE = 2
 
 
 def changed_paths(current: dict[str, list], recorded: dict[str, list]) -> set[str]:
@@ -387,26 +398,42 @@ def cost(paths: set[str]) -> tuple[bool, int]:
     return rebuilds_app(paths), len(paths)
 
 
+def bucket_compare(key: str, workspace: Path) -> list[str] | None:
+    """The files that differ between KEY's revision and the checkout, per GitHub.
+
+    None when GitHub cannot say (no repository, an error, or a diff past the
+    compare API's file limit).
+    """
+    files: list[str] | None = None
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if repository:
+        try:
+            head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                                  check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+            files = json.loads(subprocess.run(
+                ["gh", "api", f"repos/{repository}/compare/{key.rsplit('-', 1)[-1]}...{head}",
+                 "--jq", "[.files[]? | .filename, (.previous_filename // empty)]"],
+                check=True, capture_output=True, text=True, timeout=60,
+            ).stdout)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            files = None
+        if files is not None and len(files) >= COMPARE_FILE_LIMIT:
+            files = None
+    return files
+
+
 def bucket_seed_rebuilds_app(key: str, workspace: Path) -> bool | None:
     """Whether the commits from KEY's revision to the checkout change a package source.
 
     None when GitHub cannot say (no repository, an error, or a diff past the
     compare API's file limit); the caller then treats the seed as no better.
     """
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
-    if not repository:
-        return None
-    try:
-        head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
-                              check=True, capture_output=True, text=True, timeout=30).stdout.strip()
-        files = json.loads(subprocess.run(
-            ["gh", "api", f"repos/{repository}/compare/{key.rsplit('-', 1)[-1]}...{head}",
-             "--jq", "[.files[]? | .filename, (.previous_filename // empty)]"],
-            check=True, capture_output=True, text=True, timeout=60,
-        ).stdout)
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
-    if len(files) >= COMPARE_FILE_LIMIT:
+    return files_rebuild_app(bucket_compare(key, workspace), workspace)
+
+
+def files_rebuild_app(files: list[str] | None, workspace: Path) -> bool | None:
+    """Whether a GitHub compare's FILES change a package source; None if unknown."""
+    if files is None:
         return None
     # A submodule bump (vendor/bonsplit) is listed as the bare submodule
     # path, while the local records see the .swift files under it.
@@ -428,19 +455,42 @@ def submodules(workspace: Path) -> set[str]:
     return {line.split(None, 1)[1].strip() for line in listed.splitlines() if len(line.split(None, 1)) == 2}
 
 
-def nearest_kept_seed(prefix: str, revision: str) -> tuple[str, int] | None:
-    """The nearest seed in REVISION's history that this Mac keeps, and its distance.
+def kept_seeds(prefix: str, revision: str) -> list[tuple[str, int]]:
+    """Every seed in REVISION's history that this Mac keeps, nearest first, with its distance.
 
     The nearest seed in the bucket moves with every main push that reseeds, so
-    a warm Mac that never downloads would rarely keep that exact one.
+    a warm Mac that never downloads would rarely keep that exact one. The
+    nearest one it keeps is not always the cheapest either: one behind a
+    package change recompiles the app, an older one before it may not.
     """
     widths = (seed.swift_jobs(), *(width for width in seed.SEEDED_JOB_WIDTHS if width != seed.swift_jobs()))
+    found = []
     for distance, commit in enumerate(seed.lineage(revision)):
         for jobs in widths:
             key = seed.scoped(prefix, jobs) + commit
             if seed.cached(key):
-                return key, distance
-    return None
+                found.append((key, distance))
+    return found
+
+
+def best_kept_seed(prefix: str, revision: str, current: dict) -> tuple[str, int, tuple[bool, int] | None] | None:
+    """The kept seed that compiles least from CURRENT, nearest on a tie, and its cost.
+
+    With an empty CURRENT (no kept record to digest against) the nearest wins
+    and its cost is None.
+    """
+    best = None
+    for key, distance in kept_seeds(prefix, revision):
+        if not current:
+            return key, distance, None
+        try:
+            manifest = json.loads((seed.cached(key) / seed.MANIFEST).read_text())
+        except (OSError, TypeError, ValueError):
+            continue
+        seed_cost = cost(changed_paths(current, manifest))
+        if best is None or seed_cost < best[2]:
+            best = (key, distance, seed_cost)
+    return best
 
 
 def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distance: int | None) -> dict[str, str]:
@@ -456,15 +506,14 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
     kept_cost = cost(changed_paths(current, kept_record)) if kept_record is not None else None
     if kept_cost is not None:
         result.update(kept_changed=str(kept_cost[1]), kept_rebuilds_app=str(kept_cost[0]).lower())
-    kept_seed = nearest_kept_seed(prefix, revision)
+    kept_seed = best_kept_seed(prefix, revision, current)
     local_rebuilds_app = False
     if kept_seed:
-        key, distance = kept_seed
+        key, distance, seed_cost = kept_seed
         result.update(seed_key=key, seed_distance=str(distance), local="true")
-        if kept_cost is None:
+        if kept_cost is None or seed_cost is None:
             result.update(prefer="true", reason="kept DerivedData has no input record")
             return result
-        seed_cost = cost(changed_paths(current, json.loads((seed.cached(key) / seed.MANIFEST).read_text())))
         result.update(seed_changed=str(seed_cost[1]), seed_rebuilds_app=str(seed_cost[0]).lower())
         if seed_cost < kept_cost:
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
@@ -487,9 +536,31 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
         if distance < int(result["seed_distance"]) and bucket_seed_rebuilds_app(exact, workspace) is False:
             result.update(downloaded, reason=f"the seed this Mac keeps recompiles the app; the seed {distance} commits behind does not")
         return result
+    # About how many inputs the download recompiles: the files GitHub says
+    # differ from the checkout. It overcounts (docs, workflows), which only
+    # makes a download less likely. None when GitHub cannot say.
+    compared = (bucket_compare(exact, workspace)
+                if kept_cost is not None and not kept_cost[0] and kept_cost[1] > DOWNLOAD_INPUTS
+                and distance <= max_distance else None)
+    estimate = None if compared is None else len(set(compared))
+    # A kept DerivedData without a record rebuilds the whole module, so any
+    # seed up to MAX_DISTANCE beats it; otherwise, without GitHub's estimate,
+    # only a seed a couple of commits behind.
+    near = max_distance if kept_cost is None else min(max_distance, UNKNOWN_ESTIMATE_DISTANCE)
     if kept_cost is not None and kept_cost[1] == 0:
         result["reason"] = "the kept DerivedData has no changed inputs"
-    elif distance <= max_distance and not (
+    elif estimate is not None and files_rebuild_app(compared, workspace) is False:
+        # GitHub's compare says what the download would recompile, so weigh
+        # it against the kept build instead of trusting a commit count: main
+        # moves 5 to 8 commits per seed, so a count of 2 almost never passed.
+        if estimate + DOWNLOAD_INPUTS < kept_cost[1]:
+            result.update(downloaded, seed_changed=str(estimate),
+                          reason=f"the seed {distance} commits behind changes about {estimate} inputs, "
+                                 f"the kept DerivedData {kept_cost[1]}")
+        else:
+            result["reason"] = (f"the seed {distance} commits behind changes about {estimate} inputs, "
+                                f"not enough fewer than the kept DerivedData's {kept_cost[1]} to pay for a download")
+    elif distance <= near and not (
         kept_cost is not None and not kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is not False
     ):
         # A near seed that would recompile the app never replaces a kept build
@@ -500,10 +571,10 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
         # A download (about 250 s on a mini) costs less than recompiling the
         # whole app (365 to 1,053 s on an owned mini on 2026-09-25).
         result.update(downloaded, reason=f"the kept DerivedData recompiles the app; the seed {distance} commits behind does not")
-    elif distance <= max_distance:
+    elif distance <= near:
         result.setdefault("reason", f"the seed {distance} commits behind may recompile the app; the kept DerivedData does not")
     else:
-        result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
+        result.setdefault("reason", f"the nearest seed is {distance} commits behind and GitHub cannot say what it changes")
     return result
 
 

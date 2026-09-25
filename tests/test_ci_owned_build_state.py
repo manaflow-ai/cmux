@@ -464,6 +464,50 @@ class Prefer(Fixture):
                 self.assertEqual(result["reason"],
                                  "the seed 1 commits behind may recompile the app; the kept DerivedData does not")
 
+    def test_the_cheapest_kept_seed_wins_not_the_nearest(self):
+        """The nearest kept seed sits behind a package change; an older one does not."""
+        self.kept(changed=6)
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        self.kept_seed("p-j14-older", changed=3)
+        result = self.prefer(("p-j14-base", 0))
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_changed"], result["local"]),
+                         ("true", "p-j14-older", "3", "true"))
+
+    def test_a_far_download_wins_on_github_s_estimate_not_its_commit_count(self):
+        """main moves 5 to 8 commits per seed, so a count of 2 almost never passed."""
+        self.kept(changed=6)
+        big = state.DOWNLOAD_INPUTS + 200
+        for record in (self.recorded(6),):
+            for index in range(6, big):
+                record[f"Sources/G{index}.swift"] = ["stale", 1]
+            (self.store / "derived-data" / state.RECORD).write_text(json.dumps(record))
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=["Sources/A.swift"] * 5 + ["Sources/B.swift"]):
+            result = self.prefer(("p-j14-base", 6), max_distance=50)
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_changed"], result["local"]),
+                         ("true", "p-j14-base", "2", "false"))
+        many = [f"Sources/H{index}.swift" for index in range(big - 50)]
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=many):
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=50)["prefer"], "false")
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=["Packages/X/Sources/X/A.swift"]):
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=50)["prefer"], "false")
+        # Unknown to GitHub: only a seed a couple of commits behind.
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=None), \
+             unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=False):
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=50)["prefer"], "false")
+            self.assertEqual(self.prefer(("p-j14-base", 2), max_distance=50)["prefer"], "true")
+        # MAX_DISTANCE still caps a download.
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=["Sources/A.swift"]):
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=5)["prefer"], "false")
+
+    def test_a_small_kept_diff_never_asks_github(self):
+        self.kept(changed=3)
+        with unittest.mock.patch.object(state, "bucket_compare") as compare, \
+             unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=True):
+            self.prefer(("p-j14-base", 6), max_distance=50)
+        compare.assert_not_called()
+
     def test_package_tests_do_not_rebuild_the_app(self):
         self.assertFalse(state.rebuilds_app({"Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/ATests.swift"}))
 

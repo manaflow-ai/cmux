@@ -106,9 +106,16 @@ ANCESTOR_LIMIT = 50
 # Fallbacks go in this order after a runner's own width.
 SEEDED_JOB_WIDTHS = (12, 6, 14)
 USER_AGENT = "cmux-ci-seed-derived-data"
-# Seeds an owned Mac keeps in CMUX_SEED_LOCAL_CACHE: the one it builds on now
-# and the one before, for a job whose base is one seed behind.
-LOCAL_KEEP = 2
+# Seeds an owned Mac keeps in CMUX_SEED_LOCAL_CACHE, newest first. main takes
+# about 25 merges an hour and a seed takes about 15 minutes, so the newest seed
+# is usually 5 to 8 commits behind a pull request's base, and a job whose base
+# is older than that needs an older seed. With only 2 kept, most jobs found
+# none near their base and fell back to the previous pull request's build
+# (345 changed inputs in run 36121897936). A seed is about 8 GB and the minis
+# have 175 to 280 GB free, so keep 8, and only 2 when the disk is short.
+LOCAL_KEEP = 8
+LOCAL_KEEP_LOW_DISK = 2
+LOCAL_KEEP_MIN_FREE_BYTES = 100 * 1024**3
 # A seed touched this recently may be mid-clone by a job; the prune spares it.
 PRUNE_GRACE_SECONDS = 600
 # owned_build_state.py `check` records here which seeds this root adopts.
@@ -309,6 +316,15 @@ def age(path: Path) -> float:
         return 0.0
 
 
+def local_keep(cache: Path) -> int:
+    """How many seeds CACHE keeps: LOCAL_KEEP, or LOCAL_KEEP_LOW_DISK on a short disk."""
+    try:
+        free = shutil.disk_usage(cache).free
+    except OSError:
+        return LOCAL_KEEP_LOW_DISK
+    return LOCAL_KEEP if free >= LOCAL_KEEP_MIN_FREE_BYTES else LOCAL_KEEP_LOW_DISK
+
+
 def keep_local(cache: Path, incoming: Path, key: str) -> None:
     """Rename INCOMING into the cache as KEY, then keep only the newest LOCAL_KEEP.
 
@@ -328,7 +344,7 @@ def keep_local(cache: Path, incoming: Path, key: str) -> None:
             shutil.rmtree(stale, ignore_errors=True)
     entries = [entry for entry in cache.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
     kept = sorted(entries, key=age)
-    for old in kept[LOCAL_KEEP:]:
+    for old in kept[local_keep(cache):]:
         if age(old) > PRUNE_GRACE_SECONDS:
             shutil.rmtree(old, ignore_errors=True)
 
