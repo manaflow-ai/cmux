@@ -3303,6 +3303,15 @@ struct TextBoxInputView: NSViewRepresentable {
 }
 
 final class TextBoxInputTextView: NSTextView {
+    struct ListContinuation: Equatable {
+        let replacementRange: NSRange
+        let replacement: String
+    }
+
+    static func automaticListContinuation(in text: String, at location: Int) -> ListContinuation? {
+        nil
+    }
+
     fileprivate private(set) var isHandlingDidChangeText = false
 
     var terminalTitle = ""

@@ -11,6 +11,18 @@ import Testing
 @MainActor
 @Suite("TextBox selection replacement", .serialized)
 struct TextBoxSelectionReplacementTests {
+    @Test("numbered list continuation advances the item number")
+    func numberedListContinuationAdvancesItemNumber() throws {
+        let text = "1. First item"
+        let location = (text as NSString).length
+        let continuation = try #require(
+            TextBoxInputTextView.automaticListContinuation(in: text, at: location)
+        )
+
+        #expect(continuation.replacementRange == NSRange(location: location, length: 0))
+        #expect(continuation.replacement == "\n2. ")
+    }
+
     @Test("stale parent refresh does not resurrect text replaced in the editor")
     func staleParentRefreshPreservesSelectionReplacement() throws {
         let staleExternalText = "hello world"
