@@ -200,8 +200,12 @@ final class SurfaceCatalog {
         cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
-        updateCloudDirectoryMetadata(on: machine)
         projections = projections.filter { $0.resource.machine != machine }
+        // Drop the workspace's device provenance only after removing the
+        // projections that establish ownership. A transport disconnect keeps
+        // the provider registered and therefore retains the desktop badge;
+        // unregister means access ended and clears it.
+        updateCloudDirectoryMetadata(on: machine)
         projectionVersions[machine] = nil
         notifyChange()
     }
