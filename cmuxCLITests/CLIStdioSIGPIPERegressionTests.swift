@@ -178,7 +178,7 @@ final class CLIStdioSIGPIPERegressionTests: XCTestCase {
         defer { try? stderrHandle.close() }
 
         process.executableURL = URL(fileURLWithPath: cliPath)
-        process.arguments = ["read-screen", "--lines", "0"]
+        process.arguments = ["read-screen", "--workspace", "workspace:1", "--selection", "--scrollback"]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrHandle
