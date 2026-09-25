@@ -97,7 +97,7 @@ The command executes repository Python/shell code, including for help and list.
 Use a [trusted checkout](docs/contributor-verification.md#trust-boundary).
 Git push does not run it automatically.
 
-## Team dogfood setup
+## Team Dogfood Setup
 
 DEBUG builds can auto-sign-in as you and auto-attach an iOS build to your Mac with no manual steps. Each developer does a one-time setup with their own Stack account.
 
