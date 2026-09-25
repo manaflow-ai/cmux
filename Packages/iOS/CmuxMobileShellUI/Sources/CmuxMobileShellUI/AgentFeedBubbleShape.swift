@@ -1,19 +1,28 @@
 #if os(iOS)
 import SwiftUI
 
-/// An iMessage-style received-message bubble with its tail at the
-/// bottom-leading corner.
+/// An iMessage-style message bubble with its tail at a bottom corner.
 ///
 /// Drawn as one continuous path so the same shape can be stroked for quoted
-/// messages and filled for replies. The body starts ``tailWidth`` points in
-/// from the leading edge; the tail hooks out into that gutter and curls back
-/// into the bottom edge, matching Messages. Callers add ``tailWidth`` to
-/// their leading content padding.
+/// messages and filled for replies. The body is inset ``tailWidth`` points
+/// from ``tailEdge``; the tail hooks out into that gutter and curls back into
+/// the bottom edge, matching Messages. A trailing tail (a sent message) is the
+/// leading geometry mirrored. Callers add ``tailWidth`` to their content
+/// padding on the tail edge.
 struct AgentFeedBubbleShape: Shape {
     static let tailWidth: CGFloat = 4
+    var tailEdge: HorizontalEdge = .leading
     var cornerRadius: CGFloat = 18
 
     func path(in rect: CGRect) -> Path {
+        let path = leadingTailPath(in: rect)
+        guard tailEdge == .trailing else { return path }
+        return path.applying(
+            CGAffineTransform(translationX: rect.minX + rect.maxX, y: 0).scaledBy(x: -1, y: 1)
+        )
+    }
+
+    private func leadingTailPath(in rect: CGRect) -> Path {
         let left = rect.minX + Self.tailWidth
         let right = rect.maxX
         let top = rect.minY

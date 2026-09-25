@@ -219,28 +219,73 @@ struct AgentFeedRow: View, Equatable {
     @ViewBuilder
     private func quotedMessage(_ message: String) -> some View {
         if bubbleQuotes {
-            bubbleQuote(message, lineLimit: 3)
+            // The quoted prompt is the user's own message, so it reads as a
+            // sent bubble: trailing-aligned with its tail on the right.
+            bubbleQuote(message, lineLimit: 3, sender: .user)
         } else {
             barQuote(message)
         }
     }
 
-    /// An iMessage-style quoted message: secondary text inside an outlined
-    /// bubble whose tail points back at the avatar gutter.
-    private func bubbleQuote(_ message: String, lineLimit: Int) -> some View {
-        AgentFeedMarkdownText(
-            markdown: message,
-            font: .footnote,
-            color: .secondary,
-            lineLimit: lineLimit
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.leading, 12 + AgentFeedBubbleShape.tailWidth)
-        .padding(.trailing, 12)
-        .padding(.vertical, 7)
-        .overlay(
-            AgentFeedBubbleShape()
-                .stroke(Color.secondary.opacity(0.45), lineWidth: 1)
+    /// Who wrote a bubble. Messages puts the user's messages on the trailing
+    /// side in the accent color and everyone else's on the leading side in
+    /// gray; Feed bubbles follow the same rule.
+    private enum BubbleSender {
+        case user
+        case agent
+
+        var tailEdge: HorizontalEdge { self == .user ? .trailing : .leading }
+        var alignment: Alignment { self == .user ? .trailing : .leading }
+    }
+
+    /// Keeps a bubble from spanning the full column, leaving the
+    /// opposite-side gutter Messages uses.
+    private static let bubbleOppositeInset: CGFloat = 40
+
+    /// Pads bubble content so the text clears the tail on its tail edge.
+    private func bubbleContentPadding<Content: View>(
+        _ content: Content,
+        sender: BubbleSender,
+        vertical: CGFloat
+    ) -> some View {
+        let tailSide = 12 + AgentFeedBubbleShape.tailWidth
+        return content
+            .padding(.leading, sender.tailEdge == .leading ? tailSide : 12)
+            .padding(.trailing, sender.tailEdge == .trailing ? tailSide : 12)
+            .padding(.vertical, vertical)
+    }
+
+    /// Places a bubble on its sender's side of the text column.
+    private func bubbleSide<Content: View>(_ content: Content, sender: BubbleSender) -> some View {
+        content
+            .padding(
+                sender == .user ? .leading : .trailing,
+                Self.bubbleOppositeInset
+            )
+            .frame(maxWidth: .infinity, alignment: sender.alignment)
+    }
+
+    /// An iMessage-style quoted message inside an outlined bubble: accent for
+    /// the user's own words, secondary gray for the agent's.
+    private func bubbleQuote(_ message: String, lineLimit: Int, sender: BubbleSender) -> some View {
+        let tint: Color = sender == .user ? .accentColor : .secondary
+        return bubbleSide(
+            bubbleContentPadding(
+                AgentFeedMarkdownText(
+                    markdown: message,
+                    font: .footnote,
+                    color: tint,
+                    lineLimit: lineLimit
+                )
+                .fixedSize(horizontal: false, vertical: true),
+                sender: sender,
+                vertical: 7
+            )
+            .overlay(
+                AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                    .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+            ),
+            sender: sender
         )
     }
 
@@ -327,31 +372,35 @@ struct AgentFeedRow: View, Equatable {
         }
     }
 
-    /// iMessage inline-reply layout: the answered message as an outlined
-    /// quote bubble, the sender name, then the reply in a filled bubble.
+    /// iMessage inline-reply layout: the agent message being answered as a
+    /// gray outlined quote on the leading side, then the user's reply as a
+    /// filled accent bubble on the trailing side.
     private func bubbleReplyMarker(reply: String, reference: String?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             if let reference {
-                bubbleQuote(reference, lineLimit: 2)
-                    .padding(.bottom, 2)
+                bubbleQuote(reference, lineLimit: 2, sender: .agent)
             }
-            Text(String(
-                localized: "mobile.agentFeed.reply.youLabel",
-                defaultValue: "You",
-                bundle: .module
-            ))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.leading, AgentFeedBubbleShape.tailWidth + 12)
-            AgentFeedMarkdownText(markdown: reply, font: .subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 12 + AgentFeedBubbleShape.tailWidth)
-                .padding(.trailing, 12)
-                .padding(.vertical, 8)
-                .background(
-                    AgentFeedBubbleShape()
-                        .fill(Color(uiColor: .systemGray5))
+            bubbleSide(
+                bubbleContentPadding(
+                    AgentFeedMarkdownText(markdown: reply, font: .subheadline, color: .white)
+                        .fixedSize(horizontal: false, vertical: true),
+                    sender: .user,
+                    vertical: 8
                 )
+                .background(
+                    AgentFeedBubbleShape(tailEdge: .trailing)
+                        .fill(Color.accentColor)
+                ),
+                sender: .user
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                Text(String(
+                    localized: "mobile.agentFeed.reply.youLabel",
+                    defaultValue: "You",
+                    bundle: .module
+                )) + Text(verbatim: ": ") + Text(reply)
+            )
         }
         .padding(.top, 2)
     }
