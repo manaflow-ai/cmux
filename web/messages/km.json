@@ -4081,5 +4081,19 @@
     "updateDetail": "ត្រូវការ cmux {stableVersion} ឬថ្មីជាងនេះ ឬ NIGHTLY {nightlyVersion} ឬថ្មីជាងនេះ។ បើកការផ្គូផ្គង iOS ក្នុង ការកំណត់ > ទូរសព្ទ នៅលើ Mac នីមួយៗ។",
     "rollbackTitle": "ត្រូវការរក្សាកំណែ Mac ចាស់មែនទេ?",
     "rollbackDetail": "ប្រើ cmux BETA 1.0.5 ({rollbackBuild}) ពី TestFlight > កំណែមុន ខណៈដែលវានៅអាចប្រើបាន។ ជ្រើសរើសកំណែនេះឱ្យបានច្បាស់ ព្រោះកំណែក្រោយប្រើសេវាតភ្ជាប់ថ្មីជាង។"
+  },
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  បង្ហាញមគ្គុទ្ទេសក៍ Cloud ម្តងទៀត",
+    "welcomeUsage": "របៀបប្រើ៖ cmux welcome\n\nបង្ហាញមគ្គុទ្ទេសក៍ cmux Cloud ម្តងទៀត។",
+    "welcomeOption": "cmux welcome: ជម្រើសមិនស្គាល់ %s\n\nរបៀបប្រើ៖ cmux welcome",
+    "welcomeIntro": "សូមស្វាគមន៍មកកាន់ cmux Cloud\nម៉ាស៊ីនរបស់អ្នកសម្រាប់ភ្នាក់ងារសរសេរកូដ",
+    "welcomeCodeRouter": "\nភ្នាក់ងារ\ncodex\tដំណើរការ Codex ជាធម្មតា ដោយប្រើគណនី CodeRouter ដែលបានភ្ជាប់។\nclaude\tដំណើរការ Claude Code ជាធម្មតាតាម CodeRouter។\ncmux cr accounts\tគណនីដែលបានភ្ជាប់\ncmux cr models\tម៉ូដែលដែលអាចប្រើបាន\n\nបន្ថែមគណនីនៅលើ Mac របស់អ្នក\ncmux cr add codex\tភ្ជាប់គណនី ChatGPT\ncmux cr add claude\tភ្ជាប់គណនី Claude",
+    "welcomeWorkspaces": "\nម៉ាស៊ីនរបស់អ្នក\nកន្លែងធ្វើការ\tម៉ាស៊ីនមួយអាចមានកន្លែងធ្វើការ និងស្ថានីយជាច្រើន។ ការបិទផ្ទាំងនៅលើ Mac មិនបញ្ឈប់ស្ថានីយពីចម្ងាយទេ។\nការផ្អាក និងការផ្ទុក\tការគេងផ្អាកការគណនាបណ្តោះអាសន្ន។ ភ្ជាប់ឡើងវិញដើម្បីបន្ត។ កម្រិតពេលដំណើរការ និងការរក្សាទុកអាស្រ័យលើគម្រោងរបស់អ្នក។ បម្រុងទុកមុនពេលលុប។",
+    "welcomeDisplays": "អេក្រង់ → ផ្ទៃតុ (Displays → Desktop)\tបើកកម្មវិធីក្រាហ្វិក និងកម្មវិធីរុករកពី Mac របស់អ្នក។",
+    "welcomeNoDisplays": "អេក្រង់ → ផ្ទៃតុ (Displays → Desktop)\tកម្មវិធីក្រាហ្វិក និងកម្មវិធីរុករកពី Mac នៅពេលម៉ាស៊ីនគាំទ្រ។",
+    "welcomePorts": "ច្រក\tមើលម៉ាស៊ីនមេអភិវឌ្ឍន៍ជាលក្ខណៈឯកជននៅលើ Mac។ ប្រើ ចែករំលែក ដោយចេតនាដើម្បីផ្តល់សិទ្ធិចូលប្រើដល់អ្នកដទៃ។",
+    "welcomeFiles": "\nគម្រោង\ngit clone <repo-url>\tក្លូនគម្រោងរបស់អ្នក ហើយធ្វើការនៅទីនេះ។\n\nផ្ទេរឯកសារពី Mac របស់អ្នក\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nមគ្គុទ្ទេសក៍\tcmux welcome\nជំនួយ\tcmux --help\nឯកសារ\thttps://cmux.com/docs"
   }
 }

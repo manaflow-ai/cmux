@@ -4088,5 +4088,19 @@
     "updateDetail": "ต้องใช้ cmux {stableVersion} ขึ้นไป หรือ NIGHTLY {nightlyVersion} ขึ้นไป เปิดใช้การจับคู่ iOS ในการตั้งค่า > มือถือบน Mac แต่ละเครื่อง",
     "rollbackTitle": "ต้องการใช้บิลด์ Mac รุ่นเก่าต่อไปหรือไม่",
     "rollbackDetail": "ใช้ cmux BETA 1.0.5 ({rollbackBuild}) จาก TestFlight > บิลด์ก่อนหน้าในขณะที่ยังมีให้ใช้ เลือกบิลด์นี้โดยตรง เพราะบิลด์ที่ใหม่กว่าจะใช้บริการเชื่อมต่อที่ใหม่กว่า"
+  },
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  แสดงคู่มือ Cloud อีกครั้ง",
+    "welcomeUsage": "วิธีใช้: cmux welcome\n\nแสดงคู่มือ cmux Cloud อีกครั้ง",
+    "welcomeOption": "cmux welcome: ตัวเลือกที่ไม่รู้จัก %s\n\nวิธีใช้: cmux welcome",
+    "welcomeIntro": "ยินดีต้อนรับสู่ cmux Cloud\nเครื่องของคุณสำหรับเอเจนต์เขียนโค้ด",
+    "welcomeCodeRouter": "\nเอเจนต์\ncodex\tเรียกใช้ Codex ตามปกติด้วยบัญชี CodeRouter ที่เชื่อมต่อไว้\nclaude\tเรียกใช้ Claude Code ตามปกติผ่าน CodeRouter\ncmux cr accounts\tบัญชีที่เชื่อมต่อ\ncmux cr models\tโมเดลที่ใช้ได้\n\nเพิ่มบัญชีบน Mac ของคุณ\ncmux cr add codex\tเชื่อมต่อบัญชี ChatGPT\ncmux cr add claude\tเชื่อมต่อบัญชี Claude",
+    "welcomeWorkspaces": "\nเครื่องของคุณ\nพื้นที่ทำงาน\tหนึ่งเครื่องมีหลายพื้นที่ทำงานและเทอร์มินัลได้ การปิดแผงบน Mac ไม่ได้หยุดเทอร์มินัลระยะไกล\nพักเครื่องและพื้นที่จัดเก็บ\tการพักเครื่องจะหยุดการประมวลผลชั่วคราว เชื่อมต่อใหม่เพื่อปลุกเครื่อง ขีดจำกัดเวลารันและการเก็บข้อมูลขึ้นอยู่กับแผนของคุณ สำรองข้อมูลก่อนลบ",
+    "welcomeDisplays": "จอแสดงผล → เดสก์ท็อป (Displays → Desktop)\tเปิดแอปกราฟิกและเบราว์เซอร์จาก Mac ของคุณ",
+    "welcomeNoDisplays": "จอแสดงผล → เดสก์ท็อป (Displays → Desktop)\tเปิดแอปกราฟิกและเบราว์เซอร์จาก Mac ได้เมื่อเครื่องรองรับ",
+    "welcomePorts": "พอร์ต\tดูตัวอย่างเซิร์ฟเวอร์พัฒนาแบบส่วนตัวบน Mac ใช้ แชร์ อย่างชัดเจนเมื่อต้องการให้ผู้อื่นเข้าถึง",
+    "welcomeFiles": "\nโปรเจกต์\ngit clone <repo-url>\tโคลนโปรเจกต์และทำงานที่นี่\n\nถ่ายโอนไฟล์จาก Mac ของคุณ\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nคู่มือ\tcmux welcome\nความช่วยเหลือ\tcmux --help\nเอกสาร\thttps://cmux.com/docs"
   }
 }

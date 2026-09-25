@@ -26,6 +26,7 @@ final class CloudWorkspaceCreationCoordinator {
         let retained = failed.count == 1 ? failed.first : nil
         let operation = retained ?? CloudWorkspaceCreationOperation(
             provider: provider, host: host, allowsActionRetry: reuseFailedCreation,
+            opensExistingWorkspace: existingWorkspace != nil,
             validateOperation: validateOperation
         )
         operation.validateOperation = validateOperation
@@ -52,6 +53,17 @@ final class CloudWorkspaceCreationCoordinator {
             return try await run(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
                                  existingTerminal: existingTerminal, catalog: catalog)
         } catch {
+            // A daemon starter can commit immediately before this task is
+            // cancelled. The provider records its local representation before
+            // the lifecycle fence; adopt it here so the operation retains a
+            // durable identity even though the caller receives cancellation.
+            if operation.terminal == nil,
+               let recorded = operation.terminalRequest.recordedInitialTerminal {
+                operation.terminal = recorded
+                // The daemon's first-workspace receipt is machine-owned. A
+                // cancelled local attachment must not terminate that starter.
+                operation.ownsRemoteTerminal = false
+            }
             let canRetainForRetry = !(error is CancellationError)
                 && !Task.isCancelled
                 && operations[operation.id] === operation
@@ -178,7 +190,7 @@ final class CloudWorkspaceCreationCoordinator {
             terminal = try await operation.provider.createTerminal(
                 command: nil, cwd: nil, name: nil, remoteWorkspaceID: receipt.workspace.id, request: operation.terminalRequest
             )
-            operation.ownsRemoteTerminal = true
+            operation.ownsRemoteTerminal = !operation.terminalRequest.usesMachineStarter
         }
         // Record the identity before validation can throw so cancellation or a
         // stale placement still cleans the terminal this operation created.

@@ -1023,6 +1023,80 @@ Result<CloseTerminalResult> Codec<CloseTerminalResult>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<CloudBootstrapResult>::encode(const CloudBootstrapResult& value) {
+    (void)value;
+    Json::Object object;
+    if (value.created_path) {
+        auto encoded = encode_value(*value.created_path);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("created_path", std::move(encoded).value());
+    } else {
+        object.emplace("created_path", Json(nullptr));
+    }
+    if (!value.generation.is_absent()) {
+        auto encoded = encode_value(value.generation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("generation", std::move(encoded).value());
+    }
+    if (value.occupied) {
+        auto encoded = encode_value(*value.occupied);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("occupied", std::move(encoded).value());
+    }
+    if (!value.revision.is_absent()) {
+        auto encoded = encode_value(value.revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("revision", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<CloudBootstrapResult> Codec<CloudBootstrapResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloudBootstrapResult result{};
+    const Json* field_created_path = value.find("created_path");
+    if (!field_created_path) {
+        return make_error(ErrorCode::decode, "missing required field 'created_path'");
+    }
+    if (field_created_path) {
+        if (field_created_path->is_null()) {
+            result.created_path.reset();
+        } else {
+            auto decoded = decode_value<JsonValue>(*field_created_path);
+            if (!decoded) return std::move(decoded).error();
+            result.created_path = std::move(decoded).value();
+        }
+    }
+    const Json* field_generation = value.find("generation");
+    if (field_generation) {
+        if (field_generation->is_null()) {
+            result.generation = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_generation);
+            if (!decoded) return std::move(decoded).error();
+            result.generation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_occupied = value.find("occupied");
+    if (field_occupied) {
+        auto decoded = decode_value<bool>(*field_occupied);
+        if (!decoded) return std::move(decoded).error();
+        result.occupied = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (field_revision) {
+        if (field_revision->is_null()) {
+            result.revision = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.revision = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ColorHex>::encode(const ColorHex& value) {
     return encode_value(value.value);
 }
@@ -9161,6 +9235,81 @@ Result<CloseWorkspaceRequest> Codec<CloseWorkspaceRequest>::decode(const Json& v
             auto decoded = decode_value<Id>(*field_workspace);
             if (!decoded) return std::move(decoded).error();
             result.workspace = Field<Id>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<CloudBootstrapRequest>::encode(const CloudBootstrapRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (value.welcome) {
+        auto encoded = encode_value(*value.welcome);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("welcome", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<CloudBootstrapRequest> Codec<CloudBootstrapRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloudBootstrapRequest result{};
+    const Json* field_welcome = value.find("welcome");
+    if (field_welcome) {
+        auto decoded = decode_value<bool>(*field_welcome);
+        if (!decoded) return std::move(decoded).error();
+        result.welcome = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<CloudFirstWorkspaceRequest>::encode(const CloudFirstWorkspaceRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_machine_id = encode_value(value.machine_id);
+    if (!encoded_machine_id) return std::move(encoded_machine_id).error();
+    object.emplace("machine_id", std::move(encoded_machine_id).value());
+    if (value.welcome) {
+        auto encoded = encode_value(*value.welcome);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("welcome", std::move(encoded).value());
+    }
+    if (!value.workspace.is_absent()) {
+        auto encoded = encode_value(value.workspace);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("workspace", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<CloudFirstWorkspaceRequest> Codec<CloudFirstWorkspaceRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloudFirstWorkspaceRequest result{};
+    const Json* field_machine_id = value.find("machine_id");
+    if (!field_machine_id) {
+        return make_error(ErrorCode::decode, "missing required field 'machine_id'");
+    }
+    if (field_machine_id) {
+        auto decoded = decode_value<std::string>(*field_machine_id);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_id = std::move(decoded).value();
+    }
+    const Json* field_welcome = value.find("welcome");
+    if (field_welcome) {
+        auto decoded = decode_value<bool>(*field_welcome);
+        if (!decoded) return std::move(decoded).error();
+        result.welcome = std::move(decoded).value();
+    }
+    const Json* field_workspace = value.find("workspace");
+    if (field_workspace) {
+        if (field_workspace->is_null()) {
+            result.workspace = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_workspace);
+            if (!decoded) return std::move(decoded).error();
+            result.workspace = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -18781,33 +18930,33 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand23FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand25FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand27FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand26FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand28FieldRequirements{{
     {"terminal_id", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand51FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand53FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand75FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand77FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand81FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand83FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand86FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand88FieldRequirements{{
     {"paste", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand92FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand94FieldRequirements{{
     {"complete", 9U, ""},
     {"cursor", 9U, ""},
     {"cursor_blink", 9U, ""},
@@ -18816,20 +18965,20 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand92FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand94FieldRequirements{{
-    {"transaction", 9U, "layout-undo-v1"},
-}};
-constexpr std::array<CommandFieldRequirement, 1> kCommand95FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand96FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand97FieldRequirements{{
+    {"transaction", 9U, "layout-undo-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand99FieldRequirements{{
     {"force", 10U, "daemon-handoff-force-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand100FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand102FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 112> kCommands{{
+constexpr std::array<CommandMetadata, 114> kCommands{{
     {"apply-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"attach-surface", "frontend", 5U, "", true, "attach", "detached", std::span<const CommandFieldRequirement>(kCommand1FieldRequirements)},
     {"browser-activate", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -18854,9 +19003,11 @@ constexpr std::array<CommandMetadata, 112> kCommands{{
     {"close-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand23FieldRequirements)},
+    {"cloud-bootstrap", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"cloud-first-workspace", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"copy", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"create-surface-with-receipt", "control", 10U, "creation-receipts-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand25FieldRequirements)},
-    {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand26FieldRequirements)},
+    {"create-surface-with-receipt", "control", 10U, "creation-receipts-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand27FieldRequirements)},
+    {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand28FieldRequirements)},
     {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"detach-attached-view", "frontend", 10U, "view-attachment-detach-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"detach-client", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -18881,7 +19032,7 @@ constexpr std::array<CommandMetadata, 112> kCommands{{
     {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab-to-workspace", "control", 12U, "tab-workspace-move-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand51FieldRequirements)},
+    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand53FieldRequirements)},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -18905,32 +19056,32 @@ constexpr std::array<CommandMetadata, 112> kCommands{{
     {"rename-provider-managed-workspace", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand75FieldRequirements)},
+    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand77FieldRequirements)},
     {"report-agent", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"report-focus", "control", 12U, "client-focus-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resize-attached-view", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resize-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resolve-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand81FieldRequirements)},
+    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand83FieldRequirements)},
     {"scroll-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand86FieldRequirements)},
+    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand88FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"server-stats", "local-admin", 12U, "server-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand92FieldRequirements)},
+    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand94FieldRequirements)},
     {"set-ratio", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand94FieldRequirements)},
-    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand95FieldRequirements)},
+    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand96FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand97FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand97FieldRequirements)},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand99FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand100FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand102FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"undo-layout", "control", 9U, "layout-undo-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -19275,6 +19426,28 @@ Result<WorkspaceMutationResult> Client::close_workspace(
     auto response = core_.request("close-workspace", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<WorkspaceMutationResult>(response.value());
+}
+
+Result<CloudBootstrapResult> Client::cloud_bootstrap(
+    const CloudBootstrapRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("cloud-bootstrap", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<CloudBootstrapResult>(response.value());
+}
+
+Result<CloudBootstrapResult> Client::cloud_first_workspace(
+    const CloudFirstWorkspaceRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("cloud-first-workspace", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<CloudBootstrapResult>(response.value());
 }
 
 Result<CopyResult> Client::copy(

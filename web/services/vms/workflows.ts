@@ -171,6 +171,8 @@ export type VmEntry = {
    * carry it and New Machine skips the separate attach request.
    */
   readonly cmuxTuiContract: string | null;
+  /** First successful machine for its creator, retained for a later interactive open. */
+  readonly cloudWelcomeEligible?: boolean;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -674,7 +676,7 @@ type CreateVmInput = {
   readonly imageSize?: CreateOptions["imageSize"];
   /** Override the reservation when cloning an existing machine shape. */
   readonly resourceReservation?: VmResourceReservation;
-  /** How the machine came to exist; analytics only. Defaults to `create`. */
+  /** Creation origin for analytics and first-user onboarding. Defaults to `create`. */
   readonly origin?: VmCreateOrigin;
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
@@ -731,7 +733,9 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
           ),
         ),
-        beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
+        beginCreateWithLazyProviderRefresh(repo, providers, {
+          ...beginInput, welcomeOnFirstMachine: (input.origin ?? "create") === "create",
+        }),
       ],
       { concurrency: 2 },
     );
@@ -4445,6 +4449,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
+    cloudWelcomeEligible: metadata["cloudWelcomeEligible"] === true,
   };
 }
 

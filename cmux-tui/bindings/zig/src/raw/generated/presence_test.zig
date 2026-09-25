@@ -19,6 +19,8 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.CloudBootstrapRequest, "welcome");
+    try expectExplicitNullRejected(protocol.CloudFirstWorkspaceRequest, "welcome");
     try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
     try expectExplicitNullRejected(protocol.MintTerminalRendererRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
@@ -71,6 +73,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "clients");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
+    try expectExplicitNullRejected(protocol.CloudBootstrapResult, "occupied");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");

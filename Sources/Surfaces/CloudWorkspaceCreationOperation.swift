@@ -9,7 +9,7 @@ final class CloudWorkspaceCreationOperation {
     let host: CloudWorkspaceCreationHost?
     let allowsActionRetry: Bool
     var validateOperation: @MainActor () throws -> Void
-    let terminalRequest = CloudTerminalCreationRequest()
+    let terminalRequest: CloudTerminalCreationRequest
     var receipt: SurfaceWorkspaceCreationReceipt?
     var reservation: CloudTerminalPaneReservation?
     var terminal: SurfaceResource?
@@ -28,10 +28,12 @@ final class CloudWorkspaceCreationOperation {
         provider: any SurfaceProvider,
         host: CloudWorkspaceCreationHost?,
         allowsActionRetry: Bool,
+        opensExistingWorkspace: Bool,
         validateOperation: @escaping @MainActor () throws -> Void
     ) {
         self.provider = provider
         self.host = host
+        self.terminalRequest = CloudTerminalCreationRequest(opensMachine: opensExistingWorkspace && host != nil)
         self.allowsActionRetry = allowsActionRetry
         self.validateOperation = validateOperation
     }

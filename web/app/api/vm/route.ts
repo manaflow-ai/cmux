@@ -153,6 +153,7 @@ export async function GET(request: Request): Promise<Response> {
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         slug: entry.slug,
+        cloudWelcomeEligible: entry.cloudWelcomeEligible,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
@@ -319,6 +320,7 @@ export async function POST(request: Request): Promise<Response> {
         // (~2 s measured) for data this response already had.
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
+        cloudWelcomeEligible: created.cloudWelcomeEligible,
       });
     },
   );

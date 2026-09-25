@@ -5325,6 +5325,45 @@
     }
    },
    "additional_properties": false
+  },
+  "CloudBootstrapResult": {
+   "kind": "object",
+   "additional_properties": false,
+   "fields": {
+    "created_path": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "generation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "occupied": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false
+    }
+   }
   }
  },
  "commands": {
@@ -10179,6 +10218,35 @@
     "Only the calling connection's provider lease is removed."
    ]
   },
+  "cloud-bootstrap": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "welcome": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "CloudBootstrapResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local daemon control only; remote clients are rejected.",
+    "The daemon owns the reserved initial workspace and creates no shell input from this request."
+   ]
+  },
   "shutdown-daemon": {
    "authority": "local-admin",
    "since": 9,
@@ -10720,6 +10788,53 @@
    "stream": null,
    "constraints": [
     "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
+   ]
+  },
+  "cloud-first-workspace": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "welcome": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "CloudBootstrapResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The daemon reservation selects the exact first workspace, before shell creation.",
+    "Only interactive machine-open clients forward the authenticated control-plane welcome decision.",
+    "Retries return the same creation receipt; unsupported older daemons reject before mutation."
    ]
   }
  },

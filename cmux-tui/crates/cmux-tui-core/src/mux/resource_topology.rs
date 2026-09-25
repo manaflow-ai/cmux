@@ -3487,7 +3487,15 @@ impl Mux {
         let operation_name = operation_name(operation);
         let correlation_key =
             fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
-        self.reconcile_interrupted_resource_creation(correlation_key)?;
+        // The execution guard proves no creator is still running. A failed
+        // projection can leave a live terminal and an executing receipt in
+        // this generation too; reconcile that exact identity before retrying.
+        // No external effect is repeated by settlement.
+        let recovery =
+            self.workspace_registry.lock().unwrap().resource_creation_recovery(correlation_key)?;
+        if let Some(recovery) = recovery {
+            let _ = self.settle_resource_creation(recovery, None)?;
+        }
         let effect_fields = semantic_creation_fields(&fields);
         let preparation = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -3662,11 +3670,10 @@ impl Mux {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        if recovery.interrupted {
-                            return Ok(ResourceCreationSettlement::Pending);
-                        }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        // The created identity is proven. Keep the commit
+                        // retryable; a later caller only records that same
+                        // terminal instead of repeating its external effect.
+                        Ok(ResourceCreationSettlement::Pending)
                     }
                 }
             }
@@ -4495,6 +4502,27 @@ impl Mux {
                 .as_str()
                 .context("stored terminal reservation omitted its mutation origin")?,
         )?;
+        let fields = intent["fields"].as_object().context("missing terminal fields")?;
+        let mut initial_output = effect_initial_output(fields)?;
+        if let Some(instance) = fields.get("cloud_welcome_instance") {
+            // Public resource callers share the execution fence, not the
+            // ordinary handoff fence. Recheck content here, before spawning.
+            let registry = self.workspace_registry.lock().unwrap();
+            if let Some(bootstrap) = registry.cloud_bootstrap()?
+                && registry.cloud_bootstrap_has_other_terminal(&bootstrap)?
+            {
+                return Err(anyhow::Error::new(ResourceError::operation_failed(
+                    "tab.create_terminal",
+                    "cloud_bootstrap_occupied",
+                    json!({}),
+                )));
+            }
+            drop(registry);
+            let options = self.surface_options.lock().unwrap();
+            if !cloud_bootstrap::cloud_welcome_output_allowed(&options, instance) {
+                initial_output.clear();
+            }
+        }
         Ok(TerminalReservationRequest {
             terminal_id,
             mutation,
@@ -4510,6 +4538,7 @@ impl Mux {
             expected_generation: None,
             expected_revision: None,
             on_exit: on_exit.unwrap_or_default(),
+            initial_output,
         })
     }
 
@@ -4569,7 +4598,7 @@ impl Mux {
             on_exit,
         )?;
         let terminal_hex = reservation.terminal_id.to_hex();
-        let result = self.create_terminal_in_workspace_with_mutation(
+        let result = self.create_terminal_in_workspace_with_initial_output(
             workspace,
             argv,
             cwd,
@@ -4580,6 +4609,7 @@ impl Mux {
             None,
             &reservation.mutation,
             on_exit,
+            reservation.initial_output,
         )?;
         let surface =
             result.created_surface.context("created terminal result omitted its local surface")?;
@@ -5110,10 +5140,20 @@ fn effect_target(operation: ResourceOperation, selectors: &ResourceSelectors) ->
     }
 }
 
+fn effect_initial_output(fields: &Map<String, Value>) -> anyhow::Result<Vec<u8>> {
+    let Some(value) = fields.get("initial_output") else {
+        return Ok(Vec::new());
+    };
+    let text = value.as_str().context("initial terminal output must be text")?;
+    anyhow::ensure!(text.len() <= 16 * 1024, "initial terminal output is too large");
+    Ok(text.as_bytes().to_vec())
+}
+
 fn validate_effect_fields(
     operation: ResourceOperation,
     fields: &Map<String, Value>,
 ) -> anyhow::Result<()> {
+    let _ = effect_initial_output(fields)?;
     match operation {
         ResourceOperation::WorkspaceCreate => {
             anyhow::ensure!(

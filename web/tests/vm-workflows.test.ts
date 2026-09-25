@@ -3100,6 +3100,28 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
+  test.each(["create", "fork", "restore"] as const)("welcome eligibility is requested only for a new machine (%s)", async (origin) => {
+    const requested = testCloudVmRow();
+    let request: boolean | undefined;
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: requested }),
+      beginCreate: (input) => {
+        request = input.welcomeOnFirstMachine;
+        return Effect.succeed({ inserted: true, vm: requested });
+      },
+      markCreateRunning: () => Effect.succeed({ ...requested, status: "running", providerVmId: "fixture" }),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.succeed(testVmHandle()),
+    };
+    await Effect.runPromise(createVm({
+      userId: requested.userId, billingCustomerType: "team", billingTeamId: requested.userId,
+      billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: "fixture", origin,
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(request).toBe(origin === "create");
+  });
+
   test("create configures the first guest prompt with the stored display name", async () => {
     const requested = testCloudVmRow({ displayName: "Build box", slug: "calm-heron" });
     const running = { ...requested, status: "running" as const, providerVmId: "named-vm" };

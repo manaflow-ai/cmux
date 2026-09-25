@@ -124,6 +124,9 @@ TEMPLATE_RUN_DIR=/run/cmux
 # Exported so the pinned daemon command line stays unchanged; the daemon
 # removes them from its own environment at start, so no terminal inherits them.
 export CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=1
+if [ -f /etc/cmux/cloud-first-workspace-v1 ]; then
+  export CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=0
+fi
 export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"
 # The bake names the template workspace Cloud; the wiped registry forgot it.
 export CMUX_TUI_TEMPLATE_WORKSPACE_NAME=Cloud

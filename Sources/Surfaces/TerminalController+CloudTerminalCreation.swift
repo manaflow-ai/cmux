@@ -10,7 +10,9 @@ extension TerminalController {
         name: String?,
         remoteWorkspaceID: String?,
         destination: SurfaceDestination?,
-        focus: Bool
+        focus: Bool,
+        opensMachine: Bool = false,
+        suppressWelcome: Bool = false
     ) async throws -> [String: Any] {
         let catalog = await SurfaceCatalog.shared
         guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
@@ -18,7 +20,8 @@ extension TerminalController {
         }
         let token = await catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
         do {
-        let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
+        let request = await CloudTerminalCreationRequest(remoteWorkspaceID: remoteWorkspaceID, opensMachine: opensMachine, suppressWelcome: suppressWelcome)
+        let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID, request: request)
         let remoteView = try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID).remoteView(of: resource)
         var payload: [String: Any] = [
             "resource": resource.id.rawValue,

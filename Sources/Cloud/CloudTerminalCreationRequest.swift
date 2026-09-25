@@ -12,15 +12,26 @@ import Foundation
 final class CloudTerminalCreationRequest {
     let id: UUID
     let commandOverride: [String]?
+    let opensMachine: Bool
+    let suppressWelcome: Bool
     private(set) var remoteWorkspaceID: String?
     let correlationKey: String
     private(set) var attemptKey: String
     private var submitted = false
     private var adoptsDurableAttempt = false
+    private var initialWorkspaceRequest: CloudTuiRequest?
+    private var initialWorkspaceUnavailable = false
+    private(set) var usesMachineStarter = false
+    /// Durable first-workspace results are retained before any cancellation
+    /// fence so the owning operation can adopt the terminal it did not start.
+    private(set) var initialWorkspaceReceipt: CmuxTuiSnapshotParser.CreatedTerminalPath?
+    private(set) var recordedInitialTerminal: SurfaceResource?
 
-    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false) {
+    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false, opensMachine: Bool = false, suppressWelcome: Bool = false, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.id = id
         self.commandOverride = commandOverride
+        self.opensMachine = opensMachine
+        self.suppressWelcome = suppressWelcome || environment["CMUX_CLOUD_WELCOME"] == "0"
         self.remoteWorkspaceID = remoteWorkspaceID
         let key = "cmux-cloud-create-\(id.uuidString.lowercased())"
         correlationKey = key
@@ -38,6 +49,57 @@ final class CloudTerminalCreationRequest {
     /// First attempts omit the additive correlation flag for older daemons.
     /// A new-key retry uses it only after the daemon explicitly authorizes one.
     var correlationArgument: String? { attemptKey == correlationKey ? nil : correlationKey }
+
+    /// Only an interactive machine open may start the daemon's reserved first shell.
+    /// Lost replies retry the same native reservation; a rejected older command
+    /// falls back before any terminal has been created by this request.
+    func prepareInitialWorkspace(
+        using runner: any CloudTuiCommandRunning,
+        machineID: String,
+        welcomeEligible: Bool
+    ) async throws -> CmuxTuiSnapshotParser.CreatedTerminalPath? {
+        guard opensMachine, !initialWorkspaceUnavailable else { return nil }
+        if initialWorkspaceRequest == nil {
+            var fields: [String: Any] = ["machine_id": machineID, "welcome": welcomeEligible && !suppressWelcome]
+            if let remoteWorkspaceID { fields["workspace"] = remoteWorkspaceID }
+            initialWorkspaceRequest = CloudTuiRequest("cloud-first-workspace", fields, raw: true)
+        }
+        guard let initialWorkspaceRequest else { return nil }
+        let data: Data
+        do {
+            data = try await runner.runTuiCommand(arguments: initialWorkspaceRequest, deadline: .seconds(30))
+        } catch {
+            if case .rejected(let reason) = CloudTuiDaemonAnswer(error: error),
+               reason.contains("unknown variant") || reason.contains("unknown command") || reason.contains("operation.unsupported") {
+                initialWorkspaceUnavailable = true
+                return nil
+            }
+            throw error
+        }
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["created_path"] != nil else { throw CloudDiagnosticFailure.response }
+        if object["occupied"] as? Bool == true { throw CloudDiagnosticFailure.placement }
+        if object["created_path"] is NSNull {
+            initialWorkspaceUnavailable = true
+            return nil
+        }
+        object["value"] = object["created_path"]
+        guard let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object),
+              let workspaceID = created.workspaceID,
+              remoteWorkspaceID == nil || remoteWorkspaceID == workspaceID else {
+            throw CloudDiagnosticFailure.placement
+        }
+        usesMachineStarter = true
+        initialWorkspaceReceipt = created
+        return created
+    }
+
+    /// Records the local resource representation before a lifecycle check can
+    /// cancel the request. The daemon owns this starter receipt; this value is
+    /// only the app-side adoption record used for cleanup/retry bookkeeping.
+    func recordInitialTerminal(_ resource: SurfaceResource) {
+        recordedInitialTerminal = resource
+    }
 
     /// Returns an existing terminal, or authorizes exactly one mutation attempt.
     func prepare(

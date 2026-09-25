@@ -107,7 +107,7 @@ extension TerminalController {
                     name: name,
                     remoteWorkspaceID: remoteWorkspaceID,
                     destination: destination,
-                    focus: focus
+                    focus: focus, opensMachine: Self.surfaceBool(params["initial_workspace"]) == true, suppressWelcome: Self.surfaceBool(params["suppress_welcome"]) == true
                 )
             }
 

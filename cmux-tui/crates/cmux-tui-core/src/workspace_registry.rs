@@ -30,6 +30,7 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
+mod cloud_bootstrap;
 mod effect_store;
 mod journal_extensions;
 mod public_projection_store;

@@ -248,6 +248,70 @@ Example:
 
 The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, protocol 11 before decoding terminal lifecycle creation results or minting terminal renderer credentials, and protocol 12 before decoding lifecycle readiness from `identify`.
 
+### cloud-bootstrap
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-bootstrap` |
+| status | implemented |
+| since | protocol 12 |
+| authority | local-admin |
+
+Completes the daemon-owned first Cloud workspace bootstrap. The trusted local
+carrier may request the offline welcome before the initial terminal is created;
+the daemon owns the reserved workspace, terminal creation, retry receipt, and
+initial output ordering. Remote clients and user-supplied shell input are not
+accepted on this path.
+
+Params:
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `welcome` | `boolean` | `false` | Render the prepared Cloud guide when the machine grant and suppression policy allow it |
+
+Result: `{created_path, generation?, revision?, occupied?}`. A non-null
+`created_path` is the committed terminal placement. Repeated calls return that
+receipt without rendering or starting another shell. `occupied: true` means an
+explicit user terminal won the initial slot, or the live starter's original
+placement was closed or moved. Callers must refresh rather than fall through to
+another create; the running terminal and the user's placement remain intact.
+
+### cloud-first-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-first-workspace` |
+| status | implemented |
+| since | protocol 12 |
+| authority | local-admin |
+
+The interactive Cloud machine-open path uses its existing authenticated machine
+control link to open the daemon's reserved first workspace. It supplies the
+control plane's first-user welcome decision, never shell input. Background
+discovery, detached create, scripted exec and ordinary terminal creation do not
+send this request. The distinct command lets older images reject it before any
+mutation, then use their normal terminal path.
+
+| Parameter | Type | Notes |
+| --- | --- | --- |
+| `machine_id` | string | Stable provider identity, bound to the native reservation |
+| `workspace` | string, optional | Exact requested public workspace ID; a different workspace does not consume first use |
+| `welcome` | boolean, default false | Eligibility from the authenticated create/list response |
+
+The result is the same creation receipt as `cloud-bootstrap`. The daemon
+serializes first opens, captures bounded offline guide output, and commits it
+through the durable terminal creation pipeline before the shell can consume
+input. Renderer or creation failures remain retryable. A copied registry does
+not transfer its machine grant. `CMUX_CLOUD_WELCOME=0` suppresses automatic
+output. Manual guest `cmux welcome` only renders content and changes no state.
+
+Images marked `/etc/cmux/cloud-first-workspace-v1` ship no warm starter process
+or per-machine registry. Their prompt synchronizer only publishes the machine
+name; it cannot create a competing workspace, clear history, or send Ctrl-C.
+The first shell starts at interactive open. Existing unmarked images retain
+their warm-template behavior. The image bake verifies the new daemon capability
+before it can publish the new contract.
+
 ### shutdown-daemon
 
 | Field | Value |

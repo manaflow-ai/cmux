@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliInstallCommand } from "../services/vms/guestCli";
+import { guestWelcomeEligibilityCommand } from "../services/vms/guestWelcome";
 
 /**
  * Runs the shim against a fake cmux-tui binary that prints its argv one word
@@ -37,11 +38,62 @@ function runShim(
   return { argv, status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+function makeShimDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), "cmux-guest-welcome-"));
+  const shim = join(directory, "cmux");
+  const daemon = join(directory, "cmux-tui");
+  writeFileSync(shim, GUEST_CMUX_SHIM);
+  chmodSync(shim, 0o755);
+  writeFileSync(daemon, "#!/bin/sh\nexit 0\n");
+  chmodSync(daemon, 0o755);
+  writeFileSync(join(directory, "machine-id"), "first-vm\n");
+  return directory;
+}
+
+function runShimInDirectory(
+  directory: string,
+  args: string[],
+  env: Record<string, string | undefined> = {},
+): { status: number | null; stdout: string; stderr: string } {
+  const inherited = { ...process.env };
+  delete inherited.DISPLAY;
+  const result = spawnSync("sh", [join(directory, "cmux"), ...args], {
+    encoding: "utf8",
+    timeout: 12_000,
+    env: {
+      ...inherited,
+      NODE_ENV: "test",
+      HOME: directory,
+      CMUX_TUI_BIN: join(directory, "cmux-tui"),
+      CMUX_CLOUD_WELCOME_IDENTITY_PATH: join(directory, "machine-id"),
+      CMUX_CLOUD_WELCOME_PENDING_PATH: join(directory, "pending"),
+      PATH: `${directory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      ...env,
+    },
+  });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
 const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
 
 // The in-VM `cmux` shim is shipped as driver-written bytes; a syntax error
 // would surface only inside a live machine, so validate it here.
 describe("in-VM cmux shim", () => {
+  test("a failed eligibility write stops attach preparation before the daemon can consume first use", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cmux-welcome-grant-failure-"));
+    try {
+      const mkdir = join(directory, "mkdir");
+      writeFileSync(mkdir, "#!/bin/sh\nexit 23\n");
+      chmodSync(mkdir, 0o755);
+      const result = spawnSync("sh", ["-c", `${guestWelcomeEligibilityCommand("fixture", true)} && printf bootstrap-started`], {
+        encoding: "utf8", env: { NODE_ENV: "test", PATH: `${directory}:${process.env.PATH}` },
+      });
+      expect(result.status).toBe(23);
+      expect(result.stdout).toBe("");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   test.each(["existing", "create", "create-failed", "missing-id"])("peer exec selects a supported workspace and fails closed (%s)", async (mode) => {
     const directory = mkdtempSync(join(tmpdir(), "cmux-peer-exec-"));
     const socket = join(directory, "peer.sock");
@@ -113,6 +165,45 @@ esac
     expect(overridden.stdout).toContain("Cloud workspace CLI");
     const fallback = runShim(["auth", "status", "--invalid"], { LANG: "fr_FR.UTF-8" });
     expect(fallback.stderr).toContain("unknown option --invalid");
+  });
+
+  test.each([
+    ["en_US.UTF-8", "Welcome to cmux Cloud"],
+    ["ja_JP.UTF-8", "cmux Cloud へようこそ"],
+    ["zh_CN.UTF-8", "欢迎使用 cmux Cloud"],
+    ["zh_TW.UTF-8", "歡迎使用 cmux Cloud"],
+    ["ko_KR.UTF-8", "cmux Cloud에 오신 것을 환영합니다"],
+    ["de_DE.UTF-8", "Willkommen bei cmux Cloud"],
+    ["es_ES.UTF-8", "Te damos la bienvenida a cmux Cloud"],
+    ["fr_FR.UTF-8", "Bienvenue sur cmux Cloud"],
+    ["it_IT.UTF-8", "Benvenuto in cmux Cloud"],
+    ["da_DK.UTF-8", "Velkommen til cmux Cloud"],
+    ["pl_PL.UTF-8", "Witaj w cmux Cloud"],
+    ["ru_RU.UTF-8", "Добро пожаловать в cmux Cloud"],
+    ["bs_BA.UTF-8", "Dobro došli u cmux Cloud"],
+    ["ar_SA.UTF-8", "مرحبًا بك في cmux Cloud"],
+    ["nb_NO.UTF-8", "Velkommen til cmux Cloud"],
+    ["pt_BR.UTF-8", "Boas-vindas ao cmux Cloud"],
+    ["th_TH.UTF-8", "ยินดีต้อนรับสู่ cmux Cloud"],
+    ["tr_TR.UTF-8", "cmux Cloud’a hoş geldiniz"],
+    ["km_KH.UTF-8", "សូមស្វាគមន៍មកកាន់ cmux Cloud"],
+    ["uk_UA.UTF-8", "Ласкаво просимо до cmux Cloud"],
+  ])("renders the Cloud guide in %s with unchanged copyable commands", (locale, title) => {
+    const guide = runShim(["welcome"], { LC_ALL: locale, COLUMNS: "80", NO_COLOR: "1" });
+    expect(guide.status).toBe(0);
+    expect(guide.stdout).toContain(title);
+    expect(guide.stdout).toContain("cmux cr add codex");
+    expect(guide.stdout).toContain("cmux cr accounts");
+    expect(guide.stdout).toContain("cmux vm push <machine> ./project work/project");
+    const invalid = runShim(["welcome", "--bad-option"], { LC_ALL: locale });
+    expect(invalid.status).toBe(2);
+    expect(invalid.stderr).toContain("--bad-option");
+    const catalogLocale = locale.startsWith("nb") ? "no" : locale.startsWith("pt") ? "pt-BR"
+      : locale.startsWith("zh_TW") ? "zh-TW" : locale.startsWith("zh") ? "zh-CN" : locale.slice(0, 2);
+    const catalog = JSON.parse(readFileSync(join(import.meta.dirname, "../messages", `${catalogLocale}.json`), "utf8"));
+    const help = runShim(["--help"], { LC_ALL: locale });
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain(catalog.guestCLI.welcomeHelp);
   });
 
   test.each([true, false])("peer connection consumes readiness or process exit (ready=%s)", (ready) => {
@@ -188,6 +279,128 @@ esac
     expect(run.stdout).toContain("cmux coderouter status|usage [--json]|models");
     expect(run.stdout).toContain("cmux coderouter agent <claude|codex|opencode|pi>");
     expect(run.stdout).toContain("cmux agent <claude|codex|opencode|pi>");
+  });
+
+  test("Cloud welcome preparation is machine-bound, repeatable, and reports display capability", () => {
+    const directory = makeShimDirectory();
+    const pending = join(directory, "pending");
+    try {
+      const existing = runShimInDirectory(directory, ["welcome", "--bootstrap"], { DISPLAY: ":1" });
+      expect(existing.status).toBe(1);
+      expect(existing.stdout).toBe("");
+      writeFileSync(pending, "first-vm\n");
+      const welcomeEnv = { DISPLAY: ":1", CMUX_CLOUD_WELCOME_PENDING_PATH: pending };
+      const first = runShimInDirectory(directory, ["welcome", "--bootstrap"], welcomeEnv);
+      expect(first.status).toBe(0);
+      expect(first.stdout).toContain("Welcome to cmux Cloud");
+      expect(first.stdout).toContain("Displays → Desktop");
+      expect(existsSync(join(directory, ".cmux", "cloud-welcome", "shown"))).toBe(false);
+      expect(readFileSync(pending, "utf8")).toBe("first-vm\n");
+
+      const reconnect = runShimInDirectory(directory, ["welcome", "--bootstrap"], welcomeEnv);
+      expect(reconnect.status).toBe(0);
+      expect(reconnect.stdout).toBe(first.stdout);
+
+      const replay = runShimInDirectory(directory, ["welcome"], { DISPLAY: ":1" });
+      expect(replay.status).toBe(0);
+      expect(replay.stdout).toContain("Welcome to cmux Cloud");
+      expect(existsSync(join(directory, ".cmux", "cloud-welcome", "shown"))).toBe(false);
+
+      const invalid = runShimInDirectory(directory, ["welcome", "--bad-option"]);
+      expect(invalid.status).toBe(2);
+      expect(invalid.stderr).toContain("unknown option --bad-option");
+
+      const offline = makeShimDirectory();
+      try {
+        const offlinePending = join(offline, "pending");
+        writeFileSync(offlinePending, "first-vm\n");
+        rmSync(join(offline, "cmux-tui"), { force: true });
+        const result = runShimInDirectory(offline, ["welcome", "--bootstrap"], { CMUX_CLOUD_WELCOME_PENDING_PATH: offlinePending });
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Welcome to cmux Cloud");
+      } finally {
+        rmSync(offline, { recursive: true, force: true });
+      }
+
+      writeFileSync(join(directory, "machine-id"), "forked-vm\n");
+      const fork = runShimInDirectory(directory, ["welcome", "--bootstrap"], welcomeEnv);
+      expect(fork.status).toBe(1);
+      expect(fork.stdout).toBe("");
+      expect(existsSync(join(directory, ".cmux", "cloud-welcome", "shown"))).toBe(false);
+
+      const noDisplay = makeShimDirectory();
+      try {
+        const result = runShimInDirectory(noDisplay, ["welcome"], {});
+        expect(result.stdout).toContain("when available, on your Mac");
+        expect(result.stdout).not.toContain("has no Desktop surface");
+      } finally {
+        rmSync(noDisplay, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("suppression is honored and preparation never writes first-use state", () => {
+    const directory = makeShimDirectory();
+    const blocked = join(directory, "blocked-state");
+    const pending = join(directory, "pending");
+    try {
+      writeFileSync(blocked, "not a directory");
+      writeFileSync(pending, "first-vm\n");
+      const suppressed = runShimInDirectory(directory, ["welcome", "--bootstrap"], {
+        CMUX_CLOUD_WELCOME: "0",
+        CMUX_GUEST_HOME: blocked,
+        CMUX_CLOUD_WELCOME_PENDING_PATH: pending,
+      });
+      expect(suppressed.status).toBe(0);
+      expect(suppressed.stdout).toBe("");
+
+      const failed = runShimInDirectory(directory, ["welcome", "--bootstrap"], { CMUX_GUEST_HOME: blocked, CMUX_CLOUD_WELCOME_PENDING_PATH: pending });
+      expect(failed.status).toBe(0);
+      expect(failed.stdout).toContain("Welcome to cmux Cloud");
+      rmSync(blocked, { force: true });
+
+      const retried = runShimInDirectory(directory, ["welcome", "--bootstrap"], { DISPLAY: ":1", CMUX_CLOUD_WELCOME_PENDING_PATH: pending });
+      expect(retried.status).toBe(0);
+      expect(retried.stdout).toContain("Welcome to cmux Cloud");
+      expect(existsSync(join(directory, ".cmux", "cloud-welcome", "shown"))).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("concurrent preparations and failed output never consume the daemon-owned grant", () => {
+    const directory = makeShimDirectory();
+    const pending = join(directory, "pending");
+    try {
+      writeFileSync(pending, "first-vm\n");
+      const result = spawnSync("python3", ["-c", `
+import json, os, pathlib, subprocess, sys
+root = pathlib.Path(sys.argv[1])
+env = {"PATH": os.environ["PATH"], "HOME": str(root), "LANG": "C",
+       "CMUX_CLOUD_WELCOME_IDENTITY_PATH": str(root / "machine-id"),
+       "CMUX_CLOUD_WELCOME_PENDING_PATH": str(root / "pending")}
+argv = ["sh", str(root / "cmux"), "welcome", "--bootstrap"]
+marker = root / ".cmux/cloud-welcome/shown"
+reader, writer = os.pipe()
+os.close(reader)
+failed = subprocess.run(argv, env=env, stdout=writer, stderr=subprocess.PIPE)
+os.close(writer)
+unclaimed = not marker.exists()
+children = [subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(12)]
+outputs = [child.communicate() for child in children]
+print(json.dumps({"failed": failed.returncode != 0, "unclaimed": unclaimed,
+    "renders": sum(out.count(b"Welcome to cmux Cloud") for out, _ in outputs),
+    "statuses": [child.returncode for child in children], "unclaimed_after": not marker.exists()}))
+`, directory], { encoding: "utf8", timeout: 12_000 });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        failed: true, unclaimed: true, renders: 12, statuses: Array(12).fill(0), unclaimed_after: true,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   describe("auth status", () => {
@@ -443,9 +656,9 @@ esac
       expect(ja.stdout).toContain("終了コード");
     });
 
-    test("reads models through the configured HTTPS edge", () => {
+    test.each(["coderouter", "cr"])("%s reads models through the configured HTTPS edge", (command) => {
       const models = runShim(
-        ["coderouter", "models"],
+        [command, "models"],
         USAGE_ENV,
         (directory) => {
           const curl = join(directory, "curl");
@@ -483,7 +696,7 @@ esac
       expect(run.argv).toEqual(["--session", "cloud", "agent", "list"]);
     });
 
-    test("lists only the VM team's account responses and exposes its fixed organization", () => {
+    test.each(["coderouter", "cr"])("%s lists only the VM team's account responses and exposes its fixed organization", (command) => {
       const setup = (directory: string) => {
         const curl = join(directory, "curl");
         writeFileSync(curl, `#!/bin/sh
@@ -497,14 +710,14 @@ esac
         chmodSync(curl, 0o755);
       };
       const env = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" };
-      const listed = runShim(["coderouter", "accounts", "--json"], env, setup);
+      const listed = runShim([command, "accounts", "--json"], env, setup);
       expect(listed.status).toBe(0);
       expect(JSON.parse(listed.stdout)).toMatchObject({ teamId: "team-a", accounts: [{ id: "native-a" }, { id: "claude-a" }] });
-      const current = runShim(["coderouter", "org", "current", "--json"], env, setup);
+      const current = runShim([command, "org", "current", "--json"], env, setup);
       expect(current.status).toBe(0);
       expect(JSON.parse(current.stdout)).toEqual({ teamId: "team-a", fixed: true });
-      expect(runShim(["coderouter", "org", "switch", "team-b"], env, setup).status).toBe(2);
-      expect(runShim(["coderouter", "accounts", "--team", "team-b"], env, setup).status).toBe(2);
+      expect(runShim([command, "org", "switch", "team-b"], env, setup).status).toBe(2);
+      expect(runShim([command, "accounts", "--team", "team-b"], env, setup).status).toBe(2);
     });
 
     test("does not merge account lists from different teams", () => {

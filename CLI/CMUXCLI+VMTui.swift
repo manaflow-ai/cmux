@@ -357,6 +357,7 @@ extension CMUXCLI {
             return values.isEmpty ? nil : values
         }()
 
+        if options.fullClient { try prepareVMTuiFirstWorkspace(vmId: vmId, client: client) }
         let initialCommand: String
         if options.fullClient, let clientPath {
             let stateDir = Self.vmTuiClientStateDir()
@@ -434,8 +435,7 @@ extension CMUXCLI {
             didCreateWorkspace = true
         }
         do {
-            // The binding is how the app finds this machine's workspace again (Machines
-            // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
+            // The binding lets later machine opens find this local workspace again.
             _ = try client.sendV2(
                 method: "workspace.cloud_vm_bind",
                 params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)
@@ -458,8 +458,8 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                // The snapshot creates the first remote workspace before the daemon
-                // accepts clients; `ensure_linked` joins that graph read here.
+                // Snapshot images provide a starter; first-workspace images defer its shell.
+                // `ensure_linked` joins that graph; a forced refresh adds a fleet/port rescan.
                 let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "ensure_linked": true], responseTimeout: 180)
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
@@ -475,7 +475,7 @@ extension CMUXCLI {
                     if let remoteWorkspaceID {
                         remoteWorkspaceName = Self.remoteWorkspaceName(remoteWorkspaceID, machine: vmId, in: catalog)
                     }
-                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus, "initial_workspace": true, "suppress_welcome": ProcessInfo.processInfo.environment["CMUX_CLOUD_WELCOME"] == "0"]
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
                 case .unavailable:

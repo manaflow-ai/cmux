@@ -4085,5 +4085,19 @@
     "updateDetail": "Nécessite cmux {stableVersion} ou version ultérieure, ou NIGHTLY {nightlyVersion} ou version ultérieure. Activez le jumelage iOS dans Réglages > Mobile sur chaque Mac.",
     "rollbackTitle": "Vous devez conserver une ancienne version Mac ?",
     "rollbackDetail": "Utilisez cmux BETA 1.0.5 ({rollbackBuild}) dans TestFlight > Versions précédentes tant qu’elle reste disponible. Choisissez exactement cette version, car les suivantes utilisent un service de connexion plus récent."
+  },
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  afficher à nouveau le guide Cloud",
+    "welcomeUsage": "Utilisation : cmux welcome\n\nAfficher à nouveau le guide cmux Cloud.",
+    "welcomeOption": "cmux welcome: option inconnue %s\n\nUtilisation : cmux welcome",
+    "welcomeIntro": "Bienvenue sur cmux Cloud\nVotre machine pour les agents de code",
+    "welcomeCodeRouter": "\nAgents\ncodex\tLancez Codex normalement avec vos comptes CodeRouter.\nclaude\tLancez Claude Code normalement via CodeRouter.\ncmux cr accounts\tComptes connectés\ncmux cr models\tModèles disponibles\n\nAjouter des comptes sur votre Mac\ncmux cr add codex\tConnecter un compte ChatGPT\ncmux cr add claude\tConnecter un compte Claude",
+    "welcomeWorkspaces": "\nVotre machine\nEspaces de travail\tUne machine, plusieurs espaces de travail et terminaux. Fermer un panneau sur le Mac laisse les terminaux distants actifs.\nVeille et stockage\tLa veille suspend le calcul ; reconnectez-vous pour reprendre. Les limites de durée et de conservation dépendent de votre offre. Sauvegardez avant de supprimer.",
+    "welcomeDisplays": "Écrans → Bureau\tOuvrez des applications graphiques et des navigateurs depuis votre Mac.",
+    "welcomeNoDisplays": "Écrans → Bureau\tApplications graphiques et navigateurs depuis votre Mac, si disponibles.",
+    "welcomePorts": "Ports\tPrévisualisez un serveur de développement en privé sur votre Mac. Utilisez Partager explicitement pour donner accès à d’autres personnes.",
+    "welcomeFiles": "\nProjets\ngit clone <repo-url>\tClonez votre projet et travaillez ici.\n\nTransférer des fichiers depuis votre Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nGuide\tcmux welcome\nAide\tcmux --help\nDocumentation\thttps://cmux.com/docs"
   }
 }

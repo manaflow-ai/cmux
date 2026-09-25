@@ -252,6 +252,31 @@ print("named", ready.wait(2.0))
     expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
   });
 
+  test("deferred first-workspace images never let prompt sync spawn or interrupt terminals", () => {
+    const directory = fixture();
+    writeFileSync(path.join(directory, "cloud-first-workspace-v1"), "");
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const result = spawnSync("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, pathlib, sys, threading
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+def forbidden(*args, **kwargs):
+    raise AssertionError("prompt synchronization touched the reserved first workspace")
+module.tui = forbidden
+module.find_existing_terminal = forbidden
+module.bound_terminal = forbidden
+module.time.sleep = forbidden
+module.seed_terminal(threading.Event(), pathlib.Path(sys.argv[2]))
+print("untouched")
+`, script, directory], { encoding: "utf8", timeout: 5_000 });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toBe("untouched");
+    expect(existsSync(path.join(directory, "first-terminal.json"))).toBe(false);
+  });
+
   test("prompt sync creates the first workspace only after the daemon answers with no terminal", () => {
     // A warm clone's daemon is still adopting the template terminal when the
     // prompt sync starts. An unanswered list must not fall through to a

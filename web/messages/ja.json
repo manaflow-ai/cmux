@@ -18,6 +18,18 @@
     "description": "ターミナルに戻ってセットアップを完了してください。"
   },
   "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  Cloud ガイドをもう一度表示",
+    "welcomeUsage": "使い方: cmux welcome\n\ncmux Cloud ガイドをもう一度表示します。",
+    "welcomeOption": "cmux welcome: 不明なオプション %s\n\n使い方: cmux welcome",
+    "welcomeIntro": "cmux Cloud へようこそ\nコーディングエージェントの作業環境",
+    "welcomeCodeRouter": "\nエージェント\ncodex\tCodeRouter の接続済みアカウントで Codex を実行。\nclaude\tCodeRouter 経由で Claude Code を通常どおり実行。\ncmux cr accounts\t接続済みアカウント\ncmux cr models\t利用可能なモデル\n\nアカウントの追加は Mac で\ncmux cr add codex\tChatGPT アカウントを接続\ncmux cr add claude\tClaude アカウントを接続",
+    "welcomeWorkspaces": "\nこのマシンについて\nワークスペース\t1 台に複数のワークスペースと端末を作れます。Mac のペインを閉じてもリモート端末は動き続けます。\nスリープと保存\tスリープ中は計算が止まります。再接続すると再開します。実行時間と保存期間の上限はプランに従います。削除前にバックアップしてください。",
+    "welcomeDisplays": "ディスプレイ → デスクトップ\tMac から GUI アプリやブラウザーを開けます。",
+    "welcomeNoDisplays": "ディスプレイ → デスクトップ\t対応マシンでは Mac から GUI アプリやブラウザーを開けます。",
+    "welcomePorts": "ポート\tMac から開発サーバーを非公開でプレビュー。他の人にアクセスを許可するには 共有 を使います。",
+    "welcomeFiles": "\nプロジェクト\ngit clone <repo-url>\tプロジェクトをクローンして作業できます。\n\nMac からファイルを転送\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nガイド\tcmux welcome\nヘルプ\tcmux --help\nドキュメント\thttps://cmux.com/docs",
     "openURLUsage": "使い方: cmux open-url <http-or-https-url>",
     "openURLInvalid": "有効な HTTP または HTTPS の URL が必要です。",
     "openURLFallback": "この URL を開いてください: %s",

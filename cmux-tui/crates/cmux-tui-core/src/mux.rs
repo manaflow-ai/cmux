@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod cloud_bootstrap;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
@@ -1580,6 +1581,7 @@ struct TerminalReservationRequest {
     expected_generation: Option<String>,
     expected_revision: Option<u64>,
     on_exit: TerminalOnExit,
+    initial_output: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7693,6 +7695,9 @@ impl Mux {
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
         let mut opts = self.surface_options.lock().unwrap().clone();
+        if let Some(reservation) = reservation.as_ref() {
+            opts.initial_output.clone_from(&reservation.initial_output);
+        }
         if cwd.is_some() {
             opts.cwd = cwd;
         }
@@ -13259,6 +13264,36 @@ impl Mux {
         mutation: &WorkspaceMutation,
         on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<TerminalPlacementResult> {
+        self.create_terminal_in_workspace_with_initial_output(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+            on_exit,
+            Vec::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_terminal_in_workspace_with_initial_output(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        on_exit: Option<TerminalOnExit>,
+        initial_output: Vec<u8>,
+    ) -> anyhow::Result<TerminalPlacementResult> {
         let workspace_key = self
             .state
             .lock()
@@ -13297,6 +13332,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
+            initial_output,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
@@ -16484,6 +16520,7 @@ impl Mux {
                     expected_generation: None,
                     expected_revision: None,
                     on_exit: TerminalOnExit::Close,
+                    initial_output: Vec::new(),
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
                     workspace_key,
@@ -21810,6 +21847,7 @@ mod tests {
             expected_generation: None,
             expected_revision: None,
             on_exit: TerminalOnExit::Close,
+            initial_output: Vec::new(),
         };
         let result = mux.spawn_surface_in_workspace_reserved(
             &workspace.key,

@@ -4082,5 +4082,19 @@
     "updateDetail": "需要 cmux {stableVersion} 或更新版本，或 NIGHTLY {nightlyVersion} 或更新版本。請在每台 Mac 的「設定」>「行動裝置」中啟用 iOS 配對。",
     "rollbackTitle": "需要保留較舊的 Mac 組建？",
     "rollbackDetail": "在仍可用時，從 TestFlight > 先前的組建中使用 cmux BETA 1.0.5 ({rollbackBuild})。請選擇此確切組建，因為後續組建使用更新的連線服務。"
+  },
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  再次顯示 Cloud 指南",
+    "welcomeUsage": "用法： cmux welcome\n\n再次顯示 cmux Cloud 指南。",
+    "welcomeOption": "cmux welcome: 未知選項 %s\n\n用法： cmux welcome",
+    "welcomeIntro": "歡迎使用 cmux Cloud\n專為程式設計代理提供的雲端機器",
+    "welcomeCodeRouter": "\n代理\ncodex\t像平常一樣執行 Codex，使用已連接的 CodeRouter 帳戶。\nclaude\t像平常一樣透過 CodeRouter 執行 Claude Code。\ncmux cr accounts\t已連接的帳戶\ncmux cr models\t可用模型\n\n在 Mac 上新增帳戶\ncmux cr add codex\t連接 ChatGPT 帳戶\ncmux cr add claude\t連接 Claude 帳戶",
+    "welcomeWorkspaces": "\n你的機器\n工作區\t一台機器可容納多個工作區和終端機。關閉 Mac 上的窗格不會停止遠端終端機。\n休眠與儲存\t休眠會暫停運算；重新連線即可喚醒。執行時間和資料保留限制取決於方案。刪除機器前請備份。",
+    "welcomeDisplays": "顯示器 → 桌面\t在 Mac 上開啟圖形應用程式和瀏覽器。",
+    "welcomeNoDisplays": "顯示器 → 桌面\t在支援此功能的機器上，可從 Mac 開啟圖形應用程式和瀏覽器。",
+    "welcomePorts": "連接埠\t在 Mac 上私下預覽開發伺服器。只有明確使用 分享，才會授予他人存取權。",
+    "welcomeFiles": "\n專案\ngit clone <repo-url>\t在這裡複製專案並開始工作。\n\n從 Mac 傳輸檔案\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\n指南\tcmux welcome\n說明\tcmux --help\n文件\thttps://cmux.com/docs"
   }
 }

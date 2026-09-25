@@ -2139,14 +2139,14 @@ fn run_server(
                 state_root.as_deref(),
             )
         })?;
-    // Cloud's trusted-carrier daemon owns the initial session shape. It creates
-    // workspace-1 with one terminal before accepting clients, and the
-    // idempotent Session bootstrap preserves existing names and sessions.
+    // Reserve the exact first Cloud workspace before accepting clients. Guest
+    // interactive open starts its shell with the account's first-use grant;
+    // it cannot safely add a welcome to an already-running shell.
     #[cfg(unix)]
     let trusted_carrier =
         args.remote && (args.remote_ws_trusted_carrier || remote_ws_trusted_carrier_from_env());
     #[cfg(unix)]
-    if trusted_carrier {
+    if trusted_carrier && !mux.reserve_cloud_initial_workspace()? {
         Session::Local(mux.clone()).ensure_initial(None)?;
     }
     // Background mux workers can report reconnect diagnostics before an

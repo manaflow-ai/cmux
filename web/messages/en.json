@@ -18,6 +18,18 @@
     "description": "Return to your terminal to finish setup."
   },
   "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  show the Cloud guide again",
+    "welcomeUsage": "Usage: cmux welcome\n\nShow the cmux Cloud guide again.",
+    "welcomeOption": "cmux welcome: unknown option %s\n\nUsage: cmux welcome",
+    "welcomeIntro": "Welcome to cmux Cloud\nYour machine for coding agents",
+    "welcomeCodeRouter": "\nAgents\ncodex\tRun Codex normally with your CodeRouter accounts.\nclaude\tRun Claude Code normally with CodeRouter.\ncmux cr accounts\tConnected accounts\ncmux cr models\tAvailable models\n\nAdd accounts on your Mac\ncmux cr add codex\tConnect a ChatGPT account\ncmux cr add claude\tConnect a Claude account",
+    "welcomeWorkspaces": "\nYour machine\nWorkspaces\tOne machine, many workspaces and terminals. Closing a Mac pane leaves remote terminals running.\nSleep & storage\tSleep pauses compute; reconnect to wake it. Runtime and retention limits follow your plan. Back up before deleting.",
+    "welcomeDisplays": "Displays → Desktop\tOpen GUI apps and browsers from your Mac.",
+    "welcomeNoDisplays": "Displays → Desktop\tGUI apps and browsers, when available, on your Mac.",
+    "welcomePorts": "Ports\tOpen a dev server for a private preview on your Mac. Use Share explicitly to give others access.",
+    "welcomeFiles": "\nProjects\ngit clone <repo-url>\tClone and work on your project here.\n\nTransfer files from your Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nGuide\tcmux welcome\nHelp\tcmux --help\nDocs\thttps://cmux.com/docs",
     "openURLUsage": "Usage: cmux open-url <http-or-https-url>",
     "openURLInvalid": "A valid HTTP or HTTPS URL is required.",
     "openURLFallback": "Open this URL: %s",

@@ -452,7 +452,7 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("authenticated provisioning runs the Effect VM workflow", async () => {
+  test.each([true, false])("authenticated provisioning carries first-user welcome eligibility (%s)", async (eligible) => {
     const listTeams = mock(async () => [{
       id: "team-1",
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
@@ -475,6 +475,7 @@ describe("VM REST auth", () => {
       addressIpv4: "10.16.0.9",
       addressIpv6: null,
       cmuxTuiContract: "snapshot-v2",
+      cloudWelcomeEligible: eligible,
     });
 
     const response = await POST(
@@ -508,6 +509,7 @@ describe("VM REST auth", () => {
       // re-reading the fleet and calling POST /attach-endpoint.
       address: { ipv4: "10.16.0.9", ipv6: null },
       cmuxTuiContract: "snapshot-v2",
+      cloudWelcomeEligible: eligible,
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",

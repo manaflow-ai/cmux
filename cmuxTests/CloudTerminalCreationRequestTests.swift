@@ -14,6 +14,108 @@ import Testing
 struct CloudTerminalCreationRequestTests {
     private let socketPath = "/tmp/creation-request-fixture.sock"
 
+    @Test("Only an interactive machine open sends first-workspace bootstrap")
+    func headlessCreationNeverClaimsWelcome() async throws {
+        let request = CloudTerminalCreationRequest()
+        let runner = CreationReceiptRunner(responses: [])
+        #expect(try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true) == nil)
+        #expect(await runner.commands.isEmpty)
+    }
+
+    @Test("First open forwards eligibility over the existing link and adopts its exact receipt")
+    func firstOpenAdoptsNativeReceipt() async throws {
+        let request = CloudTerminalCreationRequest(remoteWorkspaceID: "ws_first", opensMachine: true)
+        let receipt = try initialWorkspaceReceipt()
+        let runner = CreationReceiptRunner(responses: [.success(receipt)])
+        let created = try #require(try await request.prepareInitialWorkspace(
+            using: runner, machineID: "vm_test", welcomeEligible: true
+        ))
+        #expect(created.terminalID == "term_first")
+        #expect(created.workspaceID == "ws_first")
+        #expect(created.cursor?.revision == 7)
+        #expect(request.usesMachineStarter)
+        #expect(await runner.commands == [CloudTuiRequest("cloud-first-workspace", [
+            "machine_id": "vm_test", "workspace": "ws_first", "welcome": true
+        ], raw: true)])
+    }
+
+    @Test("A lost bootstrap reply retries the same immutable native request")
+    func initialOpenRetryKeepsGrantAndTarget() async throws {
+        let request = CloudTerminalCreationRequest(remoteWorkspaceID: "ws_first", opensMachine: true)
+        let runner = CreationReceiptRunner(responses: [.failure(.timedOut), .success(try initialWorkspaceReceipt())])
+        await #expect(throws: CloudMachineLink.LinkError.self) {
+            _ = try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true)
+        }
+        let created = try await request.prepareInitialWorkspace(using: runner, machineID: "changed", welcomeEligible: false)
+        #expect(created?.terminalID == "term_first")
+        let commands = await runner.commands
+        #expect(commands.count == 2)
+        #expect(commands[0] == commands[1])
+    }
+
+    @Test("Older images reject the new command before ordinary terminal creation")
+    func olderImageFallsBackOnce() async throws {
+        let request = CloudTerminalCreationRequest(opensMachine: true)
+        let runner = CreationReceiptRunner(responses: [.failure(.exited(
+            status: 1, output: #"{"code":"raw.command_failed","details":{"error":"unknown variant cloud-first-workspace"}}"#
+        ))])
+        #expect(try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true) == nil)
+        #expect(try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true) == nil)
+        #expect(try await request.prepare(using: runner, socketPath: socketPath) == nil)
+        #expect(await runner.commands.count == 1)
+    }
+
+    @Test("An occupied first workspace never falls through to a duplicate shell")
+    func occupiedStarterFailsWithoutOrdinaryCreate() async throws {
+        let request = CloudTerminalCreationRequest(opensMachine: true)
+        let data = try JSONSerialization.data(withJSONObject: ["created_path": NSNull(), "occupied": true])
+        let runner = CreationReceiptRunner(responses: [.success(data)])
+        await #expect(throws: CloudDiagnosticFailure.placement) {
+            _ = try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true)
+        }
+        #expect(await runner.commands.count == 1)
+    }
+
+    private func initialWorkspaceReceipt() throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "generation": "fixture", "revision": "7", "created_path": [
+                "terminal_id": "term_first", "workspace_id": "ws_first", "tab_id": "tab_first",
+                "screen_id": "screen_first", "pane_id": "pane_first"
+            ]
+        ])
+    }
+
+    @Test("Caller suppression is forwarded without changing eligibility")
+    func suppressionKeepsTheInitialShellQuiet() async throws {
+        let request = CloudTerminalCreationRequest(opensMachine: true, suppressWelcome: true)
+        let runner = CreationReceiptRunner(responses: [.success(try initialWorkspaceReceipt())])
+        _ = try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true)
+        #expect(await runner.commands.first?.params["welcome"] as? Bool == false)
+    }
+
+    @Test("App environment suppression also covers sidebar first opens")
+    func environmentSuppressionKeepsTheInitialShellQuiet() async throws {
+        let request = CloudTerminalCreationRequest(opensMachine: true, environment: ["CMUX_CLOUD_WELCOME": "0"])
+        let runner = CreationReceiptRunner(responses: [.success(try initialWorkspaceReceipt())])
+        _ = try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true)
+        #expect(await runner.commands.first?.params["welcome"] as? Bool == false)
+    }
+
+    @Test("A cancellation after durable bootstrap still returns its adopted receipt")
+    func cancellationAfterBootstrapKeepsStarterIdentity() async throws {
+        let request = CloudTerminalCreationRequest(opensMachine: true)
+        let runner = CreationReceiptRunner(
+            responses: [.success(try initialWorkspaceReceipt())],
+            cancelAfterResponse: true
+        )
+        let created = try #require(try await request.prepareInitialWorkspace(
+            using: runner, machineID: "vm_test", welcomeEligible: true
+        ))
+        #expect(Task.isCancelled)
+        #expect(created.terminalID == "term_first")
+        #expect(request.initialWorkspaceReceipt == created)
+    }
+
     @Test
     func firstAttemptNeedsNoReceiptLookupOrAdditiveFlag() async throws {
         let request = CloudTerminalCreationRequest()
@@ -176,13 +278,21 @@ struct CloudTerminalCreationRequestTests {
 
 private actor CreationReceiptRunner: CloudTuiCommandRunning {
     private var responses: [Result<Data, CloudMachineLink.LinkError>]
+    private let cancelAfterResponse: Bool
     private(set) var commands: [CloudTuiRequest] = []
 
-    init(responses: [Result<Data, CloudMachineLink.LinkError>]) { self.responses = responses }
+    init(responses: [Result<Data, CloudMachineLink.LinkError>], cancelAfterResponse: Bool = false) {
+        self.responses = responses
+        self.cancelAfterResponse = cancelAfterResponse
+    }
 
     func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         commands.append(arguments)
         guard !responses.isEmpty else { throw CloudMachineLink.LinkError.timedOut }
-        return try responses.removeFirst().get()
+        let response = try responses.removeFirst().get()
+        if cancelAfterResponse {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+        return response
     }
 }

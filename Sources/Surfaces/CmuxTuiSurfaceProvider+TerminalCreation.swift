@@ -24,7 +24,9 @@ extension CmuxTuiSurfaceProvider {
     private func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         let lifecycle = lifecycleGeneration
         try validateTerminalMutationLifecycle(lifecycle)
-        return try await terminalMutationQueue.run {
+        return try await terminalMutationQueue.run(
+            honorCancellationAfterOperation: !request.opensMachine
+        ) {
             try await self.createTerminalInMutationTurn(
                 command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID,
                 onExit: onExit, request: request, lifecycle: lifecycle
@@ -38,8 +40,30 @@ extension CmuxTuiSurfaceProvider {
         try validateTerminalMutationLifecycle(lifecycle)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         try validateTerminalMutationLifecycle(lifecycle)
-        let commands = CloudTerminalMutationCommandRunner(base: link) {
+        let commands = CloudTerminalMutationCommandRunner(
+            base: link,
+            validateAfterResponse: !request.opensMachine
+        ) {
             try self.validateTerminalMutationLifecycle(lifecycle)
+        }
+        let initialWorkspaceCommands = CloudTerminalMutationCommandRunner(
+            base: link, validateAfterResponse: false
+        ) {
+            try self.validateTerminalMutationLifecycle(lifecycle)
+        }
+        if let target = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines), !target.isEmpty {
+            request.bind(remoteWorkspaceID: target)
+        }
+        if let cloudSummary = summary.cloudSummary,
+           command?.isEmpty != false, request.commandOverride == nil, cwd == nil, name == nil,
+           let created = try await request.prepareInitialWorkspace(
+            using: initialWorkspaceCommands, machineID: machineID,
+            welcomeEligible: cloudSummary.cloudWelcomeEligible
+           ), let workspaceID = created.workspaceID {
+            let resource = recordCreatedTerminal(created, workspaceID: workspaceID, name: nil, cwd: nil)
+            request.recordInitialTerminal(resource)
+            try validateTerminalMutationLifecycle(lifecycle)
+            return resource
         }
         let recovered = try await request.prepare(using: commands, socketPath: connected.socketPath)
         try validateTerminalMutationLifecycle(lifecycle)

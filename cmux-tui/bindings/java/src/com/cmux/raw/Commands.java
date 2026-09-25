@@ -34,6 +34,8 @@ public final class Commands {
     public static final CommandMetadata CLOSE_SURFACE = new CommandMetadata("close-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_TERMINAL = new CommandMetadata("close-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
+    public static final CommandMetadata CLOUD_BOOTSTRAP = new CommandMetadata("cloud-bootstrap", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_FIRST_WORKSPACE = new CommandMetadata("cloud-first-workspace", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata COPY = new CommandMetadata("copy", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_SURFACE_WITH_RECEIPT = new CommandMetadata("create-surface-with-receipt", Authority.CONTROL, 10, "creation-receipts-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("idempotency_key", "creation-attempt-keys-v1")));
     public static final CommandMetadata CREATE_TERMINAL = new CommandMetadata("create-terminal", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("terminal_id", 9L)), Map.of());
@@ -150,6 +152,8 @@ public final class Commands {
         values.put("close-surface", CLOSE_SURFACE);
         values.put("close-terminal", CLOSE_TERMINAL);
         values.put("close-workspace", CLOSE_WORKSPACE);
+        values.put("cloud-bootstrap", CLOUD_BOOTSTRAP);
+        values.put("cloud-first-workspace", CLOUD_FIRST_WORKSPACE);
         values.put("copy", COPY);
         values.put("create-surface-with-receipt", CREATE_SURFACE_WITH_RECEIPT);
         values.put("create-terminal", CREATE_TERMINAL);

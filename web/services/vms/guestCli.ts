@@ -34,6 +34,7 @@
 import { GUEST_CMUX_ADAPTER_PATH, guestCliDistributionCommand } from "./guestCliDistribution";
 import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
+import { GUEST_CMUX_WELCOME_SHELL } from "./guestWelcome";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
 import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
@@ -48,6 +49,8 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
+
+${GUEST_CMUX_WELCOME_SHELL}
 
 if [ "\${1:-}" = open-url ]; then
   shift
@@ -102,7 +105,7 @@ case "\${1:-}:\${2:-}:\${3:-}" in
 esac
 case "\${1:-}:\${2:-}" in
   workspace:help|workspace:--help|workspace:-h|workspace:|pane:help|pane:--help|pane:-h|pane:|tab:help|tab:--help|tab:-h|tab:|terminal:help|terminal:--help|terminal:-h) ;;
-  self:*|whoami:*|reflect:*|reflection:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
+  self:*|whoami:*|reflect:*|reflection:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|welcome:*|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
   *) [ -x "\$CMUX_TUI_BIN" ] || die_message 1 missingDaemon "\$CMUX_TUI_BIN" ;;
 esac
 
@@ -122,6 +125,7 @@ use_peer() {
 
 guest_usage() {
   cmux_message help
+  cmux_message welcomeHelp
 }
 
 load_model_env() {
@@ -2504,6 +2508,10 @@ case "\${1:-}" in
   agent)
     shift
     guest_agent_command "\$@"
+    ;;
+  welcome)
+    shift
+    guest_welcome_command "\$@"
     ;;
   ai-accounts|remotes)
     host_only_command "cmux \$1"
