@@ -11,6 +11,8 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
     private(set) var scope: WorkspacePresenceScope?
     private var accountID: String?
     private var generation: UInt64 = 0
+    private var selectionRequest = UUID()
+    private var isViewing = true
 
     deinit { runTask?.cancel() }
 
@@ -37,8 +39,21 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
 
     /// Replaces the active workspace lease, including when the account changes.
     public func setWorkspaceScope(_ nextScope: WorkspacePresenceScope?) async {
+        let request = UUID()
+        selectionRequest = request
+        // Retire a departing room before awaiting identity, including sign-out.
+        if nextScope != scope || nextScope == nil {
+            generation &+= 1
+            runTask?.cancel()
+            runTask = nil
+            session.stop()
+            scope = nextScope
+            accountID = nil
+        }
+        guard let nextScope else { return }
         let nextAccountID = await tokenSource.currentUserID()
-        guard nextScope != scope || nextAccountID != accountID else { return }
+        guard selectionRequest == request, !Task.isCancelled else { return }
+        guard nextAccountID != accountID || runTask == nil else { return }
         generation &+= 1
         let currentGeneration = generation
         runTask?.cancel()
@@ -46,16 +61,14 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
         session.stop()
         scope = nextScope
         accountID = nextAccountID
-        guard let nextScope, self.scope == nextScope, generation == currentGeneration else { return }
-        session.setViewing(true)
+        guard let accountID = nextAccountID else { return }
+        session.setViewing(isViewing)
         let session = self.session
         let tokenSource = self.tokenSource
-        let accountID = nextAccountID
         runTask = Task { @MainActor [weak self, session, tokenSource, accountID] in
             await session.run(
                 scope: nextScope,
                 accessToken: {
-                    guard let accountID else { return nil }
                     return await tokenSource.accessToken(expectedUserID: accountID)
                 },
                 isCurrent: {
@@ -67,6 +80,7 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
 
     /// Updates the lease when the mobile scene enters or leaves the foreground.
     public func setWorkspaceViewing(_ active: Bool) {
+        isViewing = active
         session.setViewing(active)
     }
 }
