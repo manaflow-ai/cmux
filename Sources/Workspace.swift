@@ -654,24 +654,16 @@ extension Workspace {
                 ) {
                     return true
                 }
-                guard let matchingObservation else { return false }
-                if let resumeBinding {
-                    return matchingObservation.wasRunningForSnapshot(
-                        effectiveRestorableAgent,
-                        binding: resumeBinding,
+                // A missing or mismatched observation leaves legacy restore
+                // liveness unknown; it does not prove that this agent exited.
+                return (matchingObservation?.processLiveness ?? .unknown)
+                    .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
+                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
                     )
-                }
-                return matchingObservation.processLiveness.wasRunning(
-                    fallingBackTo: panelShellActivityStates[panelId],
-                    recordedProcessIdentities: matchingObservation.agentProcessIdentities,
-                    confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                    currentProcessIdentity: currentAgentProcessIdentity,
-                    processPresence: agentProcessPresence
-                ) ?? false
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
