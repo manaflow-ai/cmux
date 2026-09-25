@@ -15,7 +15,7 @@
       "expect": {
         "ok": true,
         "value": {
-          "protocol": 11,
+          "protocol": 12,
           "workspace_revision": "0",
           "terminal_revision": "18446744073709551615"
         }
@@ -673,7 +673,7 @@
         "ok": true,
         "value": {
           "app": "cmux-tui",
-          "protocol": 11
+          "protocol": 12
         }
       }
     },

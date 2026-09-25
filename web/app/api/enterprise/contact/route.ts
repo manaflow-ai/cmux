@@ -8,6 +8,7 @@ import {
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
 } from "../../../../services/analytics/iosEventPolicy";
+import { reportMissingRateLimitRule } from "../../../../services/rateLimitObservability";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -49,11 +50,22 @@ export async function POST(request: Request) {
         return jsonError("Enterprise contact endpoint is not configured", 503);
       }
 
+      if (process.env.VERCEL === "1" && !config.rateLimitId) {
+        void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "unset" });
+      }
       if (process.env.VERCEL === "1" && config.rateLimitId) {
-        const { error, rateLimited } = await checkRateLimit(
-          config.rateLimitId,
-          { request },
-        );
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(config.rateLimitId, { request });
+        } catch {
+          // A firewall transport failure must not fall through to Resend. The
+          // endpoint is an expensive, externally visible side effect.
+          console.error("enterprise.contact.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
         setSpanAttributes(span, {
           "cmux.rate_limited": rateLimited || error === "blocked",
         });
@@ -61,12 +73,12 @@ export async function POST(request: Request) {
           return jsonError("Rate limit exceeded", 429);
         }
         if (error === "not-found") {
-          console.error(
-            "enterprise.contact.rate_limit_not_found",
-            config.rateLimitId,
-          );
+          void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "not-found" });
         } else if (error) {
-          console.error("enterprise.contact.rate_limit_error", error);
+          console.error("enterprise.contact.rate_limit_error", {
+            failure: "check_error",
+          });
+          return jsonError("service_unavailable", 503);
         }
       }
 

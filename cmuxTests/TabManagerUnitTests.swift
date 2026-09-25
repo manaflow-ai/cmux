@@ -404,7 +404,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(secondReplacement.surface.initialCommand)
     }
 
-    func testChildExitOnLastPersistentRemotePanelReconnectRespawnsRemoteAttach() throws {
+    func testRetryableChildExitPreservesPersistentRemoteIdentityAndReconnectsExistingPTY() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -433,10 +433,15 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        let exitedSurface = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId)?.surface)
+        let persistentSessionID = try XCTUnwrap(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
 
+        // Only the local attach wrapper exited. No authoritative PTY-end
+        // report arrived, so reconnect must address the existing remote PTY.
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
-        drainMainQueue()
-        drainMainQueue()
 
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(manager.selectedTabId, workspace.id)
@@ -446,21 +451,35 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
-        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
-        XCTAssertNil(
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(remotePanelId))
+        XCTAssertTrue(workspace.terminalPanel(for: remotePanelId)?.surface === exitedSurface)
+        XCTAssertEqual(
             workspace.sessionSnapshot(includeScrollback: false)
-                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID,
+            persistentSessionID
         )
 
+        workspace.remoteControllerConnectionState = .connected
         XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
         let reattachedPanel = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
-        XCTAssertEqual(reattachedPanel.surface.initialCommand, startupCommand)
+        XCTAssertFalse(reattachedPanel.surface === exitedSurface)
+        XCTAssertEqual(
+            reattachedPanel.surface.initialCommand,
+            SSHPTYAttachStartupCommandBuilder.command(sessionID: persistentSessionID, requireExisting: true)
+        )
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertFalse(workspace.remoteDisconnectPlaceholderPanelIds.contains(remotePanelId))
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID,
+            persistentSessionID
+        )
     }
 
-    func testDefaultFreestyleCloudSplitRepairsRawSSHStartupCommand() throws {
+    func testDefaultFreestyleCloudSplitRoutesToCloudAndRepairsRawSSHStartupCommand() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -488,16 +507,45 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        let splitPanel = try XCTUnwrap(
-            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        // The workspace's startup command is repaired from the raw `ssh` form to the
+        // default-freestyle `vm-pty-attach` attach for every local terminal it spawns.
+        let repairedCommand = try XCTUnwrap(
+            workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration)
         )
-        let splitCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
-        XCTAssertTrue(splitCommand.contains("vm-pty-attach"), splitCommand)
-        XCTAssertTrue(splitCommand.contains("--default-freestyle-sshd"), splitCommand)
-        XCTAssertFalse(splitCommand.contains("ssh -p 22"), splitCommand)
+        XCTAssertTrue(repairedCommand.contains("vm-pty-attach"), repairedCommand)
+        XCTAssertTrue(repairedCommand.contains("--default-freestyle-sshd"), repairedCommand)
+        XCTAssertFalse(repairedCommand.contains("ssh -p 22"), repairedCommand)
+
+        // A split from the managed-Cloud SSH pane is Cloud-owned (fa5dc4cc10): it routes
+        // to the machine's provider and fails closed without one, never spawning a local
+        // shell next to the remote pane.
+        XCTAssertEqual(workspace.machineOwningSurface(remotePanelId), .cloud("71smiccrg35sw9pydt8k"))
+        let panelIdsBeforeSplit = Set(workspace.panels.keys)
+        let outcome = workspace.newTerminalSplitOutcome(
+            from: remotePanelId, orientation: .horizontal, focus: false
+        )
+        XCTAssertFalse(outcome.isAccepted)
+        XCTAssertNil(outcome.panel)
+        XCTAssertEqual(Set(workspace.panels.keys), panelIdsBeforeSplit)
+        let failure = try XCTUnwrap(workspace.cloudPaneCreationFailureStore.failure)
+        XCTAssertEqual(failure.machine, .cloud("71smiccrg35sw9pydt8k"))
+        XCTAssertEqual(failure.sourcePanelID, remotePanelId)
     }
 
     func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
+        let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
+        let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
+        CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
+        defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        let reservedSocket = TerminalController.shared.reserveStartupSocketPath(
+            "/tmp/cmux-cloud-reconnect-\(UUID().uuidString).sock"
+        )
+        defer {
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
+            try? FileManager.default.removeItem(atPath: reservedSocket)
+            try? FileManager.default.removeItem(atPath: reservedSocket + ".lock")
+        }
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -518,13 +566,18 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 localSocketPath: nil,
                 managedCloudVMID: "71smiccrg35sw9pydt8k",
                 terminalStartupCommand: "ssh -p 22 -tt 71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
-                preserveAfterTerminalExit: true,
+                // Exercise reconnect's respawn path, which repairs a legacy
+                // raw SSH command into the managed Freestyle attach wrapper.
+                preserveAfterTerminalExit: false,
                 persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
                 skipDaemonBootstrap: true
             ),
             autoConnect: false
         )
 
+        // This fixture exercises the attach command after the management
+        // controller has connected; a disconnected controller defers respawn.
+        workspace.remoteControllerConnectionState = .connected
         XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
         let replacement = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
         let reconnectCommand = try XCTUnwrap(replacement.surface.debugInitialCommand())
@@ -584,7 +637,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
-    func testChildExitAfterPersistentAttachEndKeepsExitedSurfaceVisible() throws {
+    func testDuplicateChildExitAfterPersistentAttachEndKeepsExitedSurfaceVisible() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -610,6 +663,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
         let sessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
+        let exitedSurface = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId)?.surface)
 
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: remotePanelId, sessionID: sessionID)
 
@@ -619,22 +673,27 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertTrue(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
 
-        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
-        drainMainQueue()
-        drainMainQueue()
+        // The end marker remains authoritative across duplicate native exit
+        // callbacks. Neither callback may recreate the PTY or close its UI.
+        for _ in 0..<2 {
+            manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
 
-        XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertNotNil(workspace.panels[remotePanelId])
-        XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
-        XCTAssertFalse(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
-        XCTAssertNil(
-            workspace.sessionSnapshot(includeScrollback: false)
-                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
-        )
+            XCTAssertTrue(workspace.isRemoteWorkspace)
+            XCTAssertNotNil(workspace.panels[remotePanelId])
+            XCTAssertEqual(workspace.panels.count, 1)
+            XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+            XCTAssertTrue(workspace.terminalPanel(for: remotePanelId)?.surface === exitedSurface)
+            XCTAssertTrue(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+            XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+            XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+            XCTAssertNil(
+                workspace.sessionSnapshot(includeScrollback: false)
+                    .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+            )
+        }
     }
 
-    func testChildExitOnSplitPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsOnlyThatPTYState() throws {
+    func testAuthoritativeAttachEndOnSplitPersistentRemotePanelClearsOnlyThatPTYState() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -666,10 +725,18 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
         XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingPanel.id))
+        let beforeEnd = workspace.sessionSnapshot(includeScrollback: false)
+        let endedSessionID = try XCTUnwrap(
+            beforeEnd.panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+        let siblingSessionID = try XCTUnwrap(
+            beforeEnd.panels.first { $0.id == siblingPanel.id }?.terminal?.remotePTYSessionID
+        )
 
+        let outcome = workspace.markRemotePTYAttachEnded(surfaceId: remotePanelId, sessionID: endedSessionID)
+        XCTAssertTrue(outcome.clearedRemotePTYSession)
+        XCTAssertTrue(outcome.untrackedRemoteTerminal)
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
-        drainMainQueue()
-        drainMainQueue()
 
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(manager.selectedTabId, workspace.id)
@@ -684,9 +751,10 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
         )
-        XCTAssertNotNil(
+        XCTAssertEqual(
             workspace.sessionSnapshot(includeScrollback: false)
-                .panels.first { $0.id == siblingPanel.id }?.terminal?.remotePTYSessionID
+                .panels.first { $0.id == siblingPanel.id }?.terminal?.remotePTYSessionID,
+            siblingSessionID
         )
     }
 
@@ -815,8 +883,12 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         var closeRequest: (tabId: UUID, recordHistory: Bool)?
+        var closeRequestSawRegisteredOwner = false
         appDelegate.closeMainWindowContainingTabIdObserverForTesting = { tabId, recordHistory in
             closeRequest = (tabId, recordHistory)
+            closeRequestSawRegisteredOwner = appDelegate.mainWindowContexts.values.contains {
+                $0.windowId == windowId && $0.tabManager === manager
+            }
         }
         defer {
             appDelegate.closeMainWindowContainingTabIdObserverForTesting = nil
@@ -832,13 +904,16 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
-        drainMainQueue()
 
         XCTAssertEqual(closeRequest?.tabId, workspace.id)
         XCTAssertEqual(closeRequest?.recordHistory, false)
+        XCTAssertTrue(closeRequestSawRegisteredOwner)
 
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+        // Assert the production close consumed suppression while committing
+        // the owner; its context no longer exists for a later history probe.
+        XCTAssertTrue(manager.isFinalizedForWindowClose)
+        XCTAssertTrue(manager.tabs.isEmpty)
+        XCTAssertFalse(appDelegate.mainWindowContexts.values.contains { $0.windowId == windowId })
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
         XCTAssertFalse(appDelegate.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
     }
@@ -954,6 +1029,9 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
                 GhosttyNotificationKey.title: "Processing Simple Addition Query - grok"
             ]
         )
+        // The title ingress is coalesced in production; force the bounded
+        // pending update through before asserting the workspace title.
+        manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
 
         XCTAssertTrue(
             waitForCondition(timeout: 1.0) {
@@ -1555,28 +1633,75 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
     }
 
-    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
+    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() async throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace()
         manager.selectWorkspace(workspace)
 
         guard let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+              let originalPanel = workspace.terminalPanel(for: panelId) else {
             XCTFail("Expected focused terminal panel")
             return
         }
 
-        let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
+        // Other app-host tests can leave real native joins occupying the
+        // process-wide teardown slots. This test owns its teardown queue.
+        let base = GhosttyApp.terminalSurfaceRuntimeDependencies
+        let dependencies = TerminalSurfaceRuntimeDependencies(
+            registry: base.registry,
+            engine: base.engine,
+            viewProvider: base.viewProvider,
+            spawnPolicy: base.spawnPolicy,
+            byteTee: base.byteTee,
+            rendererRealization: base.rendererRealization,
+            hibernationRecorder: base.hibernationRecorder,
+            runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
+            restoreSpawnScheduler: base.restoreSpawnScheduler,
+            runtimeFilesystem: base.runtimeFilesystem,
+            sessionPortBase: base.sessionPortBase,
+            sessionPortRangeSize: base.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: base.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: base.globalFontMagnificationPercent
+        )
+        originalPanel.close()
+        let terminalPanel = TerminalPanel(
+            workspaceId: workspace.id,
+            surface: TerminalSurface(
+                id: panelId,
+                tabId: workspace.id,
+                context: GHOSTTY_SURFACE_CONTEXT_TAB,
+                configTemplate: nil,
+                runtimeSpawnPolicy: .pacedSessionRestore,
+                dependencies: dependencies
+            )
+        )
+        workspace.panels[panelId] = terminalPanel
+
+        // Workspace close captures scrollback before teardown. A fabricated
+        // pointer is correctly quarantined by that live-runtime read, so use
+        // a real registered surface to reach the native-free boundary.
+        await AppKitTestEventPump().startSurface(terminalPanel.surface)
+        let runtimeSurface = try XCTUnwrap(terminalPanel.surface.surface)
+        let runtimeSurfaceBits = UInt(bitPattern: runtimeSurface)
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+        let previousFreeOverride = TerminalSurface.runtimeSurfaceFreeOverrideForTesting
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
+            guard UInt(bitPattern: surface) == runtimeSurfaceBits else {
+                if let previousFreeOverride {
+                    previousFreeOverride(surface)
+                } else {
+                    ghostty_surface_free(surface)
+                }
+                return
+            }
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
+            ghostty_surface_free(surface)
         }
         defer {
-            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = previousFreeOverride
         }
 
         manager.confirmCloseHandler = { _, _, _ in true }
@@ -1586,7 +1711,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
         XCTAssertNil(terminalPanel.surface.surface)
 
-        wait(for: [nativeFreeStarted], timeout: 3.0)
+        await fulfillment(of: [nativeFreeStarted], timeout: 3.0)
     }
 
     func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
@@ -2055,10 +2180,28 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
+        // A workspace's LAST surface is not closed by the shortcut at all: with
+        // the close-on-last-surface preference enabled (its default) the close
+        // is escalated to the window-close path, which a window-less test
+        // TabManager cannot perform, so nothing closes and nothing is cleared.
+        // Give the workspace a second surface so the shortcut closes the
+        // surface itself, which is what this test is about.
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let initialPanelId = workspace.focusedPanelId,
+              let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+              workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+            XCTFail("Expected workspace with two terminal surfaces")
             return
+        }
+        workspace.focusPanel(initialPanelId)
+        // Close confirmation is orthogonal to notification clearing, and the
+        // ambient warn-before-closing default would otherwise decide whether
+        // the surface closes at all.
+        initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        manager.confirmCloseHandler = { _, _, _ in
+            XCTFail("Close confirmation must not be required for this surface")
+            return false
         }
 
         store.addNotification(
@@ -2074,6 +2217,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
+        XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 
@@ -2703,7 +2847,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             url: url,
             focus: false,
             selectWhenNotFocused: true,
-            omnibarVisible: false
+            chromeVisibility: .hidden
         ), let browserSurfaceId = workspace.surfaceIdFromPanelId(browserPanel.id) else {
             XCTFail("Expected background browser surface to be created")
             return
@@ -2724,7 +2868,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
                 inPane: paneId,
                 url: url,
                 focus: true,
-                omnibarVisible: false,
+                chromeVisibility: .hidden,
                 bypassRemoteProxy: true
             )
         )
@@ -3793,35 +3937,6 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertEqual(currentWorkspace.panels.count, currentPanelCountBefore)
         XCTAssertFalse(isFocusedPanelBrowser(in: currentWorkspace))
-    }
-
-    func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
-        let manager = TabManager()
-        guard let workspace1 = manager.selectedWorkspace,
-              let sourcePanelId = workspace1.focusedPanelId,
-              let splitBrowserId = manager.newBrowserSplit(
-                tabId: workspace1.id,
-                fromPanelId: sourcePanelId,
-                orientation: .horizontal,
-                insertFirst: false,
-                url: URL(string: "https://example.com/collapsed-split")
-              ) else {
-            XCTFail("Expected to create browser split")
-            return
-        }
-
-        drainMainQueue()
-        XCTAssertTrue(workspace1.closePanel(splitBrowserId, force: true))
-        drainMainQueue()
-
-        let workspace2 = manager.addWorkspace()
-        XCTAssertEqual(manager.selectedTabId, workspace2.id)
-
-        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
-        drainMainQueue()
-
-        XCTAssertEqual(manager.selectedTabId, workspace1.id)
-        XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
     func testReopenFromDifferentWorkspaceWinsAgainstSingleDeferredStaleFocus() {

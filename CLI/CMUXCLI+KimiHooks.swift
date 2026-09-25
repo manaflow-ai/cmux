@@ -1,11 +1,19 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 
 extension CMUXCLI {
     private static let kimiLifecycleHookTimeoutSeconds = 10
     private static let kimiFeedHookTimeoutSeconds = 120
-    private static let legacyKimiConfigDirectory = ".kimi-code"
-    private static let legacyKimiConfigDirectoryOverride = "KIMI_CODE_HOME"
+
+    /// `kimi doctor` only reports paths; it must never stall a hook install.
+    private static let kimiDoctorProbeTimeoutSeconds: Double = 3
+
+    private struct KimiConfigEdit {
+        let url: URL
+        let oldContent: String
+        let newContent: String
+    }
 
     func kimiCodeHookEvents(def: AgentHookDef) -> [KimiCodeHookConfig.Event] {
         var events = def.events.map { event in
@@ -27,10 +35,11 @@ extension CMUXCLI {
 
     func installKimiHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
-        let configDir = def.resolvedConfigDir()
-        let filePath = "\(configDir)/\(def.configFile)"
-        let activeConfigURL = URL(fileURLWithPath: filePath, isDirectory: false)
-        let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
+        let locations = Self.kimiConfigLocations(for: def)
+        let activeConfigURL = locations.active
+        let configDir = activeConfigURL.deletingLastPathComponent().path
+        let filePath = activeConfigURL.path
+        let events = kimiCodeHookEvents(def: def)
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
@@ -48,10 +57,10 @@ extension CMUXCLI {
         }
 
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-        let newString = KimiCodeHookConfig.installing(events: kimiCodeHookEvents(def: def), in: oldString)
-        let activeEdit: (url: URL, oldContent: String, newContent: String)? = oldString == newString
+        let newString = KimiCodeHookConfig.installing(events: events, in: oldString)
+        let activeEdit: KimiConfigEdit? = oldString == newString
             ? nil
-            : (url: activeConfigURL, oldContent: oldString, newContent: newString)
+            : KimiConfigEdit(url: activeConfigURL, oldContent: oldString, newContent: newString)
         if activeEdit == nil {
             print(String.localizedStringWithFormat(
                 String(
@@ -63,28 +72,31 @@ extension CMUXCLI {
             ))
         }
 
-        var legacyEdit: (url: URL, oldContent: String, newContent: String)?
-        var legacyCleanupFailed = false
-        if Self.canonicalKimiConfigURL(activeConfigURL) != Self.canonicalKimiConfigURL(legacyConfigURL) {
+        // A config the active CLI does not read still belongs to a Kimi install
+        // the user may switch back to, so an existing cmux block there is
+        // refreshed in place and a config without one is left untouched.
+        var secondaryEdits: [KimiConfigEdit] = []
+        var unrefreshedSecondaryURLs: [URL] = []
+        for configURL in locations.secondary where fm.fileExists(atPath: configURL.path) {
             do {
-                let legacyOldString = try readAgentHookConfig(
-                    filePath: legacyConfigURL.path,
+                let oldSecondary = try readAgentHookConfig(
+                    filePath: configURL.path,
                     displayName: def.displayName
                 )
-                let legacyNewString = KimiCodeHookConfig.uninstalling(from: legacyOldString)
-                if legacyOldString != legacyNewString {
-                    legacyEdit = (
-                        url: legacyConfigURL,
-                        oldContent: legacyOldString,
-                        newContent: legacyNewString
-                    )
-                }
+                guard KimiCodeHookConfig.containsCmuxBlock(in: oldSecondary) else { continue }
+                let newSecondary = KimiCodeHookConfig.installing(events: events, in: oldSecondary)
+                guard oldSecondary != newSecondary else { continue }
+                secondaryEdits.append(KimiConfigEdit(
+                    url: configURL,
+                    oldContent: oldSecondary,
+                    newContent: newSecondary
+                ))
             } catch {
-                legacyCleanupFailed = true
+                unrefreshedSecondaryURLs.append(configURL)
             }
         }
 
-        let edits = [activeEdit, legacyEdit].compactMap { $0 }
+        let edits = [activeEdit].compactMap { $0 } + secondaryEdits
         if !skipConfirm, !edits.isEmpty {
             for edit in edits {
                 Self.printInstallPreview(
@@ -116,60 +128,41 @@ extension CMUXCLI {
                 }
             }
             try activeEdit.newContent.write(to: activeEdit.url, atomically: true, encoding: .utf8)
-            print(String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.kimi.installed",
-                    defaultValue: "%@ hooks installed at %@"
-                ),
-                def.displayName,
-                filePath
-            ))
+            printKimiHooksInstalled(def: def, path: activeEdit.url.path)
         }
 
-        if let legacyEdit {
+        for edit in secondaryEdits {
             do {
-                try legacyEdit.newContent.write(to: legacyEdit.url, atomically: true, encoding: .utf8)
-                print(String.localizedStringWithFormat(
-                    String(
-                        localized: "cli.hooks.kimi.removed",
-                        defaultValue: "Removed Kimi Code cmux hooks from %@"
-                    ),
-                    legacyEdit.url.path
-                ))
+                try edit.newContent.write(to: edit.url, atomically: true, encoding: .utf8)
+                printKimiHooksInstalled(def: def, path: edit.url.path)
             } catch {
-                legacyCleanupFailed = true
+                unrefreshedSecondaryURLs.append(edit.url)
             }
         }
-        if legacyCleanupFailed {
-            reportKimiLegacyCleanupWarning(
+
+        for configURL in unrefreshedSecondaryURLs {
+            reportKimiSecondaryRefreshWarning(
                 activeConfigURL: activeConfigURL,
-                legacyConfigURL: legacyConfigURL
+                secondaryConfigURL: configURL
             )
         }
     }
 
     func uninstallKimiHooks(_ def: AgentHookDef) throws {
-        let configDir = def.resolvedConfigDir()
-        let activeConfigURL = URL(fileURLWithPath: configDir, isDirectory: true)
-            .appendingPathComponent(def.configFile, isDirectory: false)
-        let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
-        let configURLs = [
-            (url: activeConfigURL, isLegacy: false),
-            (url: legacyConfigURL, isLegacy: true),
-        ].reduce(into: [(url: URL, isLegacy: Bool)]()) { configs, config in
-            let canonicalURL = Self.canonicalKimiConfigURL(config.url)
-            guard !configs.contains(where: { Self.canonicalKimiConfigURL($0.url) == canonicalURL }) else { return }
-            configs.append(config)
-        }
+        let fm = FileManager.default
+        let locations = Self.kimiConfigLocations(for: def)
+        let targets: [(url: URL, isActive: Bool)] =
+            [(url: locations.active, isActive: true)]
+            + locations.secondary.map { (url: $0, isActive: false) }
 
         var foundConfig = false
-        for config in configURLs where FileManager.default.fileExists(atPath: config.url.path) {
+        for target in targets where fm.fileExists(atPath: target.url.path) {
             foundConfig = true
             do {
-                _ = try removeKimiHooks(at: config.url, def: def, reportNoChange: true)
+                _ = try removeKimiHooks(at: target.url, def: def, reportNoChange: true)
             } catch {
-                guard config.isLegacy else { throw error }
-                reportKimiLegacyUninstallWarning(legacyConfigURL: config.url)
+                guard !target.isActive else { throw error }
+                reportKimiSecondaryUninstallWarning(secondaryConfigURL: target.url)
             }
         }
         guard !foundConfig else { return }
@@ -180,7 +173,7 @@ extension CMUXCLI {
                 defaultValue: "No %@ found at %@"
             ),
             def.configFile,
-            activeConfigURL.path
+            locations.active.path
         ))
     }
 
@@ -214,48 +207,98 @@ extension CMUXCLI {
         return true
     }
 
-    private func reportKimiLegacyCleanupWarning(
+    private func printKimiHooksInstalled(def: AgentHookDef, path: String) {
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.kimi.installed",
+                defaultValue: "%@ hooks installed at %@"
+            ),
+            def.displayName,
+            path
+        ))
+    }
+
+    private func reportKimiSecondaryRefreshWarning(
         activeConfigURL: URL,
-        legacyConfigURL: URL
+        secondaryConfigURL: URL
     ) {
         let warning = String.localizedStringWithFormat(
             String(
-                localized: "cli.hooks.kimi.legacyCleanupWarning",
-                defaultValue: "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
+                localized: "cli.hooks.kimi.secondaryRefreshWarning",
+                defaultValue: "Warning: cmux hooks are installed at %@, but cmux could not refresh its existing hook block in %@. Check that path and re-run `cmux hooks setup kimi` to finish the update."
             ),
             activeConfigURL.path,
-            legacyConfigURL.path
+            secondaryConfigURL.path
         )
         cliWriteStderr(warning + "\n")
     }
 
-    private func reportKimiLegacyUninstallWarning(legacyConfigURL: URL) {
+    private func reportKimiSecondaryUninstallWarning(secondaryConfigURL: URL) {
         let warning = String.localizedStringWithFormat(
             String(
-                localized: "cli.hooks.kimi.legacyUninstallWarning",
-                defaultValue: "Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
+                localized: "cli.hooks.kimi.secondaryUninstallWarning",
+                defaultValue: "Warning: cmux could not remove its hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
             ),
-            legacyConfigURL.path
+            secondaryConfigURL.path
         )
         cliWriteStderr(warning + "\n")
     }
 
-    private static func legacyKimiConfigURL(fileName: String) -> URL {
-        let environment = ProcessInfo.processInfo.environment
-        let home = environment["HOME"].flatMap { value -> String? in
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        } ?? NSHomeDirectory()
-        let legacyDirectory = environment[legacyKimiConfigDirectoryOverride].flatMap { value -> String? in
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : NSString(string: trimmed).expandingTildeInPath
-        }.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? URL(fileURLWithPath: home, isDirectory: true)
-                .appendingPathComponent(legacyKimiConfigDirectory, isDirectory: true)
-        return legacyDirectory.appendingPathComponent(fileName, isDirectory: false)
+    // MARK: Config discovery
+
+    /// The config directory used when the installed binary reports none.
+    static func resolvedKimiConfigDirectory() -> URL {
+        KimiConfigLocationResolver(environment: ProcessInfo.processInfo.environment)
+            .fallbackConfigDirectory()
     }
 
-    private static func canonicalKimiConfigURL(_ url: URL) -> URL {
-        url.resolvingSymlinksInPath().standardizedFileURL
+    /// The Kimi config files cmux manages, resolved from the installed binary.
+    static func kimiConfigLocations(for def: AgentHookDef) -> KimiConfigLocationResolver.Locations {
+        let resolver = KimiConfigLocationResolver(
+            environment: ProcessInfo.processInfo.environment,
+            configFileName: def.configFile
+        )
+        let reported = runKimiDoctor(binaryName: def.binaryName).flatMap { output in
+            resolver.reportedConfigURL(inDoctorOutput: output)
+        }
+        return resolver.locations(reportedConfigURL: reported)
+    }
+
+    /// Runs `<binary> doctor` and returns its combined output.
+    ///
+    /// The probe writes to a temporary file rather than a pipe so a chatty
+    /// binary cannot deadlock the wait, and it is bounded so a hung binary
+    /// cannot stall `cmux hooks setup`. A binary that is missing or does not
+    /// know the subcommand simply produces no usable path.
+    private static func runKimiDoctor(binaryName: String) -> String? {
+        let fm = FileManager.default
+        let outputURL = fm.temporaryDirectory
+            .appendingPathComponent("cmux-kimi-doctor-\(UUID().uuidString)", isDirectory: false)
+        guard fm.createFile(atPath: outputURL.path, contents: nil) else { return nil }
+        defer { try? fm.removeItem(at: outputURL) }
+        guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else { return nil }
+        defer { try? outputHandle.close() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [binaryName, "doctor"]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputHandle
+        process.standardError = outputHandle
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        do {
+            try cliRunProcess(process)
+        } catch {
+            return nil
+        }
+        if exited.wait(timeout: .now() + kimiDoctorProbeTimeoutSeconds) == .timedOut {
+            process.terminate()
+            if exited.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 1)
+            }
+        }
+        return try? String(contentsOf: outputURL, encoding: .utf8)
     }
 }

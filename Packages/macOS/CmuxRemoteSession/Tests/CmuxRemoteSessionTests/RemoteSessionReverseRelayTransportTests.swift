@@ -29,9 +29,10 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(forwardRequest.arguments.contains("-R"))
         #expect(forwardRequest.arguments.contains("BatchMode=yes"))
         #expect(
-            forwardRequest.arguments.contains(
-                "ControlPath=\(ResolvedControlPathFixture.path)"
-            )
+            forwardRequest.arguments.contains {
+                $0.hasPrefix("ControlPath=/tmp/cmux-ssh-") &&
+                    $0.hasSuffix("-%C")
+            }
         )
         #expect(launcher.launchCount == 0)
         #expect(coordinator.queue.sync {
@@ -43,9 +44,10 @@ struct RemoteSessionReverseRelayTransportTests {
             Self.isControlCommand("cancel", in: $0.arguments)
         }))
         #expect(
-            cancelRequest.arguments.contains(
-                "ControlPath=\(ResolvedControlPathFixture.path)"
-            )
+            cancelRequest.arguments.contains {
+                $0.hasPrefix("ControlPath=/tmp/cmux-ssh-") &&
+                    $0.hasSuffix("-%C")
+            }
         )
         #expect(
             Self.reverseForward(in: cancelRequest.arguments)
@@ -53,18 +55,31 @@ struct RemoteSessionReverseRelayTransportTests {
         )
     }
 
-    @Test("Connection preparation owns the resolved path before shared SSH use")
-    func connectionPreparationRetainsResolvedPath() async throws {
-        let runner = RecordingProcessRunner { request in
-            if request.arguments.first == "-G" {
-                return RemoteCommandResult(
-                    status: 0,
-                    stdout: "controlpath \(ResolvedControlPathFixture.path)\n",
-                    stderr: ""
-                )
-            }
-            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+    @Test("A duplicate relay start does not downgrade a ready forward")
+    func duplicateRelayStartPreservesReadiness() async throws {
+        let runner = RecordingProcessRunner()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            runner: runner
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.reverseRelayControlMasterForwardSpec =
+                "127.0.0.1:64044:127.0.0.1:55001"
+            coordinator.reverseRelayReady = true
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
         }
+
+        #expect(coordinator.queue.sync { coordinator.reverseRelayReady })
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("Connection preparation retains an already-resolved path")
+    func connectionPreparationRetainsResolvedPath() async throws {
+        let runner = RecordingProcessRunner()
         let registry = PermissiveNativeSSHControlMasterOwnershipRegistry()
         let fixture = try await RemoteSessionReverseRelayStartupTests
             .makeCoordinator(
@@ -74,6 +89,14 @@ struct RemoteSessionReverseRelayTransportTests {
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+        coordinator.queue.sync {
+            coordinator.resolvedControlMasterSSHOptions = [
+                "StrictHostKeyChecking=accept-new",
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=\(ResolvedControlPathFixture.path)",
+            ]
+        }
         #expect(registry.retainedControlPaths.isEmpty)
 
         try coordinator.queue.sync {
@@ -90,7 +113,47 @@ struct RemoteSessionReverseRelayTransportTests {
             registry.retainedControlPaths ==
                 [ResolvedControlPathFixture.path]
         )
-        #expect(runner.requests.first?.arguments.first == "-G")
+        #expect(runner.requests.isEmpty)
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("An unresolved cmux template reaches the shared master without a config probe")
+    func unresolvedTemplateUsesOpenSSHExpansionWithoutConfigProbe() async throws {
+        let runner = RecordingProcessRunner { request in
+            if request.arguments.first == "-G" {
+                return RemoteCommandResult(
+                    status: 0,
+                    stdout: "",
+                    stderr: ""
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let fixture = try await RemoteSessionReverseRelayStartupTests
+            .makeCoordinator(
+                runner: runner,
+                providesResolvedControlPath: false
+            )
+        let coordinator = fixture.coordinator
+        defer {
+            try? FileManager.default.removeItem(at: fixture.scratchDirectory)
+        }
+
+        let outcome = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
+                relayPort: 64_044
+            )
+        }
+
+        guard case .started = outcome else {
+            Issue.record("Expected the unresolved template to use OpenSSH's native %C expansion")
+            return
+        }
+        #expect(!runner.requests.contains(where: { $0.arguments.first == "-G" }))
+        #expect(runner.requests.contains(where: {
+            Self.isControlCommand("forward", in: $0.arguments)
+        }))
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
@@ -118,6 +181,7 @@ struct RemoteSessionReverseRelayTransportTests {
         }
 
         let launch = try #require(await launches.next())
+        #expect(coordinator.queue.sync { coordinator.reverseRelayReady == false })
         #expect(launch.arguments.starts(with: ["-N", "-T", "-S", "none"]))
         #expect(!runner.requests.contains(where: {
             Self.isControlCommand("forward", in: $0.arguments)
@@ -126,64 +190,37 @@ struct RemoteSessionReverseRelayTransportTests {
             coordinator.reverseRelayControlMasterForwardSpec == nil &&
                 coordinator.reverseRelayProcess === launcher.process
         })
+        launcher.emitStartupReady()
+        coordinator.queue.sync {}
+        #expect(coordinator.queue.sync { coordinator.reverseRelayReady })
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test("An unresolved cmux ControlPath fails closed to standalone")
-    func unresolvedOwnedControlPathUsesStandaloneFallback() async throws {
-        let runner = RecordingProcessRunner { request in
-            if request.arguments.first == "-G" {
-                return RemoteCommandResult(
-                    status: 255,
-                    stdout: "",
-                    stderr: "could not resolve configuration"
-                )
-            }
-            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
-        }
-        let launcher = RecordingReverseRelayLauncher()
+    @Test("An unresolved cmux ControlPath uses the shared master directly")
+    func unresolvedOwnedControlPathUsesSharedMaster() async throws {
+        let runner = RecordingProcessRunner()
         let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
-            reverseRelayLauncher: launcher,
             providesResolvedControlPath: false
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
-        var launches = launcher.launches.makeAsyncIterator()
         coordinator.queue.sync {
             coordinator.daemonReady = true
             coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
             coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
         }
 
-        let launch = try #require(await launches.next())
-        #expect(launch.arguments.starts(with: ["-N", "-T", "-S", "none"]))
-        #expect(launch.arguments.contains("-v"))
-        #expect(
-            launch.startupMarker ==
-                RemoteSessionCoordinator.reverseRelayForwardSuccessMarker(
-                    relayPort: 64_044,
-                    localRelayPort: launch.localRelayPort
-                )
-        )
+        #expect(!runner.requests.contains(where: { $0.arguments.first == "-G" }))
         #expect(runner.requests.contains(where: {
-            $0.arguments.first == "-G"
-        }))
-        #expect(!runner.requests.contains(where: {
             Self.isControlCommand("forward", in: $0.arguments)
         }))
-        #expect(!runner.requests.contains(where: Self.isMetadataInstallRequest))
-
-        launcher.emitStartupReady()
-        coordinator.queue.sync {}
-
-        #expect(runner.requests.contains(where: Self.isMetadataInstallRequest))
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test("A transient ControlPath resolution failure is retried")
-    func transientControlPathResolutionFailureRetries() async throws {
+    @Test("Repeated shared-master relays do not repeat ControlPath resolution")
+    func repeatedSharedMasterRelaysDoNotRepeatControlPathResolution() async throws {
         let baseRunner = RecordingProcessRunner()
         let runner = FlakyResolvedControlPathProcessRunner(
             base: baseRunner,
@@ -203,9 +240,12 @@ struct RemoteSessionReverseRelayTransportTests {
                 relayPort: 64_044
             )
         }
-        guard case .unavailable = first else {
-            Issue.record("Expected the transient resolution failure to fall back")
+        guard case .started = first else {
+            Issue.record("Expected the unresolved template to use the shared master")
             return
+        }
+        coordinator.queue.sync {
+            coordinator.stopReverseRelayViaControlMasterLocked()
         }
         let second = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
@@ -215,10 +255,10 @@ struct RemoteSessionReverseRelayTransportTests {
         }
 
         guard case .started = second else {
-            Issue.record("Expected the next attempt to retry ControlPath resolution")
+            Issue.record("Expected the cached unresolved template to remain reusable")
             return
         }
-        #expect(runner.resolutionAttempts == 2)
+        #expect(runner.resolutionAttempts == 0)
         #expect(baseRunner.requests.contains(where: {
             Self.isControlCommand("forward", in: $0.arguments)
         }))
@@ -311,8 +351,8 @@ struct RemoteSessionReverseRelayTransportTests {
         launcher.emitTermination(detail: rawFailure)
 
         let status = try #require(await statuses.next())
-        #expect(status.detail == "test relay unavailable")
-        #expect(status.detail?.contains(rawFailure) == false)
+        #expect(status.state == .bootstrapping)
+        #expect(status.detail == nil)
         #expect(await clock.nextRequestedDelay() == 2_000)
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }

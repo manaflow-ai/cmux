@@ -6,6 +6,8 @@ struct SimulatorStreamSurfaceActions: Sendable {
     let button: @Sendable (MobileSimulatorButtonInput) async -> Void
     let coordinate: @Sendable (String, Double, Double, DiagnosticSimulatorCoordinateState) async -> Void
     let frameDiagnostic: @Sendable (String, DiagnosticSimulatorFrameLifecycle, UInt64?, Int?) async -> Void
+    let presentationStalled: @Sendable (String) async -> Void
+    let presentationSucceeded: @Sendable (String) async -> Void
     let inputDiagnostic: @Sendable (String, DiagnosticSimulatorInputLifecycle, DiagnosticSimulatorInputKind, Int?) async -> Void
 
     init(
@@ -24,6 +26,8 @@ struct SimulatorStreamSurfaceActions: Sendable {
             UInt64?,
             Int?
         ) async -> Void,
+        presentationStalled: @escaping @Sendable (String) async -> Void,
+        presentationSucceeded: @escaping @Sendable (String) async -> Void,
         inputDiagnostic: @escaping @Sendable (
             String,
             DiagnosticSimulatorInputLifecycle,
@@ -36,6 +40,8 @@ struct SimulatorStreamSurfaceActions: Sendable {
         self.button = button
         self.coordinate = coordinate
         self.frameDiagnostic = frameDiagnostic
+        self.presentationStalled = presentationStalled
+        self.presentationSucceeded = presentationSucceeded
         self.inputDiagnostic = inputDiagnostic
     }
 }

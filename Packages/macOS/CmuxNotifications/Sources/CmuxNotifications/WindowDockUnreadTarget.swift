@@ -5,7 +5,7 @@ public import Foundation
 /// Window Dock owner identifiers are window IDs, not workspace IDs. Keeping
 /// this value distinct prevents notification navigation from feeding a Dock
 /// owner into workspace-only routing.
-nonisolated public struct WindowDockUnreadTarget: Hashable, Sendable {
+public struct WindowDockUnreadTarget: Hashable, Sendable {
     /// The main-window identifier that owns the Dock.
     public let windowId: UUID
 

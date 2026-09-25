@@ -40,20 +40,6 @@ extension AgentLaunchCommandSnapshot {
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
-        fileManager: FileManager
-    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        return processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-    }
-
-    static func processDetectedSnapshots(
-        registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
@@ -634,46 +620,82 @@ extension RestorableAgentSessionIndex {
 
 extension SurfaceResumeBindingIndex {
     static func processDetectedTmuxBindings(
-        fileManager: FileManager
-    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
-        _ = fileManager
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        return processDetectedTmuxBindings(
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-    }
-
-    static func processDetectedTmuxBindings(
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
-        capturedAt: TimeInterval
+        capturedAt: TimeInterval,
+        ttyDeviceBindings: [PanelKey: Int64] = [:],
+        processArgumentsProvider: @Sendable (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
         _ = fileManager
         var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
+        var selectedPIDByPanel: [PanelKey: Int] = [:]
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
-                  process.isTerminalForegroundProcessGroup,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+        // A child such as `/usr/bin/ssh` is not guaranteed to retain the
+        // CMUX_* environment after the user's shell/launch tooling runs it.
+        // The terminal's controlling TTY is the authoritative pane identity,
+        // so use it as a fail-closed fallback when exactly one live panel owns
+        // the device. This keeps process detection scoped without guessing
+        // from titles or global process names.
+        let panelKeysByTTYDevice = Dictionary(grouping: ttyDeviceBindings) { $0.value }
+            .mapValues { $0.map(\.key) }
+
+        // The process snapshot is already indexed by PID.  Select the newest
+        // candidate per panel in one pass instead of sorting the entire system
+        // process table on every autosave.
+        for process in processSnapshot.processesByPID.values {
+            guard process.isTerminalForegroundProcessGroup,
+                  let panelKey = processDetectedPanelKey(
+                      for: process,
+                      panelKeysByTTYDevice: panelKeysByTTYDevice
+                  ),
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
-            guard let binding = TmuxResumeParser.binding(
+            let binding: SurfaceResumeBindingSnapshot?
+            if let tmuxBinding = TmuxResumeParser.binding(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments.arguments,
                 environment: processArguments.environment,
                 capturedAt: capturedAt
-            ) else {
+            ) {
+                binding = tmuxBinding
+            } else {
+                binding = TerminalSSHSessionDetector.resumeBinding(
+                    processName: process.name,
+                    processPath: process.path,
+                    arguments: processArguments.arguments,
+                    environment: processArguments.environment,
+                    capturedAt: capturedAt
+                )
+            }
+            guard let binding else { continue }
+            guard process.pid > (selectedPIDByPanel[panelKey] ?? Int.min) else {
                 continue
             }
-            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+            selectedPIDByPanel[panelKey] = process.pid
+            resolved[panelKey] = (binding: binding, updatedAt: capturedAt)
         }
 
         return resolved
+    }
+
+    private static func processDetectedPanelKey(
+        for process: CmuxTopProcessInfo,
+        panelKeysByTTYDevice: [Int64: [PanelKey]]
+    ) -> PanelKey? {
+        if let workspaceId = process.cmuxWorkspaceID,
+           let panelId = process.cmuxSurfaceID {
+            return PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }
+        guard let ttyDevice = process.ttyDevice,
+              let candidates = panelKeysByTTYDevice[ttyDevice],
+              candidates.count == 1 else {
+            return nil
+        }
+        return candidates[0]
     }
 
     static func tmuxResumeBindingForTesting(
@@ -691,6 +713,7 @@ extension SurfaceResumeBindingIndex {
             capturedAt: capturedAt
         )
     }
+
 }
 
 private struct VaultAgentSessionIDResolution {
@@ -758,6 +781,10 @@ private extension CmuxVaultAgentSessionIDSource {
                 sessionId: explicitSessionID,
                 source: .explicit
             )
+        case .cmuxHookStore:
+            // The hook store owns the thread identity. Process argv is only
+            // liveness evidence and must never invent a replacement id.
+            return nil
         }
     }
 }

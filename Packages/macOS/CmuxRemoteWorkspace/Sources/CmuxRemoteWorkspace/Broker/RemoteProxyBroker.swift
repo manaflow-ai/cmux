@@ -26,9 +26,10 @@ internal import Foundation
 /// converted to milliseconds exactly).
 public final class RemoteProxyBroker: @unchecked Sendable {
     private final class Entry {
-        let configuration: WorkspaceRemoteConfiguration
+        var configuration: WorkspaceRemoteConfiguration
         var remotePath: String
         var tunnel: (any RemoteProxyTunneling)?
+        var tunnelGeneration: UUID?
         var endpoint: BrowserProxyEndpoint?
         var restartTask: Task<Void, Never>?
         var restartToken: UUID?
@@ -66,6 +67,12 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         self.tunnelProvider = tunnelProvider
         self.clock = clock
     }
+
+    /// Re-mints a managed Cloud VM daemon endpoint before a retry. Stored endpoints go stale
+    /// when the machine's preview rotates (sandbox recreation, preview re-creation); without a
+    /// refresh the broker would redial a dead URL on every backoff. Returning nil keeps the
+    /// current configuration for that attempt.
+    public var configurationRefresher: (@Sendable (WorkspaceRemoteConfiguration) async -> WorkspaceRemoteConfiguration?)?
 
     /// Subscribes to the shared tunnel for `configuration`; see
     /// ``RemoteProxyBrokering/acquire(configuration:remotePath:onUpdate:)``.
@@ -430,6 +437,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
 
         do {
+            let tunnelGeneration = UUID()
             let tunnel = tunnelProvider.makeTunnel(
                 configuration: entry.configuration,
                 remotePath: entry.remotePath,
@@ -437,7 +445,11 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ) { [weak self] detail in
                 guard let self else { return }
                 self.queue.async {
-                    self.handleTunnelFailureLocked(key: key, detail: detail)
+                    self.handleTunnelFailureLocked(
+                        key: key,
+                        tunnelGeneration: tunnelGeneration,
+                        detail: detail
+                    )
                 }
             }
             if let snapshot = entry.ptyLifecycleSnapshot {
@@ -445,6 +457,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             }
             try tunnel.start()
             entry.tunnel = tunnel
+            entry.tunnelGeneration = tunnelGeneration
             entry.ptyLifecycleSnapshot = nil
             let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
             entry.endpoint = endpoint
@@ -459,8 +472,14 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    private func handleTunnelFailureLocked(key: String, detail: String) {
-        guard let entry = entries[key], entry.tunnel != nil else { return }
+    private func handleTunnelFailureLocked(
+        key: String,
+        tunnelGeneration: UUID,
+        detail: String
+    ) {
+        guard let entry = entries[key],
+              entry.tunnel != nil,
+              entry.tunnelGeneration == tunnelGeneration else { return }
         stopEntryRuntimeLocked(entry, preservePTYLifecycle: true)
         let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
         notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: retryDelay))"))
@@ -505,6 +524,24 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             return
         }
         notifyLocked(entry, update: .connecting)
+        if let refresher = configurationRefresher,
+           entry.configuration.managedCloudVMID != nil,
+           entry.configuration.daemonWebSocketEndpoint != nil {
+            let staleConfiguration = entry.configuration
+            Task { [weak self] in
+                let refreshed = await refresher(staleConfiguration)
+                guard let self else { return }
+                self.queue.async {
+                    guard let current = self.entries[key], current === entry else { return }
+                    guard current.tunnel == nil, current.restartTask == nil else { return }
+                    if let refreshed {
+                        current.configuration = refreshed
+                    }
+                    self.startEntryLocked(key: key, entry: current)
+                }
+            }
+            return
+        }
         startEntryLocked(key: key, entry: entry)
     }
 
@@ -531,6 +568,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             entry.tunnel?.stop()
         }
         entry.tunnel = nil
+        entry.tunnelGeneration = nil
         entry.endpoint = nil
     }
 

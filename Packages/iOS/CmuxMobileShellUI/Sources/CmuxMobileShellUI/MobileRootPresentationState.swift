@@ -1,3 +1,5 @@
+import CmuxMobileShell
+
 /// The single iOS modal owner and its root-sheet and child-sheet transitions.
 ///
 /// Root presentations share one SwiftUI sheet host. Child presentations claim
@@ -23,7 +25,6 @@ struct MobileRootPresentationState: Equatable {
         case workspaceChanges
         case customization
         case terminalArtifactFiles
-        case chatShortcutsSettings
         case alternateScreenExplanation
     }
 
@@ -40,7 +41,7 @@ struct MobileRootPresentationState: Equatable {
     enum Presentation: Equatable {
         case autoConnectMigrationIntroduction
         case settings
-        case connectionSettings
+        case computers
         case pairing(PairingPresentation)
         case child(ChildPresentation)
         case dismissingChild(
@@ -52,10 +53,12 @@ struct MobileRootPresentationState: Equatable {
     /// Every presentation mutation accepted by the root coordinator.
     enum Action: Equatable {
         case presentAutoConnectMigrationIfIdle
-        case continueWithAutoConnect
-        case openConnectionSettings
+        case useAutoConnect
+        case setUpTailscale(status: MobileTailscaleSetupStatus)
         case presentSettings
         case dismissSettings(presentAutoConnectMigration: Bool)
+        case presentComputers
+        case dismissComputers
         case presentPairing(PairingPresentation)
         case presentChild(ChildPresentation)
         case dismissChild(ChildPresentation)
@@ -70,6 +73,8 @@ struct MobileRootPresentationState: Equatable {
     enum Effect: Equatable {
         case none
         case acknowledgeAutoConnectMigration
+        case useAutoConnect
+        case setUpTailscale(requiresPairing: Bool)
         case finishPairing
         case retryAutoConnectMigration
     }
@@ -85,7 +90,10 @@ struct MobileRootPresentationState: Equatable {
     /// Whether the root SwiftUI sheet host should be presented.
     var isRootSheetPresented: Bool {
         switch presentation {
-        case .autoConnectMigrationIntroduction, .settings, .connectionSettings, .pairing:
+        case .autoConnectMigrationIntroduction,
+             .settings,
+             .computers,
+             .pairing:
             true
         case .child, .dismissingChild, nil:
             false
@@ -110,15 +118,25 @@ struct MobileRootPresentationState: Equatable {
             presentation = .autoConnectMigrationIntroduction
             return .none
 
-        case .continueWithAutoConnect:
+        case .useAutoConnect:
             guard presentation == .autoConnectMigrationIntroduction else { return .none }
             presentation = nil
-            return .acknowledgeAutoConnectMigration
+            return .useAutoConnect
 
-        case .openConnectionSettings:
+        case let .setUpTailscale(status):
             guard presentation == .autoConnectMigrationIntroduction else { return .none }
-            presentation = .connectionSettings
-            return .acknowledgeAutoConnectMigration
+            switch status {
+            case .pairingRequired:
+                presentation = .pairing(.scanner(entry: .autoConnectMigration))
+                return .setUpTailscale(requiresPairing: true)
+            case .authorized, .loadingAuthorization, .notSelected:
+                // Selecting Tailscale while authorization is still being
+                // resolved must not open a scanner based on a stale false
+                // authorization flag. The shell will promote the setup banner
+                // if the authoritative result later requires pairing.
+                presentation = nil
+                return .setUpTailscale(requiresPairing: false)
+            }
 
         case .presentSettings:
             guard presentation == nil else { return .none }
@@ -126,13 +144,34 @@ struct MobileRootPresentationState: Equatable {
             return .none
 
         case let .dismissSettings(presentAutoConnectMigration):
-            guard presentation == .settings || presentation == .connectionSettings else {
+            guard presentation == .settings else {
                 return .none
             }
             presentation = presentAutoConnectMigration
                 ? .autoConnectMigrationIntroduction
                 : nil
             return .none
+
+        case .presentComputers:
+            // Settings may hand its sheet over to Computers in place (its
+            // Connection section links there), mirroring how pairing swaps
+            // content within the one root sheet host. The migration
+            // introduction also yields: a child Settings dismissal can present
+            // it (via its retry effect) before the queued Computers follow-up
+            // runs, and the user's explicit request wins; the migration
+            // re-presents through its usual retry paths.
+            switch presentation {
+            case nil, .settings, .autoConnectMigrationIntroduction:
+                presentation = .computers
+                return .none
+            case .computers, .pairing, .child, .dismissingChild:
+                return .none
+            }
+
+        case .dismissComputers:
+            guard presentation == .computers else { return .none }
+            presentation = nil
+            return .retryAutoConnectMigration
 
         case let .presentPairing(pairingPresentation):
             switch presentation {
@@ -201,7 +240,7 @@ struct MobileRootPresentationState: Equatable {
             case .pairing:
                 presentation = nil
                 return .finishPairing
-            case .settings, .connectionSettings:
+            case .settings, .computers:
                 presentation = nil
                 return .none
             case .child, .dismissingChild, nil:

@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxAgentChat
 import Foundation
 import Testing
 
@@ -145,20 +146,20 @@ struct SessionEntryResumeLaunchTests {
         )
         let launch = try #require(entry.resumeLaunch)
         let snapshot = try #require(launch.startupRestoreAgent)
-        let workspace = Workspace(
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = tabManager.addWorkspace(
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
-            initialTerminalStartupRestoreAgent: snapshot
+            initialTerminalStartupRestoreAgent: snapshot,
+            autoWelcomeIfNeeded: false
         )
-        defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
         #expect(
             workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId
                 == "vault-claude-session"
         )
 
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
         let target = ControlSurfaceResumeTarget.workspace(
             tabManager: tabManager,
             workspace: workspace,
@@ -214,6 +215,10 @@ struct SessionEntryResumeLaunchTests {
         )
         let launch = try #require(entry.resumeLaunch)
         let restorableAgent = try #require(launch.startupRestoreAgent)
+        var resumeIntents: [AgentChatResumeIntent] = []
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder {
+            resumeIntents.append($0)
+        }
 
         let defaultsName = "cmux-vault-restore-persistence-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
@@ -224,7 +229,9 @@ struct SessionEntryResumeLaunchTests {
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: restorableAgent,
-            agentSessionAutoResumeDefaults: defaults
+            agentSessionAutoResumeDefaults: defaults,
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
@@ -240,7 +247,11 @@ struct SessionEntryResumeLaunchTests {
 
         let encoded = try JSONEncoder().encode(persisted)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
+        )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(decoded)
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
@@ -256,6 +267,60 @@ struct SessionEntryResumeLaunchTests {
                 .panels.first { $0.id == restoredPanelID }?.terminal?.agent?.sessionId
                 == sessionID
         )
+        let restoredIntent = try #require(resumeIntents.last)
+        #expect(restoredIntent.sessionID == sessionID)
+        #expect(restoredIntent.surfaceID == restoredPanelID.uuidString)
+        #expect(restoredIntent.workspaceID == restored.id.uuidString)
+        #expect(restoredIntent.workingDirectory == launch.workingDirectory)
+    }
+
+    @Test("Vault terminal creation authoritatively rebinds the resumed chat")
+    func vaultCreationRebindsResumedChat() throws {
+        let sessionID = "vault-chat-rebind-\(UUID().uuidString)"
+        let workingDirectory = "/tmp/vault-chat-rebind"
+        let entry = SessionEntry(
+            id: "codex:\(sessionID)",
+            agent: .codex,
+            sessionId: sessionID,
+            title: "Rebound Vault session",
+            cwd: workingDirectory,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_004),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let restorableAgent = try #require(launch.startupRestoreAgent)
+        var resumeIntents: [AgentChatResumeIntent] = []
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder {
+            resumeIntents.append($0)
+        }
+
+        let tabManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = tabManager.addWorkspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: restorableAgent,
+            autoWelcomeIfNeeded: false
+        )
+        let panelID = try #require(workspace.focusedPanelId)
+        let intent = try #require(resumeIntents.last)
+
+        #expect(intent.sessionID == sessionID)
+        #expect(intent.source == "codex")
+        #expect(intent.surfaceID == panelID.uuidString)
+        #expect(intent.workspaceID == workspace.id.uuidString)
+        #expect(intent.workingDirectory == workingDirectory)
     }
 
     @Test("Vault tab and split placements seed persistent lifecycle state")
@@ -322,7 +387,10 @@ struct SessionEntryResumeLaunchTests {
             )
         }
 
-        workspace.restoredAgentResumeStatesByPanelId[tabPanel.id] = .autoResumeCommandRunning
+        workspace.restoredAgentLifecycle.setResumeState(
+            .autoResumeCommandRunning,
+            panelId: tabPanel.id
+        )
         workspace.panelDirectories[tabPanel.id] = FileManager.default.homeDirectoryForCurrentUser.path
         workspace.foregroundProcessWorkingDirectoryProvider = { _ in nil }
         let inheritedSplit = try #require(workspace.newTerminalSplit(
@@ -333,8 +401,8 @@ struct SessionEntryResumeLaunchTests {
         #expect(inheritedSplit.requestedWorkingDirectory == workingDirectory)
     }
 
-    @Test("Vault coordinator preserves matching-cwd and new-workspace placement")
-    func coordinatorPreservesWorkingDirectoryPlacement() throws {
+    @Test("Vault resume always creates a new workspace")
+    func coordinatorResumesInNewWorkspace() throws {
         let matchingDirectory = "/tmp/vault-coordinator-match"
         let manager = TabManager(
             initialWorkingDirectory: matchingDirectory,
@@ -342,7 +410,6 @@ struct SessionEntryResumeLaunchTests {
         )
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let originalWorkspace = try #require(manager.selectedWorkspace)
-        let originalPanelID = try #require(originalWorkspace.focusedPanelId)
 
         let matchingEntry = SessionEntry(
             id: "codex:matching-session",
@@ -365,20 +432,21 @@ struct SessionEntryResumeLaunchTests {
 
         SessionEntryResumeCoordinator.resume(matchingEntry, tabManager: manager)
 
-        #expect(manager.tabs.count == 1)
-        #expect(manager.selectedWorkspace === originalWorkspace)
-        let matchingPanelID = try #require(originalWorkspace.focusedPanelId)
-        #expect(matchingPanelID != originalPanelID)
+        #expect(manager.tabs.count == 2)
+        let matchingWorkspace = try #require(manager.selectedWorkspace)
+        #expect(matchingWorkspace !== originalWorkspace)
+        #expect(matchingWorkspace.currentDirectory == matchingDirectory)
+        let matchingPanelID = try #require(matchingWorkspace.focusedPanelId)
         #expect(
-            originalWorkspace.restoredAgentSnapshotsByPanelId[matchingPanelID]?.sessionId
+            matchingWorkspace.restoredAgentSnapshotsByPanelId[matchingPanelID]?.sessionId
                 == "matching-session"
         )
         #expect(
-            originalWorkspace.restoredResumeSessionWorkingDirectoriesByPanelId[matchingPanelID]
+            matchingWorkspace.restoredResumeSessionWorkingDirectoriesByPanelId[matchingPanelID]
                 == matchingDirectory
         )
         #expect(
-            originalWorkspace.terminalPanel(for: matchingPanelID)?
+            matchingWorkspace.terminalPanel(for: matchingPanelID)?
                 .surface.debugInitialInputForTesting() == matchingLaunch.initialInput
         )
 
@@ -404,9 +472,10 @@ struct SessionEntryResumeLaunchTests {
 
         SessionEntryResumeCoordinator.resume(differentEntry, tabManager: manager)
 
-        #expect(manager.tabs.count == 2)
+        #expect(manager.tabs.count == 3)
         let createdWorkspace = try #require(manager.selectedWorkspace)
         #expect(createdWorkspace !== originalWorkspace)
+        #expect(createdWorkspace !== matchingWorkspace)
         #expect(createdWorkspace.currentDirectory == differentDirectory)
         let createdPanelID = try #require(createdWorkspace.focusedPanelId)
         #expect(
@@ -419,7 +488,118 @@ struct SessionEntryResumeLaunchTests {
         )
         #expect(
             createdWorkspace.terminalPanel(for: createdPanelID)?
-                .surface.debugInitialInputForTesting() == differentLaunch.initialInput
+            .surface.debugInitialInputForTesting() == differentLaunch.initialInput
         )
+    }
+
+    @Test("Open Session creates a split even when the session is already active")
+    func coordinatorOpensActiveSessionInCurrentWorkspaceSplit() throws {
+        let workingDirectory = "/tmp/vault-coordinator-open"
+        let manager = TabManager(
+            initialWorkingDirectory: workingDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let initialPaneID = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let entry = SessionEntry(
+            id: "codex:already-active-session",
+            agent: .codex,
+            sessionId: "already-active-session",
+            title: "Already active",
+            cwd: workingDirectory,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_007),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let snapshot = try #require(launch.startupRestoreAgent)
+
+        let existingPanel = try #require(workspace.newTerminalSurface(
+            inPane: initialPaneID,
+            focus: true,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: snapshot
+        ))
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[existingPanel.id]?.sessionId
+                == entry.sessionId
+        )
+        let paneCountBefore = workspace.bonsplitController.allPaneIds.count
+        let panelCountBefore = workspace.panels.count
+
+        SessionEntryResumeCoordinator.open(entry, tabManager: manager)
+
+        #expect(manager.tabs.count == 1)
+        #expect(manager.selectedWorkspace === workspace)
+        #expect(workspace.bonsplitController.allPaneIds.count == paneCountBefore + 1)
+        #expect(workspace.panels.count == panelCountBefore + 1)
+        let openedPanelID = try #require(workspace.focusedPanelId)
+        #expect(openedPanelID != existingPanel.id)
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[openedPanelID]?.sessionId
+                == entry.sessionId
+        )
+        #expect(
+            workspace.restoredResumeSessionWorkingDirectoriesByPanelId[openedPanelID]
+                == workingDirectory
+        )
+        #expect(
+            workspace.terminalPanel(for: openedPanelID)?
+                .surface.debugInitialInputForTesting() == launch.initialInput
+        )
+    }
+
+    @Test("Vault active-session keys follow foreground shell activity")
+    func inPaneSessionKeysDropAfterAgentReturnsToShell() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/vault-active-session",
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let entry = SessionEntry(
+            id: "codex:active-session",
+            agent: .codex,
+            sessionId: "active-session",
+            title: "Active session",
+            cwd: "/tmp/vault-active-session",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_008),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let panel = try #require(workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: snapshot
+        ))
+        let key = VaultLiveSessionKeys.key(for: entry)
+
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        #expect(SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
+        #expect(!SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: manager).contains(key))
     }
 }

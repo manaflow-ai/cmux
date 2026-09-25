@@ -150,6 +150,59 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testCaffeineMenuAndSocketShareState() throws {
+        let app = configuredApp(mode: "allowAll")
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-NSAppSleepDisabled", "YES"
+        ]
+        launchAllowingHeadlessBackground(app)
+        defer {
+            _ = socketResult(
+                method: "caffeine.set",
+                params: ["enabled": false]
+            )
+            app.terminate()
+        }
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected the app to launch for caffeine menu verification"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected a control socket for caffeine verification"
+        )
+        XCTAssertEqual(
+            socketResult(method: "caffeine.status", params: [:])?["enabled"] as? Bool,
+            false
+        )
+
+        clickKeepMacAwakeMenu(in: app)
+
+        let enabled = waitForJSON(timeout: 5.0) {
+            guard self.socketResult(
+                method: "caffeine.status",
+                params: [:]
+            )?["enabled"] as? Bool == true else { return nil }
+            return ["enabled": true]
+        }
+        XCTAssertNotNil(enabled, "Expected the menu to enable the shared caffeine controller")
+
+        XCTAssertEqual(
+            socketResult(
+                method: "caffeine.set",
+                params: ["enabled": false]
+            )?["enabled"] as? Bool,
+            false
+        )
+        XCTAssertEqual(
+            socketResult(method: "caffeine.status", params: [:])?["enabled"] as? Bool,
+            false
+        )
+    }
+
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
         let skillRoot = try makeSkillFixtureRoot(
             skillNames: [
@@ -236,23 +289,7 @@ final class AutomationSocketUITests: XCTestCase {
         ]
         defer { app.terminate() }
 
-        let activationOptions = XCTExpectedFailure.Options()
-        activationOptions.isStrict = false
-        activationOptions.issueMatcher = { issue in
-            let diagnostics = [
-                issue.compactDescription,
-                issue.detailedDescription,
-                issue.associatedError?.localizedDescription,
-            ]
-                .compactMap { $0 }
-                .joined(separator: "\n")
-            return (issue.type == .system || issue.type == .assertionFailure) &&
-                diagnostics.contains("Failed to activate application") &&
-                diagnostics.contains("Running Background")
-        }
-        XCTExpectFailure("App activation may fail on headless CI runners", options: activationOptions) {
-            app.launch()
-        }
+        launchAllowingHeadlessBackground(app)
         XCTAssertTrue(
             ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for the window screenshot test. state=\(app.state.rawValue)"
@@ -579,6 +616,45 @@ final class AutomationSocketUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
+    }
+
+    private func launchAllowingHeadlessBackground(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        options.issueMatcher = { issue in
+            let diagnostics = [
+                issue.compactDescription,
+                issue.detailedDescription,
+                issue.associatedError?.localizedDescription
+            ]
+                .compactMap { $0 }
+                .joined(separator: "\n")
+            return (issue.type == .system || issue.type == .assertionFailure) &&
+                diagnostics.contains("Failed to activate application") &&
+                diagnostics.contains("Running Background")
+        }
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+    }
+
+    private func clickKeepMacAwakeMenu(in app: XCUIApplication) {
+        let applicationMenu = app.menuBars.menuBarItems.element(boundBy: 0)
+        XCTAssertTrue(
+            applicationMenu.waitForExistence(timeout: 5.0),
+            "Expected the application menu"
+        )
+        applicationMenu.click()
+        let keepAwakeItem = app.menuItems["Keep Mac Awake"]
+        XCTAssertTrue(
+            keepAwakeItem.waitForExistence(timeout: 3.0),
+            "Expected the localized Keep Mac Awake menu item"
+        )
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "mac-keep-awake-menu"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        keepAwakeItem.click()
     }
 
     private func ensureRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {

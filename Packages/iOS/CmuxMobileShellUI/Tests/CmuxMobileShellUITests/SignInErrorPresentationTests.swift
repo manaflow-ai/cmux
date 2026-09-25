@@ -1,3 +1,4 @@
+import Foundation
 import StackAuth
 import Testing
 @testable import CmuxMobileShellUI
@@ -33,5 +34,56 @@ import Testing
                     == "Apple Sign In is not available yet. Please use another sign-in method."
             )
         }
+    }
+
+    @Test func unverifiedExistingEmailDoesNotRequireAPassword() {
+        let presentation = SignInErrorPresentation()
+        let error = StackAuthError(
+            code: "USER_EMAIL_ALREADY_EXISTS",
+            message: "email is unverified",
+            details: ["would_work_if_email_was_verified": true]
+        )
+
+        #expect(
+            SignInEmailCodeFailurePolicy().action(for: error)
+                == .requestEmailVerification
+        )
+        #expect(presentation.failureReason(for: error) == "email_unverified")
+        #expect(!presentation.message(for: error).localizedCaseInsensitiveContains("password"))
+    }
+
+    @Test func bridgedUnverifiedFlagRequestsEmailVerification() {
+        let error = StackAuthError(
+            code: "USER_EMAIL_ALREADY_EXISTS",
+            message: "email is unverified",
+            details: ["would_work_if_email_was_verified": NSNumber(value: true)]
+        )
+
+        #expect(
+            SignInEmailCodeFailurePolicy().action(for: error)
+                == .requestEmailVerification
+        )
+    }
+
+    @Test func genericExistingEmailErrorRemainsAnError() {
+        let error = StackAuthError(
+            code: "USER_EMAIL_ALREADY_EXISTS",
+            message: "email already exists"
+        )
+
+        #expect(
+            SignInEmailCodeFailurePolicy().action(for: error)
+                == .showError
+        )
+    }
+
+    @Test func passwordMismatchUsesCredentialFailureReason() {
+        let presentation = SignInErrorPresentation()
+        let error = StackAuthError(
+            code: "EMAIL_PASSWORD_MISMATCH",
+            message: "wrong password"
+        )
+
+        #expect(presentation.failureReason(for: error) == "invalid_credentials")
     }
 }
