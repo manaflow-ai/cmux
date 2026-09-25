@@ -58,7 +58,47 @@ extension TabManager {
             workspaceIndex: record.workspaceIndex,
             snapshot: record.snapshot
         )
-        guard restoreClosedWorkspace(entry) else { return false }
+        if restoreClosedWorkspace(entry) {
+            _ = ParkedWorkspaceStore.shared.remove(id: record.id)
+            return true
+        }
+
+        // A removed transcript or incompatible resume command must leave the
+        // workspace usable with its captured terminal history as context. Drop
+        // only the agent launch metadata and keep the topology, titles, and
+        // scrollback so the user can start a fresh session explicitly.
+        var fallbackSnapshot = record.snapshot
+        var hadAgentResume = false
+        fallbackSnapshot.panels = fallbackSnapshot.panels.map { panel in
+            var panel = panel
+            guard var terminal = panel.terminal else { return panel }
+            guard terminal.agent != nil || terminal.resumeBinding != nil || terminal.managedAgentResumeBinding != nil else {
+                return panel
+            }
+            hadAgentResume = true
+            terminal.agent = nil
+            terminal.resumeBinding = nil
+            terminal.managedAgentResumeBinding = nil
+            terminal.wasAgentRunning = nil
+            panel.terminal = terminal
+            return panel
+        }
+        guard hadAgentResume else { return false }
+        let fallbackState: AgentRestoreRecoveryPresentation.State = fallbackSnapshot.panels.contains {
+            $0.terminal?.scrollback?.isEmpty == false
+        } ? .parkedResumeUnavailable : .parkedTranscriptUnavailable
+        let fallbackEntry = ClosedWorkspaceHistoryEntry(
+            workspaceId: record.id,
+            windowId: record.windowId,
+            workspaceIndex: record.workspaceIndex,
+            snapshot: fallbackSnapshot
+        )
+        guard restoreClosedWorkspace(fallbackEntry) else { return false }
+        if let workspace = tabs.first(where: { $0.id == record.id }) {
+            for panel in workspace.panels.values {
+                (panel as? TerminalPanel)?.restoreRecovery.state = fallbackState
+            }
+        }
         _ = ParkedWorkspaceStore.shared.remove(id: record.id)
         return true
     }

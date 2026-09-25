@@ -7519,8 +7519,8 @@ struct ContentView: View {
             let transcriptTerms = record.snapshot.panels
                 .compactMap { $0.terminal?.scrollback }
                 .joined(separator: " ")
+                .prefix(20_000)
                 .split(whereSeparator: { $0.isWhitespace })
-                .prefix(48)
                 .map(String.init)
             contributions.append(
                 CommandPaletteCommandContribution(
