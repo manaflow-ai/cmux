@@ -347,7 +347,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         if rendererKind == .react {
             return AgentSessionWebRendererURLSchemeHandler.shellURL()
         }
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
+        return rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
             $0.appendingPathComponent($1, isDirectory: false)
         }
     }
