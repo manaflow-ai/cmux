@@ -30,6 +30,14 @@ struct IrxMacDiscoverabilityTests {
         return state
     }
 
+    @Test("A discoverable Mac remains authorized with iOS pairing either on or off", arguments: [false, true])
+    func hostingRemainsIndependentFromMobilePairing(mobilePairing: Bool) throws {
+        let state = cache(peer: record(device: device, endpoint: endpoint, enabled: mobilePairing))
+        let selected = try IrxMacPeerAuthorization(deviceID: device, tag: "feature", endpointID: endpoint)
+            .resolve(cache: state, localIdentity: state.identity, now: Date(timeIntervalSince1970: 1001))
+        #expect(selected.descriptor.identity.deviceID == device)
+    }
+
     @Test("Known Mac opt-out is distinct from a missing peer, independently of iOS pairing", arguments: [false, true])
     func disabledHostingHasItsOwnFailure(mobilePairing: Bool) throws {
         let intent = IrxMacPeerAuthorization(deviceID: device, tag: "feature", endpointID: endpoint)

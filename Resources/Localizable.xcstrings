@@ -555290,6 +555290,65 @@
                 }
             }
         }
+    },
+    "devices.link.error.notDiscoverable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac isn’t discoverable. On that Mac, turn on “Make this Mac discoverable” in Settings › Computers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا غير قابل للاكتشاف. على ذلك الجهاز، فعّل «جعل جهاز Mac هذا قابلاً للاكتشاف» في الإعدادات › أجهزة الكمبيوتر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist nicht auffindbar. Aktiviere auf diesem Mac unter „Einstellungen › Computer“ die Option „Diesen Mac auffindbar machen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no es detectable. En ese Mac, activa «Hacer que este Mac sea detectable» en Ajustes › Ordenadores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’est pas détectable. Sur ce Mac, activez « Rendre ce Mac détectable » dans Réglages › Ordinateurs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは検出可能になっていません。そのMacの「設定 › コンピュータ」で「このMacを検出可能にする」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac을 검색할 수 없습니다. 해당 Mac의 설정 › 컴퓨터에서 “이 Mac을 검색할 수 있도록 설정”을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 无法被发现。请在该 Mac 的“设置 › 电脑”中开启“允许发现此 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部 Mac 無法被探索。請在該 Mac 的「設定 › 電腦」中開啟「允許探索此 Mac」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
