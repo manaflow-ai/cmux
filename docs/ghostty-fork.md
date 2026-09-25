@@ -18,6 +18,7 @@ When we change the fork, update this document and the parent submodule SHA.
 - Commits:
   - `f48511fda` (test: bound teardown for SIGHUP-ignoring launchers)
   - `9b048945d` (fix(termio): escalate SIGHUP-ignoring launchers promptly)
+  - `680a5fe93` (fix(termio): validate Darwin process records before escalation)
 - File: `src/termio/Exec.zig`
 - Summary: macOS `/usr/bin/login` ignores SIGHUP while it hands a new PTY to
   its shell. Teardown now detects that disposition and escalates only that
@@ -27,7 +28,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - Verification: the fork regression requires a SIGHUP-ignoring leader to reap
   in under 500 ms with a one-second SIGHUP grace. The test is skipped on
   non-Darwin targets because the process-disposition query is macOS-specific;
-  hosted macOS Ghostty tests provide the behavioral proof.
+  hosted macOS Ghostty tests provide the behavioral proof. The disposition
+  query zero-initializes and size-checks the Darwin process record before
+  reading its signal mask.
 - Conflict note: preserve the per-process-group phase and do not collapse the
   launcher and foreground groups back into one shared deadline. Doing so
   reintroduces the startup close stall or cuts off shell shutdown hooks.
@@ -45,7 +48,7 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `9b048945d`, the prompt-teardown fix
+The submodule pinned by this branch is `680a5fe93`, the prompt-teardown fix
 described above on top of the cmux-only replay fix `a3e9304c5d`. The replay fix
 preserves physical blank rows until cursor/state restoration completes, so a
 restored Cloud grid cannot regain stale history rows. The base SHA preserves
