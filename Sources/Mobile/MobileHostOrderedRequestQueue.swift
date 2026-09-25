@@ -144,9 +144,11 @@ final class MobileTerminalInputOrdering {
 
     func invalidate(_ token: MobileTerminalInputOrderingToken) {
         guard activeTokens.remove(token) != nil else { return }
-        lastSequenceBySurfaceAndToken.removeAll { $0.key.token == token }
+        lastSequenceBySurfaceAndToken = lastSequenceBySurfaceAndToken.filter {
+            $0.key.token != token
+        }
         identityByToken.removeValue(forKey: token)
-        tokenByIdentity.removeAll { $0.value == token }
+        tokenByIdentity = tokenByIdentity.filter { $0.value != token }
     }
 
     func reserve(
