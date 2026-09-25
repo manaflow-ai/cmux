@@ -71,15 +71,44 @@ struct TerminalPredictionEngineTests {
         // The IO thread stamps arrivals; the main actor drains them later. A
         // key typed in between must not claim output that was already in
         // flight, or a prompt could arm the echo run.
-        var session = Session()
+        //
+        // The link is already measured slow, so claiming that output re-arms
+        // a run that draws the next key. A fresh session would not show the
+        // bug: its first latency sample would be negative, and a link that
+        // measures fast draws nothing either way.
+        var session = armedSession()
+        session.remote("\r\n")
+        #expect(session.engine.status(at: session.clock) == .listening)
+
         session.advance(.milliseconds(10))
         let arrival = session.clock
-        session.type("l")
-        session.engine.observedOutput(Array("l".utf8), at: arrival)
+        session.type("$")
+        session.engine.observedOutput(Array("$".utf8), at: arrival)
 
         session.type("s")
         #expect(session.drawn == "")
-        #expect(session.engine.observedEchoLatency == nil)
+        #expect(session.engine.observedEchoLatency == .milliseconds(70))
+    }
+
+    @Test func anEraseThatArrivedBeforeTheBackspaceIsNotItsEcho() {
+        // The erase counterpart of the case above: a cursor-left and clear
+        // already in flight when Backspace was pressed must not complete
+        // that Backspace's erase, or the glyph typed after it stays drawn
+        // while the real erase is still to come.
+        var session = armedSession()
+        let typedA = session.clock + .milliseconds(10)
+        session.type("a")
+        session.type("\u{7F}")
+        let typedBackspace = session.clock
+        session.type("b")
+        #expect(session.drawn == "b")
+
+        session.engine.observedOutput(Array("a".utf8), at: typedA + .milliseconds(5))
+        session.engine.observedOutput(
+            Array("\u{8}\u{1B}[K".utf8),
+            at: typedBackspace - .milliseconds(1)
+        )
+        #expect(session.drawn == "")
     }
 
     @Test func predictsOnceTheEchoRunIsEstablished() {
