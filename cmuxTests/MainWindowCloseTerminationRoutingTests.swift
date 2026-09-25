@@ -83,7 +83,7 @@ private func evaluateCloseOutsideXCTest(
     let shouldClose = try body()
     // The quit path hands NSApp.terminate to a later run-loop turn (#10788).
     // Drain it while the spy is still installed so the real terminate never runs.
-    drainMainQueue()
+    drainDeferredTerminate()
     return (shouldClose, ApplicationTerminateSpy.callCount)
 }
 
@@ -93,7 +93,7 @@ private final class MainRunLoopDrainFlag: @unchecked Sendable {
 }
 
 @MainActor
-private func drainMainQueue() {
+private func drainDeferredTerminate() {
     let deadline = Date(timeIntervalSinceNow: 1.0)
     let flag = MainRunLoopDrainFlag()
     // A run-loop block, not DispatchQueue.main.async: this test body is itself a
