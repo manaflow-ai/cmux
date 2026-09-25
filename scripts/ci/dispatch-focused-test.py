@@ -59,9 +59,6 @@ RUNNERS = (
     "blacksmith-12vcpu-macos-26",
     "blacksmith-6vcpu-macos-latest",
     "glaeda-std-xcode-26.6",
-    "tart-canary",
-    "tart-dual",
-    "tart-small",
 )
 # An unpinned run takes whichever macOS 26 pool pull request CI would, by
 # preference and queue depth. The rule lives in e2e_runner_pool.py, which

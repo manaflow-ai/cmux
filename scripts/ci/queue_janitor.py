@@ -85,7 +85,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
-from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label  # noqa: E402
+from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -293,15 +293,16 @@ def marker_peaks(marker: tuple[str, int], owned_jobs: Sequence[Mapping[str, Any]
 
     ci.yml's marker names the pool label and every owned machine the run
     placed, root jobs and side lanes alike. Its root jobs' share is that peak
-    less the jobs it put on the pool label itself (the side lanes, which
-    start beside admission); a side lane not listed yet only reserves more.
+    less the jobs it put on the pool label itself or on its side label (the
+    side lanes, which start beside admission and take the side label when
+    the picker named one); a side lane not listed yet only reserves more.
     An E2E marker names the root label when the run took one, which is also
     one of the pool's machines.
     """
     pool, peak = marker
     if pool_label(pool) != pool:
         return [(pool, peak), (pool_label(pool), peak)]
-    side = sum(1 for job in owned_jobs if owned_label(job) == pool)
+    side = sum(1 for job in owned_jobs if owned_label(job) in (pool, side_label(pool)))
     return [(pool, peak)] + ([(root_label(pool), peak - side)] if root_label(pool) and peak > side else [])
 
 

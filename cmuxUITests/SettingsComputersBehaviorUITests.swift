@@ -1,17 +1,23 @@
 import XCTest
 
 final class SettingsComputersBehaviorUITests: SettingsUITestCase {
-    func testComputersSectionShowsIndependentDiscoveryAndAccessControls() {
+    func testMobileSectionShowsComputersDiscoveryAndAccessControls() {
         let app = makeLaunchedApp()
         let window = openSettings(app)
         defer { closeSettings(app, window) }
 
         let before = XCTAttachment(screenshot: window.screenshot())
-        before.name = "Settings before opening Computers"
+        before.name = "Settings before opening Mobile"
         before.lifetime = .keepAlways
         add(before)
 
-        navigate(window, to: "Computers")
+        let sidebar = window.outlines.firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCTAssertFalse(sidebar.staticTexts["Computers"].exists)
+
+        navigate(window, to: "Mobile")
+        XCTAssertTrue(window.staticTexts["Computers"].waitForExistence(timeout: 5))
+        XCTAssertFalse(window.staticTexts["Your Macs"].exists)
 
         let options = window.descendants(matching: .any)["SettingsComputersOptions"].firstMatch
         XCTAssertTrue(options.waitForExistence(timeout: 5))
@@ -24,8 +30,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         add(after)
 
         options.click()
-        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersEnabled"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersDiscoveryToggle"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersDiscoveryToggle"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersIncomingAccessToggle"].exists)
         app.typeKey(.escape, modifierFlags: [])
     }
