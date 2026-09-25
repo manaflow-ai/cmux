@@ -57,6 +57,12 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
 
+    /// Runs the shared v1 `quit` body: requests a normal application quit on
+    /// the next main run-loop turn, exactly like Cmd+Q from the keyboard.
+    ///
+    /// - Returns: The raw v1 response.
+    func controlDebugQuit() -> String
+
     /// Requests the selected workspace's checklist add field for
     /// `debug.workspace_todo.checklist_add_field`.
     ///

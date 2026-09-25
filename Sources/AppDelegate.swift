@@ -1304,9 +1304,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     enum TerminateCleanupPhase: Equatable, Sendable {
         case ownedRuntimeCleanup
         case freshSnapshot
+        /// The fresh snapshot is saved; agent processes are being terminated
+        /// and awaited (https://github.com/manaflow-ai/cmux/issues/12805).
+        case agentTermination
     }
     enum TerminateCleanupDeadlineDisposition: Equatable, Sendable {
         case persistCachedSnapshotAndTerminate
+        /// The snapshot saved before agent termination is authoritative; a
+        /// re-save after the agents died would record them as not running.
+        case terminateWithSavedSnapshot
         case cancelTerminationAfterRuntimeCleanupFailure
     }
     private var terminateCleanupPhase: TerminateCleanupPhase?
@@ -2084,7 +2090,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
-        guard hasOwnedRuntimeCleanup || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
+        // Agents cmux spawned are owned runtime too: quit terminates them and
+        // waits so a relaunch never resumes a session whose previous process
+        // still holds its state (Codex's thread writer lock, #12805). The cached
+        // index gates the deferral cheaply; the fresh index decides the targets.
+        let hasLiveAgentProcesses = quitAgentTerminationScopes(
+            index: SharedLiveAgentIndex.shared.index ?? .empty
+        ).contains { !$0.processIDs.isEmpty }
+        guard hasOwnedRuntimeCleanup
+            || hasLiveAgentProcesses
+            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
             return false
         }
         if !isAwaitingTerminateCleanup {
@@ -2097,6 +2112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "simulatorPanels": String(simulatorCleanupTasks.count),
                     "freshAgentIndex": "1",
                     "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
+                    "liveAgents": hasLiveAgentProcesses ? "1" : "0",
                     "reason": reason,
                 ]
             )
@@ -2134,6 +2150,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+                // The snapshot above recorded the agents as running, so the
+                // relaunch will resume them. Only now may they be terminated.
+                self.terminateCleanupPhase = .agentTermination
+                await self.terminateAgentProcessesBeforeQuit(
+                    index: resumeIndexes.restorableAgentIndex
+                )
+                guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
@@ -2148,13 +2171,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // this quit request. Once owned cleanup succeeds, the fresh agent-index
             // load is the only remaining work; its timeout falls back to cached
             // indexes and lets termination proceed without reporting cleanup failure.
-            let cleanupDeadline: Duration
+            var cleanupDeadline: Duration
             if !simulatorCleanupTasks.isEmpty {
                 cleanupDeadline = .seconds(155)
             } else if !markedForKill.isEmpty {
                 cleanupDeadline = .milliseconds(8_500)
             } else {
                 cleanupDeadline = .seconds(5)
+            }
+            if hasLiveAgentProcesses {
+                // Fresh index load, snapshot save, then the full agent budget.
+                cleanupDeadline = max(
+                    cleanupDeadline,
+                    .seconds(5) + AgentQuitTerminationCoordinator().budget
+                )
             }
             terminateCleanupWatchdogTask?.cancel()
             terminateCleanupWatchdogTask = Task { @MainActor in
@@ -2166,11 +2196,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     hasOwnedRuntimeCleanup: hasOwnedRuntimeCleanup
                 )
                 guard disposition == .cancelTerminationAfterRuntimeCleanupFailure else {
-                    _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
-                        includeScrollback: true,
-                        removeWhenEmpty: false
-                    )
-                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                    if disposition == .persistCachedSnapshotAndTerminate {
+                        _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+                            includeScrollback: true,
+                            removeWhenEmpty: false
+                        )
+                        ClosedItemHistoryStore.shared.flushPendingSaves()
+                    } else {
+                        StartupBreadcrumbLog.append(
+                            "appDelegate.shouldTerminate.agentTerminationDeadline"
+                        )
+                    }
                     self.terminationWatchdog.arm()
                     self.replyToTerminateOnce(true)
                     return
@@ -2193,10 +2229,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         phase: TerminateCleanupPhase?,
         hasOwnedRuntimeCleanup: Bool
     ) -> TerminateCleanupDeadlineDisposition {
+        if phase == .agentTermination {
+            return .terminateWithSavedSnapshot
+        }
         if phase == .freshSnapshot || !hasOwnedRuntimeCleanup {
             return .persistCachedSnapshotAndTerminate
         }
         return .cancelTerminationAfterRuntimeCleanupFailure
+    }
+
+    /// Every panel whose recorded agent still has live process evidence.
+    @MainActor
+    func quitAgentTerminationScopes(
+        index: RestorableAgentSessionIndex
+    ) -> [AgentHibernationController.ProcessTerminationScope] {
+        agentHibernationRecords(
+            index: index,
+            activityByPanel: [:],
+            terminalInputByPanel: [:],
+            lifecycleChangeByPanel: [:]
+        )
+        .filter(\.hasLiveProcess)
+        .map(\.processTerminationScope)
+    }
+
+    /// Terminates the agents cmux spawned and waits for them within a bounded
+    /// budget. Runs only after the fresh session snapshot is saved, because that
+    /// snapshot must record the agents as running for the relaunch to resume them.
+    @MainActor
+    private func terminateAgentProcessesBeforeQuit(
+        index: RestorableAgentSessionIndex
+    ) async {
+        let scopes = quitAgentTerminationScopes(index: index)
+        guard scopes.contains(where: { !$0.processIDs.isEmpty }) else { return }
+        let coordinator = AgentQuitTerminationCoordinator()
+        let started = ContinuousClock.now
+        let outcome = await coordinator.terminateAndWait(scopes: scopes)
+        let elapsed = started.duration(to: .now).components
+        let elapsedMilliseconds = elapsed.seconds * 1_000
+            + elapsed.attoseconds / 1_000_000_000_000_000
+        StartupBreadcrumbLog.append(
+            "appDelegate.shouldTerminate.agentTermination",
+            fields: [
+                "targets": String(outcome.targetPanels),
+                "exited": String(outcome.exitedPanels),
+                "rejected": String(outcome.rejectedPanels),
+                "survivors": String(outcome.survivingPanels),
+                "ms": String(elapsedMilliseconds),
+            ]
+        )
     }
 
     private func cancelTerminationAfterSimulatorCleanupFailure() {
