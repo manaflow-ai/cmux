@@ -75,7 +75,8 @@ struct SubrouterClaudeRestoreRoutingTests {
     private func expectPlainClaudeReplay(
         _ invocation: AgentRestoreInvocation,
         baseURL: String,
-        _ label: String
+        _ label: String,
+        configDirectory: String = "/Users/me/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a"
     ) {
         #expect(invocation.arguments.first == "/shim/claude", "\(label): \(invocation.arguments)")
         #expect(invocation.arguments.contains("sr") == false, "\(label): \(invocation.arguments)")
@@ -84,7 +85,7 @@ struct SubrouterClaudeRestoreRoutingTests {
         #expect(invocation.arguments.contains(sessionID), "\(label): \(invocation.arguments)")
         // The existing replay keeps carrying the auth selection it captured.
         #expect(invocation.environment["ANTHROPIC_BASE_URL"] == baseURL, "\(label)")
-        #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == capturedConfigDir, "\(label)")
+        #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == configDirectory, "\(label)")
         #expect(invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] == "1", "\(label)")
     }
 
@@ -264,8 +265,31 @@ struct SubrouterClaudeRestoreRoutingTests {
 
     @Test("A local pool base URL alone is never treated as provenance")
     func localPoolBaseURLAloneKeepsThePlainReplay() throws {
+        let request = resumeRequest(environment: [
+            "ANTHROPIC_BASE_URL": localPoolBaseURL,
+            "CLAUDE_CONFIG_DIR": "/Users/me/.claude",
+        ])
+
+        let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+            for: request,
+            ambientEnvironment: ambientEnvironment
+        ))
+
+        expectPlainClaudeReplay(
+            invocation,
+            baseURL: localPoolBaseURL,
+            "base url only",
+            configDirectory: "/Users/me/.claude"
+        )
+    }
+
+    @Test("A pre-marker Subrouter proxy config directory restores through sr claude proxy")
+    func legacyProxyConfigDirectoryReinvokesSubrouter() throws {
         let request = resumeRequest(
-            environment: routedLaunchEnvironment(baseURL: localPoolBaseURL)
+            environment: [
+                "ANTHROPIC_BASE_URL": localPoolBaseURL,
+                "CLAUDE_CONFIG_DIR": "/Users/daniel/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a",
+            ]
         )
 
         let invocation = try #require(plannerWithSubrouterOnPath().invocation(
@@ -273,7 +297,9 @@ struct SubrouterClaudeRestoreRoutingTests {
             ambientEnvironment: ambientEnvironment
         ))
 
-        expectPlainClaudeReplay(invocation, baseURL: localPoolBaseURL, "base url only")
+        #expect(invocation.arguments.starts(with: ["sr", "claude", "proxy", "--resume", sessionID]))
+        #expect(invocation.environment["ANTHROPIC_BASE_URL"] == nil)
+        #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == nil)
     }
 
     @Test("When sr cannot be resolved on the restore PATH the plain replay is kept")
@@ -421,4 +447,3 @@ struct SubrouterClaudeResumeMarkerCaptureTests {
         #expect(AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: "claude").isEmpty)
     }
 }
-
