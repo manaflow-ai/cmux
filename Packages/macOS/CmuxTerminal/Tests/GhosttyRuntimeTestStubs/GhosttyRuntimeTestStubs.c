@@ -68,6 +68,15 @@ static GhosttyRuntimeTestSurfaceSize* cmux_test_surface_size_for(void* surface) 
     }
     return NULL;
 }
+
+static void cmux_test_surface_size_clear(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_surface_sizes) / sizeof(cmux_test_surface_sizes[0]); index++) {
+        if (cmux_test_surface_sizes[index].surface == surface) {
+            memset(&cmux_test_surface_sizes[index], 0, sizeof(cmux_test_surface_sizes[index]));
+            return;
+        }
+    }
+}
 static void* cmux_test_font_callback_surface = NULL;
 static ghostty_font_size_action_cb cmux_test_font_callback = NULL;
 static void* cmux_test_font_callback_userdata = NULL;
@@ -522,6 +531,7 @@ void ghostty_surface_free(void *surface) {
         cmux_test_font_callback_userdata = NULL;
     }
     cmux_test_render_callbacks_clear(surface);
+    cmux_test_surface_size_clear(surface);
 }
 void ghostty_surface_free_text(void) {}
 float ghostty_surface_font_size(void *surface) {

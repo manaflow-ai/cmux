@@ -359,12 +359,18 @@ extension TerminalSurface {
             applySurfaceSize(surface, width: wpx, height: hpx, caller: caller)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            // A layout-driven resize can arrive while the surface is being
+            // revealed (for example when opening a side browser). The size
+            // update changes the grid, but the renderer may otherwise retain
+            // the previous frame until another output packet arrives, leaving
+            // stale wide bottom rows painted over the new prompt. Request an
+            // asynchronous refresh for every resize; this is safe for both
+            // PTY-backed and manual-I/O surfaces and avoids render_now's main
+            // thread race with the live renderer.
+            ghostty_surface_refresh(surface)
             if ioMode.usesManualIO {
-                // Async refresh, not render_now: render_now runs updateFrame on
-                // the main thread and races the always-live macOS renderer
-                // thread on a grid-size change (shaper double-free). Keep the
-                // DECAWM re-enable after the resize so no-reflow ordering holds.
-                ghostty_surface_refresh(surface)
+                // Keep the DECAWM re-enable after the resize so no-reflow
+                // ordering holds.
                 if suppressManualReflow {
                     writeProcessOutputData(Self.decawmEnableSequence, to: surface)
                 }
