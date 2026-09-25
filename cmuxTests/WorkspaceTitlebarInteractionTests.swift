@@ -11,6 +11,33 @@ import Testing
 @MainActor
 @Suite("Hidden workspace title interactions", .serialized)
 struct WorkspaceTitlebarInteractionTests {
+    @Test(arguments: [CGFloat(0), CGFloat(120)])
+    func dragHitTestUsesSuperviewCoordinates(offset: CGFloat) throws {
+        let window = makeWindow()
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 20, y: 30, width: 300, height: 140))
+        try #require(window.contentView).addSubview(container)
+        let dragView = WorkspaceTitlebarDragView(frame: NSRect(x: offset, y: 0, width: 80, height: 28))
+        container.addSubview(dragView)
+        let local = NSPoint(x: 40, y: 14)
+        let down = try event(window: window, point: dragView.convert(local, to: nil))
+        let previousEvent = NSApp.currentEvent
+        defer {
+            if let previousEvent {
+                NSApp.postEvent(previousEvent, atStart: true)
+                _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+            }
+        }
+        // AppKit exposes its last dequeued event during view hit testing.
+        NSApp.postEvent(down, atStart: true)
+        let dequeued = try #require(NSApp.nextEvent(
+            matching: .leftMouseDown, until: .distantPast, inMode: .default, dequeue: true
+        ))
+        try #require(NSApp.currentEvent === dequeued)
+        #expect(dragView.hitTest(dragView.convert(local, to: container)) === dragView)
+        #expect(dragView.hitTest(NSPoint(x: offset + 90, y: 14)) == nil)
+    }
+
     @Test
     func standardPaneDoubleClicksBypassMinimalModeWindowActions() throws {
         let suite = "WorkspaceTitlebarInteractionTests.\(UUID().uuidString)"
