@@ -106,8 +106,12 @@ extension DeviceSurfaceProvider {
     }
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {
-        guard link.isConnected else { throw DeviceLinkError.notConnected }
-        _ = try await link.request("mobile.terminal.close", params: ["surface_id": id.key])
+        guard id.machine == machine, link.isConnected else { throw DeviceLinkError.notConnected }
+        let owners = link.mirror.workspaces.orderedRecords.filter { workspace in
+            workspace.terminals.contains { $0.id.caseInsensitiveCompare(id.key) == .orderedSame }
+        }
+        guard owners.count == 1, let workspaceID = owners.first?.id else { throw SurfaceCatalogError.unknownResource(id) }
+        try await layoutSync.closeTerminal(surfaceID: id.key, remoteWorkspaceID: workspaceID)
         for (panelID, session) in sessions where session.remoteSurfaceID.uuidString.lowercased() == id.key.lowercased() {
             session.stop()
             sessions[panelID] = nil

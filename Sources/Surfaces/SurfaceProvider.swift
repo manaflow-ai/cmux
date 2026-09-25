@@ -40,6 +40,8 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// Carries the user/lifecycle distinction to providers that synchronize native layouts.
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason)
     /// Called after a restore recorded projections of resources this provider has
     /// already published. Their panes are placeholders until the provider
     /// materializes them, and no later publish is guaranteed to follow.
@@ -76,6 +78,10 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        projectionDidEnd(projection)
+    }
+
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
     }

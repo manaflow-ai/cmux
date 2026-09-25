@@ -292,6 +292,11 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         sessions.removeValue(forKey: projection.panelID)?.stop()
     }
 
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        layoutSync.projectionDidEnd(projection, reason: reason)
+        projectionDidEnd(projection)
+    }
+
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         sessions.removeValue(forKey: projection.panelID)?.stop()

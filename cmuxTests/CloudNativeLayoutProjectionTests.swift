@@ -136,7 +136,8 @@ struct CloudNativeLayoutProjectionTests {
         let remoteA = UUID().uuidString
         let remoteB = UUID().uuidString
         let catalog = SurfaceCatalog()
-        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
         let remoteWorkspace = SurfaceRemoteWorkspace(id: remoteID.uuidString, name: "Remote", index: 0, focused: false)
         for (panel, remote) in [(first, remoteA), (second, remoteB)] {
             let resource = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: remote),
@@ -158,6 +159,7 @@ struct CloudNativeLayoutProjectionTests {
             apply: { _, next in source = next }, createTerminal: { _, _, _ in nil },
             publish: { receiver?.accept($0) }, notificationCenter: NotificationCenter())
         var writes = 0
+        var closeAttempts = 0
         var rejectNext = false
         var holdNext = false
         var release: CheckedContinuation<Void, Never>?
@@ -165,6 +167,10 @@ struct CloudNativeLayoutProjectionTests {
         let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
             workspace: { $0 == viewer.id ? viewer : nil },
             request: { method, params in
+                if method == "mobile.terminal.close" {
+                    closeAttempts += 1
+                    throw DeviceLinkError.notConnected
+                }
                 if method == "device.workspace.layout.apply" {
                     writes += 1
                     if rejectNext { rejectNext = false; throw DeviceLinkError.notConnected }
@@ -181,6 +187,13 @@ struct CloudNativeLayoutProjectionTests {
                 }
             }, refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
         receiver = coordinator
+        provider.onProjectionEnd = { coordinator.projectionDidEnd($0, reason: $1) }
+        provider.materializeProjection = { resource, view, _ in
+            let pane = try #require(viewer.bonsplitController.allPaneIds.first)
+            let panel = try #require(viewer.newTerminalSurface(inPane: pane, focus: false))
+            return SurfaceProjection(resource: resource.id, workspaceID: viewer.id, panelID: panel.id,
+                remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+        }
         defer { coordinator.stop(); entered.continuation.finish() }
         let initial = try #require(host.snapshot(for: remoteID))
         coordinator.accept(initial)
@@ -217,6 +230,15 @@ struct CloudNativeLayoutProjectionTests {
         #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source) == true,
             "A failed write rolls the viewer back to the authoritative source layout")
         #expect(Set(viewer.panels.keys) == [first, second], "Layout reconciliation preserves terminal instances")
+
+        viewer.performRemoteTmuxMirrorMutation { _ = viewer.closePanel(second, force: true) }
+        catalog.endProjections(panelID: second)
+        await coordinator.waitForIdle()
+        #expect(closeAttempts == 1)
+        let restored = catalog.projections.filter { $0.workspaceID == viewer.id }
+        #expect(Set(restored.map(\.resource.key)) == [remoteA, remoteB], "A failed close restores the source terminal in the viewer")
+        let restoredMapping = Dictionary(uniqueKeysWithValues: restored.map { ($0.panelID.uuidString, $0.resource.key) })
+        #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(restoredMapping).hasSameArrangement(as: source) == true)
     }
 
     @Test(arguments: [false, true])
