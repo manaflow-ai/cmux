@@ -145,13 +145,13 @@ struct TerminalPaneMetricInvalidationTests {
         let runtime = try #require(fixture.surface.surface)
         let selection = ghostty_selection_s(
             top_left: ghostty_point_s(
-                tag: GHOSTTY_POINT_SURFACE,
+                tag: GHOSTTY_POINT_VIEWPORT,
                 coord: GHOSTTY_POINT_COORD_TOP_LEFT,
                 x: 0,
                 y: 0
             ),
             bottom_right: ghostty_point_s(
-                tag: GHOSTTY_POINT_SURFACE,
+                tag: GHOSTTY_POINT_VIEWPORT,
                 coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
                 x: 0,
                 y: 0
