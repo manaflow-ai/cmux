@@ -66,9 +66,8 @@ extension SocketClient {
         while true {
             let raw = try send(command: requestLine, responseTimeout: responseTimeout, deadline: operationDeadline)
 
-            // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
-            // before the JSON protocol starts. Surface these directly instead of letting
-            // JSONSerialization throw a confusing parse error.
+            // The shared transport already translates access-policy denials. Keep other
+            // plain-text server errors out of JSONSerialization so they remain actionable.
             if raw.hasPrefix("ERROR:") {
                 throw CLIError(message: raw)
             }
