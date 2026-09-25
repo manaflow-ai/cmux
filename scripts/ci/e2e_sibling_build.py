@@ -11,8 +11,17 @@ for a macOS runner. It finds the oldest unfinished earlier dispatch of this
 revision on the same macOS and polls that run's build job. Exit status 0 means
 the job published its product, so the build job's reuse step restores it; 1
 means there is nothing to wait for, the other compile failed, or the budget ran
-out, and the build job compiles as before. Only a later run waits on an earlier one,
-so two runs never wait on each other.
+out, and the build job compiles as before.
+
+A run waits only on a run whose current attempt started before its own
+(run_started_at, then id), so two runs never wait on each other. The id alone
+is not that order: a full re-run keeps its id but starts again, after runs
+with higher ids may have begun compiling. A run re-run while another waits on
+it has started after the waiter, so the waiter stops and compiles.
+
+A re-run of failed jobs, as the owned-pool rescue does, does not re-run this
+job, so that attempt never waits. Run 36168890047's attempt 2 compiled product
+8c48a10e of 4f0ac55 at 17:47Z beside run 36168944875 that way.
 """
 from __future__ import annotations
 
@@ -46,22 +55,36 @@ def gh_api(path: str) -> dict:
 
 
 def same_macos(a: str, b: str) -> bool:
-    """A product depends on the image's Xcode and SDK, not on the pool's size."""
+    """A product depends on the image's Xcode and SDK, not on the pool's size.
+
+    An owned pool's label names no macOS, so it matches only itself: the
+    contract also hashes the node, go and bun versions, and no run has yet
+    shown an owned Mac's product key to equal Blacksmith's.
+    """
     left, right = MACOS.search(a), MACOS.search(b)
     if left and right:
         return left.group(1) == right.group(1)
     return a == b
 
 
-def earlier_sibling(runs: list[dict], run_id: str, revision: str, runner: str) -> dict | None:
-    """The oldest unfinished earlier dispatch compiling `revision` on the same macOS."""
+def started(run: dict) -> tuple[str, int]:
+    """When the run's current attempt started, then its id: the order runs wait in.
+
+    GitHub writes run_started_at as UTC "YYYY-MM-DDTHH:MM:SSZ", so the strings
+    order as times. A run without one sorts first.
+    """
+    return str(run.get("run_started_at") or ""), int(run["id"])
+
+
+def earlier_sibling(runs: list[dict], this: dict, revision: str, runner: str) -> dict | None:
+    """The unfinished dispatch compiling `revision` on the same macOS that started first, before `this`."""
     matches = []
     for run in runs:
         match = TITLE.search(str(run.get("display_title", "")))
         if (match and match.group(2) == revision and same_macos(match.group(1), runner)
-                and run.get("status") in UNFINISHED and int(run["id"]) < int(run_id)):
+                and run.get("status") in UNFINISHED and started(run) < started(this)):
             matches.append(run)
-    return min(matches, key=lambda run: int(run["id"])) if matches else None
+    return min(matches, key=started) if matches else None
 
 
 def build_state(jobs: list[dict]) -> str:
@@ -89,8 +112,9 @@ def wait(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> bool:
-    listing = get(RUNNING)
-    sibling = earlier_sibling(listing.get("workflow_runs", []), run_id, revision, runner)
+    runs = get(RUNNING).get("workflow_runs", [])
+    this = next((run for run in runs if str(run.get("id")) == run_id), None) or get(f"actions/runs/{run_id}")
+    sibling = earlier_sibling(runs, this, revision, runner)
     if sibling is None:
         print("No earlier run is compiling this revision.")
         return False
@@ -111,8 +135,12 @@ def wait(
         if state == "failed":
             print(f"Run {sibling['id']} did not compile {revision}; compiling here.")
             return False
-        if get(f"actions/runs/{sibling['id']}").get("status") not in UNFINISHED:
+        current = get(f"actions/runs/{sibling['id']}")
+        if current.get("status") not in UNFINISHED:
             print(f"Run {sibling['id']} finished without compiling {revision}; compiling here.")
+            return False
+        if started(current) > started(this):
+            print(f"Run {sibling['id']} was re-run after this run started; compiling here.")
             return False
         if clock() >= deadline:
             print(f"Run {sibling['id']} is still compiling {revision}; compiling here too.")

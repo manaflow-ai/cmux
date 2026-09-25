@@ -659,6 +659,12 @@ class OwnedPools(unittest.TestCase):
                              ["permission-organization-self-hosted-runners"], "read")
             self.assert_repo_fallback_mint(late_steps, "read")
             self.assertEqual(late_steps[late_ids.index("place")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+        ios = yaml.safe_load((WORKFLOWS / "test-ios.yml").read_text())["jobs"]["runner"]["steps"]
+        ios_ids = [step.get("id") for step in ios]
+        self.assertEqual(ios[ios_ids.index("route-token")]["with"]
+                         ["permission-organization-self-hosted-runners"], "read")
+        self.assert_repo_fallback_mint(ios, "read")
+        self.assertEqual(ios[ios_ids.index("pool")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
 
     def assert_repo_fallback_mint(self, steps, level):
         """A second mint, only when the first failed, with the repository permission alone."""
@@ -2019,6 +2025,17 @@ class Wiring(unittest.TestCase):
         self.assertEqual(steps["keys"]["with"]["name"], "owned-warm-keys-${{ github.event.workflow_run.id }}-"
                                                         "${{ github.event.workflow_run.run_attempt }}")
         self.assertEqual(steps["route-token"]["with"]["permission-administration"], "write")
+        # The minis are org runners (glaeda-minis): their labels need the org permission.
+        self.assertEqual(steps["route-token"]["with"]["permission-organization-self-hosted-runners"], "write")
+        # All or nothing: without the org permission granted, the repository one alone.
+        fallback = steps["route-token-repo"]
+        self.assertEqual(fallback["if"], "steps.route-token.outcome == 'failure'")
+        self.assertIs(fallback["continue-on-error"], True)
+        self.assertEqual(fallback["with"], {key: value for key, value in steps["route-token"]["with"].items()
+                                            if key != "permission-organization-self-hosted-runners"})
+        both = "steps.route-token.outputs.token || steps.route-token-repo.outputs.token"
+        self.assertEqual(steps["Label the runner"]["env"]["ROUTE_TOKEN"], "${{ %s }}" % both)
+        self.assertIn(f"({both}) != ''", steps["Label the runner"]["if"])
         self.assertEqual(steps["Label the runner"]["run"], "python3 scripts/ci/owned_warm_labels.py")
 
     def test_package_tests_take_an_owned_mac_only_where_the_picker_placed_them(self):
@@ -2694,7 +2711,7 @@ class IOSWiring(unittest.TestCase):
         self.assertIn("vars.GLAEDA_ROUTE_APP_ID != ''", mint["if"])
         self.assertTrue(mint["continue-on-error"])
         self.assertEqual(mint["with"]["permission-administration"], "read")
-        self.assertEqual(self.picker_step(runner)["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
+        self.assertEqual(self.picker_step(runner)["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
 
     def test_test_ios_macos_jobs_take_the_runner_jobs_pool(self):
         jobs = self.workflow("test-ios.yml")["jobs"]

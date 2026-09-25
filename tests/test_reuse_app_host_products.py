@@ -1226,6 +1226,14 @@ class ReuseProducts(TestProductHandoff):
             ("main_push_to_main_push", self.main_push_run(), self.main_push_run(), False),
             ("main_push_to_merge_group", self.main_push_run(),
              {**pull_request, "event": "merge_group"}, False),
+            # A dispatch of a main commit PR CI never compiled takes the
+            # seeder's product; its own products still never reach main.
+            ("main_push_to_dispatch", self.main_push_run(), self.e2e_dispatch_run(), True),
+            ("other_branch_push_to_dispatch", self.main_push_run(head_branch="feature"),
+             self.e2e_dispatch_run(), False),
+            ("ci_push_to_dispatch", self.main_push_run(path=".github/workflows/ci.yml"),
+             self.e2e_dispatch_run(), False),
+            ("dispatch_to_main_push", self.e2e_dispatch_run(), self.main_push_run(), False),
         ]
         for name, producer, consumer, expected in cases:
             with self.subTest(name=name):
@@ -1236,6 +1244,14 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(reuse.trusted_ci_run(self.main_push_run(), self.api.repository))
         self.assertFalse(reuse.trusted_ci_run(
             self.main_push_run(head_branch="release"), self.api.repository))
+
+    def e2e_dispatch_run(self):
+        return {
+            "event": "workflow_dispatch",
+            "path": ".github/workflows/test-e2e.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "pull_requests": [],
+        }
 
     def use_main_push_producer(self):
         self.api.run.update(self.main_push_run(), head_sha="abc123")
@@ -1263,6 +1279,24 @@ class ReuseProducts(TestProductHandoff):
             (self.consumer / "Build/Products/cmux-original-producer.json").read_text())
         self.assertEqual(provenance["original_producer"]["revision"], "abc123")
         self.assertEqual(provenance["consumer"]["revision"], "def456")
+
+    def test_a_dispatch_adopts_the_product_a_main_push_compiled(self):
+        self.use_main_push_producer()
+        self.dispatch_consumer()
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertEqual(report["producer_run_id"], "12")
+        self.assertEqual(report["compile_seconds_avoided"], 120.0)
+
+    def test_a_dispatch_rejects_a_main_push_product_of_other_inputs(self):
+        self.use_main_push_producer()
+        self.dispatch_consumer()
+        self.api.product_identities["abc123"] = {**self.contract["product_inputs"], "source": "f" * 64}
+        report = {}
+        with mock.patch.object(self.api, "download") as download:
+            self.assertFalse(self.restore_reuse(report=report))
+            download.assert_not_called()
+        self.assertIn("producer_product_inputs_mismatch", report["miss_reasons"])
 
     def test_main_push_producer_misses(self):
         cases = {
@@ -1312,13 +1346,14 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.consumer.exists())
 
     def test_a_main_push_is_never_a_consumer(self):
-        # main() only restores for consumer events, so no pull request product
-        # can reach main; only pull requests take a main push product.
+        # main() only restores for consumer events, so no pull request or
+        # dispatch product can reach main; only pull requests and dispatches,
+        # which need write access, take a main push product.
         self.assertNotIn("push", reuse.PERMITTED_PRODUCERS)
         self.assertEqual(
             {event for event, producers in reuse.PERMITTED_PRODUCERS.items()
              if "push" in producers},
-            {"pull_request"},
+            {"pull_request", "workflow_dispatch"},
         )
 
     def test_failed_producer_compile_is_a_miss(self):

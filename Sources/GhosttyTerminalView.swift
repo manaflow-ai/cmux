@@ -5646,9 +5646,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func runtimeSurfaceDidBecomeReady() {
         if let surfaceID = terminalSurface?.id {
-            TerminalPredictionCenter.shared.register(surfaceID: surfaceID) { [weak self] in
-                self?.syncPredictionOverlay()
-            }
+            TerminalPredictionCenter.shared.register(
+                surfaceID: surfaceID,
+                isAlternateScreen: { [weak self] in
+                    self?.terminalSurface?.isAlternateScreenActive() ?? false
+                },
+                redraw: { [weak self] in
+                    self?.syncPredictionOverlay()
+                }
+            )
         }
         guard keyboardCopyModeActive, let surface else { return }
         guard initializeKeyboardCopyModeCursor(surface: surface) else {
