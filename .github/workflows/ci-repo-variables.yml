@@ -5,8 +5,10 @@ name: CI repository variables
 # CI_OWNED_POOL_SLOTS counts as zero minis, a forbidden runner label is refused
 # at dispatch. scripts/ci/check_repo_variables.py runs the readers' own
 # validators against the live values and fails this run on a bad one. The
-# schedule is what catches a `gh variable set`; the push and pull_request
-# triggers cover edits to the check itself.
+# schedule is what catches a `gh variable set`; the push trigger covers edits
+# to the check itself. No pull_request trigger: a fork's run would read these
+# variables in fork code, and tests/test_ci_check_repo_variables.py (in the
+# guard suite) covers a PR that edits the check.
 #
 # Values come from the expression context (no token scope can read the
 # variables API), named one by one: a step's env is printed in its public log,
@@ -23,10 +25,6 @@ on:
       - scripts/ci/check_repo_variables.py
       - scripts/ci/pr_runner_pool.py
       - scripts/ci/runner_label_policy.py
-  pull_request:
-    paths:
-      - .github/workflows/ci-repo-variables.yml
-      - scripts/ci/check_repo_variables.py
   workflow_dispatch:
 
 permissions:
