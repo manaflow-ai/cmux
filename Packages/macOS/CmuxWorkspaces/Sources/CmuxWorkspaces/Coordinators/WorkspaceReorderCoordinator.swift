@@ -108,17 +108,19 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     private func moveNotificationTabAfterPinnedGroupMembers(_ tabId: UUID) {
         guard let tab = model.tabs.first(where: { $0.id == tabId }),
               let groupId = tab.groupId,
-              model.workspaceGroups.contains(where: { $0.id == groupId }),
+              let group = model.workspaceGroups.first(where: { $0.id == groupId }),
               !tab.isPinned,
               model.tabs.contains(where: { $0.groupId == groupId && $0.isPinned }) else { return }
         let members = model.tabs.filter { $0.groupId == groupId }
         guard let memberIndex = model.tabs.firstIndex(where: { $0.id == tabId }),
               let runStart = model.tabs.firstIndex(where: { $0.groupId == groupId }),
               let runEnd = model.tabs.lastIndex(where: { $0.groupId == groupId }) else { return }
-        let pinnedCount = members.filter { $0.isPinned }.count
+        let pinnedCount = members.filter {
+            $0.id != group.anchorWorkspaceId && $0.isPinned
+        }.count
         let value = model.tabs.remove(at: memberIndex)
         let adjustedEnd = min(runEnd, model.tabs.count)
-        let insertion = min(runStart + 1 + pinnedCount - (tab.isPinned ? 1 : 0), adjustedEnd)
+        let insertion = min(runStart + 1 + pinnedCount, adjustedEnd)
         model.tabs.insert(value, at: insertion)
     }
 
