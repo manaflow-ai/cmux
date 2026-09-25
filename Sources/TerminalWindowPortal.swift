@@ -1444,32 +1444,31 @@ final class WindowTerminalPortal: NSObject {
         markDividerOverlayNeedingDisplay()
     }
 
-    /// Hosted terminal views that are direct subviews of the given container,
-    /// in back-to-front order. The overlay placement compares against these,
-    /// not against the container's absolute last subview: the pane-swap
-    /// overlay legitimately lives above the divider overlay.
-    /// Back-to-front, the LAST hosted terminal view that is a direct subview
-    /// of the given container — the divider overlay's placement reference.
-    /// Walks subviews from the top down and stops at the first hosted view,
-    /// so the settled common case (divider already above it, pane-swap above
-    /// both) costs one or two index comparisons instead of a full O(entries)
-    /// filter per call; synchronizeAllHostedViews runs this per entry and
-    /// must stay clear of an entries-squared scan.
+    /// The divider overlay's placement reference: the HIGHEST-hosted-index
+    /// sibling in the host's subview order. Any hosted view above the divider
+    /// means the divider needs to move; the reference returned is the topmost
+    /// hosted view overall, so ONE re-add clears every inversion at once.
+    /// Cost: no scan at all when the divider is already the last subview, else
+    /// a single back-to-front pass that stops at the first hosted view it
+    /// finds from the top — the settled case never walks entries, and even the
+    /// churn case is one subviews pass, kept out of an entries-squared
+    /// per-batch blowup.
     private func dividerOverlayReferenceInHost() -> NSView? {
         let subviews = hostView.subviews
+        // Fast path: divider is the last subview. No hosted view can be above
+        // it, and pane-swap/render helpers are the only things it should ever
+        // sit below; nothing to do without scanning.
+        if subviews.last === dividerOverlayView {
+            return subviews.last { $0 is GhosttySurfaceScrollView }
+        }
         guard let dividerIndex = subviews.firstIndex(of: dividerOverlayView) else {
+            // Divider not installed yet: re-add above the topmost hosted view.
             return subviews.last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
         }
-        // Any hosted view the divider does not already clear: pick the topmost.
-        // A hosted view sitting ABOVE the divider (pane churn reordered things)
-        // must trigger a re-add too, otherwise the settled check would only
-        // ever compare against hosted views left below it.
-        if let intruder = subviews[(dividerIndex + 1)...].first(where: { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }) {
-            // Re-add the divider just above the topmost hosted view below or at
-            // the intruder's level; the intruder itself becomes the reference.
-            return intruder
-        }
-        return subviews[..<dividerIndex].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+        // Hosted view above the divider? Take the TOPMOST (highest index), so
+        // one re-add above it clears every hosted view at or beyond that index.
+        return subviews[(dividerIndex + 1)...].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+            ?? subviews[..<dividerIndex].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
     }
 
     private func entryForHostedView(_ view: NSView) -> Entry? {

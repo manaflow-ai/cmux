@@ -150,13 +150,108 @@ extension TerminalWindowPortalLifecycleTests {
         }
 
         let paneSwap = fixture.portal.paneSwapOverlayForTesting
-        if host.subviews.firstIndex(of: paneSwap) != nil,
-           let paneSwapIndex = host.subviews.firstIndex(of: paneSwap) {
-            XCTAssertGreaterThan(
-                paneSwapIndex, dividerIndexAfter,
-                "Pane-swap overlay must stay above the divider overlay"
-            )
-        }
+        let paneSwapIndex = try XCTUnwrap(
+            host.subviews.firstIndex(of: paneSwap),
+            "Fixture syncs must install the pane-swap overlay; this test cannot skip its ordering"
+        )
+        XCTAssertGreaterThan(
+            paneSwapIndex, dividerIndexAfter,
+            "Pane-swap overlay must stay above the divider overlay"
+        )
+    }
+
+    /// With TWO hosted views above the divider (pane churn can sink it below
+    /// several at once), the placement reference must be the TOPMOST hosted
+    /// view, so a single re-add clears every inversion at once. Selecting the
+    /// nearest one instead would take one sync per intruder and could leave
+    /// the divider under hosted views between syncs.
+    @MainActor
+    func testDividerOverlayClearsMultipleHostedIntrudersInOneSync() throws {
+        let fixture = try makeDividerOverlayFixture()
+        defer { fixture.tearDown() }
+
+        settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
+
+        let host = fixture.portal.hostView
+        let divider = fixture.portal.dividerOverlayForTesting
+
+        // Build a real two-intruder state: sink the divider below BOTH hosted
+        // views by re-adding it under the topmost of them.
+        let secondHosted = try XCTUnwrap(
+            fixture.secondHostedView,
+            "Fixture must supply a second hosted surface for this test"
+        )
+        let secondAnchor = try XCTUnwrap(
+            fixture.secondAnchor,
+            "Fixture must supply the second surface's anchor"
+        )
+        fixture.portal.synchronizeHostedViewForAnchor(secondAnchor, syncLayout: false)
+
+        // Re-add the divider below the second hosted view, which by (or after
+        // a re-order) sits at or above the first hosted view: both intrude.
+        host.addSubview(divider, positioned: .below, relativeTo: secondHosted)
+
+        let dividerBeforeSync = try XCTUnwrap(
+            host.subviews.firstIndex(of: divider),
+            "Divider must still be a subview after the deliberate sink"
+        )
+        let hostedIndex = try XCTUnwrap(
+            host.subviews.firstIndex(of: fixture.hostedView),
+            "First hosted view must still be a subview"
+        )
+        let secondIndex = try XCTUnwrap(
+            host.subviews.firstIndex(of: secondHosted),
+            "Second hosted view must still be a subview"
+        )
+        XCTAssertLessThan(
+            hostedIndex, dividerBeforeSync,
+            "Premise: the FIRST hosted view sits above the divider after the sink"
+        )
+        XCTAssertLessThan(
+            secondIndex, dividerBeforeSync,
+            "Premise: the SECOND hosted view sits above the divider after the sink"
+        )
+
+        let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+        // Exactly ONE corrective sync (the first hosted view's anchor; the
+        // per-entry ensure must clear the whole run above the divider, not
+        // one intruder per sync).
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
+
+        let dividerIndexAfter = try XCTUnwrap(
+            host.subviews.firstIndex(of: divider),
+            "Divider must remain installed after the corrective sync"
+        )
+        let finalHostedIndex = try XCTUnwrap(
+            host.subviews.firstIndex(of: fixture.hostedView),
+            "First hosted view must remain installed after the corrective sync"
+        )
+        let finalSecondIndex = try XCTUnwrap(
+            host.subviews.firstIndex(of: secondHosted),
+            "Second hosted view must remain installed after the corrective sync"
+        )
+        XCTAssertGreaterThan(
+            dividerIndexAfter, finalHostedIndex,
+            "One sync must place the divider above the first hosted view"
+        )
+        XCTAssertGreaterThan(
+            dividerIndexAfter, finalSecondIndex,
+            "One sync must place the divider above the second hosted view"
+        )
+
+        let paneSwapIndex = try XCTUnwrap(
+            host.subviews.firstIndex(of: fixture.portal.paneSwapOverlayForTesting),
+            "Pane-swap overlay must be installed by the corrective pass"
+        )
+        XCTAssertGreaterThan(
+            paneSwapIndex, dividerIndexAfter,
+            "Pane-swap overlay must sit above the divider after the corrective sync"
+        )
+        XCTAssertGreaterThan(
+            RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount - before,
+            0,
+            "Correcting a real z-order inversion must repaint the overlay once"
+        )
     }
 
     /// CodeRabbit round (c503c67c): the geometry comparison used to live only
@@ -202,6 +297,10 @@ extension TerminalWindowPortalLifecycleTests {
         let anchor: NSView
         let contentView: NSView
         let hostedView: GhosttySurfaceScrollView
+        /// A second bound hosted surface, so z-order tests can build real
+        /// multi-pane states (two hosted siblings above/below the divider).
+        let secondHostedView: GhosttySurfaceScrollView?
+        let secondAnchor: NSView?
         let tearDown: () -> Void
     }
 
@@ -223,6 +322,14 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
+
+        // A second hosted pane so placement tests exercise real sibling sets.
+        let secondAnchor = NSView(frame: NSRect(x: 264, y: 8, width: 240, height: 160))
+        contentView.addSubview(secondAnchor)
+        let secondSurface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: secondSurface.hostedView, to: secondAnchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(secondAnchor)
+
         drainMainQueue()
         realizeWindowLayout(window)
 
@@ -231,6 +338,8 @@ extension TerminalWindowPortalLifecycleTests {
             anchor: anchor,
             contentView: contentView,
             hostedView: surface.hostedView,
+            secondHostedView: secondSurface.hostedView,
+            secondAnchor: secondAnchor,
             tearDown: {
                 NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
                 window.orderOut(nil)
