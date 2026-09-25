@@ -510,9 +510,10 @@ jobs:
       # CI_OWNED_PREFER_SEED set, adopt the seed instead when it compiles
       # less: first whether a local package source changed (that recompiles
       # the whole app), then how many inputs changed. `local` compares only
-      # with a seed this Mac keeps (no download); a number N also takes a
-      # downloaded seed at most N commits behind, or at any distance when it
-      # alone spares the app recompile. owned_build_state.py `prefer` has the
+      # with the seeds this Mac keeps (no download); a number N also takes a
+      # downloaded seed at most N commits behind when GitHub's compare says it
+      # changes enough fewer inputs to pay for the download, or at any
+      # distance when it alone spares the app recompile. owned_build_state.py `prefer` has the
       # rules; unset, nothing changes. If the seed then misses, the kept
       # DerivedData is adopted.
       - name: Prefer a near seed over this owned Mac's DerivedData
@@ -729,10 +730,14 @@ jobs:
       - name: Compile app-host test product
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true'
-        # A glaeda Mac compiles in 1 to 8 minutes, 19 on a contended one; one
-        # sat 63 minutes in this step until cancelled (job 107921038609). Stop
-        # it at 20. Other runners keep the job's own limit.
-        timeout-minutes: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && 20 || 100 }}
+        # A glaeda Mac compiles an incremental change in 1 to 8 minutes, but a
+        # package or CLI/cmux.swift change rebuilds the whole app even from warm
+        # DerivedData (kept_rebuilds_app): 11 minutes on cmux14, 19 to 21 on the
+        # slower minis (jobs 108035990055 passed at 19.1, 108035869414 and
+        # 108055858553 timed out at 20). One sat 63 minutes in this step until
+        # cancelled (job 107921038609), so keep a cap, at 35. Other runners keep
+        # the job's own limit.
+        timeout-minutes: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && 35 || 100 }}
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -938,7 +943,19 @@ jobs:
           # COPYFILE_DISABLE: see the matching note in test-e2e.yml. gzip -1
           # takes about a third of the default level's time on this product
           # for an archive about 11% larger.
-          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products | gzip -1 > "$archive"
+          # Build/Products reaches each framework binary through Versions/Current
+          # symlinks, and product extractors accept no symlinks, so `tar -h` stored
+          # every framework binary three times: 1.9 GB on disk became 2.7 GB of
+          # tar and 830 MB gzipped. Stage the tree as hard links with the symlinks
+          # followed (the same tree `tar -h` wrote, beside the DerivedData so the
+          # links stay on one volume); tar then stores each file once and every
+          # other path as a hard link, which tar -x, aa and
+          # reuse_app_host_products.py all extract. Same files, 572 MB, packed
+          # faster.
+          stage="$(mktemp -d "${CMUX_COMPILE_ADMISSION_DERIVED_DATA%/*}/.product-pack.XXXXXX")"
+          trap 'rm -rf "$stage"' EXIT
+          (cd "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" && pax -rwlL Build/Products "$stage")
+          COPYFILE_DISABLE=1 tar -cf - -C "$stage" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload compiled app-host test product
@@ -1424,8 +1441,8 @@ jobs:
           ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
         run: python3 scripts/ci/late_placement.py
       # A moved job waits for a root runner, which another run may take first.
-      # ci.yml's owned-pool-watch starts the rescue for a run that might get
-      # here, and this marker tells it jobs moved (owned_pool_rescue.py,
+      # The rescue sweeper finds this run by the fixed-name marker below, and
+      # this marker tells it jobs moved (owned_pool_rescue.py,
       # LATE_MARKER_PREFIX), so it watches them like any owned job.
       - name: Record the moved jobs
         if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
@@ -1439,6 +1456,15 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/late-placement/runners.json
+          retention-days: 1
+      # The rescue sweeper finds late-placed runs by this fixed name.
+      - name: Upload the late owned-pool watch marker
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && github.run_attempt == 1
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch-late
           path: ${{ runner.temp }}/late-placement/runners.json
           retention-days: 1
 
@@ -2868,6 +2894,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWorkspaces
             CMUXAgentLaunch
             CmuxAgentJournal
             CmuxFilePreviewCore
