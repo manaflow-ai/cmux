@@ -56,7 +56,7 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
            overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1, owned="",
-           owned_slots="", jobs=pool.MAX_RUN_JOBS):
+           owned_slots="", jobs=pool.MAX_RUN_JOBS, split=""):
     def count_routed(since):
         if isinstance(routed, Exception):
             raise routed
@@ -64,7 +64,7 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
     return pool.choose(
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins, owned=owned,
-        owned_slots=owned_slots, jobs=jobs,
+        owned_slots=owned_slots, jobs=jobs, split=split,
         fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt,
     )[0]
 
@@ -79,33 +79,47 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual((choice.runner, choice.xcode_app), (SMALL, ""))
 
     def test_macos_15_last_with_its_own_xcode(self):
-        # The measured 2026-09-24 10:08Z backlog, with 12vcpu also full: five
-        # queued minutes on 12vcpu beat a cold compile on macOS 15.
-        self.assertEqual(choose(backlog(small=21, large=5, old=2)).runner, LARGE)
-        choice = choose(backlog(small=21, large=15, old=2))
+        # Every pool full: under one round queued on 12vcpu beats a cold
+        # compile on macOS 15, more than its extra round does not.
+        self.assertEqual(choose(backlog(small=21, large=2, old=2)).runner, LARGE)
+        choice = choose(backlog(small=21, large=6, old=2))
         self.assertEqual((choice.runner, choice.xcode_app), (OLD, XCODE_15))
 
-    def test_the_unseeded_pool_is_never_taken_for_headroom(self):
-        # 2026-09-24 17:25Z to 18:10Z: every PR admission overflowed to macOS 15
-        # at 3 queued and compiled cold for 17 to 25 minutes.
-        self.assertEqual(choose(backlog(small=3, large=3, old=0)).runner, LARGE)
+    def test_a_full_pool_rolls_over(self):
+        # 2026-09-24 23:16Z: 12vcpu ran 3 with 18 queued, 6vcpu 26 ran 10 with
+        # 3 queued, macOS 15 ran 1 of 10. A free machine anywhere in the order
+        # beats a queue, the cold pool's included.
+        snap = backlog(small=3, large=18, old=0)
+        snap["pools"][LARGE]["running"] = 3
+        snap["pools"][OLD]["running"] = 1
+        choice = choose(snap)
+        self.assertEqual((choice.runner, choice.xcode_app), (OLD, XCODE_15))
+        self.assertIn("free machine", choice.reason)
+        # 12vcpu is full at 5 running, not 10.
+        snap = backlog(small=0, large=0)
+        snap["pools"][SMALL]["running"] = 9
+        snap["pools"][LARGE]["running"] = 4
+        self.assertEqual(choose(snap).runner, LARGE)
+        snap["pools"][LARGE]["running"] = 5
+        self.assertEqual(choose(snap).runner, SMALL)
+        self.assertEqual(pool.pool(snap, LARGE)["capacity"], 5)
         self.assertTrue(pool.cold(OLD))
         self.assertFalse(pool.cold(LARGE) or pool.cold(SMALL) or pool.cold("glaeda-std-xcode-26.6"))
 
-    def test_fewest_queued_when_nothing_has_headroom(self):
-        # The macOS 15 pool has no seed, so it counts COLD_QUEUE_PENALTY more.
-        self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, LARGE)
-        self.assertEqual(choose(backlog(small=21, large=20, old=4)).runner, OLD)
-        self.assertIn("counting 4 more", choose(backlog(small=21, large=20, old=4)).reason)
-        self.assertIn("counting 4 more", choose(backlog(small=21, large=6, old=4)).reason)
-        self.assertNotIn("counting", choose(backlog(small=21, large=6, old=9)).reason)
-        # A threshold above the penalty still gives the cold pool no headroom.
-        self.assertEqual(choose(backlog(small=20, large=20, old=0), max_queued="30").runner, LARGE)
+    def test_shortest_queue_in_rounds_when_every_pool_is_full(self):
+        # Queued jobs over capacity; the macOS 15 pool has no seed, so it
+        # counts COLD_ROUNDS more.
+        self.assertEqual(choose(backlog(small=21, large=2, old=4)).runner, LARGE)
+        self.assertIn("counting 1 more", choose(backlog(small=21, large=2, old=4)).reason)
+        self.assertEqual(choose(backlog(small=21, large=8, old=4)).runner, OLD)
+        self.assertIn("counting 1 more", choose(backlog(small=21, large=8, old=4)).reason)
+        self.assertEqual(choose(backlog(small=5, large=6, old=9)).runner, SMALL)
+        self.assertNotIn("counting", choose(backlog(small=5, large=6, old=9)).reason)
+        self.assertIn("every pool is full", choose(backlog(small=5, large=6, old=9)).reason)
         self.assertEqual(choose(backlog(small=0, large=0), order=OLD).reason.split(" (")[0],
                          "the only pool this run may take")
-        self.assertEqual(choose(backlog(small=5, large=6, old=9)).runner, SMALL)
-        # A tie goes to the earlier pool in the order.
-        self.assertEqual(choose(backlog(small=7, large=7, old=7)).runner, LARGE)
+        # A tie goes to the earlier pool in the order: 10 of 10 against 5 of 5.
+        self.assertEqual(choose(backlog(small=9, large=4, old=20)).runner, LARGE)
 
     def test_a_queued_release_or_nightly_job_reserves_its_pool(self):
         self.assertEqual(choose(backlog(small=0, large=0, large_reserved=1)).runner, SMALL)
@@ -114,27 +128,31 @@ class PreferenceOrder(unittest.TestCase):
     def test_order_and_threshold_come_from_variables(self):
         order = f"{SMALL},{OLD}"
         self.assertEqual(choose(backlog(small=2, old=0), order=order).runner, SMALL)
-        self.assertEqual(choose(backlog(small=2, old=0), order=order, max_queued="2").runner, SMALL)
+        # CI_PR_POOL_MAX_QUEUED lets a pool take a run with that many queued.
+        self.assertEqual(choose(backlog(small=2, old=5), order=order, max_queued="3").runner, SMALL)
         self.assertEqual(choose(backlog(small=13, old=0), order=order, max_queued="2").runner, OLD)
         self.assertEqual(choose(backlog(small=0, large=0), order=OLD).runner, OLD)
 
     def test_runs_since_the_snapshot_spread_a_burst(self):
-        # 12vcpu has 9 of its 10 slots idle (1 running), 6vcpu 26 has 6
+        # 12vcpu has 4 of its 5 machines free (1 running), 6vcpu 26 has 6
         # queued, macOS 15 is full with nothing queued: pushes after a sweep
-        # fill 12vcpu's idle slots and queue there until macOS 15, which counts
-        # COLD_QUEUE_PENALTY (4) more, is shallower; then all three share it.
+        # take 12vcpu's free machines, then every pool is full and each run
+        # takes the shortest queue in rounds; macOS 15 joins once the others
+        # are about a round deeper than it.
         snap = backlog(small=6, large=0, old=0)
-        snap["pools"][OLD]["running"] = pool.POOL_CAPACITY
-        picks = [choose(snap, routed=n).runner for n in range(30)]
-        self.assertEqual(picks, [LARGE] * 14 + [OLD, LARGE] * 2 + [SMALL, OLD, LARGE] * 4)
+        snap["pools"][OLD]["running"] = pool.POOL_CAPACITIES[OLD]
+        picks = "".join({LARGE: "L", SMALL: "S", OLD: "O"}[choose(snap, routed=n).runner] for n in range(30))
+        self.assertEqual(picks, "LLLLLLLSLSSLSSOLSOSOLSOSOLSOSO")
         self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
 
     def test_idle_slots_absorb_recent_runs(self):
-        # The 11:45Z proof run: 12vcpu 0 queued and 2 running, four runs
-        # created in the minute since the sweep. They fit its idle slots.
+        # 12vcpu 0 queued and 3 running: one run since the sweep takes one of
+        # its two free machines, and this run the other. After two, it is full.
         snap = backlog(small=2, large=0, old=1)
-        snap["pools"][LARGE]["running"] = 2
-        self.assertEqual(choose(snap, routed=4).runner, LARGE)
+        snap["pools"][LARGE]["running"] = 3
+        self.assertEqual(choose(snap, routed=1).runner, LARGE)
+        self.assertIn("free machine", choose(snap, routed=1).reason)
+        self.assertIn("every pool is full", choose(snap, routed=2).reason)
         self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 8), 0)
         self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 10), 2)
         self.assertEqual(pool.effective_queue({"queued": 1, "running": 3}, 2), 3)
@@ -149,7 +167,7 @@ class PreferenceOrder(unittest.TestCase):
         # where they are, and the final pick may be limited to some pools
         # while the replay still spreads over the whole order.
         snap = backlog(small=0, large=0, old=0)
-        snap["pools"][LARGE]["running"] = 8
+        snap["pools"][LARGE]["running"] = 0
         args = dict(now=NOW, xcode_pins=PINS)
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).runner, LARGE)
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, SMALL)
@@ -170,7 +188,7 @@ class PreferenceOrder(unittest.TestCase):
 
     def test_macos_15_needs_an_xcode_pin(self):
         choice = choose(backlog(small=21, large=5, old=0), pins={})
-        self.assertEqual(choice.runner, LARGE)  # fewest queued among the usable pools
+        self.assertEqual(choice.runner, LARGE)  # shortest queue in rounds among the usable pools
         self.assertIn("no Xcode pin", choice.reason)
         self.assertEqual(choose(backlog(), order=OLD, pins={}).runner, "")
 
@@ -229,7 +247,7 @@ class FailSafe(unittest.TestCase):
     def test_kill_switch_and_invalid_settings(self):
         self.assert_default(choose(backlog(), overflow="0"))
         for bad in ({"order": "warp-macos-26-arm64-12x"}, {"order": f"{LARGE},{LARGE}"},
-                    {"max_queued": "0"}, {"max_queued": "many"}):
+                    {"max_queued": "-1"}, {"max_queued": "many"}):
             self.assert_default(choose(backlog(), **bad))
 
     def test_unknown_or_stale_snapshot(self):
@@ -265,7 +283,7 @@ class FailSafe(unittest.TestCase):
             finally:
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
-                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\n")
+                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -321,8 +339,9 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertNotIn(OLD, snap["pools"])
         self.assertNotIn("blacksmith-4vcpu-ubuntu-2404", snap["pools"])
         # The picker reads what the janitor writes.
-        # 12vcpu is reserved by the queued nightly job; 6vcpu 26 has headroom.
-        self.assertEqual(choose(snap).runner, SMALL)
+        # 12vcpu is reserved by the queued nightly job and 6vcpu 26 has jobs
+        # queued, so the run rolls over to the idle macOS 15 pool.
+        self.assertEqual(choose(snap).runner, OLD)
 
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
         mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
@@ -359,6 +378,19 @@ class JanitorSnapshot(unittest.TestCase):
                                                "oldest_queued_minutes": 0, "committed": 4})
         self.assertEqual(owned_choice(snap, machines=6, order=f"{mini},{LARGE}").runner, LARGE)
         self.assertEqual(owned_choice(snap, machines=7, order=f"{mini},{LARGE}").runner, mini)
+        # Shards exist only after admission: one finished owned job of a peak
+        # of 4 still reserves the peak.
+        early = [self.job(mini, "completed"), self.job(LARGE, "in_progress")]
+        snap = janitor.pool_load_snapshot([runs[0]], {1: early}, now=NOW, markers={1: (mini, 4)})
+        self.assertEqual(snap["pools"][mini]["committed"], 4)
+        # Its owned jobs done, a run still busy on Blacksmith frees its minis.
+        done = [*(self.job(mini, "completed") for _ in range(4)), self.job(LARGE, "in_progress")]
+        snap = janitor.pool_load_snapshot([runs[0]], {1: done}, now=NOW, markers={1: (mini, 4)})
+        self.assertEqual(snap["pools"].get(mini, {}).get("committed", 0), 0)
+        # One owned job still running keeps the whole peak reserved.
+        snap = janitor.pool_load_snapshot([runs[0]], {1: [*done, self.job(mini, "queued")]}, now=NOW,
+                                          markers={1: (mini, 4)})
+        self.assertEqual(snap["pools"][mini]["committed"], 4)
 
     def test_owned_marker_names_this_attempts_pool_and_peak(self):
         run = {"id": 42, "run_attempt": 1}
@@ -402,11 +434,13 @@ class JanitorSnapshot(unittest.TestCase):
 
 # The pull-request lane, wherever its event condition puts it: compile admission
 # also takes it for main's full-suite dispatch (#14158), where the inputs are empty.
-PR_ROUTE = re.compile(r"&& \((?P<lane>[^()]*vars\.MACOS_RUNNER_PR[^()]*)\)")
+PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
-RETRY_LANE = ("github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR "
-              "|| 'blacksmith-6vcpu-macos-15'")
+def retry_lane(key: str) -> str:
+    """The pull-request lane of the job whose owned_jobs key is `key`."""
+    return (f"(github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 PR_XCODE = "/Applications/Xcode_26.6.app"
 MINI = "glaeda-std-xcode-26.6"
 LIGHT = "glaeda-light-xcode-26.6"
@@ -529,7 +563,8 @@ class OwnedPools(unittest.TestCase):
                                       routed=pool.Routed(unknown=1, owned={MINI: 1})).runner, LARGE)
 
     def test_runs_off_the_owned_pools_still_queue_on_blacksmith(self):
-        snap = backlog(small=0, large=2)
+        snap = backlog(small=0, large=0)
+        snap["pools"][LARGE]["running"] = pool.POOL_CAPACITIES[LARGE] - 1
         self.assertEqual(choose(snap).runner, LARGE)
         self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, SMALL)
 
@@ -682,6 +717,126 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(self.output(1, owned="")["persistent"], "false")
 
 
+def routing(**flags):
+    base = dict(macos="true", full_suite="false", unit_suite="false", unit_in_admission="false",
+                claude_wrapper="false", cli="false", remote_daemon="false", unit_selectors="")
+    return pool.run_plan(**{**base, **flags})
+
+
+FULL = dict(full_suite="true", cli="true", remote_daemon="true")
+
+
+class PerJobPlacement(unittest.TestCase):
+    """CI_PR_POOL_OWNED_SPLIT: free owned machines take the jobs that fit, Blacksmith the rest."""
+
+    def test_the_plan_names_each_job(self):
+        plan = routing(**FULL)
+        self.assertTrue(plan.admission)
+        self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertEqual(plan.side, ("claude-wrapper", "cli-pipe", "remote-daemon"))
+        self.assertEqual(plan.peak, pool.MAX_RUN_JOBS)
+        # The unit-ci label runs all seven shards; selected suites one worker, shard 8.
+        self.assertEqual(routing(unit_suite="true").after, tuple(f"shard-{index}" for index in range(1, 8)))
+        self.assertEqual(routing(unit_suite="true", unit_selectors="Suite").after, ("shard-8",))
+        self.assertEqual(routing(unit_suite="true", unit_in_admission="true", unit_selectors="Suite").after, ())
+        self.assertEqual(routing(macos="false", cli="true").side, ("cli-pipe",))
+
+    def test_admission_then_gui_jobs_then_light_jobs(self):
+        plan = routing(**FULL)
+        shards = tuple(f"shard-{index}" for index in range(1, 8))
+        self.assertEqual(pool.place(plan, 0), ((), 0))
+        # Shards reuse admission's machine once it finishes.
+        self.assertEqual(pool.place(plan, 1), (("admission", "shard-1"), 1))
+        self.assertEqual(pool.place(plan, 3), (("admission", "shard-1", "shard-2", "shard-3"), 3))
+        self.assertEqual(pool.place(plan, 9), (("admission", *shards, "lag", "cli-product"), 9))
+        self.assertEqual(pool.place(plan, 12), (("admission", *shards, "lag", "cli-product", "cli-pipe",
+                                                 "remote-daemon", "claude-wrapper"), 12))
+        self.assertEqual(pool.owned_peak(plan), 12)
+        self.assertEqual(pool.place(routing(unit_suite="true", unit_selectors="Suite"), 1),
+                         (("admission", "shard-8"), 1))
+
+    def test_gui_jobs_stay_off_when_switched_off(self):
+        plan = routing(**FULL)
+        self.assertEqual(pool.place(plan, 1, gui=False), (("admission", "cli-product"), 1))
+        self.assertEqual(pool.place(plan, 2, gui=False), (("admission", "cli-product", "cli-pipe"), 2))
+        everything = ("admission", "cli-product", "cli-pipe", "remote-daemon", "claude-wrapper")
+        self.assertEqual(pool.place(plan, 12, gui=False), (everything, 4))
+        self.assertEqual(pool.owned_peak(plan, gui=False), 4)
+        # A run without admission places its side lanes alone.
+        self.assertEqual(pool.place(routing(macos="false", remote_daemon="true"), 1), (("remote-daemon",), 1))
+
+    def test_split_takes_the_free_machines_instead_of_overflowing(self):
+        # 11 machines, 9 busy: a 3-machine run does not fit whole.
+        self.assertEqual(owned_choice(fleet(busy=9)).runner, LARGE)
+        choice = owned_choice(fleet(busy=9), split="1")
+        self.assertEqual((choice.runner, choice.retry_runner, choice.owned_budget), (MINI, LARGE, 2))
+        self.assertIn("2 of 11", choice.reason)
+        # A whole fit keeps the old reason and a budget of the run's peak.
+        whole = owned_choice(fleet(busy=2), split="1")
+        self.assertEqual((whole.runner, whole.owned_budget), (MINI, 3))
+        self.assertIn("first pool in order with headroom", whole.reason)
+        # No machine free at all: Blacksmith, as before.
+        self.assertEqual(owned_choice(fleet(busy=11), split="1").runner, LARGE)
+
+    def test_split_prefers_a_pool_the_whole_run_fits(self):
+        snap = fleet(busy=9)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        both = json.dumps({MINI: 11, LIGHT: 3})
+        self.assertEqual(owned_choice(snap, owned_slots=both, split="1").runner, LIGHT)
+        # Neither fits: the pool with the most free machines.
+        snap["pools"][LIGHT] = {"queued": 0, "running": 2}
+        self.assertEqual(owned_choice(snap, owned_slots=both, split="1", jobs=4).runner, MINI)
+        # A tie goes to the earlier pool; a full one never takes the run.
+        snap["pools"][MINI]["running"] = 10
+        self.assertEqual(owned_choice(snap, owned_slots=both, split="1", jobs=4).runner, MINI)
+        snap["pools"][MINI]["running"] = 11
+        self.assertEqual(owned_choice(snap, owned_slots=both, split="1", jobs=4).runner, LIGHT)
+
+    def test_split_is_off_unless_1(self):
+        for value in ("", "0", "true"):
+            self.assertEqual(owned_choice(fleet(busy=9), split=value).runner, LARGE, value)
+
+    def output(self, *, busy, split="1", gui="", **routing_env):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = Path(tmp, "snap.json")
+            fresh = fleet(busy=busy)
+            fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            snapshot.write_text(json.dumps(fresh))
+            out = Path(tmp, "out")
+            env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                   "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
+                   "POOL_OWNED_SPLIT": split, "POOL_OWNED_GUI": gui, "OWNED_SLOTS": json.dumps({MINI: 11}),
+                   "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
+                   "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true",
+                   **routing_env}
+            with unittest.mock.patch("sys.stdout", io.StringIO()):
+                pool.main(["--snapshot", str(snapshot)], env)
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_main_names_the_owned_jobs_and_marks_their_peak(self):
+        full = {"RUN_FULL_SUITE": "true", "RUN_CLI": "true", "RUN_REMOTE_DAEMON": "true"}
+        partial = self.output(busy=8, **full)
+        self.assertEqual((partial["runner"], partial["retry_runner"]), (MINI, LARGE))
+        self.assertEqual(partial["owned_jobs"], " admission shard-1 shard-2 shard-3 ")
+        # The marker (and so the janitor) counts the owned machines placed.
+        self.assertEqual(partial["jobs"], "3")
+        # 11 machines for a 12-machine run: the last light job overflows.
+        most = self.output(busy=0, **full)
+        self.assertEqual(most["owned_jobs"].split()[-3:], ["cli-product", "cli-pipe", "remote-daemon"])
+        self.assertEqual(most["jobs"], "11")
+        # GUI jobs off: only admission and the light jobs.
+        light = self.output(busy=9, gui="0", **full)
+        self.assertEqual((light["owned_jobs"], light["jobs"]), (" admission cli-product cli-pipe ", "2"))
+        # Selected suites a compile admission would run itself move to shard 8.
+        suites = self.output(busy=0, RUN_UNIT_SUITE="true", RUN_UNIT_IN_ADMISSION="true",
+                             RUN_UNIT_SELECTORS="cmuxTests/SomeSuite")
+        self.assertEqual(suites["owned_jobs"], " admission shard-8 ")
+        # Split off: the whole-run rule over the owned-eligible jobs only.
+        self.assertEqual(self.output(busy=7, split="", gui="0", **full)["runner"], MINI)
+        off = self.output(busy=8, split="", gui="0", **full)
+        self.assertEqual((off["runner"], off["owned_jobs"]), (LARGE, ""))
+
+
 class Wiring(unittest.TestCase):
     """Every pull-request macOS route in one CI run reads the one chosen pool."""
 
@@ -724,21 +879,25 @@ class Wiring(unittest.TestCase):
     def test_every_pr_route_in_the_run_reads_the_choice(self):
         expected = {
             "ci.yml": "needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
-            "ci-macos.yml": RETRY_LANE,
-            "cli-pipe-regressions.yml": RETRY_LANE,
-            "remote-daemon.yml": RETRY_LANE,
+            # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
+            # tests-build-and-lag each test their own owned_jobs key.
+            "ci-macos.yml": {retry_lane("' admission '"), retry_lane("' lag '")},
+            "cli-pipe-regressions.yml": {retry_lane("' cli-pipe '")},
+            "remote-daemon.yml": {retry_lane("' remote-daemon '")},
         }
         for name, lane in expected.items():
             lanes = self.lanes(name)
             self.assertTrue(lanes, name)
-            self.assertEqual(set(lanes), {lane}, name)
+            self.assertEqual(set(lanes), lane if isinstance(lane, set) else {lane}, name)
 
     def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ github.run_attempt > 1 && inputs.pr_retry_runner "
+        self.assertEqual(shards["runs-on"], "${{ (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
+                                            "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
-        self.assertIn("github.run_attempt > 1 && needs.changes.outputs.macos_pr_retry_runner", wrapper)
+        self.assertIn("(github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
+                      "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
 
     def test_callers_pass_the_choice(self):
         jobs = self.workflow("ci.yml")["jobs"]
