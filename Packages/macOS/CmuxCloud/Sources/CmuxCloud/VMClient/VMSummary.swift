@@ -6,6 +6,7 @@ import Foundation
 
 /// A Cloud machine from an authenticated control-plane response.
 public struct VMSummary: Sendable {
+    /// Creates a summary from control-plane fields; older responses default to no welcome grant.
     public init(
         id: String,
         provider: String,
@@ -40,11 +41,17 @@ public struct VMSummary: Sendable {
         self.cloudWelcomeEligible = cloudWelcomeEligible
     }
 
+    /// Stable provider machine identity used for routing and lifecycle operations.
     public let id: String
+    /// Provider that owns the machine.
     public let provider: String
+    /// Latest lifecycle status reported by the control plane.
     public let status: String
+    /// Image identifier recorded when the machine was created.
     public let image: String
+    /// Creation time in milliseconds since the Unix epoch.
     public let createdAt: Int64
+    /// Legacy Base association, when the machine belongs to one.
     public let base: VMBaseSummary?
     /// The backend's `kind` (desktop/base); when omitted, ``resolvedKind`` infers it from the image id.
     public var kind: VMMachineKind? = nil
@@ -62,6 +69,7 @@ public struct VMSummary: Sendable {
     /// The machine's address on its owner's private network (reachable over
     /// the WireGuard tunnel); nil for machines created before private networking.
     public var addressIPv4: String?
+    /// Provider-reported IPv6 address, when available.
     public var addressIPv6: String?
     /// The image's cmux-tui attach contract from the create receipt
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).

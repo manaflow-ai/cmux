@@ -28,11 +28,12 @@ final class CloudWorkspaceCreationOperation {
         provider: any SurfaceProvider,
         host: CloudWorkspaceCreationHost?,
         allowsActionRetry: Bool,
+        opensExistingWorkspace: Bool,
         validateOperation: @escaping @MainActor () throws -> Void
     ) {
         self.provider = provider
         self.host = host
-        self.terminalRequest = CloudTerminalCreationRequest(opensMachine: host != nil)
+        self.terminalRequest = CloudTerminalCreationRequest(opensMachine: opensExistingWorkspace && host != nil)
         self.allowsActionRetry = allowsActionRetry
         self.validateOperation = validateOperation
     }

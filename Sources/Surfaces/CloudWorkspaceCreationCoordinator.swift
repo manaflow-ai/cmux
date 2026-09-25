@@ -26,6 +26,7 @@ final class CloudWorkspaceCreationCoordinator {
         let retained = failed.count == 1 ? failed.first : nil
         let operation = retained ?? CloudWorkspaceCreationOperation(
             provider: provider, host: host, allowsActionRetry: reuseFailedCreation,
+            opensExistingWorkspace: existingWorkspace != nil,
             validateOperation: validateOperation
         )
         operation.validateOperation = validateOperation

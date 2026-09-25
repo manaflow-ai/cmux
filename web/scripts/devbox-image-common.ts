@@ -764,10 +764,10 @@ export function devboxPrepareTemplateTerminalCommand(timeoutSeconds = 60): strin
   ].join(" && ");
   const firstWorkspace = [
     `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 755 ${TEMPLATE_RUN_DIR}`,
-    `(${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} raw command --request-json '${JSON.stringify({ cmd: "identify" })}'`)} > /tmp/cmux-first-workspace-capabilities.json)`,
+    `(${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json raw command --request-json '${JSON.stringify({ cmd: "identify" })}'`)} > /tmp/cmux-first-workspace-capabilities.json)`,
     `jq -e '(.data.capabilities // .capabilities) | index("cloud-first-workspace-v1") != null' /tmp/cmux-first-workspace-capabilities.json >/dev/null`,
-    `${run("terminal list")} > /tmp/cmux-template-terminals.json`,
-    `for id in $(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json); do ${run('terminal "$id" close')} >/dev/null || exit 1; done`,
+    `(${run("terminal list")}) > /tmp/cmux-template-terminals.json`,
+    `for id in $(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json); do (${run('terminal "$id" close')}) >/dev/null || exit 1; done`,
     `rm -f ${TEMPLATE_RUN_DIR}/template-arm ${TEMPLATE_RUN_DIR}/template-shell-ready ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started`,
     "echo first-workspace-reserved",
   ].join(" && ");

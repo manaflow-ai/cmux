@@ -18,7 +18,7 @@ describe("first-workspace image contract", () => {
       writeFileSync(join(bin, "install"), '#!/bin/sh\nfor arg do target="$arg"; done\nmkdir -p "$target"\n', { mode: 0o755 });
       writeFileSync(join(home, ".cmux/bin/cmux-tui"), `#!/bin/sh
 case "$*" in
-  *identify*) printf '%s\\n' '${JSON.stringify({ capabilities: capable ? ["cloud-first-workspace-v1"] : [] })}' ;;
+  *'--json raw command'*identify*) printf '%s\\n' '${JSON.stringify({ capabilities: capable ? ["cloud-first-workspace-v1"] : [] })}' ;;
   *'terminal list'*) printf '%s\\n' '{"terminals":[{"id":"term_builder"}]}' ;;
   *'terminal term_builder close'*) printf '%s\\n' closed >> '${root}/calls' ;;
   *) printf '%s\\n' "unexpected: $*" >&2; exit 1 ;;
