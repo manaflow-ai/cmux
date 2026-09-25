@@ -600,7 +600,13 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
     release = workflow_job_block("release-build", MACOS_WORKFLOW)
     status = workflow_job_block("macos-status", MACOS_WORKFLOW)
 
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in admission
+    assert (
+        "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
+        " || github.event_name == 'pull_request'"
+        " && github.event.pull_request.head.repo.full_name != github.repository"
+        " && 'blacksmith-4vcpu-ubuntu-2404'"
+        " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
     assert "- release-admission" in release
@@ -778,6 +784,43 @@ def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -
     assert "      - name: Reject stale pull request rerun" in remote_text
 
 
+def test_stale_run_check_ignores_github_api_errors() -> None:
+    """An API error is not a head SHA.
+
+    On a rate limit `gh api --jq` prints the error body on stdout and exits
+    non-zero; `|| true` kept that body as the "current head", so compile
+    admission refused its own current run as stale (#14486, job 108058643725).
+    """
+    head = "cf20bda57151addcf63748168bd553ce32065b85"
+    error = '{"message": "API rate limit exceeded for installation.", "status": "403"}'
+    steps = (
+        (MACOS_WORKFLOW, "macos-compile-admission", {"RUN_ID": "1"}),
+        (REMOTE_DAEMON_WORKFLOW, "remote-daemon-admission", {"RUN_HEAD_SHA": head}),
+    )
+    for workflow, job, extra in steps:
+        script = workflow_job_step_script(job, "Reject stale pull request rerun", workflow)
+        for pulls_output, pulls_status, expected in (
+            (error, 1, 0),      # API error: continue with normal CI
+            (head, 0, 0),       # current run
+            ("0" * 40, 0, 1),   # a newer head really is stale
+        ):
+            with tempfile.TemporaryDirectory() as directory:
+                fake = Path(directory) / "gh"
+                fake.write_text(
+                    "#!/bin/bash\n"
+                    'case "$2" in\n'
+                    f"  */pulls/*) echo '{pulls_output}'; exit {pulls_status} ;;\n"
+                    f"  *) echo '{head}' ;;\n"
+                    "esac\n",
+                    encoding="utf-8",
+                )
+                fake.chmod(0o755)
+                env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                       "GITHUB_REPOSITORY": "manaflow-ai/cmux", "PR_NUMBER": "1", **extra}
+                run = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                assert run.returncode == expected, (job, pulls_output, run.stdout, run.stderr)
+
+
 def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
     script = workflow_job_step_script("changes", "Route standalone project workflows")
     script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
@@ -859,10 +902,11 @@ def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
         gh = root / "gh"
         gh.write_text('#!/bin/sh\n[ "$CURRENT_HEAD" != unavailable ] || exit 1\nprintf "%s\\n" "$CURRENT_HEAD"\n')
         gh.chmod(0o755)
-        for current, expected in (("head", 0), ("newer-head", 1), ("unavailable", 0)):
+        head, newer = "a" * 40, "b" * 40
+        for current, expected in ((head, 0), (newer, 1), ("unavailable", 0)):
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                    "GITHUB_REPOSITORY": "example/repo", "PR_NUMBER": "1",
-                   "RUN_HEAD_SHA": "head", "CURRENT_HEAD": current}
+                   "RUN_HEAD_SHA": head, "CURRENT_HEAD": current}
             result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
             assert result.returncode == expected, (current, result.stderr)
 
@@ -6049,12 +6093,21 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
     # swift-package-tests links the Release Ghostty CLI helper with Zig, which
-    # Zig 0.15.2 cannot do on macOS 26, so it stays on the macos-15 pool on
-    # every event and keeps the unconditional macos-15 pins. Moving it onto the
-    # pull-request lane would hand MACOS_RUNNER_PR a job it must not move.
+    # Zig 0.15.2 cannot do on macOS 26, so it defaults to the macos-15 pool on
+    # every event with the macos-15 pin. Moving it onto the pull-request lane
+    # would hand MACOS_RUNNER_PR a job it must not move. The one exception is
+    # an owned Mac the picker placed it on (no helper build in that run),
+    # which takes the lane's pin.
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
-    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}" in package_block
+    assert (
+        "CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name == github.repository && "
+        "contains(inputs.pr_owned_jobs, ' swift-package ') && "
+        "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
+        "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
+        "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
+    ) in package_block
     assert (
         "CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}"
         in package_block
