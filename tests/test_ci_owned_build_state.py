@@ -220,6 +220,106 @@ class AdoptAndSave(Fixture):
             self.assertEqual(state.main(["x", "check", "only"]), 2)
 
 
+A = "a" * 40
+B = "b" * 40
+C = "c" * 40
+D = "d" * 40
+E = "e" * 40
+
+
+class WarmKeys(Fixture):
+    """`keep` stamps the merge base; `warm-keys` prints what owned_warm_state.py folds."""
+
+    def setUp(self):
+        super().setUp()
+        self.seeds = self.store / "seeds"
+
+    def kept(self, fingerprint="fp", merged_onto=A):
+        self.derived.mkdir(parents=True, exist_ok=True)
+        return run(state.keep, self.store, self.derived, fingerprint, merged_onto)
+
+    def seed(self, commit, fingerprint="fp", jobs=14, when=0, manifest=True):
+        path = self.seeds / f"admission-derived-data-v1-macOS-ARM64-{fingerprint}-j{jobs}-{commit}"
+        path.mkdir(parents=True)
+        if manifest:
+            (path / state.seed.MANIFEST).write_text("{}")
+        os.utime(path, (1_000_000 + when, 1_000_000 + when))
+        return path
+
+    def keys(self, fingerprint="fp", cache=True):
+        env = {"CMUX_SEED_LOCAL_CACHE": str(self.seeds) if cache else ""}
+        with unittest.mock.patch.dict(os.environ, env):
+            return state.warm_keys(self.store, "cmux11s-glaeda-1", "glaeda-root-std-xcode-26.6", fingerprint)
+
+    def test_keep_stamps_the_merge_base_and_replaces_it(self):
+        self.kept(merged_onto=A.upper())
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["merged_onto"], A)
+        self.kept(merged_onto="")
+        self.assertNotIn("merged_onto", json.loads((self.store / "stamp.json").read_text()))
+        self.kept(merged_onto="not-a-commit")
+        self.assertNotIn("merged_onto", json.loads((self.store / "stamp.json").read_text()))
+
+    def test_kept_build_first_then_the_newest_seeds_of_this_fingerprint(self):
+        self.kept()
+        self.seed(B, when=10)
+        self.seed(C, when=30, jobs=12)
+        self.seed(D, when=20)
+        self.seed(E, fingerprint="other", when=40)  # another Xcode: never adopted here
+        self.seed("f" * 40, when=50, manifest=False)  # incomplete
+        self.assertEqual(self.keys(), {"runner": "cmux11s-glaeda-1", "pool": "glaeda-root-std-xcode-26.6",
+                                       "keys": ["a" * 12, "c" * 12, "d" * 12, "b" * 12]})
+
+    def test_at_most_four_keys_without_repeats(self):
+        self.kept()
+        for when, commit in enumerate((A, B, C, D, E)):
+            self.seed(commit, when=when)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "e" * 12, "d" * 12, "c" * 12])
+        self.assertEqual(state.MAX_WARM_KEYS, __import__("owned_warm_state").MAX_KEYS)
+
+    def test_seeds_count_only_when_prefer_may_clone_them(self):
+        self.kept()
+        self.seed(B)
+        self.assertEqual(self.keys(cache=False)["keys"], ["a" * 12])
+
+    def test_a_kept_build_of_another_fingerprint_or_none_is_not_warm(self):
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["b" * 12])
+        self.kept(fingerprint="old")
+        self.assertEqual(self.keys(fingerprint="fp")["keys"], ["b" * 12])
+        self.assertEqual(self.keys(fingerprint="")["keys"], ["a" * 12, "b" * 12])
+
+    def test_a_kept_build_without_a_merge_base_adds_no_key(self):
+        self.kept(merged_onto="")
+        self.assertEqual(self.keys()["keys"], [])
+
+    def test_main_prints_only_the_document_the_janitor_folds(self):
+        import owned_warm_state
+
+        self.kept()
+        self.seed(B)
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output), \
+             unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.seeds),
+                                                   "GITHUB_OUTPUT": str(self.store / "out")}):
+            self.assertEqual(state.main(["x", "warm-keys", str(self.store), "cmux11s-glaeda-1",
+                                         "glaeda-root-std-xcode-26.6", "fp"]), 0)
+        document = json.loads(output.getvalue())
+        self.assertFalse((self.store / "out").exists())
+        jobs = [{"name": "CI / " + owned_warm_state.ADMISSION_JOB, "runner_name": "cmux11s-glaeda-1",
+                 "workflow_name": owned_warm_state.CI_WORKFLOW}]
+        self.assertEqual(owned_warm_state.record(document, jobs), ("cmux11s-glaeda-1", ["a" * 12, "b" * 12]))
+
+    def test_main_never_fails(self):
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output), \
+             unittest.mock.patch.object(state, "warm_keys", side_effect=OSError("disk")):
+            self.assertEqual(state.main(["x", "warm-keys", str(self.store), "r", "p"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"runner": "r", "pool": "p", "keys": []})
+
+    def test_the_usage_names_warm_keys(self):
+        self.assertIn("owned_build_state.py warm-keys STORE RUNNER POOL", state.__doc__)
+
+
 class Replay(Fixture):
     """A warm job must see the times the kept build saw, not the copy's (job 107904138254)."""
 
@@ -611,7 +711,7 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        # check, prefer, adopt, record, keep, warm-keys (skipped until the script has it), save.
+        # check, prefer, adopt, record, keep, warm-keys, save.
         self.assertEqual(len(calls), 7)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -619,7 +719,8 @@ class WorkflowCommandLines(unittest.TestCase):
             env = {"PATH": "/usr/bin:/bin", "CMUX_OWNED_STATE_ROOT": str(base / "store"),
                    "CMUX_COMPILE_ADMISSION_DERIVED_DATA": str(base / "derived"),
                    "CMUX_CI_CANONICAL_SRC": str(base / "src"), "FINGERPRINT": "fp",
-                   "HOME": str(base)}
+                   "MERGED_ONTO": "a" * 40, "RUNNER_NAME": "runner", "RUNNER_TEMP": str(base),
+                   "CMUX_PRODUCT_RUNNER": "glaeda-root-std-xcode-26.6", "HOME": str(base)}
             for step in calls:
                 script = step["run"]
                 # The fingerprint comes from Xcode; stand in for it.
@@ -632,6 +733,8 @@ class WorkflowCommandLines(unittest.TestCase):
                 # adopt runs `defaults` on macOS only after a hit; a miss here is fine.
                 self.assertEqual(result.returncode, 0, f"{step['name']}: {result.stderr[-400:]}")
                 self.assertNotIn("owned_build_state.py check STORE", result.stderr, step["name"])
+            # keep ran before warm-keys, so the kept build's merge base is listed.
+            self.assertEqual(json.loads((base / "warm-keys.json").read_text())["keys"], ["a" * 12])
 
 
 class Wiring(unittest.TestCase):
@@ -794,6 +897,172 @@ class Wiring(unittest.TestCase):
         for later in ("Stage compiled package frameworks", "Package compiled app-host test product"):
             self.assertLess(index("Keep this owned Mac's DerivedData"), index(later), later)
         self.assertTrue(self.step("Keep this owned Mac's build state")["if"].startswith("always()"))
+
+
+class E2EWiring(unittest.TestCase):
+    """test-e2e.yml's build reads the owned state admission keeps, and never writes it."""
+
+    def setUp(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        self.jobs = workflow["jobs"]
+        self.steps = self.jobs["build"]["steps"]
+        self.names = [step.get("name") for step in self.steps]
+        self.by_id = {step.get("id"): step for step in self.steps if step.get("id")}
+
+    def test_state_is_read_only_on_an_owned_runner(self):
+        owned = self.by_id["owned-state"]
+        self.assertIn(OWNED, owned["if"])
+        self.assertIn("steps.reuse.outputs.hit != 'true'", owned["if"])
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["prefer-seed"]["if"])
+        self.assertIn("vars.CI_OWNED_PREFER_SEED != ''", self.by_id["prefer-seed"]["if"])
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["owned-adopt"]["if"])
+        for step_id in ("owned-state", "prefer-seed", "owned-adopt"):
+            self.assertIs(self.by_id[step_id].get("continue-on-error"), True, step_id)
+            self.assertNotIn("uses", self.by_id[step_id], step_id)
+        # A dispatch builds any revision it names, so it must never become
+        # the next pull request's starting point: check, prefer and adopt
+        # only, in every job of the workflow.
+        import re
+        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        commands = re.findall(r"owned_build_state\.py\" ([a-z-]+)", text)
+        self.assertEqual(sorted(set(commands)), ["adopt", "check", "prefer"])
+        for word in ("keep", "save", "record", "warm-keys"):
+            self.assertNotRegex(text, rf"owned_build_state\.py\"? {word}\b")
+
+    def test_a_failed_adopt_starts_the_build_empty(self):
+        # adopt's copytree fallback leaves a partial tree when it fails, and
+        # the step continues on error, so the compile would trust it.
+        discard = self.steps[self.names.index("Discard a partly adopted DerivedData")]
+        self.assertEqual(discard["if"], "${{ steps.owned-adopt.outcome == 'failure' }}")
+        self.assertIn('rm -rf -- "$CMUX_DERIVED_DATA_PATH"', discard["run"])
+        self.assertIn("refusing to clear an unowned DerivedData path", discard["run"])
+        index = self.names.index
+        self.assertEqual(index("Adopt this owned Mac's DerivedData") + 1, index(discard["name"]))
+        self.assertLess(index(discard["name"]), index("Build the app-host and UI test product"))
+
+    def test_the_helper_comes_from_the_workflow_revision(self):
+        # An older tested revision's owned_build_state.py moved the kept state
+        # out of the store for a keep this job never runs.
+        run = self.by_id["owned-state"]["run"]
+        self.assertEqual(self.by_id["owned-state"]["env"]["WORKFLOW_SHA"], "${{ github.workflow_sha }}")
+        self.assertIn("raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/$name", run)
+        for step_id in ("owned-state", "prefer-seed", "owned-adopt"):
+            self.assertNotIn("scripts/ci/owned_build_state.py", str(self.by_id[step_id]), step_id)
+        # Naming it as scripts/ci/... in the build job would make the tested
+        # revision's copy part of the E2E product identity.
+        import product_input_identity as identity
+        block = identity._job_block(identity.Path(ROOT / ".github/workflows/test-e2e.yml").read_text(), "build")
+        self.assertNotIn("scripts/ci/owned_build_state.py", block)
+
+    def test_owned_packages_and_state_skip_the_downloads(self):
+        self.assertIn("steps.owned-state.outputs.packages != 'true'", self.by_id["swift-package-cache"]["if"])
+        for step in (self.by_id["seed"], self.step("Start the DerivedData seed download")):
+            self.assertIn("steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true'",
+                          step["if"])
+            # Empty off an owned Mac, so Blacksmith's seed steps see no local cache.
+            self.assertEqual(step["env"]["CMUX_SEED_LOCAL_CACHE"],
+                             "${{ vars.CI_OWNED_PREFER_SEED != '' && steps.owned-state.outputs.seeds || '' }}")
+            self.assertIn("steps.prefer-seed.outputs.seed_key", step["env"]["CMUX_SEED_EXACT"])
+        self.assertIn("steps.seed.outputs.hit != 'true'", self.by_id["owned-adopt"]["if"])
+        self.assertIn("steps.owned-adopt.outcome != 'skipped'",
+                      self.step("Forget the adopted-build inode override")["if"])
+
+    def step(self, name):
+        return self.steps[self.names.index(name)]
+
+    def test_order(self):
+        index = self.names.index
+        self.assertLess(index("Reuse a compiled product instead of building one"), index("Reuse this owned Mac's build state"))
+        self.assertLess(index("Reuse this owned Mac's build state"), index("Cache Swift packages"))
+        self.assertLess(index("Compute the DerivedData seed key"), index("Prefer a near seed over this owned Mac's DerivedData"))
+        self.assertLess(index("Prefer a near seed over this owned Mac's DerivedData"), index("Start the DerivedData seed download"))
+        self.assertLess(index("Resolve Swift packages"), index("Adopt this owned Mac's DerivedData"))
+        self.assertLess(index("Adopt the DerivedData seed"), index("Adopt this owned Mac's DerivedData"))
+        self.assertLess(index("Adopt this owned Mac's DerivedData"), index("Build the app-host and UI test product"))
+        self.assertIn('"$CMUX_CI_CANONICAL_SRC"', self.by_id["owned-adopt"]["run"])
+
+    def owned_state(self, root, kept_packages=True):
+        """Run the owned-state step against a temporary store; (code, outputs, store base)."""
+        import os
+        import subprocess
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        fleet, workspace, temp = base / "fleet", base / "workspace", base / "temp"
+        for directory in (fleet, workspace / "scripts/ci", temp, base / "bin"):
+            directory.mkdir(parents=True)
+        if kept_packages:
+            (fleet / "source-packages").mkdir()
+            (fleet / "source-packages" / "Package.resolved").write_text("kept")
+        fingerprint = workspace / "scripts/ci/compile-app-host-test-product.sh"
+        fingerprint.write_text("#!/bin/sh\necho fp\n")
+        fingerprint.chmod(0o755)
+        # Serve the helpers from this checkout and record what was asked for.
+        curl = base / "bin" / "curl"
+        curl.write_text(f"""#!/bin/sh
+while [ "$#" -gt 1 ]; do
+  case "$1" in -o) out="$2"; shift ;; esac
+  shift
+done
+echo "$1" >> "{base}/urls"
+cp "{ROOT}/scripts/ci/${{1##*/}}" "$out"
+""")
+        curl.chmod(0o755)
+        output = base / "output"
+        output.write_text("")
+        run = self.by_id["owned-state"]["run"].replace("/Users/Shared/cmux-build-fleet/ci", str(fleet))
+        env = {"PATH": f"{base / 'bin'}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output),
+               "RUNNER_TEMP": str(temp), "GITHUB_REPOSITORY": "manaflow-ai/cmux", "WORKFLOW_SHA": "w" * 40,
+               "CMUX_DERIVED_DATA_PATH": "/private/tmp/cmux-ci/derived-data-compile-admission", "HOME": str(base)}
+        if root is not None:
+            env["CMUX_CI_CANONICAL_ROOT"] = root
+        result = subprocess.run(["bash", "-e", "-c", run], cwd=workspace, env=env, capture_output=True, text=True)
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        urls = (base / "urls").read_text().split() if (base / "urls").exists() else []
+        return result, outputs, fleet, workspace, urls
+
+    def test_each_root_reads_its_own_state_and_the_macs_packages(self):
+        for root, suffix in ((None, ""), ("/private/tmp/cmux-ci", ""), ("/private/tmp/cmux-ci-2", "/cmux-ci-2")):
+            with self.subTest(root=root):
+                result, outputs, fleet, workspace, urls = self.owned_state(root)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(outputs["store"], f"{fleet}{suffix}")
+                self.assertEqual(outputs["seeds"], f"{fleet}{suffix}/seeds")
+                self.assertEqual(outputs["warm"], "false")
+                self.assertEqual(outputs["packages"], "true")
+                self.assertEqual((workspace / ".ci-source-packages/Package.resolved").read_text(), "kept")
+                # A clone: the Mac's packages stay where they were.
+                self.assertEqual((fleet / "source-packages/Package.resolved").read_text(), "kept")
+                self.assertTrue(urls)
+                for url in urls:
+                    self.assertTrue(url.startswith(f"https://raw.githubusercontent.com/manaflow-ai/cmux/{'w' * 40}/scripts/ci/"), url)
+                self.assertTrue(Path(outputs["tools"], "owned_build_state.py").is_file())
+
+    def test_an_unexpected_root_reads_nothing(self):
+        for root in ("/tmp/elsewhere", "/private/tmp/cmux-ci-x", "/private/tmp/cmux-ci/../x"):
+            with self.subTest(root=root):
+                result, outputs, _, workspace, urls = self.owned_state(root)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(outputs, {})
+                self.assertEqual(urls, [])
+                self.assertFalse((workspace / ".ci-source-packages").exists())
+
+    def test_the_adopt_and_prefer_lines_are_ones_the_script_accepts(self):
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "derived").mkdir()
+            env = {"PATH": "/usr/bin:/bin", "HOME": str(base), "OWNED_TOOLS": str(ROOT / "scripts/ci"),
+                   "OWNED_STORE": str(base / "store"), "CMUX_DERIVED_DATA_PATH": str(base / "derived"),
+                   "CMUX_CI_CANONICAL_SRC": str(base / "src"), "SEED_PREFIX": "p-", "TEST_REF": "base",
+                   "MAX_DISTANCE": "", "CMUX_SEED_LOCAL_CACHE": str(base / "store/seeds")}
+            for step_id in ("owned-adopt", "prefer-seed"):
+                script = self.by_id[step_id]["run"].replace("python3 ", f"{sys.executable} ")
+                result = subprocess.run(["bash", "-c", script], cwd=base, env=dict(env, GITHUB_OUTPUT=os.devnull),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{step_id}: {result.stderr[-400:]}")
+                self.assertNotIn("owned_build_state.py check STORE", result.stderr, step_id)
 
 
 if __name__ == "__main__":
