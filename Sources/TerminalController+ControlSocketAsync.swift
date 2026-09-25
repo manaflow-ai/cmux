@@ -152,10 +152,16 @@ extension TerminalController {
                 // The existing worker implementation is already nonisolated
                 // for telemetry/diagnostic/remote work. It remains serial
                 // within this connection task, preserving v1 FIFO semantics.
-                let worker = self.socketWorkerV1ResponseIfHandled(
-                    cmd: commandName,
-                    args: args
-                )
+                // read_screen can wait for a cold surface to start (#1472), so
+                // it blocks a GCD thread instead of a cooperative-pool thread.
+                let worker: (handled: Bool, response: String?)
+                if commandName == "read_screen" {
+                    worker = await self.runBlockingSocketBody {
+                        self.socketWorkerV1ResponseIfHandled(cmd: commandName, args: args)
+                    }
+                } else {
+                    worker = self.socketWorkerV1ResponseIfHandled(cmd: commandName, args: args)
+                }
                 if worker.handled { return worker.response }
             }
             return await self.v2MainAsync {
@@ -258,11 +264,13 @@ extension TerminalController {
         }
 
         if request.method == "surface.read_text" {
-            // These legacy bodies still return Foundation-shaped values. Run
-            // the miss on the main actor only when no published snapshot exists;
-            // steady-state polling takes the branch above and never enters
-            // this fallback.
-            let response = await v2MainAsync {
+            // Steady-state polling takes the snapshot branch above and never
+            // enters this fallback. The body takes its own main-actor hop and,
+            // for a terminal that was never shown, waits off-main for its
+            // surface to start (#1472), so run it on a GCD thread: not on the
+            // main actor, where the start could not run while it waits, and
+            // not on a cooperative-pool thread.
+            let response = await runBlockingSocketBody {
                 self.socketWorkerV2Response(
                     handling: ControlRequest(
                         id: request.id,
@@ -460,6 +468,20 @@ extension TerminalController {
         return await MainActor.run {
             Self.withSocketCommandPolicyStack(policyStack) {
                 body()
+            }
+        }
+    }
+
+    /// Runs a blocking socket body on a GCD thread with the caller's
+    /// focus-policy stack, so a body that sleeps between main-actor hops parks
+    /// neither the main actor nor a cooperative-pool thread.
+    private nonisolated func runBlockingSocketBody<T: Sendable>(
+        _ body: @escaping @Sendable () -> T
+    ) async -> T {
+        let policyStack = Self.currentSocketCommandFocusAllowanceStack()
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: Self.withSocketCommandPolicyStack(policyStack) { body() })
             }
         }
     }
