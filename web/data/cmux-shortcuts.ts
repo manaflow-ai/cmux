@@ -176,6 +176,15 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "フォーカスを戻す/進めるはブラウザペイン外で Cmd+[ / Cmd+] を使い、ブラウザペイン内では同じキーでブラウザの戻る/進むが動作します。ターミナル側で使うには、フォーカスを戻す/進めるの割り当てを解除します。",
         },
       },
+      {
+        id: "focusHistoryLast",
+        combos: [],
+        description: { en: "Focus last", ja: "直前のフォーカスへ切り替え" },
+        note: {
+          en: "unbound by default; toggles between the current position and the one focus last left, so pressing it twice returns where you started",
+          ja: "デフォルトでは未割り当て。現在の位置と直前にフォーカスしていた位置を切り替えるため、2回押すと元の位置に戻ります",
+        },
+      },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
