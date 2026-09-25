@@ -3653,7 +3653,11 @@ impl Mux {
         if is_template_terminal(&terminal) {
             // Cloud snapshot template: its builder's placement was wiped with
             // the builder's registry, so it always gets a new one here.
-            self.place_adopted_terminal_in_new_screen(&mut state, &terminal.workspace_key, surface)?;
+            self.place_adopted_terminal_in_new_screen(
+                &mut state,
+                &terminal.workspace_key,
+                surface,
+            )?;
         } else if has_restored_placements || surface.resource_identity().is_none() {
             anyhow::ensure!(
                 !self.consume_terminal_adoption_insert_failure(),
@@ -3664,7 +3668,11 @@ impl Mux {
             // One-release import path for a host that predates public content
             // identities. Give it a real initial placement so the normal
             // resource projection can persist its generated identities.
-            self.place_adopted_terminal_in_new_screen(&mut state, &terminal.workspace_key, surface)?;
+            self.place_adopted_terminal_in_new_screen(
+                &mut state,
+                &terminal.workspace_key,
+                surface,
+            )?;
         }
 
         let revision = match commit_terminal_lifecycle(

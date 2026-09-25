@@ -4642,7 +4642,10 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         "CMUX_TUI_TEMPLATE_BOUND_FILE",
         "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
     ] {
-        assert!(!child_env.lines().any(|line| line.starts_with(&format!("{key}="))), "{key} leaked");
+        assert!(
+            !child_env.lines().any(|line| line.starts_with(&format!("{key}="))),
+            "{key} leaked"
+        );
     }
     assert_ne!(workspaces["registry_id"], registry_before);
     let after = state_identity(&harness.state);
