@@ -1911,12 +1911,16 @@
 		10200F1E0000000000000009 /* FileContentObservationLifetime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E000000000000000A /* FileContentObservationLifetime.swift */; };
 		10200F1E0000000000000003 /* FileContentObserverTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E0000000000000004 /* FileContentObserverTransferTests.swift */; };
 		D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */; };
+		D12925010000000000000001 /* FileDropHintPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12925010000000000000002 /* FileDropHintPresentation.swift */; };
+		713341E6979D0C6102E25549 /* FileDropOverlayDragCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A74B34B232D4D76037A67D5 /* FileDropOverlayDragCompletionTests.swift */; };
 		781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */; };
 		F0A1100D0000000000000001 /* FileDropOverlayMouseDragButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1100E0000000000000001 /* FileDropOverlayMouseDragButton.swift */; };
 		F0A1100F0000000000000001 /* FileDropOverlayMouseDragTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110100000000000000001 /* FileDropOverlayMouseDragTarget.swift */; };
 		D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */; };
 		D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */; };
+		C82094EE9C3CFA5BE97C4833 /* FileDropOverlayViewLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB37A3E26005F130A2E0F04 /* FileDropOverlayViewLifecycleTests.swift */; };
 		D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */; };
+		D12925020000000000000001 /* FileDropPaneTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12925020000000000000002 /* FileDropPaneTarget.swift */; };
 		F12748000000000000000001 /* FileEditorWordWrapShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000002 /* FileEditorWordWrapShortcutTests.swift */; };
 		FE5996010000000000000002 /* FileExplorerCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996010000000000000001 /* FileExplorerCellView.swift */; };
 		C40410010000000000000021 /* FileExplorerDoubleClickActionSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */; };
@@ -6049,12 +6053,16 @@
 		10200F1E000000000000000A /* FileContentObservationLifetime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FileContentObservationLifetime.swift; sourceTree = "<group>"; };
 		10200F1E0000000000000004 /* FileContentObserverTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileContentObserverTransferTests.swift; sourceTree = "<group>"; };
 		D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropHintBadgeView.swift; sourceTree = "<group>"; };
+		D12925010000000000000002 /* FileDropHintPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropHintPresentation.swift; sourceTree = "<group>"; };
+		4A74B34B232D4D76037A67D5 /* FileDropOverlayDragCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileDropOverlayDragCompletionTests.swift"; sourceTree = "<group>"; };
 		781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayHitTestPerformanceTests.swift; sourceTree = "<group>"; };
 		F0A1100E0000000000000001 /* FileDropOverlayMouseDragButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayMouseDragButton.swift; sourceTree = "<group>"; };
 		F0A110100000000000000001 /* FileDropOverlayMouseDragTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayMouseDragTarget.swift; sourceTree = "<group>"; };
 		D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayView.swift; sourceTree = "<group>"; };
 		D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewHitTesting.swift; sourceTree = "<group>"; };
+		7EB37A3E26005F130A2E0F04 /* FileDropOverlayViewLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileDropOverlayViewLifecycleTests.swift"; sourceTree = "<group>"; };
 		D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewTests.swift; sourceTree = "<group>"; };
+		D12925020000000000000002 /* FileDropPaneTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropPaneTarget.swift; sourceTree = "<group>"; };
 		F12748000000000000000002 /* FileEditorWordWrapShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileEditorWordWrapShortcutTests.swift; sourceTree = "<group>"; };
 		FE5996010000000000000001 /* FileExplorerCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerCellView.swift; sourceTree = "<group>"; };
 		C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerDoubleClickActionSettings.swift; sourceTree = "<group>"; };
@@ -9352,6 +9360,8 @@
 				F0A110100000000000000001 /* FileDropOverlayMouseDragTarget.swift */,
 				D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */,
 				D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */,
+				D12925010000000000000002 /* FileDropHintPresentation.swift */,
+				D12925020000000000000002 /* FileDropPaneTarget.swift */,
 				C0DE35010000000000000002 /* SidebarScrim.swift */,
 				D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */,
 				D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */,
@@ -12004,6 +12014,8 @@
 				E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */,
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
 				781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */,
+				4A74B34B232D4D76037A67D5 /* FileDropOverlayDragCompletionTests.swift */,
+				7EB37A3E26005F130A2E0F04 /* FileDropOverlayViewLifecycleTests.swift */,
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */,
 				56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */,
@@ -14373,10 +14385,12 @@
 				10200F1E0000000000000005 /* FileContentChangeObservingPanel.swift in Sources */,
 				10200F1E0000000000000009 /* FileContentObservationLifetime.swift in Sources */,
 				D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */,
+				D12925010000000000000001 /* FileDropHintPresentation.swift in Sources */,
 				F0A1100D0000000000000001 /* FileDropOverlayMouseDragButton.swift in Sources */,
 				F0A1100F0000000000000001 /* FileDropOverlayMouseDragTarget.swift in Sources */,
 				D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */,
 				D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */,
+				D12925020000000000000001 /* FileDropPaneTarget.swift in Sources */,
 				FE5996010000000000000002 /* FileExplorerCellView.swift in Sources */,
 				C40410010000000000000021 /* FileExplorerDoubleClickActionSettings.swift in Sources */,
 				FE5996080000000000000002 /* FileExplorerExternalOpenMenuItems.swift in Sources */,
@@ -16781,7 +16795,9 @@
 				FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */,
 				330A15CE33CDB525DE207F7F /* FeedWaiterRegistryTests.swift in Sources */,
 				10200F1E0000000000000003 /* FileContentObserverTransferTests.swift in Sources */,
+				713341E6979D0C6102E25549 /* FileDropOverlayDragCompletionTests.swift in Sources */,
 				781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */,
+				C82094EE9C3CFA5BE97C4833 /* FileDropOverlayViewLifecycleTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				F12748000000000000000001 /* FileEditorWordWrapShortcutTests.swift in Sources */,
 				FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */,
