@@ -20,6 +20,14 @@ TESTS = 'e2e-run-tests'
 JOBS[TESTS] = yaml.safe_load((ROOT / '.github/actions/e2e-run-tests/action.yml').read_text())['runs']['steps']
 
 
+def by_id(step_id, job='build'):
+    """One step by id, for names a job uses twice (the product upload)."""
+    found = [s for s in JOBS[job] if s.get('id') == step_id]
+    if len(found) != 1:
+        raise AssertionError(f"expected one {step_id!r} step in {job}, found {len(found)}")
+    return found[0]
+
+
 def step(name, job=None):
     """One named step. `build` and `test` share several step names."""
     found = [(owner, s) for owner, steps in JOBS.items() if job in (None, owner)
@@ -169,14 +177,20 @@ exit 97
                 self.assertNotIn('compile-app-host-test-product.sh', run, entry.get('name'))
                 self.assertNotIn('build-for-testing', run, entry.get('name'))
 
-        upload = step('Upload the compiled test product', 'build')
-        self.assertEqual(
-            upload['with']['name'],
-            'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
-            'publish under the name ci.yml uses, so a later run can adopt it')
+        for upload_id in ('upload-product', 'upload-product-after-tests'):
+            upload = by_id(upload_id)
+            self.assertEqual(
+                upload['with']['name'],
+                'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
+                'publish under the name ci.yml uses, so a later run can adopt it')
 
         outputs = WORKFLOW['jobs']['build']['outputs']
-        self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
+        self.assertEqual(outputs['artifact_id'],
+                         '${{ steps.upload-product.outputs.artifact-id'
+                         ' || steps.upload-product-after-tests.outputs.artifact-id }}')
+        self.assertEqual(outputs['artifact_digest'],
+                         '${{ steps.upload-product.outputs.artifact-digest'
+                         ' || steps.upload-product-after-tests.outputs.artifact-digest }}')
         self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
         self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'runner', 'build'])
 
@@ -217,6 +231,81 @@ exit 97
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
                          '${{ fromJSON(needs.filter.outputs.build_timeout) }}')
+
+    def test_an_owned_mac_uploads_the_product_after_its_tests(self):
+        # An owned Mac uploads at 6-7 MB/s, about 130 s for the product, which
+        # the tests no longer wait for there: they restore the local archive.
+        # Everywhere else, and whenever the `test` job will read the upload,
+        # it still goes first.
+        names = [entry.get('name') for entry in JOBS['build']]
+        ids = [entry.get('id') for entry in JOBS['build']]
+        before, after = by_id('upload-product'), by_id('upload-product-after-tests')
+        self.assertEqual(
+            before['if'],
+            "${{ (vars.CI_E2E_TEST_IN_BUILD || '1') == '0' || !startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}")
+        self.assertEqual(step('Run the selected tests here', 'build')['if'],
+                         "${{ (vars.CI_E2E_TEST_IN_BUILD || '1') != '0' }}",
+                         'the deferral must defer exactly when this job tests')
+        # Runs whatever the tests did, even on a cancel, so a failing or
+        # superseded run still publishes an intact product, but only when the
+        # first upload stood aside for it and the archive still hashes to what
+        # the package step sealed.
+        check = by_id('late-upload-check')
+        self.assertEqual(
+            check['if'],
+            "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}")
+        self.assertIn('shasum -a 256 -c', check['run'])
+        self.assertEqual(check['env']['EXPECTED_SHA256'], '${{ steps.package.outputs.sha256 }}')
+        self.assertEqual(after['if'], "${{ always() && steps.late-upload-check.outcome == 'success' }}")
+        self.assertEqual(ids.index('late-upload-check') + 1, ids.index('upload-product-after-tests'))
+        self.assertEqual({k: v for k, v in before.items() if k not in ('id', 'if', 'name')},
+                         {k: v for k, v in after.items() if k not in ('id', 'if', 'name')})
+        # Both names count as published (reuse_app_host_products.py and
+        # e2e_sibling_build.py); product_input_identity.py needs them unique.
+        sys.path.insert(0, str(ROOT / 'scripts/ci'))
+        import e2e_sibling_build
+        import reuse_app_host_products
+        published = (before['name'], after['name'])
+        self.assertEqual(reuse_app_host_products.PUBLISH_STEPS['.github/workflows/test-e2e.yml'], published)
+        self.assertEqual((e2e_sibling_build.PUBLISH_STEP, e2e_sibling_build.PUBLISH_AFTER_TESTS_STEP), published)
+        self.assertEqual(len(names), len(set(names)))
+        self.assertLess(ids.index('package'), ids.index('upload-product'))
+        self.assertLess(ids.index('upload-product'), names.index('Run the selected tests here'))
+        for earlier in ('tests', None):
+            index = ids.index(earlier) if earlier else names.index('Resolve selectors against the built tests')
+            self.assertLess(index, ids.index('upload-product-after-tests'))
+        self.assertEqual(ids.index('upload-product-after-tests'), len(ids) - 1)
+        # The tests restore the archive this job packaged, never the upload,
+        # so an empty artifact id before the deferred upload is expected.
+        action = yaml.safe_load((ROOT / '.github/actions/e2e-run-tests/action.yml').read_text())
+        for name in ('artifact-id', 'artifact-digest'):
+            self.assertIs(action['inputs'][name]['required'], False, name)
+
+    def test_a_producer_restore_needs_no_artifact_id(self):
+        # restore-app-host-test-product.sh's measurement record read
+        # int(ARTIFACT_ID), which an owned build testing before its upload
+        # does not have yet.
+        script = (ROOT / 'scripts/ci/restore-app-host-test-product.sh').read_text()
+        start = script.index("python3 - <<'PY'\n") + len("python3 - <<'PY'\n")
+        body = script[start:script.index('\nPY\n', start)]
+        archive = self.root / 'app-host-products' / 'app-host-products.tar.gz'
+        archive.parent.mkdir()
+        archive.write_bytes(b'archive')
+        for artifact_id, expected in (('', None), ('42', 42)):
+            with self.subTest(artifact_id=artifact_id):
+                result = subprocess.run([sys.executable, '-c', body], env=dict(
+                    self.env, CMUX_RESTORE_STARTED_NS='0', CMUX_RESTORE_STATUS='0',
+                    CMUX_PRODUCT_FROM_PRODUCER='true', GITHUB_REPOSITORY='manaflow-ai/cmux',
+                    ARTIFACT_ID=artifact_id, ARTIFACT_PROVIDER_DIGEST='', EXPECTED_SHA256='abc',
+                    CMUX_PRODUCT_CONTRACT='key', CMUX_PRODUCT_SOURCE_REVISION='a' * 40,
+                    CMUX_PRODUCT_PRODUCER_RUN_ID='11', CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT='1',
+                    GITHUB_STEP_SUMMARY=''), text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                line = next(l for l in result.stdout.splitlines() if l.startswith('CMUX_TEST_PRODUCT_RESTORE '))
+                import json
+                record = json.loads(line.split(' ', 1)[1])
+                self.assertEqual(record['artifact_id'], expected)
+                self.assertEqual(record['lookup_source'], 'producer')
 
     def test_the_build_timeout_doubles_job_timeout(self):
         script = WORKFLOW['jobs']['filter']['steps'][0]['run']
