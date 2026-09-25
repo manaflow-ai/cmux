@@ -165,6 +165,12 @@ class SelectorTests(unittest.TestCase):
         selection = rti.select(fixture(), hunk("Sources/Feed/feed.json", 1))
         self.assertEqual(selection.nonswift_app_files, ["Sources/Feed/feed.json"])
 
+    def test_a_deleted_app_file_is_recorded_rather_than_skipped(self) -> None:
+        # Recall is measured later, so a file the selector could not read
+        # has to show up in the report.
+        selection = rti.select(fixture(), hunk("Sources/Feed/Gone.swift", 1))
+        self.assertIn("Sources/Feed/Gone.swift deleted", selection.untraceable)
+
 
 class BudgetTests(unittest.TestCase):
     def test_over_budget_keeps_the_most_specific_names_that_fit(self) -> None:

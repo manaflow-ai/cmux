@@ -192,8 +192,14 @@ class TestIndex:
         return self._outlines[path]
 
 
-def reach(seed: Seed, tests: TestIndex, declared: dict[str, int]) -> tuple[set[str], set[str]] | str:
-    """Suites and test files one changed name reaches, or why it was dropped."""
+def reach(
+    seed: Seed, tests: TestIndex, declared: dict[str, int], skipped: list[str] | None = None
+) -> tuple[set[str], set[str]] | str:
+    """Suites and test files one changed name reaches, or why it was dropped.
+
+    A helper name further along the trail that is too common to follow is
+    recorded in `skipped`, so the report shows where recall was given up.
+    """
     if seed.name in GENERIC_NAMES:
         return "generic name"
     suites: set[str] = set()
@@ -218,7 +224,9 @@ def reach(seed: Seed, tests: TestIndex, declared: dict[str, int]) -> tuple[set[s
                 if len(scope) > cap:
                     return f"hot: {len(scope)} test files"
                 return f"ambiguous: declared in {declared[name]} app files, no owner type"
-            continue  # a hot helper: its own suites are already counted
+            if skipped is not None:
+                skipped.append(f"hot helper {name} (from {seed.name}): {len(scope)} test files")
+            continue
         first = False
         pattern = re.compile(rf"\b{re.escape(name)}\b")
         for path in sorted(scope):
@@ -273,7 +281,10 @@ def select(files: dict[str, str], diff: str | None) -> Selection:
             selection.nonswift_app_files.append(path)
             continue
         if path not in files:
-            continue  # deleted: its callers changed too, or stop compiling
+            # Deleted: its callers changed too, or stop compiling. Recorded so a
+            # missed failure can be traced to it.
+            selection.untraceable.append(f"{path} deleted")
+            continue
         found, untraceable = changed_seeds(path, files[path].splitlines(), hunks[path])
         seeds.extend(found)
         selection.untraceable.extend(untraceable)
@@ -290,7 +301,7 @@ def select(files: dict[str, str], diff: str | None) -> Selection:
         if not seed.name or (seed.name, seed.owner) in seen:
             continue
         seen.add((seed.name, seed.owner))
-        result = reach(seed, tests, declared)
+        result = reach(seed, tests, declared, selection.untraceable)
         if isinstance(result, str):
             selection.dropped.append((seed, result))
         else:

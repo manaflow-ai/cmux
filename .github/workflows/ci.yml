@@ -915,8 +915,10 @@ jobs:
             echo "No base revision in this checkout; nothing to report."
             exit 0
           fi
-          if ! git diff --no-renames --name-only "$base" HEAD \
-            | grep -qE '^(Sources/|Packages/(macOS|Shared)/[^/]+/Sources/)'; then
+          # A file, not a pipe into grep -q: an early grep exit would SIGPIPE
+          # git on a large diff and pipefail would read that as no match.
+          git diff --no-renames --name-only "$base" HEAD > "$out/names" || true
+          if ! grep -qE '^(Sources/|Packages/(macOS|Shared)/[^/]+/Sources/)' "$out/names"; then
             echo "No app source changes; nothing to report."
             exit 0
           fi
