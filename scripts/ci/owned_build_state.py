@@ -75,7 +75,7 @@ CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
 DerivedData. It digests the workspace once and counts the inputs each would
 rebuild: those whose content differs from the kept RECORD, and from the
 MANIFEST of every seed in this commit's history that this Mac keeps
-(seed_derived_data.py CMUX_SEED_LOCAL_CACHE, up to 8 of them). All are a local
+(seed_derived_data.py CMUX_SEED_LOCAL_CACHE, up to LOCAL_KEEP of them). All are a local
 clone, so the one with the fewest changed inputs wins, and the adopt that
 follows clones exactly that seed (CMUX_SEED_EXACT). A seed this Mac does not
 keep costs a download of about 250 s, worth about DOWNLOAD_INPUTS changed
@@ -83,9 +83,12 @@ inputs, so it wins only when GitHub's compare of its commit with the checkout
 lists that many fewer files than the kept build changed, at most MAX_DISTANCE
 commits back, and only when MAX_DISTANCE is given. A commit count alone says
 little: main takes about 25 merges an hour and a seed about 15 minutes, so the
-newest seed is usually 5 to 8 commits behind. Without GitHub's answer, only a
-seed UNKNOWN_ESTIMATE_DISTANCE commits behind is downloaded. A kept DerivedData without a record replays nothing and rebuilds the
-whole `cmux` module, so any seed beats it. Every error keeps the warm path.
+newest seed is usually 5 to 8 commits behind. A start that changes at most
+DOWNLOAD_INPUTS inputs never pays for a download, and when the compare bumps
+a submodule (the counts no longer compare) only a seed
+UNKNOWN_ESTIMATE_DISTANCE commits behind is downloaded. A kept DerivedData
+without a record replays nothing and rebuilds the whole `cmux` module, so any
+seed beats it. Every error keeps the warm path.
 
 The count alone misleads when a local package's source changed (Packages/,
 vendor/, Examples/): every `cmux` file imports those modules and recompiles,
@@ -112,6 +115,7 @@ requests never reach an owned pool.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -507,21 +511,20 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
     if kept_cost is not None:
         result.update(kept_changed=str(kept_cost[1]), kept_rebuilds_app=str(kept_cost[0]).lower())
     kept_seed = best_kept_seed(prefix, revision, current)
-    local_rebuilds_app = False
+    best = kept_cost  # the cheapest start found so far
+    local_distance = None
     if kept_seed:
         key, distance, seed_cost = kept_seed
         result.update(seed_key=key, seed_distance=str(distance), local="true")
         if kept_cost is None or seed_cost is None:
+            touch_kept_seed(key)
             result.update(prefer="true", reason="kept DerivedData has no input record")
             return result
         result.update(seed_changed=str(seed_cost[1]), seed_rebuilds_app=str(seed_cost[0]).lower())
         if seed_cost < kept_cost:
+            touch_kept_seed(key)
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
-            if not seed_cost[0] or max_distance is None:
-                return result
-            # It still recompiles the whole app. A newer seed in the bucket
-            # may not; checked below.
-            local_rebuilds_app = True
+            best, local_distance = seed_cost, distance
         else:
             result["reason"] = "the kept DerivedData has no more changed inputs than the seed this Mac keeps"
     if max_distance is None:
@@ -532,50 +535,90 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
         result.setdefault("reason", "no seed in this commit's history")
         return result
     downloaded = {"prefer": "true", "seed_key": exact, "seed_distance": str(distance), "local": "false"}
-    if local_rebuilds_app:
-        if distance < int(result["seed_distance"]) and bucket_seed_rebuilds_app(exact, workspace) is False:
-            result.update(downloaded, reason=f"the seed this Mac keeps recompiles the app; the seed {distance} commits behind does not")
+    if best is None:
+        # A kept DerivedData without a record rebuilds the whole module, so
+        # any seed up to MAX_DISTANCE beats it.
+        if distance <= max_distance:
+            result.update(downloaded, reason=f"seed {distance} commits behind, within {max_distance}; "
+                                             "kept DerivedData has no input record")
+        else:
+            result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
         return result
-    # About how many inputs the download recompiles: the files GitHub says
-    # differ from the checkout. It overcounts (docs, workflows), which only
-    # makes a download less likely. None when GitHub cannot say.
-    compared = (bucket_compare(exact, workspace)
-                if kept_cost is not None and not kept_cost[0] and kept_cost[1] > DOWNLOAD_INPUTS
-                and distance <= max_distance else None)
-    estimate = None if compared is None else len(set(compared))
-    # A kept DerivedData without a record rebuilds the whole module, so any
-    # seed up to MAX_DISTANCE beats it; otherwise, without GitHub's estimate,
-    # only a seed a couple of commits behind.
-    near = max_distance if kept_cost is None else min(max_distance, UNKNOWN_ESTIMATE_DISTANCE)
-    if kept_cost is not None and kept_cost[1] == 0:
-        result["reason"] = "the kept DerivedData has no changed inputs"
-    elif estimate is not None and files_rebuild_app(compared, workspace) is False:
+    # One GitHub compare per decision: the files, and whether they recompile the app.
+    asked: dict[str, object] = {}
+
+    def compared() -> list[str] | None:
+        if "files" not in asked:
+            asked["files"] = bucket_compare(exact, workspace)
+        return asked["files"]  # type: ignore[return-value]
+
+    def seed_rebuilds_app() -> bool | None:
+        if "app" not in asked:
+            asked["app"] = (files_rebuild_app(compared(), workspace) if "files" in asked
+                            else bucket_seed_rebuilds_app(exact, workspace))
+        return asked["app"]  # type: ignore[return-value]
+
+    start = "the seed this Mac keeps" if local_distance is not None else "the kept DerivedData"
+    if best[0]:
+        # A download (about 250 s on a mini) costs less than recompiling the
+        # whole app (365 to 1,053 s on an owned mini on 2026-09-25), at any
+        # distance, when GitHub's compare shows no package change.
+        if seed_rebuilds_app() is False:
+            result.update(downloaded, reason=f"{start} recompiles the app; the seed {distance} commits behind does not")
+        else:
+            result.setdefault("reason", f"{start} recompiles the app, and so may the seed {distance} commits behind")
+        return result
+    if best[1] <= DOWNLOAD_INPUTS:
+        # A download costs about DOWNLOAD_INPUTS changed inputs of compile.
+        result["reason"] = f"{start} changes {best[1]} inputs, too few to pay for a download"
+        return result
+    if distance > max_distance:
+        result["reason"] = f"the nearest seed is {distance} commits behind, past {max_distance}"
+        return result
+    estimate = compare_estimate(compared(), workspace)
+    if estimate is not None and seed_rebuilds_app() is False:
         # GitHub's compare says what the download would recompile, so weigh
-        # it against the kept build instead of trusting a commit count: main
+        # it against the best start instead of trusting a commit count: main
         # moves 5 to 8 commits per seed, so a count of 2 almost never passed.
-        if estimate + DOWNLOAD_INPUTS < kept_cost[1]:
+        if estimate + DOWNLOAD_INPUTS < best[1]:
             result.update(downloaded, seed_changed=str(estimate),
                           reason=f"the seed {distance} commits behind changes about {estimate} inputs, "
-                                 f"the kept DerivedData {kept_cost[1]}")
+                                 f"{start} {best[1]}")
         else:
             result["reason"] = (f"the seed {distance} commits behind changes about {estimate} inputs, "
-                                f"not enough fewer than the kept DerivedData's {kept_cost[1]} to pay for a download")
-    elif distance <= near and not (
-        kept_cost is not None and not kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is not False
-    ):
-        # A near seed that would recompile the app never replaces a kept build
-        # that would not; unknown counts as would.
-        result.update(downloaded, reason=f"seed {distance} commits behind, within {max_distance}"
-                      + ("" if kept_cost is not None else "; kept DerivedData has no input record"))
-    elif kept_cost is not None and kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is False:
-        # A download (about 250 s on a mini) costs less than recompiling the
-        # whole app (365 to 1,053 s on an owned mini on 2026-09-25).
-        result.update(downloaded, reason=f"the kept DerivedData recompiles the app; the seed {distance} commits behind does not")
-    elif distance <= near:
-        result.setdefault("reason", f"the seed {distance} commits behind may recompile the app; the kept DerivedData does not")
+                                f"not enough fewer than {start}'s {best[1]} to pay for a download")
+    elif estimate is None and distance <= UNKNOWN_ESTIMATE_DISTANCE and seed_rebuilds_app() is False:
+        result.update(downloaded, reason=f"seed {distance} commits behind, within {UNKNOWN_ESTIMATE_DISTANCE}")
+    elif seed_rebuilds_app() is not False:
+        # A seed that would recompile the app never replaces a start that
+        # would not; unknown counts as would.
+        result["reason"] = f"the seed {distance} commits behind may recompile the app; {start} does not"
     else:
-        result.setdefault("reason", f"the nearest seed is {distance} commits behind and GitHub cannot say what it changes")
+        result["reason"] = f"the seed {distance} commits behind is too far to download without GitHub's estimate"
     return result
+
+
+def compare_estimate(files: list[str] | None, workspace: Path) -> int | None:
+    """About how many inputs a downloaded seed recompiles: the files GitHub's
+    compare lists. It overcounts docs and workflows, which only makes a
+    download less likely. None when GitHub cannot say, or when the compare
+    bumps a submodule: GitHub lists that as one path while the kept record
+    counts every file under it, so the two counts do not compare.
+    """
+    if files is None:
+        return None
+    listed = set(files)
+    if not submodules(workspace).isdisjoint(listed):
+        return None
+    return len(listed)
+
+
+def touch_kept_seed(key: str) -> None:
+    """Mark the chosen kept seed recent, so a concurrent prune spares it until adopt."""
+    path = seed.cached(key)
+    if path is not None:
+        with contextlib.suppress(OSError):
+            os.utime(path)
 
 
 def package_store(argv: list[str]) -> Path | None:

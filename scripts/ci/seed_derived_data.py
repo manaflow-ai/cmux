@@ -106,16 +106,19 @@ ANCESTOR_LIMIT = 50
 # Fallbacks go in this order after a runner's own width.
 SEEDED_JOB_WIDTHS = (12, 6, 14)
 USER_AGENT = "cmux-ci-seed-derived-data"
-# Seeds an owned Mac keeps in CMUX_SEED_LOCAL_CACHE, newest first. main takes
-# about 25 merges an hour and a seed takes about 15 minutes, so the newest seed
-# is usually 5 to 8 commits behind a pull request's base, and a job whose base
-# is older than that needs an older seed. With only 2 kept, most jobs found
-# none near their base and fell back to the previous pull request's build
-# (345 changed inputs in run 36121897936). A seed is about 8 GB and the minis
-# have 175 to 280 GB free, so keep 8, and only 2 when the disk is short.
-LOCAL_KEEP = 8
+# Seeds each canonical root keeps in its CMUX_SEED_LOCAL_CACHE, newest first
+# (roots do not share seeds: the keys carry the root). main takes about 25
+# merges an hour and a seed takes about 15 minutes, so the newest seed is
+# usually 5 to 8 commits behind a pull request's base, and a job whose base is
+# older needs an older seed. With only 2 kept, most jobs found none near their
+# base and fell back to the previous pull request's build (345 changed inputs
+# in run 36121897936). A seed is about 8 GB, so 6 per root is about 48 GB, or
+# 96 GB on a two-root mini; the runner minis had 175 to 280 GB free. Under
+# LOCAL_KEEP_MIN_FREE_BYTES free, keep 2, which stays clear of the admission
+# floor of 25 + 25 GiB per build slot at up to 4 slots.
+LOCAL_KEEP = 6
 LOCAL_KEEP_LOW_DISK = 2
-LOCAL_KEEP_MIN_FREE_BYTES = 100 * 1024**3
+LOCAL_KEEP_MIN_FREE_BYTES = 150 * 1024**3
 # A seed touched this recently may be mid-clone by a job; the prune spares it.
 PRUNE_GRACE_SECONDS = 600
 # owned_build_state.py `check` records here which seeds this root adopts.
