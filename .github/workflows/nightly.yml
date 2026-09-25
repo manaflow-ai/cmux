@@ -1596,6 +1596,9 @@ jobs:
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
 
+      - name: Verify bundled Mach-O load commands
+        run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
+
       - name: Verify signed app SSH daemon contract
         run: |
           bundle_args=()
@@ -1629,6 +1632,9 @@ jobs:
             "$CHANNEL_APP_PATH" \
             "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
+
+      - name: Gate distribution with syspolicy_check
+        run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Fetch previous nightly builds for delta updates
         if: needs.decide.outputs.fast_build != 'true'
