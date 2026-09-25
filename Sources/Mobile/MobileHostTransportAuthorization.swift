@@ -28,7 +28,7 @@ struct MobileHostRPCExecutionContext: Sendable {
     /// Shared fence token for terminal RPCs and the sibling Iroh input lane.
     /// A reconnect gets a fresh token, so work admitted by the old connection
     /// cannot apply after the replacement becomes current.
-    let terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
+    let terminalInputOrderingToken: MobileTerminalInputOrderingToken?
 
     init(
         connectionID: UUID,
