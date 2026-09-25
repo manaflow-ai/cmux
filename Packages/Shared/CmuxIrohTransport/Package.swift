@@ -18,7 +18,7 @@ let package = Package(
         .package(path: "../CMUXMobileCore"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
-            revision: "51607f3031d9ec1453c258527db5d0735077c631"
+            exact: "1.0.2-cmux.7.ios17.3"
         ),
     ],
     targets: [
