@@ -36,7 +36,7 @@ extension TerminalSurface {
     private func isManagedCloudImageTarget(in workspace: Workspace?) -> Bool {
         if hostedView.cloudTerminalOverlay.session != nil { return true }
         guard let workspace else { return false }
-        if workspace.cloudProjectedResource(forPanel: id)?.id.machine.tuiMachineID != nil { return true }
+        if workspace.cloudProjectedResource(forPanel: id)?.id.machine.cloudMachineID != nil { return true }
         if (workspace.panels[id] as? TerminalPanel)?.cloudAttachment != nil { return true }
         // A VM label alone also describes legacy SSH workspaces. Their existing
         // SSH upload path remains authoritative until a native Cloud view exists.
