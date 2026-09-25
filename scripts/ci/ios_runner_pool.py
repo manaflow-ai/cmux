@@ -226,19 +226,10 @@ def resolve(
     measure: Callable[[], IOSLoad],
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
-    tart_fleet: str | None = "1",
 ) -> Route:
-    """The route for one run, from its inputs and variables. Raises ValueError on a refused request.
-
-    A `tart-*` request (tart-ios) routes as `auto` unless `tart_fleet`
-    (vars.CI_TART_FLEET) is 1: with the Tart VMs offline it queues forever (2026-09-25).
-    """
+    """The route for one run, from its inputs and variables. Raises ValueError on a refused request."""
     config = LANES[lane]
     requested = (requested or "").strip()
-    if requested.startswith(e2e_runner_pool.TART_PREFIX) and (tart_fleet or "").strip() != "1":
-        log(f"{requested} requested, but {e2e_runner_pool.TART_FLEET_VARIABLE} is not 1 "
-            "(the Tart VMs are offline); routing as auto")
-        requested = "auto"
     default = (variable or "").strip() or SMALL_RUNNER
     if requested and requested not in ("auto", OWNED_CHOICE):
         return ephemeral(requested)
@@ -352,7 +343,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             ios_version=args.ios_version, device_family=args.device_family,
             swift_package=args.swift_package, upload=args.upload, called=args.called,
             seed_cache=args.seed_cache,
-            tart_fleet=env.get("TART_FLEET", ""),
             measure=measure, now=now, log=log,
         )
     except ValueError as error:

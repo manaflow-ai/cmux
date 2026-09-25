@@ -1,7 +1,7 @@
-@preconcurrency import XCTest
+import XCTest
 import AppKit
 import CmuxTerminal
-import GhosttyKit
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,7 +9,6 @@ import GhosttyKit
 @testable import cmux
 #endif
 
-@MainActor
 extension TerminalNotificationDirectInteractionTests {
     func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
 #if DEBUG
@@ -36,7 +35,9 @@ extension TerminalNotificationDirectInteractionTests {
     }
 
 #if DEBUG
-    /// Pins renderer state so visibility restore tests do not depend on GPU timing.
+    /// Whether a reveal forces a redraw depends on whether the renderer has
+    /// presented a frame (#14044). The test pins that state while the portal
+    /// is hidden instead of inheriting whatever the GPU presented during setup.
     private func assertInactiveVisibilityRestoreRefreshCount(
         presentedFrameBeforeReveal: Bool,
         expected: Int,
@@ -46,12 +47,15 @@ extension TerminalNotificationDirectInteractionTests {
     ) throws {
         let window = makeWindow()
         defer { window.orderOut(nil) }
+
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
         }
+
         let livePortalWorkspace = try makeAuthorizedPortalTabId()
         defer { livePortalWorkspace.tearDown() }
+
         let surface = TerminalSurface(
             tabId: livePortalWorkspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -63,26 +67,33 @@ extension TerminalNotificationDirectInteractionTests {
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
         hostedView.setVisibleInUI(true)
+
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before measuring visibility-restore redraws")
+        waitForRuntimeSurface(surface, file: file, line: line)
+        guard surface.surface != nil else { return }
+
         hostedView.setActive(false)
         hostedView.setVisibleInUI(false)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
         surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
         drainMainQueue()
         if expected > 0 {
+            // The reveal redraw runs on a later main-queue turn; wait for it.
             _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= expected }
         } else {
+            // Give a wrongly scheduled deferred redraw the same turns to land.
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
             drainMainQueue()
         }
+
         XCTAssertEqual(surface.debugForceRefreshCount(), expected, message, file: file, line: line)
     }
 #endif
+
 }

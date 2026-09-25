@@ -3126,7 +3126,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
     }
 
-    private func waitForRuntimeSurface(
+    func waitForRuntimeSurface(
         _ surface: TerminalSurface,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,

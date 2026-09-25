@@ -4,6 +4,7 @@ import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
+import CryptoKit
 import Darwin
 import Foundation
 import SwiftUI
@@ -18,13 +19,16 @@ import Testing
 
 @Suite("Computer Use UX")
 struct ComputerUseUXTests {
-    private static let stateFixture = ComputerUseAuthenticatedStateFixture()
+    private static let stateAuthenticationKey = Data(
+        repeating: 0x5a,
+        count: 32
+    )
 
     @Test func missingStateDirectoryProducesEmptyScan() {
         let missingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let result = ComputerUseStateRepository(
-            authenticationKey: Self.stateFixture.authenticationKey
+            authenticationKey: Self.stateAuthenticationKey
         ).scan(
             directoryURL: missingDirectory,
             sessions: [],
@@ -38,7 +42,7 @@ struct ComputerUseUXTests {
         try withStateDirectory { directory in
             try Data("not-json".utf8).write(to: directory.appendingPathComponent("broken.json"))
             let result = ComputerUseStateRepository(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 sessions: [ComputerUseSessionScope(id: "row", driverSessionID: "session-1")],
@@ -61,7 +65,7 @@ struct ComputerUseUXTests {
             )
             let result = ComputerUseStateRepository(
                 recentActivityInterval: 3_600,
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 sessions: [ComputerUseSessionScope(id: "row", driverSessionID: "session-1")],
@@ -91,7 +95,7 @@ struct ComputerUseUXTests {
                 lastActionAt: now.addingTimeInterval(-1)
             )
             let result = ComputerUseStateRepository(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 sessions: [ComputerUseSessionScope(
@@ -153,7 +157,7 @@ struct ComputerUseUXTests {
                 ),
             ]
             let scan = ComputerUseStateRepository(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 sessions: rows.map {
@@ -554,7 +558,7 @@ struct ComputerUseUXTests {
         """
         let state = try #require(ComputerUseCuaState(
             data: Data(json.utf8),
-            authenticationKey: Self.stateFixture.authenticationKey
+            authenticationKey: Self.stateAuthenticationKey
         ))
         #expect(state.pid == 71790)
         #expect(state.writerPID == 71600)
@@ -568,7 +572,7 @@ struct ComputerUseUXTests {
     }
 
     @Test func stateAuthenticationRejectsAgentForgedActivity() throws {
-        let data = try Self.stateFixture.data(
+        let data = try Self.authenticatedStateData(
             driverPID: 2,
             writerPID: 3,
             writerStartSeconds: 1_700_000_000,
@@ -587,7 +591,7 @@ struct ComputerUseUXTests {
 
         #expect(ComputerUseCuaState(
             data: forged,
-            authenticationKey: Self.stateFixture.authenticationKey
+            authenticationKey: Self.stateAuthenticationKey
         ) == nil)
     }
 
@@ -595,7 +599,7 @@ struct ComputerUseUXTests {
         let currentIdentity = try #require(AgentPIDProcessIdentity(
             pid: ProcessInfo.processInfo.processIdentifier
         ))
-        let data = try Self.stateFixture.data(
+        let data = try Self.authenticatedStateData(
             driverPID: 2,
             writerPID: Int(currentIdentity.pid),
             writerStartSeconds: currentIdentity.startSeconds,
@@ -608,7 +612,7 @@ struct ComputerUseUXTests {
         )
         let state = try #require(ComputerUseCuaState(
             data: data,
-            authenticationKey: Self.stateFixture.authenticationKey
+            authenticationKey: Self.stateAuthenticationKey
         ))
 
         #expect(state.belongsToProcessTree(
@@ -641,7 +645,7 @@ struct ComputerUseUXTests {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
         try withStateDirectory { directory in
-            let data = try Self.stateFixture.data(
+            let data = try Self.authenticatedStateData(
                 driverPID: 70_001,
                 writerPID: Int(writerIdentity.pid),
                 writerStartSeconds: writerIdentity.startSeconds,
@@ -658,7 +662,7 @@ struct ComputerUseUXTests {
             )
 
             let result = ComputerUseStateRepository(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 sessions: [
@@ -685,7 +689,7 @@ struct ComputerUseUXTests {
         let currentIdentity = try #require(AgentPIDProcessIdentity(
             pid: ProcessInfo.processInfo.processIdentifier
         ))
-        let data = try Self.stateFixture.data(
+        let data = try Self.authenticatedStateData(
             driverPID: 2,
             writerPID: Int(currentIdentity.pid),
             writerStartSeconds: currentIdentity.startSeconds + 1,
@@ -698,7 +702,7 @@ struct ComputerUseUXTests {
         )
         let state = try #require(ComputerUseCuaState(
             data: data,
-            authenticationKey: Self.stateFixture.authenticationKey
+            authenticationKey: Self.stateAuthenticationKey
         ))
 
         #expect(!state.belongsToProcessTree(
@@ -710,7 +714,7 @@ struct ComputerUseUXTests {
         let currentIdentity = try #require(AgentPIDProcessIdentity(
             pid: ProcessInfo.processInfo.processIdentifier
         ))
-        let data = try Self.stateFixture.data(
+        let data = try Self.authenticatedStateData(
             driverPID: 2,
             writerPID: Int(currentIdentity.pid),
             writerStartSeconds: currentIdentity.startSeconds,
@@ -723,7 +727,7 @@ struct ComputerUseUXTests {
         )
         let state = try #require(ComputerUseCuaState(
             data: data,
-            authenticationKey: Self.stateFixture.authenticationKey
+            authenticationKey: Self.stateAuthenticationKey
         ))
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -2272,77 +2276,6 @@ struct ComputerUseUXTests {
         responder.stop()
     }
 
-    @Test(.timeLimit(.minutes(1))) @MainActor
-    func permissionRefreshSurvivesHelperSocketReplacement() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "cmux-cua-permissions-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        let home = root.appendingPathComponent("home", isDirectory: true)
-        // Keep the fixture socket under Darwin's short, stable `/tmp` alias.
-        // Remote builders can expose a user temp path long enough that even a
-        // one-character runtime scope cannot fit in a UNIX-domain socket path.
-        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent(
-                "cmux-cu-permissions-\(UUID().uuidString.prefix(8))",
-                isDirectory: true
-            )
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: sockets)
-        }
-        try FileManager.default.createDirectory(
-            at: home,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: sockets,
-            withIntermediateDirectories: true
-        )
-        let paths = ComputerUseRuntimePaths(
-            homeDirectoryURL: home,
-            socketRootDirectoryURL: sockets,
-            userIdentifier: getuid(),
-            environment: ["CMUX_TAG": "permission-replacement"],
-            authenticationToken: "permission-test-token"
-        )
-        try FileManager.default.createDirectory(
-            at: paths.runtimeDirectoryURL,
-            withIntermediateDirectories: true
-        )
-        let runtime = ComputerUseRuntimeService(
-            bundle: Bundle(for: NSApplication.self),
-            paths: paths
-        )
-        await runtime.setEnabled(true)
-
-        let unavailable = try UnixSocketResponder(
-            path: paths.daemonSocketURL.path,
-            response: #"{"ok":false}"#
-        )
-        let refreshTask = Task { @MainActor in
-            await runtime.refreshHelperStatus()
-        }
-        while unavailable.receivedRequests.isEmpty {
-            await Task.yield()
-        }
-        unavailable.stop()
-
-        let replacement = try UnixSocketResponder(
-            path: paths.daemonSocketURL.path,
-            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true}}}"#
-        )
-        let status = await refreshTask.value
-        replacement.stop()
-
-        #expect(runtime.permissionStatusIsKnown)
-        #expect(status.accessibility)
-        #expect(status.screenRecording)
-
-        await runtime.setEnabled(false)
-    }
-
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() throws {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
@@ -2540,7 +2473,7 @@ struct ComputerUseUXTests {
             ),
             activityLifecycle: ComputerUseActivityLifecycle(),
             stateRepository: ComputerUseStateRepository(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ),
             stateDirectoryURL: root.appendingPathComponent("state", isDirectory: true),
             configStore: JSONConfigStore(fileURL: root.appendingPathComponent("cmux.json")),
@@ -2732,6 +2665,297 @@ struct ComputerUseUXTests {
         #expect(newTarget.targetPIDToActivate == 200)
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func computerUseFilesystemCallbacksHopSafelyToMainActor() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cua-watcher-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let target = NSRunningApplication.current
+        let targetName = try #require(target.localizedName)
+        let targetLaunchDate = try #require(target.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        let liveSession = ComputerUseLiveDriverSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            logicalSessionID: "watcher-main-actor-session",
+            rootProcessIdentities: [writerIdentity]
+        )
+        let actionDate = max(Date(), targetLaunchDate)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        let state = try Self.authenticatedStateData(
+            driverPID: 70_001,
+            writerPID: Int(writerIdentity.pid),
+            writerStartSeconds: writerIdentity.startSeconds,
+            writerStartMicroseconds: writerIdentity.startMicroseconds,
+            session: "\(driverSessionID)-mcp-73-2000",
+            targetApp: targetName,
+            targetPID: Int(target.processIdentifier),
+            targetWindowID: 7,
+            lastActionAt: formatter.string(from: actionDate)
+        )
+
+        let focusEvents = AsyncStream.makeStream(
+            of: UUID.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { focusEvents.continuation.finish() }
+
+        try await confirmation(
+            "background directory callback preserves calling-terminal focus once"
+        ) { focused in
+            let controller = ComputerUseWatchTargetController(
+                stateDirectoryURL: directory,
+                featureEnabled: { true },
+                liveDriverSessions: { [driverSessionID: liveSession] },
+                currentLiveDriverSession: { _ in liveSession },
+                feed: ComputerUseWatchTargetFeed(
+                    authenticationKey: Self.stateAuthenticationKey
+                ),
+                onFocusTerminal: { focusedWorkspaceID, focusedSurfaceID, _ in
+                    MainActor.assertIsolated()
+                    #expect(focusedWorkspaceID == workspaceID)
+                    focusEvents.continuation.yield(focusedSurfaceID)
+                },
+                activate: { _ in
+                    Issue.record("A new Computer Use session must preserve calling-terminal focus")
+                }
+            )
+            controller.start()
+            defer { controller.stop() }
+
+            try state.write(
+                to: directory.appendingPathComponent("watcher.json"),
+                options: .atomic
+            )
+            for await focusedSurfaceID in focusEvents.stream {
+                guard focusedSurfaceID == surfaceID else {
+                    continue
+                }
+                focused()
+                focusEvents.continuation.finish()
+                break
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func backgroundActivityCannotFrontItsTargetAndViewResumesIt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cua-background-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let target = try await Self.launchExternalTargetForTesting()
+        defer { target.terminate() }
+        let targetName = try #require(target.localizedName)
+        let targetBundleIdentifier = try #require(target.bundleIdentifier)
+        let targetLaunchDate = try #require(target.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let backgroundSurfaceID = UUID()
+        let foregroundSurfaceID = UUID()
+        let backgroundDriverSessionID =
+            ComputerUseSessionScope.driverSessionID(
+                surfaceID: backgroundSurfaceID
+            )
+        let backgroundProxySessionID =
+            "\(backgroundDriverSessionID)-mcp-73-2000"
+        let foregroundDriverSessionID =
+            ComputerUseSessionScope.driverSessionID(
+                surfaceID: foregroundSurfaceID
+            )
+        let backgroundLogicalSessionID = "background-logical-session"
+        let foregroundLogicalSessionID = "foreground-logical-session"
+        let backgroundSession = ComputerUseLiveDriverSession(
+            workspaceID: UUID(),
+            surfaceID: backgroundSurfaceID,
+            logicalSessionID: backgroundLogicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        let foregroundSession = ComputerUseLiveDriverSession(
+            workspaceID: UUID(),
+            surfaceID: foregroundSurfaceID,
+            logicalSessionID: foregroundLogicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        let sessions = [
+            backgroundDriverSessionID: backgroundSession,
+            foregroundDriverSessionID: foregroundSession,
+        ]
+        let sessionsBySurfaceID = Dictionary(
+            uniqueKeysWithValues: sessions.values.map {
+                ($0.surfaceID, $0)
+            }
+        )
+        var featureEnabled = false
+        let terminalFocusEvents = AsyncStream<UUID>.makeStream()
+        var terminalFocusIterator = terminalFocusEvents.stream.makeAsyncIterator()
+        defer { terminalFocusEvents.continuation.finish() }
+        var activatedProcessIdentifiers: [pid_t] = []
+        var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
+        var cursorVisibilityChanges: [
+            (
+                driverSessionID: String,
+                proxySessionID: String?,
+                visible: Bool
+            )
+        ] = []
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: directory,
+            featureEnabled: { featureEnabled },
+            liveDriverSessions: { sessions },
+            currentLiveDriverSession: { scannedSession in
+                sessionsBySurfaceID[scannedSession.surfaceID]
+            },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
+            onFocusTerminal: { workspaceID, surfaceID, _ in
+                focusedTerminalSessions.append((workspaceID, surfaceID))
+                terminalFocusEvents.continuation.yield(surfaceID)
+            },
+            onCursorVisibilityChange: {
+                driverSessionID,
+                proxySessionID,
+                visible,
+                _ in
+                cursorVisibilityChanges.append((
+                    driverSessionID,
+                    proxySessionID,
+                    visible
+                ))
+            },
+            frontmostApplicationProcessIdentifier: { nil },
+            activate: { application in
+                activatedProcessIdentifiers.append(
+                    application.processIdentifier
+                )
+            }
+        )
+        controller.start()
+        defer { controller.stop() }
+
+        #expect(controller.continueInBackground(
+            driverSessionID: backgroundDriverSessionID,
+            logicalSessionID: backgroundLogicalSessionID,
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: backgroundProxySessionID
+        ))
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
+        #expect(cursorVisibilityChanges.isEmpty)
+        #expect(focusedTerminalSessions.count == 1)
+        #expect(
+            focusedTerminalSessions.first?.workspaceID
+                == backgroundSession.workspaceID
+        )
+        #expect(
+            focusedTerminalSessions.first?.surfaceID
+                == backgroundSession.surfaceID
+        )
+
+        let actionDate = max(Date(), targetLaunchDate)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        let foregroundState = try Self.authenticatedStateData(
+            driverPID: 71_001,
+            writerPID: Int(writerIdentity.pid),
+            writerStartSeconds: writerIdentity.startSeconds,
+            writerStartMicroseconds: writerIdentity.startMicroseconds,
+            session: foregroundDriverSessionID,
+            targetApp: "cmux test host",
+            targetPID: Int(ProcessInfo.processInfo.processIdentifier),
+            targetWindowID: 7,
+            lastActionAt: formatter.string(from: actionDate)
+        )
+        let backgroundState = try Self.authenticatedStateData(
+            driverPID: 71_002,
+            writerPID: Int(writerIdentity.pid),
+            writerStartSeconds: writerIdentity.startSeconds,
+            writerStartMicroseconds: writerIdentity.startMicroseconds,
+            session: backgroundDriverSessionID,
+            targetApp: targetName,
+            targetPID: Int(target.processIdentifier),
+            targetWindowID: 8,
+            lastActionAt: formatter.string(
+                from: actionDate.addingTimeInterval(0.1)
+            )
+        )
+        try foregroundState.write(
+            to: directory.appendingPathComponent("foreground.json"),
+            options: .atomic
+        )
+        try backgroundState.write(
+            to: directory.appendingPathComponent("background.json"),
+            options: .atomic
+        )
+
+        featureEnabled = true
+        NotificationCenter.default.post(
+            name: .cmuxFeatureFlagsDidChange,
+            object: nil
+        )
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
+        #expect(activatedProcessIdentifiers.isEmpty)
+        #expect(focusedTerminalSessions.count == 2)
+
+        #expect(cursorVisibilityChanges.count == 1)
+        #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
+        #expect(cursorVisibilityChanges.first?.proxySessionID == backgroundProxySessionID)
+        #expect(cursorVisibilityChanges.first?.visible == true)
+        let cursorEffectCountBeforeViewing = cursorVisibilityChanges.count
+
+        let identity = ComputerUseTargetIdentity(
+            processIdentifier: Int(target.processIdentifier),
+            bundleIdentifier: targetBundleIdentifier,
+            launchDate: targetLaunchDate
+        )
+        #expect(controller.viewTarget(
+            identity,
+            driverSessionID: backgroundDriverSessionID,
+            logicalSessionID: backgroundLogicalSessionID,
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: backgroundProxySessionID
+        ))
+        await AppKitTestEventPump().drain()
+        #expect(activatedProcessIdentifiers == [target.processIdentifier])
+        #expect(cursorVisibilityChanges.count == cursorEffectCountBeforeViewing)
+        #expect(!controller.isRunningInBackground(
+            driverSessionID: backgroundDriverSessionID,
+            logicalSessionID: backgroundLogicalSessionID
+        ))
+    }
+
     @Test @MainActor
     func computerUseSessionsDefaultToCallingTerminalFocus() async {
         let controller = ComputerUseSessionPresentationController(
@@ -2842,7 +3066,7 @@ struct ComputerUseUXTests {
             liveDriverSessions: { [driverSessionID: liveSession] },
             currentLiveDriverSession: { _ in liveSession },
             feed: ComputerUseWatchTargetFeed(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ),
             onFocusTerminal: { _, _, _ in
                 focusEffects.append("terminal")
@@ -2928,7 +3152,7 @@ struct ComputerUseUXTests {
             liveDriverSessions: { [driverSessionID: liveSession] },
             currentLiveDriverSession: { _ in liveSession },
             feed: ComputerUseWatchTargetFeed(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ),
             onFocusTerminal: { _, _, isCurrent in
                 delayedTerminalFocusIsCurrent = isCurrent
@@ -3043,7 +3267,7 @@ struct ComputerUseUXTests {
                 return currentSessionsBySurfaceID[scannedSession.surfaceID]
             },
             feed: ComputerUseWatchTargetFeed(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             )
         )
         controller.start()
@@ -3105,7 +3329,7 @@ struct ComputerUseUXTests {
                 )
             },
             feed: ComputerUseWatchTargetFeed(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             )
         )
         staleController.start()
@@ -3158,7 +3382,7 @@ struct ComputerUseUXTests {
                 driverPID: 11, visible: true, x: 1, y: 1, updatedAt: now
             )
             let selected = ComputerUseWatchTargetFeed(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 driverSessionIDs: ["session-a", "session-b"],
@@ -3179,7 +3403,7 @@ struct ComputerUseUXTests {
             )
             let feed = ComputerUseWatchTargetFeed(
                 freshnessInterval: 5,
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             )
             #expect(feed.scan(
                 directoryURL: directory,
@@ -3212,7 +3436,7 @@ struct ComputerUseUXTests {
             }
 
             #expect(ComputerUseWatchTargetFeed(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 driverSessionIDs: ["session-a"],
@@ -3238,7 +3462,7 @@ struct ComputerUseUXTests {
             }
 
             let scan = ComputerUseStateRepository(
-                authenticationKey: Self.stateFixture.authenticationKey
+                authenticationKey: Self.stateAuthenticationKey
             ).scan(
                 directoryURL: directory,
                 sessions: [
@@ -3510,7 +3734,7 @@ struct ComputerUseUXTests {
         // Mirrors the authenticated driver's schema-4 shape.
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let data = try Self.stateFixture.data(
+        let data = try Self.authenticatedStateData(
             driverPID: pid,
             writerPID: pid,
             writerStartSeconds: 1_700_000_000,
@@ -3522,6 +3746,104 @@ struct ComputerUseUXTests {
             lastActionAt: formatter.string(from: lastActionAt)
         )
         try data.write(to: url, options: .atomic)
+    }
+
+    private static func authenticatedStateData(
+        driverPID: Int,
+        writerPID: Int,
+        writerStartSeconds: Int64,
+        writerStartMicroseconds: Int64,
+        session: String?,
+        targetApp: String,
+        targetPID: Int,
+        targetWindowID: Int,
+        lastActionAt: String
+    ) throws -> Data {
+        // Schema-4 keeps the historical wire prefix shared with the Rust
+        // cmux-cua writer; the Swift type name is the part that was renamed.
+        var message = Data("cmux-computer-use-state-v1\0".utf8)
+        appendInteger(driverPID, to: &message)
+        appendInteger(writerPID, to: &message)
+        appendInteger(writerStartSeconds, to: &message)
+        appendInteger(writerStartMicroseconds, to: &message)
+        appendOptionalString(session, to: &message)
+        appendOptionalString(targetApp, to: &message)
+        appendInteger(targetPID, to: &message)
+        appendInteger(targetWindowID, to: &message)
+        appendString(lastActionAt, to: &message)
+        appendInteger(4, to: &message)
+        let code = HMAC<SHA256>.authenticationCode(
+            for: message,
+            using: SymmetricKey(data: stateAuthenticationKey)
+        )
+        let object: [String: Any] = [
+            "driver_pid": driverPID,
+            "writer_pid": writerPID,
+            "writer_start_seconds": writerStartSeconds,
+            "writer_start_microseconds": writerStartMicroseconds,
+            "session": session as Any? ?? NSNull(),
+            "target_app": targetApp,
+            "target_pid": targetPID,
+            "target_window_id": targetWindowID,
+            "last_action_at": lastActionAt,
+            "schema": 4,
+            "state_authentication_code": code.map {
+                String(format: "%02x", $0)
+            }.joined(),
+        ]
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    private static func appendInteger<T: BinaryInteger>(
+        _ value: T,
+        to message: inout Data
+    ) {
+        message.append(contentsOf: String(value).utf8)
+        message.append(0)
+    }
+
+    private static func appendString(_ value: String, to message: inout Data) {
+        let bytes = Data(value.utf8)
+        message.append(contentsOf: String(bytes.count).utf8)
+        message.append(UInt8(ascii: ":"))
+        message.append(bytes)
+        message.append(0)
+    }
+
+    private static func appendOptionalString(
+        _ value: String?,
+        to message: inout Data
+    ) {
+        guard let value else {
+            message.append(contentsOf: [UInt8(ascii: "-"), 0])
+            return
+        }
+        appendString(value, to: &message)
+    }
+
+    @MainActor
+    private static func launchExternalTargetForTesting() async throws -> NSRunningApplication {
+        let existingPIDs = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+        configuration.hides = true
+        configuration.addsToRecentItems = false
+        let target = try await NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"),
+            configuration: configuration
+        )
+        try #require(!existingPIDs.contains(target.processIdentifier),
+            "The fixture must own the external app instance it will terminate")
+        do {
+            try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+                !target.isTerminated && target.localizedName != nil && target.launchDate != nil
+            })
+            return target
+        } catch {
+            target.terminate()
+            throw error
+        }
     }
 
     private static func sampledIconColor(
