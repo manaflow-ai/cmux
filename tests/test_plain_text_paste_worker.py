@@ -33,8 +33,8 @@ class PlainTextPasteWorkerTests(unittest.TestCase):
 
     def board(self, text="hello\n日本語 🦀 e\u0301\r\n", extra=None, behavior=None):
         identity = str(uuid.uuid4())
-        config = dict(name="cmux-paste-test-" + identity, text=text,
-                      representations={"public.utf8-plain-text": text, **(extra or {})},
+        config = dict(name="cmux-paste-test-" + identity, text=text or "",
+                      representations={**({"public.utf8-plain-text": text} if text is not None else {}), **(extra or {})},
                       ready=str(self.root / (identity + "-ready.json")),
                       requested=str(self.root / (identity + "-requested")))
         if behavior:
@@ -92,8 +92,39 @@ class PlainTextPasteWorkerTests(unittest.TestCase):
                 print(json.dumps(dict(helper_startup_ms=ms, directory=directory_index,
                                       repetition=repetition, size=Path(HELPER).stat().st_size)), flush=True)
 
+    def test_plain_text_with_rich_flavors_uses_fast_path(self):
+        for flavor in ["public.html", "public.rtf"]:
+            for text in ["hello\n日本語 🦀 e\u0301\r\n", "Question?", "文本\n" * 100_000]:
+                with self.subTest(flavor=flavor, bytes=len(text.encode())):
+                    board = self.board(text=text, extra={flavor: "unused rich text"})
+                    path = self.directory(board)
+                    result = self.result(path)
+                    self.assertEqual(result["textPayload"]["destination"], {"terminal": {}})
+                    self.assertEqual((path / "text-payload.txt").read_bytes(), text.encode())
+
+    def test_rich_only_and_empty_plain_text_delegate(self):
+        for flavor in ["public.html", "public.rtf", "com.apple.flat-rtfd"]:
+            for text in [None, ""]:
+                with self.subTest(flavor=flavor, text=text):
+                    board = self.board(text=text, extra={flavor: "rich fallback"})
+                    self.result(self.directory(board), expected=73)
+
+    def test_lossy_plain_text_with_rich_flavors_delegates(self):
+        for flavor in ["public.html", "public.rtf"]:
+            for text in ["??", "text\ufffd", "日本語??"]:
+                with self.subTest(flavor=flavor, text=text):
+                    board = self.board(text=text, extra={flavor: "rich fallback"})
+                    self.result(self.directory(board), expected=73)
+
+    def test_loss_markers_without_rich_text_remain_literal(self):
+        text = "??\ufffd"
+        board = self.board(text=text)
+        path = self.directory(board)
+        self.result(path)
+        self.assertEqual((path / "text-payload.txt").read_bytes(), text.encode())
+
     def test_rich_images_and_auxiliary_urls_delegate_without_provider_read(self):
-        for flavor in ["public.html", "public.rtf", "com.apple.flat-rtfd", "public.png",
+        for flavor in ["public.png",
                        "public.tiff", "public.jpeg", "public.file-url", "public.url",
                        "NSFilenamesPboardType", "com.apple.pasteboard.promised-file-url"]:
             with self.subTest(flavor=flavor):

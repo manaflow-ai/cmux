@@ -8,8 +8,8 @@ This document is the capacity and operations layer. It does not restate the
 routing contract, which already exists:
 
 - [`ci-runners.md`](../ci-runners.md) owns the runner-variable table, the
-  pull request pool preference (including owned pools), the Tart pool, and
-  the direct-physical-host boundary.
+  pull request pool preference (including owned pools), the retired Tart VM
+  fleet, and the direct-physical-host boundary.
 - [`fleet-enrollment.md`](../fleet-enrollment.md) owns machine onboarding.
 - [`workload-profiles.md`](../workload-profiles.md) owns workload identity.
 
@@ -212,9 +212,10 @@ them (section 5).
    owned-Mac lane is a deliberate guard edit, not an accident.
 3. **`app-host unit tests`** - do **not** move to minis, despite being 55% of
    the minutes. It needs a foreground GUI session, it is six shards of
-   XCTest, and it is a required check. Its home is the isolated Tart pool
-   (18 slots, `ci-runners.md`), where each job gets a fresh VM clone and an
-   Aqua login session. A shared mini cannot give it either.
+   XCTest, and it is a required check. Its home is Blacksmith, where each
+   job gets a fresh VM and an Aqua login session. A shared mini cannot give
+   it either. (The isolated Tart pool that once offered this was retired on
+   2026-09-25; see `ci-runners.md`.)
 4. **Nightly app compile** - nightlies run on Blacksmith until Glaeda routing
    (glaeda#1174) sends every job std > light > Blacksmith > GitHub-hosted.
 5. **`release-build`, signing, notarization, TestFlight** - never.
@@ -564,8 +565,9 @@ There is no macOS ephemeral-runner primitive anywhere in either repository.
 The honest statement of this design is: **the macOS fleet is a persistent,
 credential-minimized, artifact-producing machine whose output carries no
 authority, not an ephemeral runner.** If per-job macOS isolation is ever
-required, the existing Tart pool provides it (fresh VM clone per job, deleted
-after) and is where that requirement belongs.
+required, Blacksmith provides it (a fresh VM per job) and is where that
+requirement belongs. The Tart VM pool that used to provide it was retired on
+2026-09-25 (see `ci-runners.md`).
 
 ## 5. Rollout
 

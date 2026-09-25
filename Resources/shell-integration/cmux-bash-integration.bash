@@ -485,6 +485,7 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUX_WORKSPACE_ID
 )
 _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
+    CMUX_HISTORY_FILE
     CMUX_PANEL_ID
     CMUX_SURFACE_ID
 )
@@ -1759,8 +1760,45 @@ _cmux_bash_preexec_hook_subshell() {
     _cmux_bash_preexec_hook "$@"
 }
 
+# Per-terminal history, layered on the shell's own. HISTFILE is left alone,
+# so a new terminal recalls global history and every command still reaches
+# the global file exactly as it does in any other terminal. Alongside it,
+# each command is appended to this surface's file; when a restored terminal
+# finds entries there, they are read on top of global history so Up recalls
+# what was typed in this terminal first. `history -r` entries are not new to
+# this session, so bash's exit-time save never writes them back globally.
+_cmux_terminal_history_prompt() {
+    [[ -n "${CMUX_HISTORY_FILE:-}" && -n "${HISTFILE:-}" && "$HISTFILE" != /dev/null ]] || return 0
+    local entry
+    if [[ -z "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
+        _CMUX_HISTORY_INITIALIZED=1
+        if [[ -s "$CMUX_HISTORY_FILE" ]]; then
+            local limit="${HISTFILESIZE:-500}"
+            if [[ "$limit" =~ ^[0-9]+$ ]] && (( $(wc -l <"$CMUX_HISTORY_FILE") > limit )); then
+                local trimmed
+                trimmed="$(tail -n "$limit" "$CMUX_HISTORY_FILE")" \
+                    && printf '%s\n' "$trimmed" >"$CMUX_HISTORY_FILE"
+            fi
+            builtin history -r "$CMUX_HISTORY_FILE"
+        fi
+        # Anything already in the list came from a file, not from this
+        # terminal's prompt; start recording after it.
+        entry="$(HISTTIMEFORMAT= builtin history 1)"
+        [[ "$entry" =~ ^\ *([0-9]+) ]] && _CMUX_HISTORY_LAST="${BASH_REMATCH[1]}"
+        return 0
+    fi
+    entry="$(HISTTIMEFORMAT= builtin history 1)"
+    # A command HISTCONTROL or HISTIGNORE dropped leaves the last number
+    # unchanged, so nothing the shell refused to keep is recorded here.
+    [[ "$entry" =~ ^\ *([0-9]+)\*?\ \ (.*)$ ]] || return 0
+    [[ "${BASH_REMATCH[1]}" != "${_CMUX_HISTORY_LAST:-}" ]] || return 0
+    _CMUX_HISTORY_LAST="${BASH_REMATCH[1]}"
+    printf '%s\n' "${BASH_REMATCH[2]}" >>"$CMUX_HISTORY_FILE"
+}
+
 _cmux_prompt_command() {
     local last_status=$?
+    _cmux_terminal_history_prompt
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
