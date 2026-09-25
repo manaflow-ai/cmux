@@ -546,6 +546,58 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testPressAndHoldSuppressedRepeatsPreserveKeyRelease() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let hosted = try await makeHostedTerminalWindow()
+            let defaults = UserDefaults.standard
+            let key = "terminal.macosPressAndHold"
+            let previousSetting = defaults.object(forKey: key)
+            let previousHandler = GhosttyNSView.debugTextInputEventHandler
+            let previousObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+            defer {
+                if let previousSetting { defaults.set(previousSetting, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+                GhosttyNSView.debugTextInputEventHandler = previousHandler
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousObserver
+                hosted.window.orderOut(nil)
+                withExtendedLifetime(hosted.surface) {}
+            }
+            GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
+            var actions: [ghostty_input_action_e] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { event in
+                if event.keycode == 0 { actions.append(event.action) }
+            }
+            for initiallyEnabled in [false, true] {
+                actions.removeAll()
+                defaults.set(initiallyEnabled, forKey: key)
+                for (type, repeatKey, enable) in [
+                    (NSEvent.EventType.keyDown, false, initiallyEnabled),
+                    (.keyDown, true, true),
+                    (.keyDown, true, true),
+                    (.keyUp, false, false)
+                ] {
+                    defaults.set(enable, forKey: key)
+                    let event = try XCTUnwrap(NSEvent.keyEvent(
+                        with: type,
+                        location: .zero,
+                        modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: hosted.window.windowNumber,
+                        context: nil,
+                        characters: "a",
+                        charactersIgnoringModifiers: "a",
+                        isARepeat: repeatKey,
+                        keyCode: 0
+                    ))
+                    if type == .keyDown { hosted.surfaceView.keyDown(with: event) }
+                    else { hosted.surfaceView.keyUp(with: event) }
+                }
+                XCTAssertEqual(actions, [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE],
+                               "Suppressing repeats must preserve the release, including when the setting changes during a hold")
+            }
+        }
+    }
+
     func testPressAndHoldSettingSuppressesPlainLetterRepeats() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let hostedTerminal = try await makeHostedTerminalWindow()
