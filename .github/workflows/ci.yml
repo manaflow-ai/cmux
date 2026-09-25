@@ -638,6 +638,7 @@ jobs:
           # 1 lets a run take the owned machines that are free and send its
           # other jobs to Blacksmith, instead of all or nothing (off unless 1).
           POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
+          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
           # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}

@@ -108,4 +108,6 @@ jobs:
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
+          # 1: a stuck run's full re-run may take the light pool; watch it.
+          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
         run: python3 scripts/ci/owned_pool_rescue.py
