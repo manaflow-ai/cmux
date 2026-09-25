@@ -270,8 +270,7 @@ extension Workspace {
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
-            sshKeepaliveSettings: owningTabManager
-                .flatMap { AppDelegate.shared?.mainWindowContext(for: $0)?.cmuxConfigStore?.remoteSSHKeepaliveSettings }
+            sshKeepaliveSettings: CmuxConfigStore.loadGlobalSSHKeepaliveSettings()
         )
         if let restoredRemoteConfiguration {
             let shouldAutoConnect = sessionRestorePolicy.shouldAutoConnectRestoredRemote(
@@ -13224,14 +13223,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private func forkAgentRemoteConfigurationForNewWorkspace(fromPanelId panelId: UUID) -> WorkspaceRemoteConfiguration? {
         guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
         let forkedSSHOptions = remoteConfiguration
-            .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.sshOptions) }
+            .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.explicitSSHOptions) }
         return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false,
             preserveSSHOptions: true,
             agentSocketPath: remoteConfiguration?.agentSocketPath,
-            sshKeepaliveSettings: owningTabManager
-                .flatMap { AppDelegate.shared?.mainWindowContext(for: $0)?.cmuxConfigStore?.remoteSSHKeepaliveSettings }
+            sshKeepaliveSettings: CmuxConfigStore.loadGlobalSSHKeepaliveSettings()
         ) ?? remoteConfiguration
     }
 

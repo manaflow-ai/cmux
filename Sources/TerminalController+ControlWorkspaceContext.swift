@@ -636,10 +636,6 @@ extension TerminalController: ControlWorkspaceContext {
                 "workspace_ref": controlWorkspaceRefValue(workspaceId),
             ]))
         }
-        let configuredSSHOptions = AppDelegate.shared?
-            .mainWindowContext(for: owner)?
-            .cmuxConfigStore?
-            .applyRemoteSSHKeepaliveSettings(to: sshOptions) ?? sshOptions
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
@@ -647,7 +643,8 @@ extension TerminalController: ControlWorkspaceContext {
             destination: destination,
             port: sshPort,
             identityFile: identityFile?.isEmpty == true ? nil : identityFile,
-            sshOptions: configuredSSHOptions,
+            sshOptions: sshOptions,
+            sshKeepaliveSettings: CmuxConfigStore.loadGlobalSSHKeepaliveSettings(),
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID?.isEmpty == true ? nil : relayID,
@@ -658,7 +655,7 @@ extension TerminalController: ControlWorkspaceContext {
             configuredRemoteCommand: configuredRemoteCommand?.isEmpty == true ? nil : configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
-                sshOptions: configuredSSHOptions,
+                sshOptions: sshOptions,
                 explicitAgentSocketPath: agentSocketPath,
                 explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
             ),

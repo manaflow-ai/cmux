@@ -10,13 +10,12 @@ extension SessionRemoteWorkspaceSnapshot {
     ) -> WorkspaceRemoteConfiguration? {
         guard sshSessionOwner == "cmux-tui", transport == .ssh, skipDaemonBootstrap != true,
               (terminalTransport ?? .ssh) == .ssh, preserveAfterTerminalExit == true else { return nil }
-        let configuredSSHOptions = sshKeepaliveSettings?.appendingMissingOptions(to: WorkspaceRemoteConfiguration.durableSSHOptions(sshOptions))
-            ?? WorkspaceRemoteConfiguration.durableSSHOptions(sshOptions)
         var configuration = WorkspaceRemoteConfiguration(
             terminalProfile: terminalProfile ?? .shell, destination: destination.trimmingCharacters(in: .whitespacesAndNewlines),
             port: port.flatMap { (1...65535).contains($0) ? $0 : nil },
             identityFile: WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile),
-            sshOptions: configuredSSHOptions,
+            sshOptions: WorkspaceRemoteConfiguration.durableSSHOptions(sshOptions),
+            sshKeepaliveSettings: sshKeepaliveSettings,
             localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
             terminalStartupCommand: nil, configuredRemoteCommand: configuredRemoteCommand,
             agentSocketPath: agentSocketPath, preserveAfterTerminalExit: true

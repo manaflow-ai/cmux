@@ -1,18 +1,30 @@
-import Foundation
+public import Foundation
 
 /// SSH keepalive values used by cmux-managed remote workspace connections.
 ///
-/// The settings are intentionally represented as regular `-o` option strings
-/// so an explicit SSH option from a URL, CLI invocation, or persisted workspace
-/// remains authoritative over the configured defaults.
+/// Explicit SSH options take precedence. Keep these defaults separate from
+/// durable workspace options so restored workspaces can use updated settings.
 public struct SSHKeepaliveSettings: Codable, Equatable, Sendable {
+    /// Default seconds between probes, preserving the existing SSH behavior.
     public static let defaultServerAliveInterval = 20
+    /// Default number of unanswered probes tolerated.
     public static let defaultServerAliveCountMax = 2
-    public static let `default` = try! SSHKeepaliveSettings()
+    /// Built-in defaults for SSH remote workspaces.
+    public static let `default` = SSHKeepaliveSettings(
+        validatedInterval: defaultServerAliveInterval, validatedCountMax: defaultServerAliveCountMax
+    )
 
+    /// Seconds between probes, in the range 1 through 3600.
     public let sshServerAliveInterval: Int
+    /// Unanswered probes tolerated, in the range 1 through 100.
     public let sshServerAliveCountMax: Int
 
+    /// Creates validated keepalive defaults.
+    ///
+    /// - Parameters:
+    ///   - sshServerAliveInterval: Seconds between probes; defaults to 20.
+    ///   - sshServerAliveCountMax: Unanswered probes tolerated; defaults to 2.
+    /// - Throws: ``ValidationError`` when either value is outside its supported range.
     public init(
         sshServerAliveInterval: Int = Self.defaultServerAliveInterval,
         sshServerAliveCountMax: Int = Self.defaultServerAliveCountMax
@@ -27,6 +39,15 @@ public struct SSHKeepaliveSettings: Codable, Equatable, Sendable {
         self.sshServerAliveCountMax = sshServerAliveCountMax
     }
 
+    private init(validatedInterval: Int, validatedCountMax: Int) {
+        sshServerAliveInterval = validatedInterval
+        sshServerAliveCountMax = validatedCountMax
+    }
+
+    /// Decodes a remote block, using built-in defaults for omitted keys.
+    ///
+    /// - Parameter decoder: Decoder positioned at the remote settings object.
+    /// - Throws: A decoding or validation error for malformed settings.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
@@ -37,9 +58,11 @@ public struct SSHKeepaliveSettings: Codable, Equatable, Sendable {
         )
     }
 
-    /// Returns the configured keepalive options that are not already present in
-    /// `existingOptions`. OpenSSH uses the first value it obtains, so preserving
-    /// an existing key keeps explicit caller options ahead of cmux config.
+    /// Returns `-o` arguments for configured values missing from explicit options.
+    ///
+    /// OpenSSH uses the first value it obtains for each option key.
+    /// - Parameter existingOptions: SSH option strings without the `-o` prefixes.
+    /// - Returns: Alternating `-o` and option strings for missing keys.
     public func optionArguments(for existingOptions: [String]) -> [String] {
         var arguments: [String] = []
         if !Self.hasOptionKey(existingOptions, key: "ServerAliveInterval") {
@@ -51,8 +74,10 @@ public struct SSHKeepaliveSettings: Codable, Equatable, Sendable {
         return arguments
     }
 
-    /// Adds the configured options to an SSH option list when the caller has
-    /// not already supplied the corresponding key.
+    /// Appends configured values while preserving explicitly supplied option keys.
+    ///
+    /// - Parameter existingOptions: Explicit SSH option strings.
+    /// - Returns: The effective SSH options for this connection.
     public func appendingMissingOptions(to existingOptions: [String]) -> [String] {
         var options = existingOptions
         if !Self.hasOptionKey(options, key: "ServerAliveInterval") {
@@ -64,8 +89,24 @@ public struct SSHKeepaliveSettings: Codable, Equatable, Sendable {
         return options
     }
 
+    /// Decodes only the global remote block from a JSON configuration file.
+    ///
+    /// - Parameter data: JSON data after the caller has removed JSONC comments and trailing commas.
+    /// - Returns: Remote defaults, or nil when the block is absent.
+    /// - Throws: A parsing, decoding, or validation error for invalid input.
+    public static func decodeConfiguration(_ data: Data) throws -> SSHKeepaliveSettings? {
+        try JSONDecoder().decode(Configuration.self, from: data).remote
+    }
+
+    private struct Configuration: Decodable {
+        let remote: SSHKeepaliveSettings?
+    }
+
+    /// An out-of-range keepalive setting.
     public enum ValidationError: Error, Equatable, Sendable {
+        /// The interval is outside 1 through 3600 seconds.
         case invalidInterval(Int)
+        /// The count is outside 1 through 100 probes.
         case invalidCountMax(Int)
     }
 

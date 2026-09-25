@@ -160,11 +160,11 @@ struct DetectedSSHSession: Equatable {
         var args: [String] = [
             "-q",
             "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+
+        args += SSHKeepaliveSettings.default.optionArguments(for: sshOptions)
 
         if useIPv4 {
             args.append("-4")
@@ -212,11 +212,11 @@ struct DetectedSSHSession: Equatable {
         var args: [String] = ["-T"] + SSHHostConfiguredRemoteCommand().overrideArguments
         args += [
             "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+
+        args += SSHKeepaliveSettings.default.optionArguments(for: sshOptions)
 
         if useIPv4 {
             args.append("-4")

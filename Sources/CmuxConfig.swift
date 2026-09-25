@@ -1787,9 +1787,6 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
-    /// Global SSH keepalive overrides for cmux-managed remote workspaces.
-    /// `nil` preserves the built-in per-transport defaults.
-    @Published private(set) var remoteSSHKeepaliveSettings: SSHKeepaliveSettings? = nil
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -1968,8 +1965,10 @@ final class CmuxConfigStore: ObservableObject {
         updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
     }
 
-    func applyRemoteSSHKeepaliveSettings(to sshOptions: [String]) -> [String] {
-        remoteSSHKeepaliveSettings?.appendingMissingOptions(to: sshOptions) ?? sshOptions
+    /// Read global transport defaults before window contexts exist during restore.
+    static func loadGlobalSSHKeepaliveSettings() -> SSHKeepaliveSettings? {
+        guard let data = FileManager.default.contents(atPath: defaultGlobalConfigPath()) else { return nil }
+        return try? SSHKeepaliveSettings.decodeConfiguration(JSONCParser.preprocess(data: data))
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
@@ -2286,7 +2285,6 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
-        remoteSSHKeepaliveSettings = globalConfig?.remote
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {

@@ -152,7 +152,7 @@ final class RemoteTmuxController {
     }
 
     func configuredHost(_ host: RemoteTmuxHost) -> RemoteTmuxHost {
-        host.withSSHKeepaliveSettings(AppDelegate.shared?.remoteSSHKeepaliveSettings)
+        host.withSSHKeepaliveSettings(CmuxConfigStore.loadGlobalSSHKeepaliveSettings())
     }
 
     private func stopCachedConnectionIfCurrent(

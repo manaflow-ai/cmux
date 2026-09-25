@@ -7,7 +7,9 @@ Global app preferences live in `~/.config/cmux/cmux.json`.
 Set the SSH keepalive interval and retry count used by cmux-managed remote
 workspaces. These values apply to SSH connections created by cmux and keep the
 existing `20` second / `2` probe defaults when omitted. Explicit SSH options
-from a workspace or command invocation take precedence.
+from a workspace or command invocation take precedence. Changes apply when a
+workspace is created or restored; an already running SSH process keeps its
+current values. Restored workspaces resolve the current global defaults.
 
 ```json
 {

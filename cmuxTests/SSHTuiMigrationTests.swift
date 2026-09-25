@@ -97,6 +97,27 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
     }
 
+    @Test("Restored SSH sessions use current defaults without changing session identity")
+    func restoreRefreshesKeepaliveDefaults() throws {
+        let snapshot = try #require(configuration(options: ["ServerAliveCountMax=8"]).sessionSnapshot())
+        let first = try #require(snapshot.workspaceConfiguration(
+            sshKeepaliveSettings: try SSHKeepaliveSettings(sshServerAliveInterval: 60)))
+        let saved = try #require(first.sessionSnapshot())
+        #expect(saved.sshOptions == ["ServerAliveCountMax=8"])
+        let restored = try #require(saved.workspaceConfiguration(
+            sshKeepaliveSettings: try SSHKeepaliveSettings(sshServerAliveInterval: 90)))
+        #expect(restored.sshOptions == ["ServerAliveCountMax=8", "ServerAliveInterval=90"])
+        let reset = try #require(saved.workspaceConfiguration())
+        #expect(reset.sshOptions == ["ServerAliveCountMax=8"])
+        let firstConnection = SSHTuiConnection(configuration: first)
+        let restoredConnection = SSHTuiConnection(configuration: restored)
+        #expect(firstConnection.id == restoredConnection.id)
+        #expect(firstConnection.id == SSHTuiConnection(configuration: reset).id)
+        #expect(restoredConnection.authenticationArguments.contains("ServerAliveInterval=90"))
+        #expect(restoredConnection.arguments(stateDirectory: "/tmp/fixture", deviceName: "fixture")
+            .contains("ServerAliveInterval=90"))
+    }
+
     @Test("Legacy persistent SSH snapshots are not claimed by the TUI owner")
     func legacySnapshotDoesNotBecomeTuiSession() throws {
         let legacy = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "fixture@host",

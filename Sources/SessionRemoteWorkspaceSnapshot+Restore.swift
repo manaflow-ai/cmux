@@ -44,8 +44,6 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        let configuredSnapshotSSHOptions = sshKeepaliveSettings?.appendingMissingOptions(to: sshOptions) ?? sshOptions
-
         if let configuration = tuiSSHConfiguration(
             agentSocketPath: overrideAgentSocketPath,
             sshKeepaliveSettings: sshKeepaliveSettings
@@ -55,7 +53,8 @@ extension SessionRemoteWorkspaceSnapshot {
             // Preserve the old descriptor for recovery, but never resume its daemon
             // or start a replacement workload under a different session owner.
             var configuration = WorkspaceRemoteConfiguration(destination: normalizedDestination,
-                port: normalizedPort, identityFile: identityFile, sshOptions: configuredSnapshotSSHOptions,
+                port: normalizedPort, identityFile: identityFile, sshOptions: sshOptions,
+                sshKeepaliveSettings: sshKeepaliveSettings,
                 localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
                 localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true)
             configuration.restoredSSHSession = self
@@ -68,8 +67,8 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
         let preservedOptions = preserveSSHOptions
-            ? WorkspaceRemoteConfiguration.trimmedSSHOptions(configuredSnapshotSSHOptions)
-            : Self.normalizedSSHOptions(configuredSnapshotSSHOptions)
+            ? WorkspaceRemoteConfiguration.trimmedSSHOptions(sshOptions)
+            : Self.normalizedSSHOptions(sshOptions)
         let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(
             preservedOptions,
             relayPort: normalizedRelayPort
@@ -119,13 +118,14 @@ extension SessionRemoteWorkspaceSnapshot {
             restoreOrdinarySSHRelayNamespace
         let restoreDefaultFreestyleSSHD = defaultFreestyleVMID != nil
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
+        let runtimeSSHOptions = sshKeepaliveSettings?.appendingMissingOptions(to: restoredSSHOptions) ?? restoredSSHOptions
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
         let foregroundAuth = foregroundAuthToken.map {
             SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: normalizedDestination,
                 port: normalizedPort,
                 identityFile: WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile),
-                sshOptions: restoredSSHOptions,
+                sshOptions: runtimeSSHOptions,
                 token: $0
             )
         }
@@ -151,6 +151,7 @@ extension SessionRemoteWorkspaceSnapshot {
             port: normalizedPort,
             identityFile: WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile),
             sshOptions: restoredSSHOptions,
+            sshKeepaliveSettings: sshKeepaliveSettings,
             localProxyPort: nil,
             relayPort: restoreRelayNamespace ? normalizedRelayPort : nil,
             relayID: restoredRelayID,
@@ -173,7 +174,7 @@ extension SessionRemoteWorkspaceSnapshot {
                 let fallbackCommand = sshReconnectCommand(
                     destination: normalizedDestination,
                     port: normalizedPort,
-                    sshOptions: restoredSSHOptions,
+                    sshOptions: runtimeSSHOptions,
                     terminalProfile: restoredTerminalProfile,
                     configuredRemoteCommand: configuredRemoteCommand
                 )
@@ -182,7 +183,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     return lifecycleAwareSSHReconnectCommand(
                         destination: normalizedDestination,
                         port: normalizedPort,
-                        sshOptions: restoredSSHOptions,
+                        sshOptions: runtimeSSHOptions,
                         terminalProfile: restoredTerminalProfile,
                         configuredRemoteCommand: configuredRemoteCommand,
                         remoteRelayPort: remoteRelayPort
@@ -197,7 +198,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshFallbackCommand = lifecycleAwareSSHReconnectCommand(
                         destination: normalizedDestination,
                         port: normalizedPort,
-                        sshOptions: restoredSSHOptions,
+                        sshOptions: runtimeSSHOptions,
                         terminalProfile: restoredTerminalProfile,
                         configuredRemoteCommand: configuredRemoteCommand,
                         remoteRelayPort: remoteRelayPort
@@ -208,7 +209,7 @@ extension SessionRemoteWorkspaceSnapshot {
                 return moshReconnectCommand(
                     destination: normalizedDestination,
                     port: normalizedPort,
-                    sshOptions: restoredSSHOptions,
+                    sshOptions: runtimeSSHOptions,
                     terminalProfile: restoredTerminalProfile,
                     remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
                     sshFallbackCommand: sshFallbackCommand
@@ -217,7 +218,7 @@ extension SessionRemoteWorkspaceSnapshot {
             configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
-                sshOptions: restoredSSHOptions,
+                sshOptions: runtimeSSHOptions,
                 explicitAgentSocketPath: overrideAgentSocketPath
             ),
             daemonWebSocketEndpoint: nil,
