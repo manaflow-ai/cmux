@@ -376,7 +376,7 @@ def next_points(state: State, include_fixed: bool = False) -> list[str]:
     picks = set()
     for left, right in open_windows(state, include_fixed):
         window = between(state, left, right)
-        if any(state.probes.get(sha, Probe("", "")).status == "pending" for sha in window):
+        if any(sha in state.probes and state.probes[sha].status == "pending" for sha in window):
             continue  # its answer is on the way
         inside = [sha for sha in window if sha not in state.probes]
         if inside:
