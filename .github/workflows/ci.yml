@@ -585,6 +585,23 @@ jobs:
             ${files_args[@]+"${files_args[@]}"} \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # The org's manaflow-glaeda-route App, read-only on runners, so the
+        # pool choice below sees which owned Macs are idle now. Same-repository
+        # pull requests only, on this ephemeral Linux runner: a fork run never
+        # sees the key, and no Mac ever holds it. Any failure (no key yet, the
+        # App not installed) leaves the token empty, and the choice falls back
+        # to the janitor snapshot and CI_OWNED_POOL_SLOTS.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
       - name: Choose the pull request macOS pool
         id: macos-pool
         # Fail-safe: any error leaves the outputs empty, which is today's route.
@@ -595,6 +612,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
+          # Empty unless the step above minted it: idle owned runners, live.
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
