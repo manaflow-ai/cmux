@@ -20,7 +20,7 @@ class SidebarHandler(socketserver.StreamRequestHandler):
 
 
 class SidebarAliasTests(unittest.TestCase):
-    def test_aliases_send_the_canonical_cloud_mode(self):
+    def test_aliases_send_the_canonical_sidebar_mode(self):
         cli = os.environ["CMUX_CLI_BIN"]
         env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
         with tempfile.TemporaryDirectory(prefix="sidebar-alias-", dir="/tmp") as root:
@@ -33,7 +33,9 @@ class SidebarAliasTests(unittest.TestCase):
                 thread = threading.Thread(target=server.serve_forever, daemon=True)
                 thread.start()
                 try:
-                    for alias in ["devices", "device", "macs", "cloud", "machines", "vms", "DEVICES"]:
+                    aliases = [(alias, "machines") for alias in ["devices", "device", "macs", "cloud", "machines", "vms", "DEVICES"]]
+                    aliases += [("beads", "beads"), ("BEADS", "beads")]
+                    for alias, mode in aliases:
                         for prefix, suffix in [([], []), (["set"], []), (["set"], ["--no-focus"])]:
                             args = [*prefix, alias, *suffix]
                             with self.subTest(args=args):
@@ -43,7 +45,7 @@ class SidebarAliasTests(unittest.TestCase):
                                     env=env, capture_output=True, text=True, timeout=15
                                 )
                                 self.assertEqual(result.returncode, 0, result.stderr)
-                                self.assertEqual(server.commands, [["right_sidebar", "set", "machines", *suffix]])
+                                self.assertEqual(server.commands, [["right_sidebar", "set", mode, *suffix]])
                 finally:
                     server.shutdown()
                     thread.join(timeout=5)

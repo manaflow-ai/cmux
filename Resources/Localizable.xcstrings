@@ -100019,121 +100019,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, beads, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, custom [sidebar-name]"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, beads, custom [sidebar-name]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices、beads 或 custom [sidebar-name]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices oder custom [Seitenleisten-Name]"
+            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices, beads oder custom [Seitenleisten-Name]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices ou custom [nom-barre-latérale]"
+            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices, beads ou custom [nom-barre-latérale]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices، أو custom [sidebar-name]"
+            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices، أو beads، أو custom [sidebar-name]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices o custom [sidebar-name]"
+            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices, beads o custom [sidebar-name]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices、beads 或 custom [sidebar-name]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices 또는 custom [sidebar-name]"
+            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices, beads 또는 custom [sidebar-name]"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices ili custom [naziv bočne trake]"
+            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices, beads ili custom [naziv bočne trake]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidepanel]"
+            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices, beads eller custom [navn på sidepanel]"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices o custom [nome barra laterale]"
+            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices, beads o custom [nome barra laterale]"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices ឬ custom [ឈ្មោះរបារចំហៀង]"
+            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices, beads ឬ custom [ឈ្មោះរបារចំហៀង]"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidestolpe]"
+            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices, beads eller custom [navn på sidestolpe]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices lub custom [nazwa paska bocznego]"
+            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices, beads lub custom [nazwa paska bocznego]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices ou custom [nome da barra lateral]"
+            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices, beads ou custom [nome da barra lateral]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices или custom [имя боковой панели]"
+            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices, beads или custom [имя боковой панели]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices หรือ custom [ชื่อแถบด้านข้าง]"
+            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices, beads หรือ custom [ชื่อแถบด้านข้าง]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices veya custom [kenar çubuğu adı]"
+            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices, beads veya custom [kenar çubuğu adı]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices або custom [назва бічної панелі]"
+            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices, beads або custom [назва бічної панелі]"
           }
         }
       }
@@ -100616,55 +100616,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars as\n                                 a right panel; the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars;\n                                 the optional name selects the right panel.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux right-sidebar <command> [flags]\n\n从 CLI 控制右侧边栏。\n\n命令:\n  toggle                         切换右侧边栏的显示与隐藏\n  show                           显示右侧边栏\n  hide                           隐藏右侧边栏\n  focus                          聚焦当前的右侧边栏模式\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 显示、切换模式并聚焦。`custom` 会把\n                                 ~/.config/cmux/sidebars 中的 JS/Swift 侧边栏\n                                 渲染为右侧面板；可选的名称用于指定其中一个。\n  mode                           打印 {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus 的别名\n\n标志:\n  --workspace <id|ref|index>     指向包含该工作区的窗口\n  --window <id|ref|index>        指向某个窗口\n  --no-focus                     与 set 同用时，只切换模式不移动焦点\n\n示例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "用法：cmux right-sidebar <command> [flags]\n\n从 CLI 控制右侧边栏。\n\n命令:\n  toggle                         切换右侧边栏的显示与隐藏\n  show                           显示右侧边栏\n  hide                           隐藏右侧边栏\n  focus                          聚焦当前的右侧边栏模式\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [sidebar-name]\n                                 显示、切换模式并聚焦。`custom` 会把\n                                 ~/.config/cmux/sidebars 中的 JS/Swift 侧边栏\n                                 渲染为右侧面板；可选的名称用于指定其中一个。\n  mode                           打印 {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 show + set + focus 的别名\n\n标志:\n  --workspace <id|ref|index>     指向包含该工作区的窗口\n  --window <id|ref|index>        指向某个窗口\n  --no-focus                     与 set 同用时，只切换模式不移动焦点\n\n示例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux right-sidebar <Befehl> [Flags]\n\nSteuern Sie die rechte Seitenleiste über die CLI.\n\nBefehle:\n  toggle                         Sichtbarkeit der rechten Seitenleiste umschalten\n  show                           Die rechte Seitenleiste anzeigen\n  hide                           Die rechte Seitenleiste ausblenden\n  focus                          Den aktuellen Modus der rechten Seitenleiste fokussieren\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [Seitenleisten-Name]\n                                 Anzeigen, Modus wechseln und fokussieren. `custom` rendert eine\n                                 JS/Swift-Seitenleiste aus ~/.config/cmux/sidebars als\n                                 rechtes Panel; der optionale Name wählt aus, welche.\n  mode                           {\"visible\":bool,\"mode\":string} ausgeben\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias für show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Zielt auf das Fenster ab, das einen Arbeitsbereich enthält\n  --window <id|ref|index>        Zielt auf ein Fenster ab\n  --no-focus                     Mit set den Modus wechseln, ohne den Fokus zu verschieben\n\nBeispiele:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Verwendung: cmux right-sidebar <Befehl> [Flags]\n\nSteuern Sie die rechte Seitenleiste über die CLI.\n\nBefehle:\n  toggle                         Sichtbarkeit der rechten Seitenleiste umschalten\n  show                           Die rechte Seitenleiste anzeigen\n  hide                           Die rechte Seitenleiste ausblenden\n  focus                          Den aktuellen Modus der rechten Seitenleiste fokussieren\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [Seitenleisten-Name]\n                                 Anzeigen, Modus wechseln und fokussieren. `custom` rendert eine\n                                 JS/Swift-Seitenleiste aus ~/.config/cmux/sidebars als\n                                 rechtes Panel; der optionale Name wählt aus, welche.\n  mode                           {\"visible\":bool,\"mode\":string} ausgeben\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 Alias für show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Zielt auf das Fenster ab, das einen Arbeitsbereich enthält\n  --window <id|ref|index>        Zielt auf ein Fenster ab\n  --no-focus                     Mit set den Modus wechseln, ohne den Fokus zu verschieben\n\nBeispiele:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux right-sidebar <commande> [options]\n\nContrôler la barre latérale droite depuis l'interface en ligne de commande.\n\nCommandes :\n  toggle                         Basculer la visibilité de la barre latérale droite\n  show                           Afficher la barre latérale droite\n  hide                           Masquer la barre latérale droite\n  focus                          Donner le focus au mode actuel de la barre latérale droite\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [nom-barre-latérale]\n                                 Afficher, changer de mode et donner le focus. `custom` affiche une\n                                 barre latérale JS/Swift depuis ~/.config/cmux/sidebars sous forme de\n                                 panneau droit ; le nom optionnel permet de choisir laquelle.\n  mode                           Afficher {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias pour show + set + focus\n\nOptions :\n  --workspace <id|ref|index>     Cibler la fenêtre contenant un espace de travail\n  --window <id|ref|index>        Cibler une fenêtre\n  --no-focus                     Avec set, changer de mode sans déplacer le focus\n\nExemples :\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Utilisation : cmux right-sidebar <commande> [options]\n\nContrôler la barre latérale droite depuis l'interface en ligne de commande.\n\nCommandes :\n  toggle                         Basculer la visibilité de la barre latérale droite\n  show                           Afficher la barre latérale droite\n  hide                           Masquer la barre latérale droite\n  focus                          Donner le focus au mode actuel de la barre latérale droite\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [nom-barre-latérale]\n                                 Afficher, changer de mode et donner le focus. `custom` affiche une\n                                 barre latérale JS/Swift depuis ~/.config/cmux/sidebars sous forme de\n                                 panneau droit ; le nom optionnel permet de choisir laquelle.\n  mode                           Afficher {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 Alias pour show + set + focus\n\nOptions :\n  --workspace <id|ref|index>     Cibler la fenêtre contenant un espace de travail\n  --window <id|ref|index>        Cibler une fenêtre\n  --no-focus                     Avec set, changer de mode sans déplacer le focus\n\nExemples :\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux right-sidebar <command> [flags]\n\nالتحكم في الشريط الجانبي الأيمن من واجهة CLI.\n\nالأوامر:\n  toggle                         تبديل رؤية الشريط الجانبي الأيمن\n  show                           إظهار الشريط الجانبي الأيمن\n  hide                           إخفاء الشريط الجانبي الأيمن\n  focus                          تركيز وضع الشريط الجانبي الأيمن الحالي\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 إظهار، وتبديل الوضع، والتركيز. يقوم `custom` بتقديم\n                                 شريط جانبي JS/Swift من ~/.config/cmux/sidebars كـ\n                                 لوحة يمنى؛ ويحدد الاسم الاختياري أيًا منها.\n  mode                           طباعة {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 اسم مستعار لـ show + set + focus\n\nالأعلام:\n  --workspace <id|ref|index>     استهداف النافذة التي تحتوي على مساحة عمل\n  --window <id|ref|index>        استهداف نافذة\n  --no-focus                     مع أمر set، يتم تبديل الوضع دون نقل التركيز\n\nأمثلة:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "الاستخدام: cmux right-sidebar <command> [flags]\n\nالتحكم في الشريط الجانبي الأيمن من واجهة CLI.\n\nالأوامر:\n  toggle                         تبديل رؤية الشريط الجانبي الأيمن\n  show                           إظهار الشريط الجانبي الأيمن\n  hide                           إخفاء الشريط الجانبي الأيمن\n  focus                          تركيز وضع الشريط الجانبي الأيمن الحالي\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [sidebar-name]\n                                 إظهار، وتبديل الوضع، والتركيز. يقوم `custom` بتقديم\n                                 شريط جانبي JS/Swift من ~/.config/cmux/sidebars كـ\n                                 لوحة يمنى؛ ويحدد الاسم الاختياري أيًا منها.\n  mode                           طباعة {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 اسم مستعار لـ show + set + focus\n\nالأعلام:\n  --workspace <id|ref|index>     استهداف النافذة التي تحتوي على مساحة عمل\n  --window <id|ref|index>        استهداف نافذة\n  --no-focus                     مع أمر set، يتم تبديل الوضع دون نقل التركيز\n\nأمثلة:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux right-sidebar <command> [flags]\n\nControlar la barra lateral derecha desde la CLI.\n\nComandos:\n  toggle                         Alternar la visibilidad de la barra lateral derecha\n  show                           Mostrar la barra lateral derecha\n  hide                           Ocultar la barra lateral derecha\n  focus                          Enfocar el modo actual de la barra lateral derecha\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 Mostrar, cambiar de modo y enfocar. `custom` renderiza una\n                                 barra lateral JS/Swift de ~/.config/cmux/sidebars como\n                                 un panel derecho; el nombre opcional elige cuál.\n  mode                           Imprimir {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias para show + set + focus\n\nOpciones:\n  --workspace <id|ref|index>     Apuntar a la ventana que contiene un espacio de trabajo\n  --window <id|ref|index>        Apuntar a una ventana\n  --no-focus                     Con set, cambiar de modo sin mover el foco\n\nEjemplos:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Uso: cmux right-sidebar <command> [flags]\n\nControlar la barra lateral derecha desde la CLI.\n\nComandos:\n  toggle                         Alternar la visibilidad de la barra lateral derecha\n  show                           Mostrar la barra lateral derecha\n  hide                           Ocultar la barra lateral derecha\n  focus                          Enfocar el modo actual de la barra lateral derecha\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [sidebar-name]\n                                 Mostrar, cambiar de modo y enfocar. `custom` renderiza una\n                                 barra lateral JS/Swift de ~/.config/cmux/sidebars como\n                                 un panel derecho; el nombre opcional elige cuál.\n  mode                           Imprimir {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 Alias para show + set + focus\n\nOpciones:\n  --workspace <id|ref|index>     Apuntar a la ventana que contiene un espacio de trabajo\n  --window <id|ref|index>        Apuntar a una ventana\n  --no-focus                     Con set, cambiar de modo sin mover el foco\n\nEjemplos:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux right-sidebar <command> [flags]\n\n從 CLI 控制右側邊欄。\n\n指令：\n  toggle                         切換右側邊欄可見性\n  show                           顯示右側邊欄\n  hide                           隱藏右側邊欄\n  focus                          聚焦至目前的右側邊欄模式\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 顯示、切換模式並聚焦。`custom` 會將\n                                 來自 ~/.config/cmux/sidebars 的 JS/Swift 側邊欄\n                                 轉譯為右側面板；選用名稱可選擇其中一個。\n  mode                           列印 {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus 的別名\n\n旗標：\n  --workspace <id|ref|index>     以包含工作區的視窗為目標\n  --window <id|ref|index>        以視窗為目標\n  --no-focus                     搭配 set 使用時，切換模式但不移動焦點\n\n範例：\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "用法：cmux right-sidebar <command> [flags]\n\n從 CLI 控制右側邊欄。\n\n指令：\n  toggle                         切換右側邊欄可見性\n  show                           顯示右側邊欄\n  hide                           隱藏右側邊欄\n  focus                          聚焦至目前的右側邊欄模式\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [sidebar-name]\n                                 顯示、切換模式並聚焦。`custom` 會將\n                                 來自 ~/.config/cmux/sidebars 的 JS/Swift 側邊欄\n                                 轉譯為右側面板；選用名稱可選擇其中一個。\n  mode                           列印 {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 show + set + focus 的別名\n\n旗標：\n  --workspace <id|ref|index>     以包含工作區的視窗為目標\n  --window <id|ref|index>        以視窗為目標\n  --no-focus                     搭配 set 使用時，切換模式但不移動焦點\n\n範例：\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux right-sidebar <command> [flags]\n\nCLI에서 오른쪽 사이드바를 제어합니다.\n\n명령어:\n  toggle                         오른쪽 사이드바 표시 여부 토글\n  show                           오른쪽 사이드바 표시\n  hide                           오른쪽 사이드바 숨기기\n  focus                          현재 오른쪽 사이드바 모드에 포커스 지정\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 표시, 모드 전환 및 포커스 지정. `custom`은\n                                 ~/.config/cmux/sidebars의 JS/Swift 사이드바를\n                                 오른쪽 패널로 렌더링하며, 선택 사항인 이름으로 대상을 선택합니다.\n  mode                           {\"visible\":bool,\"mode\":string} 출력\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus의 별칭\n\n플래그:\n  --workspace <id|ref|index>     작업 공간을 포함하는 창을 대상으로 지정\n  --window <id|ref|index>        창을 대상으로 지정\n  --no-focus                     set 사용 시 포커스를 이동하지 않고 모드 전환\n\n예시:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "사용법: cmux right-sidebar <command> [flags]\n\nCLI에서 오른쪽 사이드바를 제어합니다.\n\n명령어:\n  toggle                         오른쪽 사이드바 표시 여부 토글\n  show                           오른쪽 사이드바 표시\n  hide                           오른쪽 사이드바 숨기기\n  focus                          현재 오른쪽 사이드바 모드에 포커스 지정\n  set <files|find|vault|sessions|feed|dock|cloud|devices|beads|custom> [sidebar-name]\n                                 표시, 모드 전환 및 포커스 지정. `custom`은\n                                 ~/.config/cmux/sidebars의 JS/Swift 사이드바를\n                                 오른쪽 패널로 렌더링하며, 선택 사항인 이름으로 대상을 선택합니다.\n  mode                           {\"visible\":bool,\"mode\":string} 출력\n  files|find|vault|sessions|feed|dock|cloud|devices|beads|custom\n                                 show + set + focus의 별칭\n\n플래그:\n  --workspace <id|ref|index>     작업 공간을 포함하는 창을 대상으로 지정\n  --window <id|ref|index>        창을 대상으로 지정\n  --no-focus                     set 사용 시 포커스를 이동하지 않고 모드 전환\n\n예시:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
           }
         }
       }
@@ -556715,6 +556715,124 @@
                 }
             }
         }
+    },
+    "rightSidebar.beads.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads integration is not available yet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Beads-Integration ist noch nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’intégration Beads n’est pas encore disponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكامل Beads غير متاح بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La integración con Beads aún no está disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads 整合功能尚未提供。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads 集成功能尚未提供。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads 연동은 아직 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads 連携はまだ利用できません。"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.beads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beads"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -347,6 +347,8 @@
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		8466330296863E6902986F41 /* BeadsSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A22055E0C694F1DEE823E3BB /* BeadsSidebarTests.swift */; };
+		2AC676369D80F47A815ACE3A /* BeadsSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4CE8B47E1FBF93F469D7CB /* BeadsSidebarUITests.swift */; };
+		B05ABF4D82769FD3A456DF4E /* BeadsSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4B93497C42D19FB3950CC3B /* BeadsSidebarView.swift */; };
 		B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = A5001262 /* Bonsplit */; };
 		74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74060000000000000000001A /* BonsplitConfiguration+RemoteTmuxEmbedded.swift */; };
 		D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */; };
@@ -4507,6 +4509,8 @@
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		A22055E0C694F1DEE823E3BB /* BeadsSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BeadsSidebarTests.swift"; sourceTree = "<group>"; };
+		0B4CE8B47E1FBF93F469D7CB /* BeadsSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeadsSidebarUITests.swift; sourceTree = "<group>"; };
+		C4B93497C42D19FB3950CC3B /* BeadsSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeadsSidebarView.swift; sourceTree = "<group>"; };
 		74060000000000000000001A /* BonsplitConfiguration+RemoteTmuxEmbedded.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BonsplitConfiguration+RemoteTmuxEmbedded.swift"; sourceTree = "<group>"; };
 		D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarDebug.swift; sourceTree = "<group>"; };
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
@@ -8445,6 +8449,7 @@
 				E93214F8A3E0C68058E9EEF6 /* RemoteTmuxSizingUITests+Socket.swift */,
 				A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */,
 				AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */,
+				0B4CE8B47E1FBF93F469D7CB /* BeadsSidebarUITests.swift */,
 				340AACC8DD8772A000EA1971 /* VaultRefreshUITests.swift */,
 			);
 			path = cmuxUITests;
@@ -10785,6 +10790,7 @@
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
+				C4B93497C42D19FB3950CC3B /* BeadsSidebarView.swift */,
 				272B367E39A68B0DCDE9E182 /* RightSidebarMode.swift */,
 				46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */,
 				468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */,
@@ -13249,6 +13255,7 @@
 				A10649370000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
+				B05ABF4D82769FD3A456DF4E /* BeadsSidebarView.swift in Sources */,
 				74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */,
 					D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
@@ -15711,6 +15718,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */,
+				2AC676369D80F47A815ACE3A /* BeadsSidebarUITests.swift in Sources */,
 				AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */,
 				D93410000000000000000001 /* BrowserDownloadsPopoverContrastUITests.swift in Sources */,
 				7B5F1A2E9C0D4B6A8E217302 /* BrowserFixtureInteractionUITests.swift in Sources */,
