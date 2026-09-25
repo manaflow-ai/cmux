@@ -161,6 +161,27 @@ import Testing
         #expect(model.deferredScroll == nil)
     }
 
+    @Test func legacyComputersNavigationTargetsMobileComputersSubsection() async {
+        let fixture = Self.makeFixture()
+        let model = Self.makeMountModel()
+        let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, mountModel: model), in: fixture)
+        defer { window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: SettingsWindowRoot.navigationRequestName,
+            object: nil,
+            userInfo: [
+                "target": SettingsSectionID.computers.rawValue,
+                "anchor": "section:computers",
+                "highlight": true
+            ]
+        )
+
+        await Self.wait(for: model) { model.pinnedScroll?.section == .mobile }
+        #expect(model.pinnedScroll?.section == .mobile)
+        #expect(model.pinnedScroll?.anchorID == "setting:mobile:computers")
+    }
+
     @Test func targetedOpenDoesNotRestoreTheLastViewedSection() {
         let fixture = Self.makeFixture()
         // The user last looked at Keyboard Shortcuts; this open targets

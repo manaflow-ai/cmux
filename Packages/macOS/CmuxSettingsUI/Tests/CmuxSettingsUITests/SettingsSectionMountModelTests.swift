@@ -13,7 +13,7 @@ struct SettingsSectionMountModelTests {
     @Test func displayOrderGivesEverySectionASlotExceptTheEmbeddedBrowserImport() {
         let slots = Set(SettingsSectionMountModel.displayOrder)
         #expect(slots.count == SettingsSectionMountModel.displayOrder.count)
-        #expect(slots == Set(SettingsSectionID.allCases).subtracting([.browserImport]))
+        #expect(slots == Set(SettingsSectionID.allCases).subtracting([.browserImport, .computers]))
     }
 
     @Test func firstPassMountsOnlyTheInitialSection() {

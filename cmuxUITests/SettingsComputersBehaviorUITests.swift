@@ -11,7 +11,13 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         before.lifetime = .keepAlways
         add(before)
 
-        navigate(window, to: "Computers")
+        let sidebar = window.outlines.firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCTAssertFalse(sidebar.staticTexts["Computers"].exists)
+
+        navigate(window, to: "Mobile")
+        XCTAssertTrue(window.staticTexts["Computers"].waitForExistence(timeout: 5))
+        XCTAssertFalse(window.staticTexts["Your Macs"].exists)
 
         let options = window.descendants(matching: .any)["SettingsComputersOptions"].firstMatch
         XCTAssertTrue(options.waitForExistence(timeout: 5))
