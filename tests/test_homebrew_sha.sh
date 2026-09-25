@@ -1,7 +1,7 @@
 #!/bin/bash
-# Regression test: verify the homebrew cask SHA256 matches the actual release DMG.
-# Catches issues like https://github.com/manaflow-ai/cmux/issues/110 where a race
-# condition caused the cask to contain the SHA of a 404 page instead of the DMG.
+# Regression test: verify the Homebrew cask SHA256 matches the actual release DMG.
+# This also covers https://github.com/manaflow-ai/cmux/issues/14415: a release
+# asset was rebuilt in place, but the cask retained the superseded digest.
 set -euo pipefail
 
 CASK_FILE="$(dirname "$0")/../homebrew-cmux/Casks/cmux.rb"
@@ -30,7 +30,7 @@ trap 'rm -f "$TMPFILE"' EXIT
 # connection reset, DNS blip, truncated transfer) soft-skips instead of
 # flaking. Only a successfully downloaded DMG whose SHA mismatches is a real
 # failure. Mirrors the soft-pass pattern in test_ci_sparkle_build_monotonic.sh.
-HTTP_CODE=$(curl -sL \
+HTTP_CODE=$(curl -sL -H 'Cache-Control: no-cache' \
   --retry 3 --retry-delay 2 --retry-all-errors \
   --connect-timeout 20 --max-time 120 \
   -w '%{http_code}' "$URL" -o "$TMPFILE" 2>/dev/null || echo "000")
