@@ -1218,7 +1218,7 @@ class Sweeper(unittest.TestCase):
 class Tokens(unittest.TestCase):
     """Reads may use the App's token; writes always use GITHUB_TOKEN."""
 
-    def open_with(self, fail_first_read=False):
+    def open_with(self, fail_first_read=False, code=401):
         seen = []
 
         class Response(io.BytesIO):
@@ -1231,7 +1231,7 @@ class Tokens(unittest.TestCase):
         def urlopen(request, timeout):
             seen.append((request.get_method(), request.headers["Authorization"]))
             if fail_first_read and len(seen) == 1:
-                raise rescue.urllib.error.HTTPError(request.full_url, 401, "expired", {}, None)
+                raise rescue.urllib.error.HTTPError(request.full_url, code, "refused", {}, None)
             return Response(b"{}")
         return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
 
@@ -1256,6 +1256,16 @@ class Tokens(unittest.TestCase):
         self.assertEqual(seen, [("GET", "Bearer app-token"), ("GET", "Bearer repo-token"),
                                 ("GET", "Bearer repo-token")])
 
+    def test_a_read_the_app_may_not_make_uses_github_token_once(self):
+        seen, patch = self.open_with(fail_first_read=True, code=403)
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.pull(1)
+            api.run(1)
+        # 403: this read lacks a permission; the next read still tries the App.
+        self.assertEqual(seen, [("GET", "Bearer app-token"), ("GET", "Bearer repo-token"),
+                                ("GET", "Bearer app-token")])
+
     def test_without_an_app_token_everything_uses_github_token(self):
         seen, patch = self.open_with()
         with patch:
@@ -1268,8 +1278,10 @@ class Tokens(unittest.TestCase):
         mint = next(step for step in steps if step.get("id") == "read-token")
         self.assertTrue(mint["continue-on-error"])
         self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
-                         {"permission-actions": "read", "permission-contents": "read",
-                          "permission-pull-requests": "read"})
+                         # The installation has no contents grant, and asking for one fails the mint
+                         # (422). The one contents read (branch_head, /branches) gets a 403 and retries
+                         # on GITHUB_TOKEN (Tokens.test_a_read_the_app_may_not_make...).
+                         {"permission-actions": "read", "permission-pull-requests": "read"})
         watch = next(step for step in steps if step.get("name") == "Watch runs on persistent pools")
         self.assertEqual(watch["env"]["READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
         self.assertEqual(watch["env"]["GH_TOKEN"], "${{ github.token }}")

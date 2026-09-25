@@ -619,10 +619,27 @@ jobs:
         # pool choice below sees which owned Macs are idle now. Same-repository
         # pull requests and main's full-suite dispatch only, on this ephemeral
         # Linux runner: a fork run never sees the key, and no Mac ever holds
-        # it. Any failure (no key yet, the App not installed) leaves the token
-        # empty, and the choice falls back to the janitor snapshot and
-        # CI_OWNED_POOL_SLOTS.
+        # it. The minis are org runners in the glaeda-minis group, so the
+        # token also reads the org's self-hosted runners. Any failure (no key
+        # yet, the App not installed, or the App without that organization
+        # permission) leaves the token empty, and the choice falls back to the
+        # janitor snapshot and CI_OWNED_POOL_SLOTS.
         if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        # The mint is all or nothing: an App not yet granted the organization
+        # self-hosted runners permission gets no token above. This one asks
+        # for the repository permission alone, as before.
+        if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -647,7 +664,7 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
@@ -678,6 +695,11 @@ jobs:
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
+          # swift-package-tests takes an owned Mac when it builds no SDK 15
+          # Release helper (full suite plus release_build), which the minis
+          # cannot build (pr_runner_pool.package_lane_owned()).
+          RUN_SWIFT_PACKAGES: ${{ steps.detect.outputs.swift_packages }}
+          RUN_RELEASE_BUILD: ${{ steps.detect.outputs.release_build }}
           # The main commit this run merges onto, whose warm label (a root
           # runner that kept a build of it) compile admission may take.
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
@@ -1250,6 +1272,7 @@ jobs:
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
+      pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
     # ci-macos.yml's late-placement reads idle root runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}

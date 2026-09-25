@@ -56,14 +56,12 @@ struct TerminalStartupRestoreFailureTests {
             resumeBinding: binding,
             restoresRemoteWorkspaceTerminalSnapshot: true,
             remoteResumeContext: sourceContext,
-            remoteResumeCommandEmbedded: true,
             workingDirectory: binding.cwd,
             resumeWorkingDirectory: binding.cwd
         )
 
         let retargeted = restore.retargetingRemoteOwner(destinationContext)
         #expect(retargeted.remoteResumeContext == destinationContext)
-        #expect(retargeted.remoteResumeCommandEmbedded)
         #expect(
             retargeted.resumeBinding == binding.retargetingRemoteOwner(
                 expectedWorkspaceID: sourceWorkspaceID,
