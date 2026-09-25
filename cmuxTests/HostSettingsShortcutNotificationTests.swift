@@ -61,6 +61,7 @@ struct HostSettingsShortcutNotificationTests {
         let host = HostSettingsActions(
             configFileURL: directoryURL.appendingPathComponent("cmux.json"),
             computerUseRuntimeService: ComputerUseRuntimeService(),
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
             automationConfigStore: store,
             runComputerUseOnboardingAction: { _ in }
         )
@@ -88,6 +89,7 @@ struct HostSettingsShortcutNotificationTests {
         let host = HostSettingsActions(
             configFileURL: directoryURL.appendingPathComponent("cmux.json"),
             computerUseRuntimeService: ComputerUseRuntimeService(),
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
             automationConfigStore: store,
             runComputerUseOnboardingAction: { _ in }
         )
@@ -115,6 +117,7 @@ struct HostSettingsShortcutNotificationTests {
         let host = HostSettingsActions(
             configFileURL: directoryURL.appendingPathComponent("cmux.json"),
             computerUseRuntimeService: ComputerUseRuntimeService(),
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
             automationConfigStore: AutomationConfigStore(fileURL: fileURL),
             openAutomationRulesFile: { opened.append($0) },
             reportAutomationRulesError: { errors.append($0) },
@@ -169,6 +172,7 @@ struct HostSettingsShortcutNotificationTests {
         HostSettingsActions(
             configFileURL: settingsFileURL,
             computerUseRuntimeService: ComputerUseRuntimeService(),
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
             runComputerUseOnboardingAction: { _ in }
         ).notifyShortcutSettingsDidChange()
 
