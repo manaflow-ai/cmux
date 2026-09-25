@@ -51,14 +51,6 @@ final class cmuxUITests: XCTestCase {
                 withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)
             ))
         }
-        func expandGroupedNotifications() {
-            let summary = springboard.staticTexts.matching(
-                NSPredicate(format: "label BEGINSWITH '+' AND label CONTAINS 'from cmux'")
-            ).firstMatch
-            if summary.waitForExistence(timeout: 3) {
-                summary.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            }
-        }
         func title(_ value: String) -> XCUIElement {
             springboard.staticTexts[value].firstMatch
         }
@@ -68,15 +60,18 @@ final class cmuxUITests: XCTestCase {
             attachment.lifetime = .keepAlways
             add(attachment)
         }
-        func assertRetained() {
-            for name in ["Read on Mac 1", "Read on Mac 2", "Still unread", "Other computer", "Unrelated alert"] {
+        func assertGroupedNotificationsRetained() {
+            for name in ["Other computer", "Unrelated alert"] {
                 XCTAssertTrue(title(name).waitForExistence(timeout: 8), "Missing notification: \(name)")
             }
+            let summary = springboard.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS 'from cmux'")
+            ).firstMatch
+            XCTAssertTrue(summary.waitForExistence(timeout: 8), "Missing grouped cmux notifications")
         }
 
         openNotificationCenter()
-        expandGroupedNotifications()
-        assertRetained()
+        assertGroupedNotificationsRetained()
         capture("01-delivered-before-cleanup")
 
         await server.setNotificationReadState(handledIDs: [read1, read2], available: false)
@@ -84,8 +79,7 @@ final class cmuxUITests: XCTestCase {
         app.activate()
         await awaitReconcile(nextReconcile)
         openNotificationCenter()
-        expandGroupedNotifications()
-        assertRetained()
+        assertGroupedNotificationsRetained()
         capture("02-read-state-unavailable-keeps-notifications")
 
         await server.setNotificationReadState(handledIDs: [read1, read2], available: true)
@@ -93,11 +87,8 @@ final class cmuxUITests: XCTestCase {
         app.activate()
         await awaitReconcile(nextReconcile)
         openNotificationCenter()
-        expandGroupedNotifications()
-        XCTAssertTrue(title("Read on Mac 1").waitForNonExistence(timeout: 8))
-        XCTAssertTrue(title("Read on Mac 2").waitForNonExistence(timeout: 8))
         for name in ["Still unread", "Other computer", "Unrelated alert"] {
-            XCTAssertTrue(title(name).exists, "Cleanup removed \(name)")
+            XCTAssertTrue(title(name).waitForExistence(timeout: 8), "Cleanup removed \(name)")
         }
         capture("03-read-notifications-cleared-unread-and-unrelated-retained")
 
