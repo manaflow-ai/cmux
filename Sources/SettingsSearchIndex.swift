@@ -180,6 +180,7 @@ enum SettingsSearchIndex {
         setting(.browserImport, "import-hint", String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"), "blank tab browser import"),
         setting(.browser, "react-grab", String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"), "npm react grab toolbar"),
         setting(.browser, "history", String(localized: "settings.browser.history", defaultValue: "Browsing History"), "clear visited suggestions"),
+        setting(.browser, "toolbar-items", String(localized: "settings.browser.toolbarItems", defaultValue: "Toolbar Buttons"), "toolbar buttons customize pin extensions hide reorder"),
         setting(.globalHotkey, "enable-hotkey", String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"), "global shortcut show hide windows"),
         setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
@@ -329,6 +330,7 @@ enum SettingsSearchIndex {
         "browser.urlsToAlwaysOpenExternally": settingID(for: .browser, idSuffix: "external-patterns"),
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
         "browser.urlAllowlist": settingID(for: .browser, idSuffix: "url-allowlist"),
+        "browser.toolbarItems": settingID(for: .browser, idSuffix: "toolbar-items"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")

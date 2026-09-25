@@ -4,6 +4,44 @@ cmux includes the following third-party software:
 
 ---
 
+## Search (Chrome extension support)
+
+cmux's Chrome extension support adapts code and patterns from Search, a
+WebKit browser for macOS by Office Commun: CRX3 download and signature
+verification, the `WKWebExtensionController` tab and window adapters, the
+Chrome Web Store page script that replaces the "Switch to Chrome" prompts with
+an install button, and the Chrome identity presented to extension pages.
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 Office Commun
+- **Source:** https://github.com/driceroland/Search
+- **Reference revisions:** `bbc0c6e1f580cae01a2db853a790125fc8bf0fc0`,
+  `491f3214063212fac176a7ad95467f0821040451`
+- **Adapted files:** `Sources/BrowserExtensions.swift`,
+  `Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Extensions/ChromeExtensionPackage.swift`,
+  `Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Extensions/ChromeWebStorePage.swift`,
+  `Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Extensions/ChromeExtensionCompatibility.swift`
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 ## Lobe Icons (selected agent marks)
 
 - **License:** MIT License

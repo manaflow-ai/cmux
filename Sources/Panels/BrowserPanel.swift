@@ -1006,7 +1006,8 @@ func browserLoadRequest(
             return nil
         }
         if let cmuxWebView = webView as? CmuxWebView,
-           BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(url.scheme?.lowercased() ?? "") {
+           BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(url.scheme?.lowercased() ?? "")
+            || ChromeExtensionsManagerPage.isManagerPageURL(url) {
             cmuxWebView.markTrustedInternalNavigation(url)
         }
     }
@@ -1025,6 +1026,9 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
     "blob",
+    // Extension pages (options, popouts). WebKit only serves them to views
+    // built with the extension controller and enforces web_accessible_resources.
+    "chrome-extension",
     "cmux-diff-viewer",
     "data",
     "file",
@@ -1035,6 +1039,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
 
 func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return false }
+    if ChromeExtensionsManagerPage.isManagerPageURL(url) { return false }
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
@@ -1998,6 +2003,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID
+    /// Set while a Chrome extension's `tabs.create`/`tabs.update` load is in
+    /// flight (the extension id); redirects of that load must stay within
+    /// `ChromeExtensionNavigationPolicy`. Cleared when the load commits.
+    var extensionNavigationOrigin: String?
     @Published private(set) var historyStore: BrowserHistoryStore
 
     /// The underlying web view
@@ -3017,6 +3026,9 @@ final class BrowserPanel: Panel, ObservableObject {
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore
     ) {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.configure(configuration, websiteDataStore: websiteDataStore)
+        }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
@@ -3125,6 +3137,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func bindWebView(_ webView: CmuxWebView) {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.register(self)
+        }
         webViewObservationGeneration &+= 1
         browserViewportHostRestorationTask?.cancel()
         browserViewportHostRestorationTask = nil
@@ -4893,6 +4908,9 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Panel Protocol
 
     func focus() {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.didFocus(self)
+        }
         if shouldSuppressWebViewFocus() {
             return
         }
@@ -4991,6 +5009,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.unregister(panelID: id)
+        }
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
@@ -5535,6 +5556,7 @@ final class BrowserPanel: Panel, ObservableObject {
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            callerIsTrusted: trustedInternalNavigation,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5568,6 +5590,7 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
+        callerIsTrusted: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
@@ -5609,6 +5632,9 @@ final class BrowserPanel: Panel, ObservableObject {
         let trustedInternalNavigation = BrowserURLAllowlistPolicy
             .trustedInternalSchemes
             .contains(originalURL.scheme?.lowercased() ?? "")
+            // cmux://extensions is trusted only when the caller is: web
+            // content routed here (popups, mobile streaming) never is.
+            || (callerIsTrusted && ChromeExtensionsManagerPage.isManagerPageURL(originalURL))
         if trustedInternalNavigation, originalURL.isFileURL {
             beginTrustedLocalFileNavigation(originalURL)
         } else {
@@ -5904,6 +5930,12 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     deinit {
+        if #available(macOS 15.4, *) {
+            let panelID = id
+            Task { @MainActor in
+                BrowserExtensions.shared.unregister(panelID: panelID)
+            }
+        }
         hiddenWebViewDiscardManager.stop()
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer = nil
@@ -6306,7 +6338,14 @@ extension BrowserPanel {
     }
 
     /// Opens a request in a sibling browser tab without dropping request metadata.
-    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
+    ///
+    /// Web content reaches this through link clicks and `window.open`, so it
+    /// never opens `cmux://extensions`; cmux's own UI passes
+    /// `allowInternalPage` for that.
+    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil, allowInternalPage: Bool = false) {
+        if let url = request.url, ChromeExtensionsManagerPage.isManagerPageURL(url), !allowInternalPage {
+            return
+        }
         guard let seed = browserNewTabNavigationSeed(
             from: request,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce

@@ -1314,7 +1314,8 @@
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
           "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
-          "urlAllowlist": "Yerleşik tarayıcıda gezinmeyi kısıtlayan ana bilgisayar veya URL kalıpları. Ayarlar yerel geliştirme kaynaklarını önerir; bir listeyi kaydetmek isteğe bağlı kısıtlamayı etkinleştirir. Girişleri kaldırarak engelleyin veya yönetilen bir politika yoksa kısıtlamayı devre dışı bırakmak için kullanıcı değerini boş bırakın."
+          "urlAllowlist": "Yerleşik tarayıcıda gezinmeyi kısıtlayan ana bilgisayar veya URL kalıpları. Ayarlar yerel geliştirme kaynaklarını önerir; bir listeyi kaydetmek isteğe bağlı kısıtlamayı etkinleştirir. Girişleri kaldırarak engelleyin veya yönetilen bir politika yoksa kısıtlamayı devre dışı bırakmak için kullanıcı değerini boş bırakın.",
+          "toolbarItems": "Tarayıcı araç çubuğu düğmeleri, soldan sağa. designMode, profile, theme, extensions, devTools veya sabitlenmiş bir Chrome uzantısı için extension:<id> kullanın. Bir düğmeyi gizlemek için listeden çıkarın; boş liste tümünü gizler. Diğer İşlemler menüsü her zaman en sonda kalır."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair genel varsayılan: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra).",

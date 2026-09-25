@@ -174,6 +174,9 @@ extension AppDelegate {
     /// Closes every live browser pane — main area and Docks, across all
     /// windows — when `DisableEmbeddedBrowser` activates while cmux runs.
     func closeBrowserPanelsForManagedPolicy() {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.applyURLAllowlistPolicy()
+        }
         for manager in allTabManagersForManagedPolicyEnforcement() {
             for workspace in manager.tabs {
                 let browserPanelIds = workspace.panels.compactMap { id, panel in
@@ -212,6 +215,9 @@ extension AppDelegate {
                     (panel as? BrowserPanel)?.enforceURLAllowlistPolicy()
                 }
             }
+        }
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.applyURLAllowlistPolicy()
         }
     }
 

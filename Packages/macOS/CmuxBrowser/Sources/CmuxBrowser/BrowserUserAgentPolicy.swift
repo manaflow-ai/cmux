@@ -14,6 +14,12 @@ public struct BrowserUserAgentPolicy: Sendable {
     /// A Safari-compatible user-agent string for sites that gate browser support.
     public let safariCompatibleUserAgent: String
 
+    /// The application-name suffix that turns WebKit's default user agent into
+    /// ``safariCompatibleUserAgent``. Configurations that cannot set a full
+    /// custom user agent, such as the extension controller's, use this so their
+    /// pages and service workers present the same identity as browser tabs.
+    public let safariApplicationName: String
+
     /// Creates a policy using an explicit installed Safari version.
     ///
     /// Invalid versions fall back to the Safari generation associated with the
@@ -41,10 +47,12 @@ public struct BrowserUserAgentPolicy: Sendable {
             candidateVersion,
             olderThan: Self.minimumAdvertisedSafariVersion
         ) ? Self.minimumAdvertisedSafariVersion : candidateVersion
+        safariApplicationName =
+            "Version/\(resolvedVersion.map(String.init).joined(separator: ".")) Safari/605.1.15"
         safariCompatibleUserAgent =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
             "AppleWebKit/605.1.15 (KHTML, like Gecko) " +
-            "Version/\(resolvedVersion.map(String.init).joined(separator: ".")) Safari/605.1.15"
+            safariApplicationName
     }
 
     /// Creates a policy using the installed Safari version when available.

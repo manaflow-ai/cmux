@@ -43,6 +43,9 @@ let package = Package(
                 "CmuxBrowser",
                 "CmuxFoundation",
             ],
+            resources: [
+                .copy("Extensions/Fixtures"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

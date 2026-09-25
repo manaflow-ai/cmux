@@ -1770,6 +1770,266 @@
           }
         }
       }
+    },
+    "settings.browser.toolbarItems": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolbar Buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーのボタン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 막대 버튼"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки панелі інструментів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具栏按钮"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbolleistentasten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boutons de la barre d’outils"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرار شريط الأدوات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botones de la barra de herramientas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具列按鈕"
+          }
+        }
+      }
+    },
+    "settings.browser.toolbarItems.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-click a toolbar button, or choose Customize Toolbar in the More Actions menu, to hide, reorder, or pin extensions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーのボタンを右クリックするか、「その他の操作」メニューで「ツールバーをカスタマイズ」を選ぶと、ボタンの非表示、並べ替え、拡張機能のピン留めができます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 막대 버튼을 오른쪽 클릭하거나 기타 작업 메뉴에서 도구 막대 사용자화를 선택하여 버튼을 숨기거나 순서를 바꾸거나 확장 프로그램을 고정하세요."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клацніть правою кнопкою на кнопці панелі або виберіть «Налаштувати панель» у меню «Інші дії», щоб сховати, змінити порядок або закріпити розширення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右键点按工具栏按钮，或在“更多操作”菜单中选择“自定义工具栏”，即可隐藏按钮、调整顺序或固定扩展程序。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klicke mit der rechten Maustaste auf eine Symbolleistentaste oder wähle im Menü „Weitere Aktionen“ die Option „Symbolleiste anpassen“, um Tasten auszublenden, umzuordnen oder Erweiterungen anzuheften."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquez avec le bouton droit sur un bouton de la barre d’outils, ou choisissez Personnaliser la barre d’outils dans le menu Autres actions, pour masquer, réordonner ou épingler des extensions."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر بزر الماوس الأيمن على زر في شريط الأدوات، أو اختر تخصيص شريط الأدوات من قائمة المزيد من الإجراءات، لإخفاء الأزرار أو إعادة ترتيبها أو تثبيت الإضافات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic derecho en un botón de la barra de herramientas o elige Personalizar barra de herramientas en el menú Más acciones para ocultar, reordenar o fijar extensiones."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工具列按鈕上按右鍵，或在「更多動作」選單中選擇「自訂工具列」，即可隱藏按鈕、重新排序或釘選延伸功能。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.toolbar-items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems toolbar buttons customize pin extensions hide reorder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems ツールバー ボタン カスタマイズ ピン留め 拡張機能 非表示 並べ替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems 도구 막대 버튼 사용자화 고정 확장 프로그램 숨기기 순서"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems панель інструментів кнопки налаштувати закріпити розширення сховати порядок"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems 工具栏 按钮 自定义 固定 扩展程序 隐藏 排序"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems Symbolleiste Tasten anpassen anheften Erweiterungen ausblenden sortieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems barre d’outils boutons personnaliser épingler extensions masquer réordonner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems شريط الأدوات أزرار تخصيص تثبيت إضافات إخفاء ترتيب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems barra de herramientas botones personalizar fijar extensiones ocultar reordenar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.toolbarItems 工具列 按鈕 自訂 釘選 延伸功能 隱藏 排序"
+          }
+        }
+      }
+    },
+    "browser.toolbar.customize.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값으로 재설정"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скинути до типових"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复默认"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Standard zurücksetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rétablir les valeurs par défaut"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التعيين إلى الافتراضي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer valores predeterminados"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設為預設值"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

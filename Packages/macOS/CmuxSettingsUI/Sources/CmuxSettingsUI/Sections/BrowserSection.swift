@@ -401,6 +401,22 @@ public struct BrowserSection: View {
                 .controlSize(.small)
                 .disabled(historyCount == 0)
             }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("browser.toolbarItems"),
+                searchAnchorID: "setting:browser:toolbar-items",
+                String(localized: "settings.browser.toolbarItems", defaultValue: "Toolbar Buttons"),
+                subtitle: String(
+                    localized: "settings.browser.toolbarItems.subtitle",
+                    defaultValue: "Right-click a toolbar button, or choose Customize Toolbar in the More Actions menu, to hide, reorder, or pin extensions."
+                )
+            ) {
+                Button(String(localized: "browser.toolbar.customize.reset", defaultValue: "Reset to Default")) {
+                    UserDefaults.standard.removeObject(forKey: catalog.browser.toolbarItems.userDefaultsKey)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
     }
 

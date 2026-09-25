@@ -1602,6 +1602,23 @@
           ],
           "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
+        "toolbarItems": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(designMode|profile|theme|extensions|devTools|extension:([a-p]{32}|local-[0-9a-f-]{1,42}))$"
+          },
+          "uniqueItems": true,
+          "descriptionKey": "schemaDescriptions.browser.toolbarItems",
+          "default": [
+            "designMode",
+            "profile",
+            "theme",
+            "extensions",
+            "devTools"
+          ],
+          "description": "Browser toolbar buttons, left to right. Use designMode, profile, theme, extensions, devTools, or extension:<id> for a pinned Chrome extension. Omit a button to hide it; an empty list hides all of them. The More Actions menu always stays last."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,
