@@ -1261,3 +1261,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_catch_up_pr.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_run_guards.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_check_repo_variables.py"
+lane = "linux-guard"

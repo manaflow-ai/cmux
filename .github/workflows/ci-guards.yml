@@ -63,6 +63,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate the local and fast guard runner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_run_guards.py
+
+      - name: Validate the repository variable check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_check_repo_variables.py
+
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_reverse_test_impact.py
