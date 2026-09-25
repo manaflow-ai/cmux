@@ -58,9 +58,11 @@ LOCAL_WORKFLOW_CALL = re.compile(
 # its secrets and, for pull_request_target, a write token. A comment event
 # does not say whether its pull request comes from a fork, so the fork branch
 # below cannot gate these: their jobs pin a GitHub-hosted label.
+# Matched as a whole word anywhere in the `on:` value, so block, inline,
+# list and mapping forms all count.
 OUTSIDER_TRIGGER = re.compile(
-    r"(?m)^  (?:pull_request_target|issue_comment|issues|pull_request_review"
-    r"|pull_request_review_comment|discussion|discussion_comment):"
+    r"(?<![\w-])(?:pull_request_target|issue_comment|issues|pull_request_review"
+    r"|pull_request_review_comment|discussion|discussion_comment)(?![\w-])"
 )
 HOSTED_LITERAL_RUNNER = re.compile(
     r"^\s*runs-on:\s*(?:ubuntu-\d+\.\d+|ubuntu-latest|macos-\d+)\s*(?:#.*)?$"
@@ -419,7 +421,7 @@ def has_workflow_call_trigger(text: str) -> bool:
 
 def triggers_block(text: str) -> str:
     """The `on:` block, so `  issues: write` under `permissions:` does not count."""
-    match = re.search(r"(?ms)^(?:on|\"on\"|'on'):[^\n]*\n(.*?)(?=^\S|\Z)", text)
+    match = re.search(r"(?ms)^(?:on|\"on\"|'on'):(.*?)(?=^\S|\Z)", text)
     return match.group(1) if match else ""
 
 
@@ -862,6 +864,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         """pull_request_target and comment events run fork-started jobs with trusted tokens."""
         roots = outsider_triggered_workflows()
         self.assertIn(WORKFLOWS / "cla.yml", roots)
+        self.assertIn(WORKFLOWS / "claude.yml", roots)
         errors: list[str] = []
         for path in fork_exercised_workflows(roots):
             errors.extend(outsider_runner_errors(path.name, path.read_text(encoding="utf-8")))
@@ -892,6 +895,15 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertFalse(OUTSIDER_TRIGGER.search(triggers_block(
             "on:\n  push:\npermissions:\n  issues: write\njobs: {}\n"
         )))
+        for flow in (
+            "on: [push, issue_comment]\n",
+            "on: pull_request_target\n",
+            "on: {issues: {}}\n",
+            "on:\n    pull_request_review:\n",
+        ):
+            with self.subTest(flow=flow):
+                self.assertTrue(OUTSIDER_TRIGGER.search(triggers_block(flow + "jobs: {}\n")))
+        self.assertFalse(OUTSIDER_TRIGGER.search(triggers_block("on: [pull_request, push]\njobs: {}\n")))
         errors = outsider_runner_errors("x.yml", text)
         self.assertEqual([error.split(" ", 1)[0] for error in errors],
                          ["x.yml:5", "x.yml:7", "x.yml:9", "x.yml:11", "x.yml:15", "x.yml:16"])
