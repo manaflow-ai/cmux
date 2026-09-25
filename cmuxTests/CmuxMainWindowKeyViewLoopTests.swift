@@ -12,7 +12,7 @@ import Testing
 @Suite(.serialized, .exclusiveAppContext)
 struct CmuxMainWindowKeyViewLoopTests {
     @Test
-    func normalMainWindowsKeepAppKitKeyViewPolicyWhenHostingContentChanges() {
+    func normalMainWindowsRestoreAppKitKeyViewAfterHostingContentChanges() {
         let window = makeWindow()
         defer { window.close() }
 
