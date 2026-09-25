@@ -1,0 +1,80 @@
+name: Temporary forgotten-Mac package comparison
+on:
+  push:
+    branches: [feat-forget-mobile-proof]
+permissions:
+  contents: read
+jobs:
+  comparison:
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout unchanged base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: f2550c99e1af88827ec95b9ae2ee0ac785ff1389
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Test unchanged base
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/forget-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/forget-proof/base.sha"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds 180 \
+            --label base --log "$RUNNER_TEMP/forget-proof/base.log" -- \
+            swift test --package-path Packages/iOS/CmuxMobileShell --no-parallel
+      - name: Checkout revised recovery tests
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 87f130585820e287c0b71b45d75dc53b057ec506
+          clean: false
+          persist-credentials: false
+      - name: Test revised recovery source
+        continue-on-error: true
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/forget-proof/revised.sha"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds 180 \
+            --label revised --log "$RUNNER_TEMP/forget-proof/revised.log" -- \
+            swift test --package-path Packages/iOS/CmuxMobileShell --no-parallel
+      - name: Compare completed suites and require recovery coverage
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "forget-proof"
+          results = {}
+          for version in ("base", "revised"):
+              log = (root / f"{version}.log").read_text()
+              summary = re.findall(r"Test run with (\d+) tests in (\d+) suites (passed|failed) after", log)
+              if not summary:
+                  raise SystemExit(f"{version}: no completed test run")
+              results[version] = {
+                  "sha": (root / f"{version}.sha").read_text().strip(),
+                  "tests": int(summary[-1][0]),
+                  "suites": int(summary[-1][1]),
+                  "outcome": summary[-1][2],
+                  "failures": sorted(set(re.findall(r"✘ Test ([^\n]+?\(\)) failed after", log))),
+              }
+          results["new_failures"] = sorted(set(results["revised"]["failures"]) - set(results["base"]["failures"]))
+          report = json.dumps(results, indent=2)
+          print(report)
+          (root / "comparison.json").write_text(report + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+              output.write("### Full mobile package comparison\n\n```json\n" + report + "\n```\n")
+          assert not results["new_failures"], "New failing tests require investigation"
+          assert results["revised"]["tests"] >= results["base"]["tests"] + 2, "Recovery tests did not add coverage"
+          revised = (root / "revised.log").read_text()
+          for test in (
+              "rehydratesAfterForgetFromAuthenticatedDirectoryAndCoalescesDuplicates",
+              "preservesASecondForgetWhileRecoveryDirectoryFetchIsInFlight",
+          ):
+              assert re.search(r"✔ Test " + test + r"\(\) passed after", revised), test + " did not pass"
+          PY
+      - name: Retain complete evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: forget-mobile-comparison
+          path: ${{ runner.temp }}/forget-proof
+          retention-days: 7
