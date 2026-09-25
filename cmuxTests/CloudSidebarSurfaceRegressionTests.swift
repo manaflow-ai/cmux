@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -33,9 +35,9 @@ struct CloudSidebarSurfaceRegressionTests {
         let snapshot = SidebarWorkspaceSnapshotFactory(
             workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
         ).makeSnapshot()
-        #expect(snapshot.compactDirectoryCandidates.isEmpty)
+        #expect((snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)).contains { $0.contains("Directory unavailable") })
         #expect(snapshot.compactGitBranchSummaryText == nil)
-        #expect(snapshot.branchDirectoryLines.isEmpty)
+        #expect(snapshot.branchDirectoryLines.allSatisfy { $0.branch == nil })
         #expect(snapshot.pullRequestRows.isEmpty)
         #expect(snapshot.finderDirectoryPath == nil)
         let accessibilityLabel = snapshot.accessibilityLabel(index: 0, workspaceCount: 1)
@@ -109,7 +111,10 @@ struct CloudSidebarSurfaceRegressionTests {
             title: "terminal", detail: "/home/cloud/project", lifecycle: .running,
             agent: nil, remoteWorkspace: nil, port: nil, url: nil
         )
-        let catalog = SurfaceCatalog()
+        let service = CloudWorkspaceRenameService(environment: CloudWorkspaceRenameEnvironment(
+            workspace: { $0 == workspace.id ? workspace : nil }, workspaces: { [workspace] }
+        ))
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: service)
         catalog.upsert(resource)
         catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID))
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
@@ -133,9 +138,6 @@ struct CloudSidebarSurfaceRegressionTests {
             diskUsedMb: nil
         )
         catalog.replaceCloudState(state, resources: [resource], info: info)
-        let service = CloudWorkspaceRenameService(
-            environment: CloudWorkspaceRenameEnvironment(workspaces: { [workspace] })
-        )
         service.reconcileRemoteState(machine: machine, state: state, catalog: catalog, observation: .current)
         #expect(workspace.reportedPanelDirectory(panelId: panelID) == "/home/cloud/project")
         #expect(workspace.presentedCurrentDirectory == "/home/cloud/project")

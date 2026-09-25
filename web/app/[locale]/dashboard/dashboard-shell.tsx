@@ -67,8 +67,13 @@ export function DashboardShell({
       ],
     },
     {
-      label: t("iosGroup"),
+      label: t("remoteControlGroup"),
       items: [
+        {
+          href: "/dashboard/mobile-devices",
+          label: t("mobileDevices"),
+          active: pathname.startsWith("/dashboard/mobile-devices"),
+        },
         {
           href: "/dashboard/testflight",
           label: t("testflight"),

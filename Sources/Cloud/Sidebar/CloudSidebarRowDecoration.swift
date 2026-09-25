@@ -1,33 +1,42 @@
+import CmuxCloud
+import CmuxFoundation
 import SwiftUI
 
-/// Fixed attention slot before the row icon; pins sit with trailing accessories.
+/// An unread badge in the leading identity column, followed by an optional pin.
+/// Read rows keep the compact identity edge; unread rows reserve the badge slot.
 /// Immutable input keeps AppKit cell reuse independent of observable stores.
 struct CloudSidebarRowDecoration: ViewModifier {
     let isPinned: Bool
     let showsAttentionSlot: Bool
     let hasUnreadNotification: Bool
+    var attentionSlot: CGFloat = CloudTreeStyle.compact.rowGrid.attentionSlot
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     func body(content: Content) -> some View {
-        HStack(spacing: 4) {
-            if showsAttentionSlot {
-                // Always mounted: in-place outline reloads must repaint both the
-                // unread and read states without inserting a new SwiftUI subtree.
+        // Keep read rows flush with the outline's content edge. A row earns the
+        // leading slot only while it has unread attention, so the compact tree
+        // does not carry an empty gutter between the caret and its identity.
+        HStack(spacing: 2) {
+            if showsAttentionSlot && hasUnreadNotification {
                 Circle()
                     .fill(Color.accentColor)
                     .frame(width: 6, height: 6)
-                    .opacity(hasUnreadNotification ? 1 : 0)
-                    .accessibilityHidden(!hasUnreadNotification)
                     .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
-                    .help(hasUnreadNotification
-                        ? String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification") : "")
+                    .help(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
+                    .frame(width: GlobalFontMagnification.scaledSize(attentionSlot, percent: magnification))
+                    .allowsHitTesting(false)
+            }
+            if isPinned {
+                CmuxSystemSymbolImage(
+                    magnified: "pin.fill",
+                    pointSize: 9,
+                    weight: .semibold,
+                    tint: Color(nsColor: .secondaryLabelColor)
+                )
+                .fixedSize()
+                .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
             }
             content
-            if isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
-            }
         }
     }
 }

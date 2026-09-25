@@ -1,3 +1,5 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -11,11 +13,16 @@ struct MachinesPanelBanners: View {
     var body: some View {
         if let banner = tunnelBanner, banner.showsInMachinesPanel,
            !bannerDismissals.isDismissed(id: "machines.tunnel", signature: banner.dismissalSignature) {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            } onDismiss: {
-                bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
-            }
+            MachinesTunnelBanner(
+                banner: banner,
+                backgroundColor: chromeBackgroundColor,
+                openSystemSettings: {
+                    SystemExtensionSettingsLink.open()
+                },
+                onDismiss: {
+                    bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
+                }
+            )
         }
         if let plan = plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText,
            !bannerDismissals.isDismissed(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature) {

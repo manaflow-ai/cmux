@@ -576,12 +576,12 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
-    // The second independent probe succeeds and resets the liveness window.
-    // Reconnecting makes `.connected` prove that its response was applied.
+    // The idempotent subscription retry succeeds on the same connection.
+    // The status change proves that its acknowledgement was applied.
     store.markMacConnectionReconnecting()
     let followUpSucceeded = try await pollUntil {
         store.debugRunRenderGridLivenessCheckForTesting()
-        return await router.count(of: "mobile.events.probe") >= 2
+        return await router.count(of: "mobile.events.subscribe") >= 2
             && store.macConnectionStatus == .connected
     }
     #expect(followUpSucceeded, "the follow-up probe must complete successfully")
@@ -623,7 +623,7 @@ import Testing
         store.debugRunRenderGridLivenessCheckForTesting()
         let probeCount = await router.count(of: "mobile.events.probe")
         let subscribeCount = await router.count(of: "mobile.events.subscribe")
-        return probeCount >= 2 && subscribeCount >= 2
+        return probeCount >= 1 && subscribeCount >= 2
     }
     #expect(repaired, "a live transport must restart only the stalled event listener")
     #expect(store.remoteClient === originalClient)
@@ -707,6 +707,55 @@ import Testing
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionGeneration == originalGeneration)
     #expect(store.connectionState == .connected)
+}
+
+/// If the in-place event-lane restart itself cannot establish a subscription,
+/// the connected control transport must be replaced. Keeping that listener
+/// alive would leave a mounted terminal permanently frozen after a relay stall.
+@MainActor
+@Test func failedEventLaneRestartRecoversTheConnection() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 1
+    })
+    let hostStatusCountBeforeRecovery = await router.count(of: "mobile.host.status")
+
+    // Each failed probe gets two bounded subscription repair attempts before
+    // the watchdog advances its failure count. Fail both rounds, then fail
+    // the replacement listener handshake itself.
+    for requestNumber in 2 ... 6 {
+        await router.failSubscribeRequest(
+            number: requestNumber,
+            code: "temporarily_unavailable"
+        )
+    }
+    await router.holdProbeRequest(number: 1)
+    await router.holdProbeRequest(number: 2)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+    let reachedEventLaneRepair = try await pollUntil(attempts: 600) {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        return await router.count(of: "mobile.events.probe") >= 2
+    }
+    #expect(reachedEventLaneRepair, "two failed probes must trigger the event-lane restart")
+
+    let replaced = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") > hostStatusCountBeforeRecovery
+    }
+    #expect(
+        replaced,
+        "a failed event-lane restart must recover the connection instead of leaving a silent listener"
+    )
+    await router.releaseAllHeld()
 }
 
 /// A successful probe that REPAIRED a lost registration (the host reports

@@ -1050,7 +1050,7 @@ struct BrowserPanelView: View {
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             omnibarHeaderView
-            CloudBrowserAccessView(panel: panel, backgroundColor: browserChromeBackgroundColor) {
+            CloudBrowserAccessView(panel: panel, backgroundColor: browserChromeBackgroundColor, isVisibleInUI: isVisibleInUI) {
                 webView
             }
         }
@@ -1070,65 +1070,73 @@ struct BrowserPanelView: View {
     }
 
     private var browserPanelLifecycleView: some View {
+        browserPanelLifecycleNotificationsView
+            .onChange(of: panel.focusFlashToken) {
+                triggerFocusFlashAnimation()
+            }
+            .onChange(of: panel.screenshotCopiedToken) { _, _ in
+                showScreenshotPageCopiedIndicator()
+            }
+            .onChange(of: panel.currentURL) { _, _ in
+                handleCurrentURLChange()
+            }
+            .onChange(of: panel.shouldRenderWebView) { _, _ in
+                handleRenderWebViewChange()
+            }
+            .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
+                refreshBrowserChromeStyle()
+            }
+            .onChange(of: browserThemeModeRaw) { _, _ in
+                handleBrowserThemeModeRawChange()
+            }
+            .onChange(of: inheritedColorScheme) { _, _ in
+                handleInheritedColorSchemeChange()
+            }
+            .onChange(of: resolvedColorScheme) { _, _ in
+                handleResolvedColorSchemeChange()
+            }
+            .onChange(of: resolvedThemeBackgroundIdentity) { _, _ in
+                refreshBrowserChromeStyle()
+            }
+            .onChange(of: panel.pendingAddressBarFocusRequestId) { _, _ in
+                applyPendingAddressBarFocusRequestIfNeeded()
+            }
+            .onChange(of: chromeState.isOmnibarVisible) { _, isVisible in
+                handleOmnibarVisibilityChange(isVisible)
+            }
+            .onChange(of: showModifierHoldHints) { _, _ in
+                startFocusModeShortcutHintMonitorIfNeeded()
+            }
+    }
+
+    private var browserPanelLifecycleNotificationsView: some View {
+        browserPanelLifecyclePreferencesView
+            .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
+                handleBrowserWebViewClickIntent(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceTabBarFontSizeDidChange)) { _ in
+                tabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
+            }
+            .onAppear {
+                handleBrowserPanelAppear()
+            }
+            .onDisappear {
+                handleBrowserPanelDisappear()
+            }
+    }
+
+    private var browserPanelLifecyclePreferencesView: some View {
         browserPanelBaseView
-        .coordinateSpace(name: "BrowserPanelViewSpace")
-        .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
-            omnibarPillFrame = frame
-        }
-        .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
-            addressBarHeight = height
-        }
-        .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
-            addressBarWidth = width
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
-            handleBrowserWebViewClickIntent(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceTabBarFontSizeDidChange)) { _ in
-            tabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
-        }
-        .onAppear {
-            handleBrowserPanelAppear()
-        }
-        .onDisappear {
-            handleBrowserPanelDisappear()
-        }
-        .onChange(of: panel.focusFlashToken) {
-            triggerFocusFlashAnimation()
-        }
-        .onChange(of: panel.screenshotCopiedToken) { _, _ in
-            showScreenshotPageCopiedIndicator()
-        }
-        .onChange(of: panel.currentURL) { _, _ in
-            handleCurrentURLChange()
-        }
-        .onChange(of: panel.shouldRenderWebView) { _, _ in
-            handleRenderWebViewChange()
-        }
-        .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
-            refreshBrowserChromeStyle()
-        }
-        .onChange(of: browserThemeModeRaw) { _, _ in
-            handleBrowserThemeModeRawChange()
-        }
-        .onChange(of: inheritedColorScheme) { _, _ in
-            handleInheritedColorSchemeChange()
-        }
-        .onChange(of: resolvedColorScheme) { _, _ in
-            handleResolvedColorSchemeChange()
-        }
-        .onChange(of: resolvedThemeBackgroundIdentity) { _, _ in
-            refreshBrowserChromeStyle()
-        }
-        .onChange(of: panel.pendingAddressBarFocusRequestId) { _, _ in
-            applyPendingAddressBarFocusRequestIfNeeded()
-        }
-        .onChange(of: chromeState.isOmnibarVisible) { _, isVisible in
-            handleOmnibarVisibilityChange(isVisible)
-        }
-        .onChange(of: showModifierHoldHints) { _, _ in
-            startFocusModeShortcutHintMonitorIfNeeded()
-        }
+            .coordinateSpace(name: "BrowserPanelViewSpace")
+            .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
+                omnibarPillFrame = frame
+            }
+            .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
+                addressBarHeight = height
+            }
+            .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
+                addressBarWidth = width
+            }
     }
 
     var body: some View {

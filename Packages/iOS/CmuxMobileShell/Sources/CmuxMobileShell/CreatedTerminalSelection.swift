@@ -1,23 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
 
-func createdTerminalDeviceIDsMatch(_ lhs: String?, _ rhs: String?) -> Bool {
-    switch (normalizedCreatedTerminalIdentity(lhs), normalizedCreatedTerminalIdentity(rhs)) {
-    case let (lhs?, rhs?):
-        return cmxCanonicalDeviceID(lhs) == cmxCanonicalDeviceID(rhs)
-    default:
-        return false
-    }
-}
-
-func normalizedCreatedTerminalIdentity(_ value: String?) -> String? {
-    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !value.isEmpty else {
-        return nil
-    }
-    return value
-}
-
 /// Keeps a terminal created by the user selected while workspace snapshots
 /// catch up with the Mac. The UI row id is not stable across multi-Mac
 /// aggregation, so the pin is owned by the remote workspace and Mac identity.
@@ -34,16 +17,16 @@ struct CreatedTerminalSelection: Equatable {
         terminalID: MobileTerminalPreview.ID
     ) {
         remoteWorkspaceID = workspace.rpcWorkspaceID
-        let workspaceMacDeviceID = normalizedCreatedTerminalIdentity(workspace.macDeviceID)
+        let workspaceMacDeviceID = CreatedTerminalSelection.normalizedIdentity(workspace.macDeviceID)
         macDeviceID = workspaceMacDeviceID
-            ?? normalizedCreatedTerminalIdentity(fallbackMacDeviceID)
+            ?? CreatedTerminalSelection.normalizedIdentity(fallbackMacDeviceID)
         if workspaceMacDeviceID == nil {
-            macInstanceTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
-                ?? normalizedCreatedTerminalIdentity(fallbackInstanceTag)
+            macInstanceTag = CreatedTerminalSelection.normalizedIdentity(workspace.macInstanceTag)
+                ?? CreatedTerminalSelection.normalizedIdentity(fallbackInstanceTag)
         } else {
             // A known workspace owner may omit its legacy instance tag. Do not
             // borrow the global foreground tag from a different sibling.
-            macInstanceTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
+            macInstanceTag = CreatedTerminalSelection.normalizedIdentity(workspace.macInstanceTag)
         }
         self.terminalID = terminalID
     }
@@ -55,11 +38,11 @@ struct CreatedTerminalSelection: Equatable {
         guard workspace.rpcWorkspaceID == remoteWorkspaceID else {
             return false
         }
-        switch (normalizedCreatedTerminalIdentity(macDeviceID), normalizedCreatedTerminalIdentity(workspace.macDeviceID)) {
+        switch (CreatedTerminalSelection.normalizedIdentity(macDeviceID), CreatedTerminalSelection.normalizedIdentity(workspace.macDeviceID)) {
         case (nil, nil):
             guard allowsAnonymousForeground else { return false }
         case let (expected?, actual?):
-            guard createdTerminalDeviceIDsMatch(expected, actual) else {
+            guard CreatedTerminalSelection.deviceIDsMatch(expected, actual) else {
                 return false
             }
         default:
@@ -89,11 +72,11 @@ struct CreatedTerminalSelection: Equatable {
         allowsAnonymousForeground: Bool
     ) -> Bool {
         guard workspace.rpcWorkspaceID == remoteWorkspaceID else { return false }
-        let expectedDevice = normalizedCreatedTerminalIdentity(macDeviceID)
-        let actualDevice = normalizedCreatedTerminalIdentity(workspace.macDeviceID)
+        let expectedDevice = CreatedTerminalSelection.normalizedIdentity(macDeviceID)
+        let actualDevice = CreatedTerminalSelection.normalizedIdentity(workspace.macDeviceID)
         switch (expectedDevice, actualDevice) {
         case let (expected?, actual?):
-            guard createdTerminalDeviceIDsMatch(expected, actual) else { return false }
+            guard CreatedTerminalSelection.deviceIDsMatch(expected, actual) else { return false }
         default:
             break
         }
@@ -117,17 +100,37 @@ struct CreatedTerminalSelection: Equatable {
     /// after the create response. Adopt it without retargeting a pin that
     /// already has an owner.
     mutating func adoptMacDeviceIDIfMissing(_ macDeviceID: String, instanceTag: String? = nil) {
-        guard normalizedCreatedTerminalIdentity(self.macDeviceID) == nil else { return }
-        self.macDeviceID = normalizedCreatedTerminalIdentity(macDeviceID)
-        if normalizedCreatedTerminalIdentity(macInstanceTag) == nil {
-            self.macInstanceTag = normalizedCreatedTerminalIdentity(instanceTag)
+        guard CreatedTerminalSelection.normalizedIdentity(self.macDeviceID) == nil else { return }
+        self.macDeviceID = CreatedTerminalSelection.normalizedIdentity(macDeviceID)
+        if CreatedTerminalSelection.normalizedIdentity(macInstanceTag) == nil {
+            self.macInstanceTag = CreatedTerminalSelection.normalizedIdentity(instanceTag)
         }
     }
 
     /// Learn a tag that was resolved after creation without replacing an
     /// already-owned sibling identity.
     mutating func adoptMacInstanceTagIfMissing(_ instanceTag: String) {
-        guard normalizedCreatedTerminalIdentity(macInstanceTag) == nil else { return }
-        macInstanceTag = normalizedCreatedTerminalIdentity(instanceTag)
+        guard CreatedTerminalSelection.normalizedIdentity(macInstanceTag) == nil else { return }
+        macInstanceTag = CreatedTerminalSelection.normalizedIdentity(instanceTag)
     }
+}
+
+extension CreatedTerminalSelection {
+    static func deviceIDsMatch(_ lhs: String?, _ rhs: String?) -> Bool {
+        switch (CreatedTerminalSelection.normalizedIdentity(lhs), CreatedTerminalSelection.normalizedIdentity(rhs)) {
+        case let (lhs?, rhs?):
+            return cmxCanonicalDeviceID(lhs) == cmxCanonicalDeviceID(rhs)
+        default:
+            return false
+        }
+    }
+
+    static func normalizedIdentity(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
 }
