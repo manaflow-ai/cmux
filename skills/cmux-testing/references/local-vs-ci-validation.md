@@ -34,7 +34,7 @@ whether `cmuxTests`, `cmuxUITests`, package tests or test-only imports compile.
 For authorized local native test compilation, the existing wrapper is:
 
 ```sh
-./scripts/test-unit.sh -derivedDataPath /tmp/cmux-<tag>-tests build-for-testing
+./scripts/test-unit.sh -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>-tests" build-for-testing
 ```
 
 Use `build-for-testing`, not `build`: the latter skips the test target. Like

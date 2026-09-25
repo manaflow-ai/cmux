@@ -20,7 +20,8 @@ fi
 # Only cmuxTests changes; every other target keeps its arguments. Switching
 # between this and an Xcode build in the same DerivedData rebuilds cmuxTests
 # once each way. CMUX_TEST_EMIT_MODULE=1 keeps the module, for example to
-# debug test frames with lldb.
+# debug test frames with lldb. A caller's own OTHER_SWIFT_FLAGS comes later and
+# wins, which drops the flag and brings the module back.
 # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
 no_module_settings=(
   'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_TEST_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
