@@ -272,6 +272,11 @@ extension CMUXCLI {
         let reconnectNote = shellQuote(sshAutoReconnectNoteFormat())
         let terminalExitPrompt = shellQuote(sshTerminalExitPromptFormat())
         let reconnectRecoveredNote = shellQuote(sshAutoReconnectRecoveredNoteFormat())
+        let launchAcknowledgementTimeoutNote = shellQuote(String(
+            localized: "cli.sshPtyAttach.launchAcknowledgementTimeoutRetry",
+            defaultValue: "[cmux] cmux did not acknowledge the SSH launch; retrying %s in %ss.",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        ))
         let terminalExitPromptCommand = [
             shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux")),
             "__ssh-terminal-exit-prompt",
@@ -329,7 +334,7 @@ extension CMUXCLI {
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_reset_terminal_modes() { if [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi; }",
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
-            "cmux_ssh_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attempt_registration_retry=0; while ! cmux_ssh_register_attempt; do cmux_ssh_attempt_registration_retry=$((cmux_ssh_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
+        ] + SSHPTYAttachRetryScriptBuilder().launchRegistrationRetryLines(functionPrefix: "cmux_ssh") + [
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
             "cmux_ssh_retire_for_signal() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; cmux_ssh_signal_name=\"$2\"; if [ -n \"${CMUX_SSH_AUTH_PID:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$CMUX_SSH_AUTH_PID\" \"$CMUX_SSH_STARTUP_PID\"; wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true; CMUX_SSH_AUTH_PID=; \(backoffBuilder.signalHandlerBranches) elif [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; CMUX_SSH_PENDING_SIGNAL_NAME=\"$cmux_ssh_signal_name\"; return; fi; cmux_ssh_retire_for_signal \"$cmux_ssh_signal_status\"; }",
@@ -352,27 +357,35 @@ extension CMUXCLI {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
         scriptLines += [
-            "  cmux_ssh_begin_attempt || exit 1",
+            "  cmux_ssh_begin_attempt",
+            "  cmux_ssh_registration_status=$?",
+            "  if [ \"$cmux_ssh_registration_status\" -ne 0 ] && [ \"$cmux_ssh_registration_status\" -ne \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue) ]; then exit \"$cmux_ssh_registration_status\"; fi",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]
         if isShellSnippet {
             scriptLines += [
-                "  (",
-                "    \(sshCommand)",
-                "  ) <&0 &",
+                "  if [ \"$cmux_ssh_registration_status\" -eq 0 ]; then",
+                "    (",
+                "      \(sshCommand)",
+                "    ) <&0 &",
+                "  fi",
             ]
         } else {
-            scriptLines.append("  command \(sshCommand) <&0 &")
+            scriptLines += [
+                "  if [ \"$cmux_ssh_registration_status\" -eq 0 ]; then",
+                "    command \(sshCommand) <&0 &",
+                "  fi",
+            ]
         }
         scriptLines += [
-            "  CMUX_SSH_CHILD_PID=$!",
+            "  CMUX_SSH_CHILD_PID=",
+            "  if [ \"$cmux_ssh_registration_status\" -eq 0 ]; then CMUX_SSH_CHILD_PID=$!; fi",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
-            "  wait \"$CMUX_SSH_CHILD_PID\"",
-            "  cmux_ssh_status=$?",
+            "  if [ \"$cmux_ssh_registration_status\" -eq 0 ]; then wait \"$CMUX_SSH_CHILD_PID\"; cmux_ssh_status=$?; else cmux_ssh_status=\"$cmux_ssh_registration_status\"; fi",
             "  CMUX_SSH_CHILD_PID=",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then if [ \"$cmux_ssh_retry\" -gt 0 ]; then cmux_ssh_note \"$(printf \(reconnectRecoveredNote) \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\")\"; fi; break; fi",
             "  cmux_ssh_reset_terminal_modes",
-            "  case \"$cmux_ssh_status\" in 255) ;; *) break ;; esac",
+            "  case \"$cmux_ssh_status\" in 255|\(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue)) ;; *) break ;; esac",
         ]
         if hasOneTimeCommand {
             scriptLines += ["  if [ \"$cmux_ssh_status\" -eq 255 ]; then cmux_ssh_reauth_required=1; fi", "  fi"]
@@ -383,7 +396,7 @@ extension CMUXCLI {
         scriptLines += [
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
             "  \(backoffBuilder.terminalInputModeResetLine)",
-            "  cmux_ssh_note \(reconnectNote) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "  if [ \"$cmux_ssh_status\" -eq \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue) ]; then cmux_ssh_note \(launchAcknowledgementTimeoutNote) \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_delay\"; else cmux_ssh_note \(reconnectNote) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"; fi",
         ]
         scriptLines += backoffBuilder.waitLines
         scriptLines += [

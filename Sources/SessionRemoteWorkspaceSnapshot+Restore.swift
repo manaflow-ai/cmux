@@ -340,7 +340,7 @@ extension SessionRemoteWorkspaceSnapshot {
             "export CMUX_SSH_ATTEMPT_ID",
             "cmux_restore_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
             "cmux_restore_launch_retry=0",
-            "while ! CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_restore_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_restore_launch_payload\" >/dev/null 2>&1; do cmux_restore_launch_retry=$((cmux_restore_launch_retry + 1)); if [ \"$cmux_restore_launch_retry\" -ge 3 ]; then cmux_restore_fail; fi; /bin/sleep 0.1; done",
+            "while :; do CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_restore_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_restore_launch_payload\" >/dev/null 2>&1; cmux_restore_launch_status=$?; if [ \"$cmux_restore_launch_status\" -eq 0 ]; then break; fi; if [ \"$cmux_restore_launch_status\" -ne \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue) ]; then cmux_restore_fail; fi; cmux_restore_launch_retry=$((cmux_restore_launch_retry + 1)); if [ \"$cmux_restore_launch_retry\" -ge 3 ]; then cmux_restore_fail; fi; /bin/sleep 0.1; done",
             staging.preparationShellScript,
             "if [ \"$cmux_remote_install_status\" -ne 0 ]; then cmux_restore_fail; fi",
             "unset cmux_remote_install_status",
