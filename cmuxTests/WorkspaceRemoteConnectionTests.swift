@@ -532,7 +532,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 }
                 return home
             },
-            command: "print -r -- \"session=$ZDOTDIR\""
+            command: "print -r -- \"session=${ZDOTDIR:-$HOME}\""
         )
 
         XCTAssertEqual(output, [
@@ -542,6 +542,61 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ".zlogin=\(homePath)",
             "session=\(homePath)",
         ])
+    }
+
+    func testRelayZshBootstrapLetsUserZshenvDefaultZdotdir() throws {
+        var xdgPath = ""
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                let xdg = home.appendingPathComponent(".config/zsh")
+                xdgPath = xdg.path
+                try FileManager.default.createDirectory(at: xdg, withIntermediateDirectories: true)
+                try ": ${ZDOTDIR:=$HOME/.config/zsh}\n".write(
+                    to: home.appendingPathComponent(".zshenv"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                try "print -r -- xdg-zshrc\n".write(
+                    to: xdg.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                return xdg
+            },
+            command: "print -r -- \"session=$ZDOTDIR\""
+        )
+
+        XCTAssertEqual(output, ["xdg-zshrc", "session=\(xdgPath)"])
+    }
+
+    func testRelayZshBootstrapKeepsZdotdirSetInUserZprofile() throws {
+        var xdgPath = ""
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                let xdg = home.appendingPathComponent(".config/zsh")
+                xdgPath = xdg.path
+                try FileManager.default.createDirectory(at: xdg, withIntermediateDirectories: true)
+                try "export ZDOTDIR=\"$HOME/.config/zsh\"\n".write(
+                    to: home.appendingPathComponent(".zprofile"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                try "print -r -- home-zshrc\n".write(
+                    to: home.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                try "print -r -- xdg-zshrc\n".write(
+                    to: xdg.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                return xdg
+            },
+            command: "print -r -- \"session=$ZDOTDIR\""
+        )
+
+        XCTAssertEqual(output, ["xdg-zshrc", "session=\(xdgPath)"])
     }
 
     func testRemoteUTF8LocaleSetupLinesSeedUTF8LocaleWhenMissing() {

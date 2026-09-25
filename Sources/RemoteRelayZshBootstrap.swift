@@ -22,11 +22,17 @@ struct RemoteRelayZshBootstrap {
 
     // zsh finds each startup file through the current ZDOTDIR, so the relay
     // dir has to stay in ZDOTDIR between files. While a user file runs,
-    // ZDOTDIR points at the real directory so `${ZDOTDIR:-$HOME}` paths
-    // (zimfw, oh-my-zsh) resolve there (#12080). .zlogin is the last startup
-    // file, so it leaves the real value in place for the session.
+    // ZDOTDIR holds the user's value (unset when that is just $HOME) so
+    // `${ZDOTDIR:-$HOME}` paths (zimfw, oh-my-zsh) and `: ${ZDOTDIR:=...}`
+    // defaults behave as in a plain ssh login (#12080). A ZDOTDIR the user's
+    // file sets is kept for the files after it. .zlogin is the last startup
+    // file, so it leaves the user's value in place for the session.
     private var restoreUserZdotdirLine: String {
-        "export ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-$HOME}\""
+        "if [ \"${CMUX_REAL_ZDOTDIR:-$HOME}\" = \"$HOME\" ]; then unset ZDOTDIR; else export ZDOTDIR=\"$CMUX_REAL_ZDOTDIR\"; fi"
+    }
+
+    private var captureUserZdotdirLine: String {
+        "if [ -n \"${ZDOTDIR:-}\" ] && [ \"$ZDOTDIR\" != \"\(shellStateDir)\" ]; then export CMUX_REAL_ZDOTDIR=\"$ZDOTDIR\"; fi"
     }
 
     private var relayZdotdirLine: String {
@@ -37,9 +43,12 @@ struct RemoteRelayZshBootstrap {
         [
             restoreUserZdotdirLine,
             "[ -f \"$CMUX_REAL_ZDOTDIR/.zshenv\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshenv\"",
-            "if [ -n \"${ZDOTDIR:-}\" ] && [ \"$ZDOTDIR\" != \"\(shellStateDir)\" ]; then export CMUX_REAL_ZDOTDIR=\"$ZDOTDIR\"; fi",
+            captureUserZdotdirLine,
         ] + sharedHistoryLines + [
-            relayZdotdirLine,
+            // A non-interactive, non-login zsh (a RemoteCommand run with
+            // `zsh -c`) reads no other startup file, so it keeps the user's
+            // value.
+            "if [[ -o interactive || -o login ]]; then \(relayZdotdirLine); fi",
         ]
     }
 
@@ -47,6 +56,7 @@ struct RemoteRelayZshBootstrap {
         [
             restoreUserZdotdirLine,
             "[ -f \"$CMUX_REAL_ZDOTDIR/.zprofile\" ] && source \"$CMUX_REAL_ZDOTDIR/.zprofile\"",
+            captureUserZdotdirLine,
             relayZdotdirLine,
         ]
     }
@@ -55,6 +65,7 @@ struct RemoteRelayZshBootstrap {
         sharedHistoryLines + [
             restoreUserZdotdirLine,
             "[ -f \"$CMUX_REAL_ZDOTDIR/.zshrc\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshrc\"",
+            captureUserZdotdirLine,
             relayZdotdirLine,
         ] + commonShellLines
     }
