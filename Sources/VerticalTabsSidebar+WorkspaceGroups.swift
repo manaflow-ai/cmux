@@ -14,6 +14,7 @@ extension VerticalTabsSidebar {
         let settings = renderContext.tabItemSettings
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
+        let anchorDescription = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.customDescription }
         // Empty groups use their durable group id as the native drag identity;
         // live groups use the workspace anchor. Keep the visual source state
         // keyed to the same identity the drag monitor publishes.
@@ -84,6 +85,8 @@ extension VerticalTabsSidebar {
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
+            anchorDescription: anchorDescription,
+            wrapsWorkspaceTitles: settings.wrapsWorkspaceTitles,
             iconSymbol: effectiveIcon,
             tintHex: effectiveColor,
             isCollapsed: group.isCollapsed,
@@ -170,6 +173,7 @@ extension VerticalTabsSidebar {
         let settings = renderContext.tabItemSettings
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
+        let anchorDescription = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.customDescription }
         let dragIdentity = group.isEmpty ? group.id : anchorId
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
@@ -239,6 +243,8 @@ extension VerticalTabsSidebar {
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
+            anchorDescription: anchorDescription,
+            wrapsWorkspaceTitles: settings.wrapsWorkspaceTitles,
             iconSymbol: effectiveIcon,
             tintHex: effectiveColor,
             isCollapsed: group.isCollapsed,
@@ -290,6 +296,8 @@ extension VerticalTabsSidebar {
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             name: snapshot.name,
+            anchorDescription: snapshot.anchorDescription,
+            wrapsWorkspaceTitles: snapshot.wrapsWorkspaceTitles,
             iconSymbol: snapshot.iconSymbol,
             tintHex: snapshot.tintHex,
             isCollapsed: snapshot.isCollapsed,

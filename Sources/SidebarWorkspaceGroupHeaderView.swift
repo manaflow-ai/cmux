@@ -14,6 +14,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         lhs.groupId == rhs.groupId &&
             lhs.anchorWorkspaceId == rhs.anchorWorkspaceId &&
             lhs.name == rhs.name &&
+            lhs.anchorDescription == rhs.anchorDescription &&
+            lhs.wrapsWorkspaceTitles == rhs.wrapsWorkspaceTitles &&
             lhs.iconSymbol == rhs.iconSymbol &&
             lhs.tintHex == rhs.tintHex &&
             lhs.isCollapsed == rhs.isCollapsed &&
@@ -47,6 +49,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
+    let anchorDescription: String?
+    let wrapsWorkspaceTitles: Bool
     let iconSymbol: String
     let tintHex: String?
     let isCollapsed: Bool
@@ -165,11 +169,24 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     appliesGlobalFontMagnification: true)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
-                Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
+                        .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                        .lineLimit(wrapsWorkspaceTitles ? 8 : 1)
+                        .truncationMode(.tail)
+                    if let anchorDescription, !anchorDescription.isEmpty {
+                        Text(anchorDescription.sidebarBoundedDisplayString(
+                            maxDisplayedLines: 2,
+                            maxDisplayedCharacters: 512
+                        ))
+                        .cmuxFont(size: 10.5 * fontScale)
+                        .foregroundStyle(Color.secondary.opacity(0.95))
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
