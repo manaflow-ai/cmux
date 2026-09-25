@@ -148,9 +148,9 @@ OSV reports only the existing informational unmaintained notices for
 `atomic-polyfill` and `paste`. Git dependencies and the published binary's
 contents are outside that registry scan.
 
-**The cmux binary pin is not updated by either PR.** A newly built and verified
-XCFramework release, published checksum and cmux pin update remain necessary to
-ship those dependency fixes. No existing release artifact is overwritten.
+The cmux binary now consumes the newly published XCFramework at that pin. Its
+archive checksum is `f1605640a02925dd0941c15765162fac872c449e5e56d39c035ee163d409527e`.
+The update uses a new release artifact; no existing release artifact was overwritten.
 
 Gitleaks scanned 771 tracked source/config/test files across the Worker and both
 transport/client implementations. All 13 matches were inspected: ten were

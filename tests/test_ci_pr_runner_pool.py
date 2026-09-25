@@ -1898,9 +1898,14 @@ SIGNING_WORKFLOWS = ("ios-testflight.yml", "ios-app-store.yml", "ios-appstore-up
 IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
+# test-ios.yml's per-job Xcode pin: only on an owned Mac, and never for a fork's pull request.
+IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || "
+                 "github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}")
+
+
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache=""):
+              swift_package="", seed_cache="", fork=False):
     calls = []
 
     def measured():
@@ -1914,7 +1919,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
-        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW)
+        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, fork=fork)
     return route, len(calls)
 
 
@@ -2091,10 +2096,16 @@ class IOSRouting(unittest.TestCase):
         # One family needs one.
         self.assertTrue(ios_route(sim_fleet(running=1), device_family="iphone")[0].persistent)
         self.assertFalse(ios_route(sim_fleet(running=2), device_family="ipad")[0].persistent)
-        # Every iOS run since the snapshot is charged two simulators, wherever it went.
-        self.assertFalse(ios_route(sim_fleet(), device_family="iphone", ios_since=1)[0].persistent)
+        # Simulator jobs charged to iOS runs since the snapshot (charged_sim_jobs()).
+        self.assertFalse(ios_route(sim_fleet(), device_family="iphone", ios_since=2)[0].persistent)
+        self.assertTrue(ios_route(sim_fleet(), device_family="iphone", ios_since=1)[0].persistent)
         self.assertTrue(ios_route(sim_fleet(), device_family="iphone",
-                                  slots={**IOS_SLOTS, IOS_SIM: 3}, ios_since=1)[0].persistent)
+                                  slots={**IOS_SLOTS, IOS_SIM: 3}, ios_since=2)[0].persistent)
+
+    def test_a_fork_pull_request_never_routes_or_reads(self):
+        for requested in ("", "auto", "owned"):
+            route, calls = ios_route(sim_fleet(), requested=requested, fork=True)
+            self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0))
 
     def test_no_simulator_slots_entry_never_routes_or_reads(self):
         route, calls = ios_route(sim_fleet(), slots={MINI: 40, ROOT_MINI: 10})
@@ -2191,7 +2202,22 @@ class IOSRouting(unittest.TestCase):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
                         "ios-screenshots.yml": [{"id": 3, "status": "queued"}]}[workflow]
-        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 2)
+        # Untitled runs are charged in full: two in flight, two simulators each.
+        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
+
+    def test_in_flight_ios_runs_are_charged_what_their_title_needs(self):
+        def title(package="simulator", family="both", runner="auto"):
+            return {"display_title": f"iOS tests · main · {package} · full suite · {family} · iOS default · on {runner}"}
+        charged = ios_pool.charged_sim_jobs
+        self.assertEqual(charged(title()), 2)
+        self.assertEqual(charged(title(family="iphone")), 1)
+        self.assertEqual(charged(title(runner="owned")), 2)
+        self.assertEqual(charged(title(package="CmuxMobileShell")), 0)
+        self.assertEqual(charged(title(runner="blacksmith-6vcpu-macos-26")), 0)
+        # A title from before the runner field, or another workflow's, is charged in full.
+        self.assertEqual(charged({"display_title": "iOS tests · main · simulator · full suite · iphone · iOS default"}), 2)
+        self.assertEqual(charged({"display_title": "iOS screenshots"}), 2)
+        self.assertEqual(charged({}), 2)
 
     def test_the_simulator_count_is_a_capability_not_a_pool(self):
         raw = json.dumps(IOS_SLOTS)
@@ -2290,7 +2316,7 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["SWIFT_PACKAGE"], "${{ inputs.swift_package }}")
         self.assertEqual(step["env"]["SEED_CACHE"], "${{ inputs.seed_cache }}")
         self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
-        pin = "${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}"
+        pin = IOS_XCODE_PIN
         for name in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
             self.assertEqual(jobs[name]["env"]["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
