@@ -38,7 +38,8 @@ final class PlainPastePTYFixture {
         let owner = GhosttyApp.terminalPasteboard
         let client = TerminalPastePreparationWorkerClient(
             executableURL: fullWrapper, pasteboardService: owner,
-            plainTextExecutableURL: optimized ? textWrapper : nil
+            plainTextExecutableURL: optimized ? textWrapper : nil,
+            prewarmPlainTextWorker: workerStartupDelay > 0
         )
         let service = TerminalImageTransferPreparationService(
             operation: { try await client.prepare($0) },

@@ -54,6 +54,9 @@ extension TerminalPlainTextPasteStartupTests {
             #expect(bytes == expected.map { String($0, radix: 16).leftPaddedByte }.joined())
             #expect(NSPasteboard.general.string(forType: .string) == savedText)
         }
+        let launches = try String(contentsOf: fixture.launches, encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        #expect(launches == ["text"])
     }
 
     @Test("Cold and repeated keyboard, menu and runtime pastes preserve PTY bytes")
