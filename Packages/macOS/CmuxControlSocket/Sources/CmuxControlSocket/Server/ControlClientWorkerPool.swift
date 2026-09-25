@@ -2,12 +2,14 @@
 ///
 /// The socket listener already delivers accepted descriptors through an
 /// ``AsyncStream``. This actor adds admission control at the next boundary:
-/// only `maximumConcurrentJobs` connection tasks may be live and only
-/// `maximumPendingJobs` additional jobs may wait for a task slot. Jobs are
-/// asynchronous, so waiting for a main-actor mutation suspends a task instead
-/// of parking an I/O thread. The pool deliberately uses one detached task per
-/// *admitted job* (not one thread per connection); Swift's cooperative
-/// executor reuses its bounded worker threads for the non-blocking jobs.
+/// only `maximumConcurrentJobs` connection tasks may occupy command admission
+/// slots and only `maximumPendingJobs` additional jobs may wait for a slot.
+/// Long-lived jobs can return their slot through ``JobLease`` while remaining
+/// owned and cancellable by the pool. Jobs are asynchronous, so waiting for a
+/// main-actor mutation suspends a task instead of parking an I/O thread. The
+/// pool deliberately uses one detached task per *admitted job* (not one thread
+/// per connection); Swift's cooperative executor reuses its bounded worker
+/// threads for the non-blocking jobs.
 ///
 /// A caller supplies synchronous cleanup for rejected/dropped jobs. An
 /// admitted operation owns its descriptor until the operation returns.
@@ -43,7 +45,7 @@ public actor ControlClientWorkerPool {
 
     /// Point-in-time pool counters used by diagnostics and behavior tests.
     public struct Metrics: Sendable, Equatable {
-        /// Number of operations currently executing.
+        /// Number of operations occupying command admission slots.
         public let activeJobs: Int
         /// Number of operations waiting for a slot.
         public let pendingJobs: Int
@@ -201,15 +203,19 @@ public actor ControlClientWorkerPool {
 
     private func releaseCapacity(jobID: UInt64) {
         guard !stopped, activeJobIDs.remove(jobID) != nil else { return }
-        // The follow-up scheduling is added with the capacity accounting fix.
+        startPendingJobsIfCapacityAllows()
     }
 
     private func finish(jobID: UInt64) {
         runningTasks.removeValue(forKey: jobID)
         guard activeJobIDs.remove(jobID) != nil else { return }
-        guard !stopped, activeJobIDs.count < maximumConcurrentJobs else { return }
-        guard !pendingJobs.isEmpty else { return }
-        let next = pendingJobs.removeFirst()
-        start(next)
+        startPendingJobsIfCapacityAllows()
+    }
+
+    private func startPendingJobsIfCapacityAllows() {
+        guard !stopped else { return }
+        while activeJobIDs.count < maximumConcurrentJobs, !pendingJobs.isEmpty {
+            start(pendingJobs.removeFirst())
+        }
     }
 }

@@ -2052,7 +2052,7 @@ class TerminalController {
             close(clientSocket)
             return
         }
-        let submission = await socketClientWorkerPool.submit { [weak self] in
+        let submission = await socketClientWorkerPool.submit { [weak self] lease in
             guard let self else {
                 close(clientSocket)
                 if claimedPreauthorizationSlot {
@@ -2066,7 +2066,8 @@ class TerminalController {
                 authorizationGeneration: authorizationGeneration,
                 authorizationRevocationSignal: authorizationRevocationSignal,
                 initialReadLimits: initialReadLimits,
-                holdsPreauthorizationSlot: claimedPreauthorizationSlot
+                holdsPreauthorizationSlot: claimedPreauthorizationSlot,
+                releaseWorkerCapacity: { await lease.releaseCapacity() }
             )
         } onDrop: {
             if claimedPreauthorizationSlot {
@@ -2089,7 +2090,8 @@ class TerminalController {
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
-        holdsPreauthorizationSlot initialSlotHeld: Bool = false
+        holdsPreauthorizationSlot initialSlotHeld: Bool = false,
+        releaseWorkerCapacity: @escaping @Sendable () async -> Void
     ) async {
         let pid = peerPid ?? transport.peerProcessID(of: socket)
         let peerHasSameUID = transport.peerHasSameUID(socket)
@@ -2108,7 +2110,8 @@ class TerminalController {
             authorizationRevocationSignal: authorizationRevocationSignal,
             initialSlotHeld: initialSlotHeld,
             lineReader: lineReader,
-            writer: writer
+            writer: writer,
+            releaseWorkerCapacity: releaseWorkerCapacity
         )
 
         // Dispatch source cancellation is asynchronous. Await every borrowed
@@ -2134,7 +2137,8 @@ class TerminalController {
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialSlotHeld: Bool,
         lineReader: ControlClientAsyncLineReader,
-        writer: ControlClientAsyncWriter
+        writer: ControlClientAsyncWriter,
+        releaseWorkerCapacity: @escaping @Sendable () async -> Void
     ) async {
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
         var holdsPreauthorizationSlot = initialSlotHeld
@@ -2197,15 +2201,24 @@ class TerminalController {
                     continue
                 }
                 // The event-bus subscription has its own bounded slow-consumer
-                // policy. Keep its legacy stream loop isolated to this admitted
-                // connection task; ordinary command traffic remains async.
-                handleEventsStreamRequest(
-                    trimmed,
-                    socket: socket,
-                    authorizationGeneration: authorizationGeneration,
-                    authorizationRevocationSignal: authorizationRevocationSignal,
-                    passwordAuthorization: passwordAuthorization
-                )
+                // policy. It can outlive the initial request for the lifetime
+                // of a remote workspace, so return this command-pool slot
+                // before entering the blocking stream loop. Cancel the async
+                // sources first because the stream writer restores blocking
+                // mode on their shared descriptor.
+                await lineReader.cancelAndWait()
+                await writer.cancelAndWait()
+                _ = self.transport.configureBlocking(socket)
+                await releaseWorkerCapacity()
+                await self.runBlockingSocketBody {
+                    self.handleEventsStreamRequest(
+                        trimmed,
+                        socket: socket,
+                        authorizationGeneration: authorizationGeneration,
+                        authorizationRevocationSignal: authorizationRevocationSignal,
+                        passwordAuthorization: passwordAuthorization
+                    )
+                }
                 return
             }
 

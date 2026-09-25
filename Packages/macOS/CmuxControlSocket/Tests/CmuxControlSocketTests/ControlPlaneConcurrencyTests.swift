@@ -156,13 +156,13 @@ struct ControlPlaneConcurrencyTests {
         #expect(stream == .started)
         #expect(command != .rejected)
 
-        await gate.openNext()
         for _ in 0..<10_000 {
             if await probe.hasStarted(2) { break }
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(1))
         }
         #expect(await probe.hasStarted(2))
+        await gate.openNext()
     }
 
     @Test func pollingLimiterAllowsBurstThenAppliesPerClientBackpressure() async {
