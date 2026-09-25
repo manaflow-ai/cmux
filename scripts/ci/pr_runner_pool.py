@@ -3,10 +3,11 @@
 
 ci.yml's `changes` job calls this once per run, and every pull-request macOS
 job in the run reads the answer: compile admission, the app-host consumers
-that follow it, tests-build-and-lag, the Claude wrapper, CLI pipe and remote
-daemon lanes. A run on a Blacksmith pool is never split across pools, because
-the app-host product only loads under the Xcode that linked it (#14163). A run
-on an owned pool may be, per job (see "Per-job placement" below).
+that follow it, tests-build-and-lag, cli-product-tests, the Claude wrapper
+and remote daemon lanes. A run on a Blacksmith pool is never split across
+pools, because the app-host product only loads under the Xcode that linked it
+(#14163). A run on an owned pool may be, per job (see "Per-job placement"
+below).
 
 The run takes the first pool in preference order that has headroom:
 
@@ -70,7 +71,7 @@ most free machines (at least one), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
 and a mini keeps its warm DerivedData), then the GUI jobs (app-host shards by
 index, tests-build-and-lag), which queue longest on Blacksmith, then the light
-jobs (cli-product-tests, the CLI pipe, remote daemon and Claude wrapper lanes).
+jobs (cli-product-tests, the remote daemon and Claude wrapper lanes).
 Each job counts one machine; the jobs after admission reuse its machine.
 Every other job of attempt 1 takes
 `retry_runner`, the Blacksmith pool on the lane's Xcode. The shards and
@@ -84,6 +85,21 @@ than the consumer's, so a drift fails closed instead of crashing in dlopen.
 The marker's `<jobs>` is the owned machines the run holds at its peak, so the
 janitor's `committed` counts only the owned jobs actually placed. With the
 split off, a run takes an owned pool only when all its owned-eligible jobs fit.
+
+Root jobs: glaeda gives compile admission, the app-host shards,
+tests-build-and-lag and cli-product-tests (and any job it does not know) the
+mini's one canonical-root token, and refuses such a job on a mini whose token
+is taken. GitHub hands a pool-label job to any free runner, so a root job on
+the pool label could land on a mini whose root was busy and cost a rescue
+re-run. glaeda also labels one runner per mini
+`glaeda-root-<class>-xcode-<version>` (root_label()), and a root job on that
+label waits for a free root instead. CI_OWNED_POOL_SLOTS gives the root
+runners' count beside the pool's (`{"std": 40, "root-std": 10}`). A pool with
+a root count sends its placed root jobs (ROOT_JOBS) to the `root_runner`
+output, and place() puts no more of them there than its root runners free; a
+pool without one keeps the pool label for every job. The side lanes keep the
+pool label either way. A root job also holds one of the pool's machines, so
+it counts against both.
 
 GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 `vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
@@ -158,7 +174,9 @@ DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 # once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
 RUN_CLASSES = ("std", "light")
-OWNED_LABEL = re.compile(r"glaeda-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
+OWNED_LABEL = re.compile(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+ROOT_PREFIX = "glaeda-root-"
 XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
@@ -166,8 +184,8 @@ SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
 GUI_VARIABLE = "CI_PR_POOL_OWNED_GUI"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # A pull request run holds several macOS machines at once, each job on its
-# own. Beside compile admission run the Claude wrapper, CLI pipe and remote
-# daemon lanes; once admission passes, a full suite adds APP_HOST_SHARDS
+# own. Beside compile admission run the Claude wrapper and remote daemon
+# lanes; once admission passes, a full suite adds APP_HOST_SHARDS
 # shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
 # shard, and a CLI change cli-product-tests. A run takes an owned pool only
 # when its own peak (run_jobs) is free, so none of its jobs queues there. A
@@ -180,7 +198,7 @@ SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # while its minis sat idle (2026-09-24). A job that still finds its mini busy
 # is refused or queued, and moved to Blacksmith by ci-owned-pool-rescue.yml.
 APP_HOST_SHARDS = 7
-SIDE_LANES = 3
+SIDE_LANES = 2
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
 REPLAYED_RUN_JOBS = SIDE_LANES + 1
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
@@ -254,6 +272,20 @@ def persistent(label: str) -> bool:
     return bool(OWNED_LABEL.fullmatch(label or ""))
 
 
+def root_label(label: str) -> str:
+    """The root runners' label for an owned pool label, or "" for any other label."""
+    if not persistent(label) or label.startswith(ROOT_PREFIX):
+        return ""
+    return ROOT_PREFIX + label.removeprefix("glaeda-")
+
+
+def pool_label(label: str) -> str:
+    """The owned pool a root label's runners belong to; any other label unchanged."""
+    if persistent(label) and label.startswith(ROOT_PREFIX):
+        return "glaeda-" + label.removeprefix(ROOT_PREFIX)
+    return label
+
+
 def owned_pools(pr_xcode_app: str | None) -> tuple[str, ...]:
     """The owned pool labels for the lane's Xcode pin; none when the pin names no version."""
     match = XCODE_APP.search(pr_xcode_app or "")
@@ -277,6 +309,10 @@ class Choice:
     # shards take, when another pool on that Xcode has more room for them
     # (spread_shards). "" keeps them on compile admission's pool.
     shard_runner: str = ""
+    # For a persistent runner with a root count only: its root label, which
+    # the placed root jobs take, and its root runners free for this run.
+    root_runner: str = ""
+    root_budget: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -322,7 +358,7 @@ def shard_job(index: int) -> str:
 
 # A full suite with every side lane: what a run whose routing is unknown is charged.
 FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", "cli-product"),
-                   ("claude-wrapper", "cli-pipe", "remote-daemon"))
+                   ("claude-wrapper", "remote-daemon"))
 
 
 def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | None,
@@ -339,7 +375,7 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     that does not know) counts one shard, as before.
     """
     full = flag(macos) and flag(full_suite)
-    side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full), ("cli-pipe", flag(cli)),
+    side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
                                      ("remote-daemon", flag(remote_daemon))) if on)
     if not (flag(macos) or flag(cli)):
         return RunJobs(False, (), side)
@@ -362,7 +398,10 @@ def run_jobs(**routing: str | None) -> int:
 # Owned placement priority: the heavy compile, then GUI jobs (the longest
 # Blacksmith queues), then light jobs. GUI jobs need the mini's console
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
-LIGHT_JOBS = ("cli-product", "cli-pipe", "remote-daemon", "claude-wrapper")
+LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper")
+# glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
+# the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
+ROOT_JOBS = "admission, shards, lag, cli-product"
 
 
 def gui_job(key: str) -> bool:
@@ -384,7 +423,19 @@ def owned_peak(plan: RunJobs, gui: bool = True) -> int:
     return place(plan, plan.peak, gui)[1]
 
 
-def place(plan: RunJobs, budget: int, gui: bool = True) -> tuple[tuple[str, ...], int]:
+def root_held(plan: RunJobs, keys: Sequence[str]) -> int:
+    """The root runners `keys` hold at peak: admission, then the jobs after it (ROOT_JOBS)."""
+    after = sum(1 for key in keys if key in plan.after)
+    return max(1, after) if ADMISSION_JOB in keys else after
+
+
+def root_peak(plan: RunJobs, gui: bool = True) -> int:
+    """The root runners a run holds on an owned pool when every job that may take one does."""
+    return root_held(plan, place(plan, plan.peak, gui)[0])
+
+
+def place(plan: RunJobs, budget: int, gui: bool = True,
+          root_budget: int | None = None) -> tuple[tuple[str, ...], int]:
     """The jobs that take the owned pool with `budget` machines free, and the machines they hold at peak.
 
     Jobs are taken in priority() order while the run's owned peak stays within
@@ -392,7 +443,8 @@ def place(plan: RunJobs, budget: int, gui: bool = True) -> tuple[tuple[str, ...]
     and the jobs after it, which reuse its machine. A job that does not fit is
     skipped, and a later one that does is still taken. Admission comes first,
     so a run whose admission is not placed places nothing after it. Without
-    `gui`, GUI jobs (gui_job()) are never placed.
+    `gui`, GUI jobs (gui_job()) are never placed. With `root_budget` (a pool
+    with a root count), the root runners held (root_held()) stay within it too.
     """
     chosen: list[str] = []
 
@@ -405,7 +457,8 @@ def place(plan: RunJobs, budget: int, gui: bool = True) -> tuple[tuple[str, ...]
     for key in sorted((key for key in keys if gui or not gui_job(key)), key=priority):
         if key in plan.after and ADMISSION_JOB not in chosen:
             continue
-        if held([*chosen, key]) <= max(0, budget):
+        if held([*chosen, key]) <= max(0, budget) and (
+                root_budget is None or root_held(plan, [*chosen, key]) <= max(0, root_budget)):
             chosen.append(key)
     return tuple(chosen), held(chosen)
 
@@ -482,6 +535,8 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     #   {"glaeda-std-xcode-26.6": 40}  a full label
     #   {"std": 40, "light": 4}        a class, for the lane's Xcode pin
     #   40                             the std class, for the lane's Xcode pin
+    #   {"root-std": 10}               a class's root runners, one per mini
+    #   {"glaeda-root-std-xcode-26.6": 10}  (root_label()), beside its pool
     text = (raw or "").strip()
     if not text:
         return {}, []
@@ -509,9 +564,17 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
                                 "names no Xcode version to pair it with")
         else:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} is not an owned pool label "
-                            "(glaeda-<class>-xcode-<version>) or class (std, light, xl)")
+                            "(glaeda-[root-]<class>-xcode-<version>) or class (std, light, xl, root-std, ...)")
     # A full label is more specific than its class, so it wins.
-    return {**by_class, **counted}, problems
+    counted = {**by_class, **counted}
+    for label, count in list(counted.items()):
+        # Each root runner is one of its pool's machines, so a larger count is a typo.
+        machines = counted.get(pool_label(label), 0)
+        if label.startswith(ROOT_PREFIX) and count > machines:
+            problems.append(f"{SLOTS_VARIABLE} gives {label} {count} root runners, more than the "
+                            f"{machines} machines of {pool_label(label)}")
+            del counted[label]
+    return counted, problems
 
 
 def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int] | None = None) -> Mapping[str, int]:
@@ -590,15 +653,18 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
 
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
          max_queued: int, jobs: int = MAX_RUN_JOBS,
-         taken: Mapping[str, int] | None = None, split: bool = False) -> tuple[str, bool]:
+         taken: Mapping[str, int] | None = None, split: bool = False,
+         root_free: Mapping[str, int] | None = None, root_jobs: int = 0) -> tuple[str, bool]:
     """The rule itself: first usable pool with headroom, else the shortest queue.
 
     An owned pool has headroom only while every job of this run gets a machine
     at once (`jobs` of them, its peak): a job queued there waits for that pool
     alone. With `split`, when no owned pool fits the whole run, the owned pool
     with the most machines free (the earlier on a tie) has headroom too, if it
-    has one: the jobs that do not fit go to Blacksmith (place()). An owned
-    pool is never the fallback.
+    has one: the jobs that do not fit go to Blacksmith (place()). A pool in
+    `root_free` (it has a root count) fits the whole run only while its
+    `root_jobs` root runners are free too. An owned pool is never the
+    fallback.
 
     A Blacksmith pool has headroom while this run's job still finds a free
     machine there (or at most max_queued queue once it arrives), so a full
@@ -608,7 +674,8 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     queued = {label: effective_queue(load[label], added[label] + 1) for label in usable}
     free = {label: owned_free(load[label], added[label], (taken or {}).get(label, 0))
             for label in usable if persistent(label)}
-    fits = [label for label in free if free[label] >= max(1, jobs)]
+    fits = [label for label in free if free[label] >= max(1, jobs)
+            and (root_free or {}).get(label, root_jobs) >= root_jobs]
     if split and not fits and free and max(free.values()) >= 1:
         fits = [max(free, key=lambda label: free[label])]
     for label in usable:
@@ -642,6 +709,7 @@ def decide(
     jobs: int = MAX_RUN_JOBS,
     split: bool = False,
     shards: int = 0,
+    root_jobs: int = 0,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
@@ -659,6 +727,10 @@ def decide(
     their markers, and `ephemeral_since` counts runs whose pick finished off
     the owned pools; those are replayed over the Blacksmith pools only.
     `split` lets this run take part of an owned pool (pick(), place()).
+    `root_jobs` is this run's peak on root runners, which an owned pool with
+    a root count must have free too. Its root runners are charged one per
+    replayed run (its admission), and a newer run's whole marker peak, since
+    a marker does not split it.
     """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")
@@ -667,6 +739,8 @@ def decide(
         return Choice("", "", f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)")
     try:
         load = {label: pool(snapshot, label, owned_slots) for label in limits.order}
+        roots = {label: pool(snapshot, root_label(label), owned_slots) for label in limits.order
+                 if root_label(label) and root_label(label) in (owned_slots or {})}
     except (TypeError, ValueError, AttributeError):
         return Choice("", "", "malformed pool snapshot")
 
@@ -699,7 +773,10 @@ def decide(
     for _ in range(max(0, routed_since)):
         earlier, _ = pick(load, added, usable, limits.max_queued, jobs=1, taken=taken)
         added[earlier] += 1
-    label, headroom = pick(load, added, candidates, limits.max_queued, jobs, taken=taken, split=split)
+    root_free = {label: owned_free(counts, 0, taken.get(label, 0)) - added[label]
+                 for label, counts in roots.items() if label in usable}
+    label, headroom = pick(load, added, candidates, limits.max_queued, jobs, taken=taken, split=split,
+                           root_free=root_free, root_jobs=root_jobs)
     if persistent(label) and not headroom:
         return Choice("", "", "every owned pool this run may take is busy, and no other pool is in the order")
     replayed = sum(added.values())
@@ -710,12 +787,14 @@ def decide(
     free = 0
     if headroom and persistent(label):
         free = owned_free(load[label], added[label], taken.get(label, 0))
-        if free >= max(1, jobs):
+        root = (f"; {root_free[label]} of {roots[label]['capacity']} root runners free, it needs {root_jobs}"
+                if label in root_free else "")
+        if free >= max(1, jobs) and root_free.get(label, root_jobs) >= root_jobs:
             why = (f"first pool in order with headroom ({free} of {load[label]['capacity']} owned machines free, "
-                   f"this run needs {max(1, jobs)}){replay}")
+                   f"this run needs {max(1, jobs)}{root}){replay}")
         else:
             why = (f"owned pool with the most machines free ({free} of {load[label]['capacity']}, this run needs "
-                   f"{max(1, jobs)}): the jobs that fit run there, the rest on the retry runner{replay}")
+                   f"{max(1, jobs)}{root}): the jobs that fit run there, the rest on the retry runner{replay}")
     elif headroom:
         why = f"first pool in order with a free machine{replay}" if not limits.max_queued else \
               f"first pool in order with headroom (<= {limits.max_queued} queued){replay}"
@@ -741,6 +820,10 @@ def decide(
     shard = spread_shards(load, added, usable, label, shards)
     if shard:
         note += f"; its {shards} app-host shards take {shard}, which has more room for them"
+    if persistent(label) and label in root_free:
+        # By keyword: shard_runner comes first, and a persistent pick has none.
+        return Choice(label, xcode(label) or "", why + note, retry, min(free, max(1, jobs)),
+                      shard_runner=shard, root_runner=root_label(label), root_budget=max(0, root_free[label]))
     return Choice(label, xcode(label) or "", why + note, retry, min(free, max(1, jobs)) if persistent(label) else 0,
                   shard)
 
@@ -786,6 +869,7 @@ def choose(
     owned_slots: str | None = None,
     jobs: int = MAX_RUN_JOBS,
     split: str | None = None,
+    root_jobs: int = 0,
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], "int | Routed"] = lambda since: 0,
     now: dt.datetime,
@@ -855,7 +939,10 @@ def choose(
             recent = Routed(unknown=int(recent))
         routed = Routed(unknown=recent.unknown, owned=recent.owned,
                         ephemeral=routed.ephemeral + max(0, routed.unknown - recent.unknown))
-        owned_capacity = {label: max(0, int(count)) for label, count in (live_owned or {}).items()}
+        # A root label counts only while CI_OWNED_POOL_SLOTS gives it a root
+        # count, which is what turns root routing on (root_label()).
+        owned_capacity = {label: max(0, int(count)) for label, count in (live_owned or {}).items()
+                          if not label.startswith(ROOT_PREFIX) or label in owned_capacity}
         pools = dict(snapshot.get("pools") or {})
         for label in owned_capacity:
             pools[label] = {"queued": 0, "running": 0, "committed": 0}
@@ -863,7 +950,8 @@ def choose(
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
-                    split=(split or "").strip() == "1", shards=shards)
+                    split=(split or "").strip() == "1", shards=shards,
+                    root_jobs=root_jobs)
     if live and persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
     if fork and choice.runner:
@@ -1058,6 +1146,8 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
     if choice.retry_runner:
         lines.append(f"- Jobs on `{choice.runner}`: {', '.join(owned_jobs) or 'none'}; every other job, "
                      f"and a re-run of failed jobs, goes to: `{choice.retry_runner}`")
+    if choice.root_runner:
+        lines.append(f"- Root jobs among them ({ROOT_JOBS}) take `{choice.root_runner}`")
     for problem in problems:
         lines.append(f"- **Error:** {problem}; that pool gets no machines")
     if isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping):
@@ -1117,6 +1207,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if route_token and repo and not args.snapshot and (env.get("POOL_OWNED") or "").strip() == "1":
         try:
             labels = owned_pools(env.get(PR_XCODE_VARIABLE))
+            # Each pool's root runners too; choose() keeps those with a root count.
+            labels += tuple(root_label(label) for label in labels)
             live_owned = live_owned_free(GitHub(route_token, repo).runners(), labels) if labels else None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
@@ -1133,6 +1225,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         owned_slots=env.get("OWNED_SLOTS"),
         jobs=jobs,
         split=env.get("POOL_OWNED_SPLIT"),
+        root_jobs=root_peak(plan, gui),
         xcode_pins={variable: env.get(variable) or ""
                     for variable in {*POOLS.values(), PR_XCODE_VARIABLE} if variable},
         fetch=fetch,
@@ -1154,7 +1247,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"::error title={SLOTS_VARIABLE}::{problem}")
     # A persistent pick names the jobs that take it; every other job of the
     # run takes retry_runner. The marker's jobs are the owned machines held.
-    owned_jobs, held = place(plan, choice.owned_budget, gui) if persistent(choice.runner) else ((), plan.peak)
+    owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None)
+                        if persistent(choice.runner) else ((), plan.peak))
     text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS"), pr_xcode_app), problems=problems,
                    owned_jobs=owned_jobs)
     print(text)
@@ -1170,6 +1264,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # Attempt 2 of an owned job the fleet refused tries it
                          # once more: a re-run of failed jobs reuses these outputs.
                          f"refused_retry_runner={choice.runner if persistent(choice.runner) else ''}\n"
+                         # What the root jobs in owned_jobs take instead of
+                         # the pool label, on attempt 1 and on that attempt 2.
+                         f"root_runner={choice.root_runner}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
                          f"owned_jobs={' ' + ' '.join(owned_jobs) + ' ' if owned_jobs else ''}\n")
