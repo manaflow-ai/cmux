@@ -439,7 +439,7 @@ jobs:
           # Fixed paths survive across jobs on persistent runners. Clear them
           # before any trusted product/cache restoration.
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
-          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
           # Outside DerivedData: the resolve step below recreates that directory.
           echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
@@ -648,7 +648,7 @@ jobs:
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
