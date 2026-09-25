@@ -9,6 +9,7 @@ import unittest
 
 
 NORMALIZER = Path(__file__).resolve().parents[1] / "scripts/normalize-pbxproj.py"
+GROUP_GUARD = Path(__file__).resolve().parents[1] / "scripts/check-pbxproj-group-membership.py"
 
 # Keep valid spelling coverage independent of the validator's token expression.
 STRING_SPELLINGS = [
@@ -253,6 +254,52 @@ class NormalizeProjectTests(unittest.TestCase):
             self.assertEqual(self.run_normalizer(path, "--check").returncode, 0)
             self.assertEqual(self.run_normalizer(path).returncode, 0)
             self.assertEqual(path.read_text(), normalized)
+
+
+# One built file per case, laid out the ways the old line regex missed: space indentation, two objects on
+# one line, and a 25-character id.
+GROUP_PROJECT = """// !$*UTF8*$!
+{
+	objects = {
+  B00000000000000000000000001 /* A.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000000001 /* A.swift */; }; B2 /* B.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2 /* B.swift */; };
+  F00000000000000000000000001 /* A.swift */ = {isa = PBXFileReference; path = A.swift; sourceTree = "<group>"; };
+		F2 /* B.swift */ = {isa = PBXFileReference; path = "Sub/B.swift"; sourceTree = "<group>"; };
+		G1 = {isa = PBXGroup; children = (%(main)s); sourceTree = "<group>"; };
+		G2 /* Loose */ = {isa = PBXGroup; children = (%(loose)s); sourceTree = "<group>"; };
+		P1 /* Sources */ = {isa = PBXSourcesBuildPhase; files = (B00000000000000000000000001 /* A.swift in Sources */, B2 /* B.swift in Sources */, ); };
+		R1 /* Project object */ = {isa = PBXProject; mainGroup = G1; };
+	};
+	rootObject = R1 /* Project object */;
+}
+"""
+
+
+class GroupMembershipTests(unittest.TestCase):
+    def run_guard(self, main: str, loose: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "project.pbxproj"
+            path.write_text(GROUP_PROJECT % {"main": main, "loose": loose})
+            return subprocess.run([sys.executable, str(GROUP_GUARD), str(path)], capture_output=True, text=True)
+
+    def test_every_built_file_under_the_main_group_passes(self):
+        result = self.run_guard("F00000000000000000000000001, G2", "F2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_built_file_in_no_group_fails(self):
+        result = self.run_guard("F00000000000000000000000001", "")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Sub/B.swift (F2)", result.stderr)
+        self.assertNotIn("A.swift", result.stderr)
+
+    def test_long_id_space_indented_file_in_no_group_fails(self):
+        result = self.run_guard("F2", "")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("F00000000000000000000000001", result.stderr)
+
+    def test_built_file_in_a_group_the_main_group_cannot_reach_fails(self):
+        result = self.run_guard("F00000000000000000000000001", "F2")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("(F2)", result.stderr)
 
 
 if __name__ == "__main__":
