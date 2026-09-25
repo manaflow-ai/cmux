@@ -43,7 +43,7 @@ on:
           - iphone
           - ipad
       runner:
-        description: "macOS runner (auto follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and takes an owned Mac with an iOS simulator runtime when CI_PR_POOL_OWNED and CI_IOS_OWNED are 1 and one is free; owned forces the owned pool for a proof run; tart-ios uses the isolated VM fleet)"
+        description: "macOS runner (auto follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and takes an owned Mac with an iOS simulator runtime when CI_PR_POOL_OWNED and CI_IOS_OWNED are 1 and one is free; owned forces the owned pool for a proof run)"
         required: false
         default: "auto"
         type: choice
@@ -51,7 +51,6 @@ on:
           - auto
           - blacksmith-6vcpu-macos-26
           - owned
-          - tart-ios
       cache_backend:
         description: "Cache store for this run. default follows CI_CACHE_BACKEND."
         required: false
@@ -135,7 +134,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
-          TART_FLEET: ${{ vars.CI_TART_FLEET }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
@@ -399,21 +397,6 @@ jobs:
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
-      - name: Validate Tart runner identity
-        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
-        env:
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
-            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-            exit 1
-          }
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::tart-ios runner is missing the immutable VM identity marker"
-            exit 1
-          }
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -578,21 +561,6 @@ jobs:
               fi
               ;;
           esac
-      - name: Validate Tart runner identity
-        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
-        env:
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
-            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-            exit 1
-          }
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::tart-ios runner is missing the immutable VM identity marker"
-            exit 1
-          }
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -880,21 +848,6 @@ jobs:
               fi
               ;;
           esac
-      - name: Validate Tart runner identity
-        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
-        env:
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
-            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-            exit 1
-          }
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::tart-ios runner is missing the immutable VM identity marker"
-            exit 1
-          }
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

@@ -178,7 +178,7 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, SMALL)
         self.assertIn("replaying 5", pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).reason)
         # A pool outside the order is ignored rather than trusted.
-        self.assertEqual(pool.decide(snap, pool.Settings(), placed={"tart-small": 9}, **args).runner, LARGE)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={"blacksmith-6vcpu-macos-latest": 9}, **args).runner, LARGE)
         busy = backlog(small=13, large=14, old=0)
         self.assertEqual(pool.decide(busy, pool.Settings(), **args).runner, OLD)
         self.assertEqual(pool.decide(busy, pool.Settings(), choose_from=(LARGE, SMALL), **args).runner, SMALL)
@@ -1684,7 +1684,7 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache="", tart_fleet="1"):
+              swift_package="", seed_cache=""):
     calls = []
 
     def measured():
@@ -1698,7 +1698,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
-        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, tart_fleet=tart_fleet)
+        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW)
     return route, len(calls)
 
 
@@ -1898,22 +1898,13 @@ class IOSRouting(unittest.TestCase):
             self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0), (ios_owned, owned))
 
     def test_explicit_runners_and_other_defaults_are_never_rerouted(self):
-        for requested in ("blacksmith-6vcpu-macos-26", "tart-ios"):
+        for requested in ("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15"):
             route, calls = ios_route(sim_fleet(), requested=requested)
             self.assertEqual((route.label, json.loads(route.runs_on), json.loads(route.package_runs_on),
                               route.retry_label, calls), (requested, requested, requested, requested, 0))
         # MACOS_RUNNER_TESTS naming another pool is honored, as for E2E.
-        route, calls = ios_route(sim_fleet(), variable="tart-ios")
-        self.assertEqual((route.label, route.persistent, calls), ("tart-ios", False, 0))
-
-    def test_a_tart_request_routes_as_auto_while_the_tart_fleet_is_off(self):
-        # 2026-09-25: every Tart VM was offline and tart-ios jobs queued for hours.
-        auto, _ = ios_route(sim_fleet())
-        for fleet in ("", "0"):
-            route, _ = ios_route(sim_fleet(), requested="tart-ios", tart_fleet=fleet)
-            self.assertEqual((route.label, route.persistent), (auto.label, auto.persistent), fleet)
-        route, calls = ios_route(sim_fleet(), requested="tart-ios", tart_fleet="1")
-        self.assertEqual((route.label, calls), ("tart-ios", 0))
+        route, calls = ios_route(sim_fleet(), variable="blacksmith-6vcpu-macos-15")
+        self.assertEqual((route.label, route.persistent, calls), ("blacksmith-6vcpu-macos-15", False, 0))
 
     def test_ios_version_upload_release_and_seed_runs_stay_off_the_fleet(self):
         # seed_cache runs in the ci-cache-writer environment with the R2 write keys.
@@ -2082,7 +2073,7 @@ class IOSWiring(unittest.TestCase):
             self.assertEqual(jobs[name]["env"]["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
-        self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned", "tart-ios"])
+        self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned"])
 
     def test_screenshots_take_the_runner_jobs_pool_without_actions_read(self):
         workflow = self.workflow("ios-screenshots.yml")
