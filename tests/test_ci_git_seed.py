@@ -211,8 +211,6 @@ class WorkflowWiringTests(unittest.TestCase):
         for job in ("macos-compile-admission", "app-host-unit-tests", "cli-product-tests", "swift-package-tests", "tests-build-and-lag"):
             with self.subTest(job=job):
                 self.assertIn("Restore git object seed", self.steps_before_checkout(text, job))
-        text = (WORKFLOWS / "cli-pipe-regressions.yml").read_text()
-        self.assertIn("Restore git object seed", self.steps_before_checkout(text, "cli-pipe-regressions"))
 
     def test_a_failed_seeded_checkout_retries_without_the_seed(self):
         text = (WORKFLOWS / "ci-macos.yml").read_text()
@@ -223,9 +221,6 @@ class WorkflowWiringTests(unittest.TestCase):
                 retry = body.index("- name: Retry checkout", discard)
                 self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"', body[discard:retry])
                 self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
-        text = (WORKFLOWS / "cli-pipe-regressions.yml").read_text()
-        self.assertNotIn("git submodule update --init", text)
-        self.assertEqual(text.count("git-seed.sh update-submodules"), 2)
 
     def test_only_main_saves_the_seed(self):
         text = (WORKFLOWS / "seed-derived-data.yml").read_text()

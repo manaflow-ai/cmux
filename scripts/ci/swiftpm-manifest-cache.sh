@@ -3,6 +3,7 @@
 # swiftpm-manifest-cache.sh run <command> [args...]
 # swiftpm-manifest-cache.sh stage <dir>
 # swiftpm-manifest-cache.sh install <dir>
+# swiftpm-manifest-cache.sh clear
 #
 # Keeps SwiftPM's compiled-manifest cache across CI jobs. Resolving the app
 # project evaluates 91 Package.swift files, and with no cache that is most of
@@ -25,10 +26,14 @@
 set -euo pipefail
 
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-MANIFEST_CACHE_DIR="$HOME/Library/Caches/org.swift.swiftpm/manifests"
+# The account's home from the user database, not $HOME: `run` drops HOME, so
+# that is where SwiftPM looks, even on a runner that points HOME elsewhere.
+# CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR overrides it for tests.
+USER_HOME="$(eval echo "~$(id -un)")"
+MANIFEST_CACHE_DIR="${CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR:-$USER_HOME/Library/Caches/org.swift.swiftpm/manifests}"
 
 usage() {
-  echo "usage: $0 key | run <command> [args...] | stage <dir> | install <dir>" >&2
+  echo "usage: $0 key | run <command> [args...] | stage <dir> | install <dir> | clear" >&2
   exit 64
 }
 
@@ -56,21 +61,24 @@ key() {
 # Runs a command under an environment that is the same in every job on a given
 # runner image and Xcode. PATH is fixed because steps before a resolve append
 # to it differently per workflow (Rust, Bun, Zig); the command itself is still
-# found on the caller's PATH. TMPDIR is dropped so Foundation picks the
-# per-user default. CMUX_CI_SWIFTPM_KEEP_ENV names extra variables to keep,
-# for tests whose xcodebuild stub is configured through the environment.
+# found on the caller's PATH. HOME, USER and LOGNAME are dropped too: they
+# name the runner account (runner on Blacksmith, cmux on the glaeda minis), so
+# keeping them split one seed into one per account, and SwiftPM finds the same
+# ~/Library/Caches through the user database without them. TMPDIR is dropped
+# so Foundation picks the per-user default. CMUX_CI_SWIFTPM_KEEP_ENV names
+# extra variables to keep, for tests whose xcodebuild stub is configured
+# through the environment.
 run() {
   local command_path
   command_path="$(command -v "$1")" || { echo "$1: command not found" >&2; return 127; }
   shift
   local -a vars=(
-    "HOME=$HOME"
     "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
     "LANG=en_US.UTF-8"
   )
   local name
   # shellcheck disable=SC2086 # a space-separated list of names
-  for name in USER LOGNAME DEVELOPER_DIR http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
+  for name in DEVELOPER_DIR http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
     [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     if [ -n "${!name:-}" ]; then
       vars+=("$name=${!name}")
@@ -116,7 +124,13 @@ install() {
   echo "Installed $entries SwiftPM manifest cache entries"
 }
 
+# Empties SwiftPM's manifest cache, so a seed holds only what its resolves use.
+clear() {
+  rm -rf "$MANIFEST_CACHE_DIR"
+}
+
 case "${1:-}" in
+  clear) [ "$#" -eq 1 ] || usage; clear ;;
   key) [ "$#" -eq 1 ] || usage; key ;;
   run) [ "$#" -ge 2 ] || usage; shift; run "$@" ;;
   stage) [ "$#" -eq 2 ] || usage; stage "$2" ;;

@@ -208,7 +208,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
     }
 
     func testRegisterForDraggedTypesKeepsExternalFileImageAndURLTypes() {
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let externalTypes: [NSPasteboard.PasteboardType] = [
             .fileURL,
             .URL,
@@ -243,7 +243,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
         pasteboard.setString("<img src=\"https://example.com/site-drop.png\">", forType: .html)
         pasteboard.setData(Data("png".utf8), forType: .png)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let dragInfo = MockDraggingInfo(pasteboard: pasteboard)
 
         cmuxUnitTestWKWebViewDragLifecycleEvents = []
@@ -283,7 +283,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
                 pasteboard.clearContents()
             }
 
-            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
             let dragInfo = MockDraggingInfo(pasteboard: pasteboard)
 
             cmuxUnitTestWKWebViewDragLifecycleEvents = []
