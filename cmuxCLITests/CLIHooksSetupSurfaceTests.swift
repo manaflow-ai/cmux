@@ -28,6 +28,9 @@ struct CLIHooksSetupSurfaceTests {
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(result.output.contains("\"agents\""), Comment(rawValue: result.output))
         #expect(result.output.contains("\"codex\""), Comment(rawValue: result.output))
+        #expect(!result.output.contains("\"config_path\""), Comment(rawValue: result.output))
+        #expect(!result.output.contains("PATH"), Comment(rawValue: result.output))
+        #expect(result.output.contains("Agent CLI unavailable"), Comment(rawValue: result.output))
     }
 
     @Test("Hook status accepts flag and positional agent filters")

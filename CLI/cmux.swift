@@ -40566,6 +40566,7 @@ export default CMUXSessionRestore;
 
     // MARK: - Hooks namespace
 
+    /// Handles hook setup and status commands that do not require a cmux socket.
     private func runHooksNoSocketCommand(commandArgs: [String], jsonOutput: Bool = false) throws -> Bool {
         guard let first = commandArgs.first?.lowercased() else {
             print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
@@ -40598,13 +40599,11 @@ export default CMUXSessionRestore;
                 definitions = Self.agentDefs
             }
             let rows = definitions.map { definition -> [String: Any] in
-                let configPath = Self.hookConfigPath(for: definition)
                 return [
                     "agent": definition.name,
                     "display_name": definition.displayName,
                     "installed": Self.isAgentHookInstalled(definition),
                     "available": Self.isBinaryOnPath(definition.binaryName),
-                    "config_path": configPath,
                 ]
             }
             if jsonOutput {
@@ -40620,9 +40619,8 @@ export default CMUXSessionRestore;
                         : String(localized: "cli.hooks.status.notInstalled", defaultValue: "not installed")
                     let availability = available
                         ? String(localized: "cli.hooks.status.available", defaultValue: "available")
-                        : String(localized: "cli.hooks.status.notOnPath", defaultValue: "CLI not found on PATH")
-                    let path = row["config_path"] as? String ?? ""
-                    print("  \(displayName): \(state) · \(availability) · \(path)")
+                        : String(localized: "cli.hooks.status.notOnPath", defaultValue: "Agent CLI unavailable")
+                    print("  \(displayName): \(state) · \(availability)")
                 }
             }
             return true
@@ -40683,12 +40681,14 @@ export default CMUXSessionRestore;
         }
     }
 
+    /// Resolves the configuration file used to detect an installed integration.
     private static func hookConfigPath(for definition: AgentHookDef) -> String {
         URL(fileURLWithPath: definition.resolvedConfigDir(), isDirectory: true)
             .appendingPathComponent(definition.configFile, isDirectory: false)
             .path
     }
 
+    /// Reports whether a supported integration leaves a recognizable cmux marker.
     private static func isAgentHookInstalled(_ definition: AgentHookDef) -> Bool {
         let path = hookConfigPath(for: definition)
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8), !contents.isEmpty else {
@@ -40717,6 +40717,7 @@ export default CMUXSessionRestore;
         )
     }
 
+    /// Returns marker strings for integrations stored outside their main config file.
     private static func extensionHookMarkers(for definition: AgentHookDef) -> [String] {
         switch definition.name {
         case "opencode": return ["cmux-opencode-session-plugin-marker", "cmux-feed-plugin-marker"]
@@ -40844,6 +40845,7 @@ export default CMUXSessionRestore;
         }
     }
 
+    /// Parses the optional positional and `--agent` filters shared by hook commands.
     private static func hooksSetupAgentFilter(from args: [String]) throws -> String? {
         var positionalAgent: String?
         var flagAgent: String?
@@ -40902,6 +40904,7 @@ export default CMUXSessionRestore;
         return positionalAgent
     }
 
+    /// Installs or removes supported integrations, filtering to one agent when requested.
     private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
         let args = ProcessInfo.processInfo.arguments
         let flagAgentFilter = optionValue(args, name: "--agent")
@@ -40994,6 +40997,7 @@ export default CMUXSessionRestore;
     }
 
     /// Cross-platform `command -v <name>` for the install gate.
+    /// Checks whether an agent executable is available to the current shell.
     private static func isBinaryOnPath(_ name: String) -> Bool {
         let process = Process()
         process.launchPath = "/bin/sh"
