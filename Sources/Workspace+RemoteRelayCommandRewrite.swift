@@ -77,6 +77,8 @@ extension Workspace {
             // authenticated owner below; otherwise a caller could smuggle a
             // second owner/authentication value into the local socket.
             params.removeValue(forKey: "_cmux_remote_workspace_id")
+            // Legacy resume MAC: no longer attached or verified, but old remote
+            // daemons and clients may still send it, so keep stripping it here.
             params.removeValue(forKey: "_cmux_remote_relay_authentication_code")
             params.removeValue(forKey: "_cmux_remote_relay_request_authentication_code")
             didRewrite = true

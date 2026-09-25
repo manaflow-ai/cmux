@@ -177,8 +177,7 @@ struct RemoteResumeBindingTests {
         let params = try #require(request["params"] as? [String: Any])
 
         #expect(params["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
-        let resumeCode = try #require(params["_cmux_remote_relay_authentication_code"] as? String)
-        #expect(resumeCode.count == 64)
+        #expect(params["_cmux_remote_relay_authentication_code"] == nil)
     }
 
     @Test
@@ -277,7 +276,7 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
-    func remoteResumeAuthenticationIsStampedOnlyForExactMethod() throws {
+    func relayedResumeCarriesNoPerResumeAuthenticationCode() throws {
         let workspaceID = UUID()
         let relayToken = String(repeating: "c", count: 64)
         let rewriter = WorkspaceRemoteRelayCommandRewriter(
@@ -302,10 +301,13 @@ struct RemoteResumeBindingTests {
         let authenticatedParams = try #require(rewrittenRequest["params"] as? [String: Any])
 
         #expect(authenticatedParams["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
-        let resumeCode = try #require(
-            authenticatedParams["_cmux_remote_relay_authentication_code"] as? String
-        )
-        #expect(resumeCode.count == 64)
+        #expect(authenticatedParams["_cmux_remote_relay_authentication_code"] == nil)
+        #expect(WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteRelayRequest(
+            id: rewrittenRequest["id"],
+            method: "surface.resume.set",
+            params: authenticatedParams,
+            remoteRelayTokenHex: relayToken
+        ))
 
         for method in ["surface.resume.get", "surface.resume.set.backup", "surface.resume.setter", "custom.surface.resume.set"] {
             let unrelated: [String: Any] = [
