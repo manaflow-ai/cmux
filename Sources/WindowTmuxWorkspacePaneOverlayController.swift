@@ -5,8 +5,7 @@ import SwiftUI
 private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 private let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
-@MainActor
-final class TmuxWorkspacePaneOverlayHostingView<Content: View>: NSHostingView<Content> {
+final class TmuxWorkspacePaneOverlayHostingView: NSHostingView<TmuxWorkspacePaneOverlayView> {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
 }
 
@@ -15,7 +14,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private weak var window: NSWindow?
     private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
     private let model = TmuxWorkspacePaneOverlayModel()
-    private let hostingView: TmuxWorkspacePaneOverlayHostingView<TmuxWorkspacePaneOverlayView>
+    private let hostingView: TmuxWorkspacePaneOverlayHostingView
     private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
