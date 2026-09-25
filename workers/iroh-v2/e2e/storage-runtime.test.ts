@@ -165,6 +165,23 @@ test("existing v6 storage serves directory and relay renewal operations after ac
   expect(second.body.devices).toBe(1);
 });
 
+test("a full v6 audit ring does not turn authority renewal into internal_error", async () => {
+  const auditStub = storageNamespace.getByName("authority-renewal-v6-at-cap");
+  const auditPost = (path: string, body: unknown = {}) => postTo(auditStub, path, body);
+  expect((await auditPost("/upgrade-schema", { version: 6 })).status).toBe(200);
+  const renewalIdentity = { ...identity, userId: "renewal-cap-user", deviceId: "renewal-cap-device" };
+  const renewalDescriptor = { ...descriptor, identity: renewalIdentity, endpointId: "2".repeat(64) };
+  const challenge = { challengeId: "renewal-cap-challenge", nonceHash: "renewal-cap-nonce", payloadHash: "renewal-cap-payload", expiresAt: 10_000, issuedAt: 9_000 };
+  expect((await auditPost("/issue", { identity: renewalIdentity, issue: challenge })).status).toBe(200);
+  const registration = await auditPost("/register", { input: { descriptor: renewalDescriptor, ...challenge, requestId: "renewal-cap-register", requestHash: "renewal-cap-hash", now: 9_001 } });
+  expect(registration.status).toBe(200);
+  expect((await auditPost("/audit/fill")).status).toBe(200);
+  const renewal = await auditPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 9_100, expiresAt: 12_700, now: 9_100, requester: registration.body.device });
+  expect(renewal.status).toBe(200);
+  expect(renewal.body.devices).toBe(1);
+  expect((await auditPost("/audit/count")).body.count).toBe(65_536);
+});
+
 test.each([6, 7])("schema %i: audit retention keeps revocation available at the bounded history limit", async (version) => {
   // This test owns a fresh DO. It does not depend on the registration/revision
   // state built by the other cases in this file.
