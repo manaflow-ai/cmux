@@ -14,6 +14,14 @@ export type DiffViewerAppearance = {
   fontFamily?: string;
   fontSize?: number;
   lineHeight?: number;
+  cssOverlay?: string;
+  viewport?: {
+    maxWidth?: number;
+    padding?: number;
+    alignment?: "leading" | "center" | "trailing";
+  };
+  headerExtensions?: string;
+  footerExtensions?: string;
   theme?: {
     dark?: string;
     light?: string;
@@ -69,6 +77,10 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
     fontFamily: appearance?.fontFamily ?? "Menlo",
     fontSize: metric(appearance?.fontSize, 10),
     lineHeight: metric(appearance?.lineHeight, 20),
+    cssOverlay: appearance?.cssOverlay,
+    viewport: appearance?.viewport,
+    headerExtensions: appearance?.headerExtensions,
+    footerExtensions: appearance?.footerExtensions,
     theme: {
       light: appearance?.theme?.light ?? lightTheme.name ?? "cmux-ghostty-light",
       dark: appearance?.theme?.dark ?? darkTheme.name ?? "cmux-ghostty-dark",
@@ -109,6 +121,43 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily));
   rootStyle.setProperty("--cmux-diff-font-size", `${metric(appearance.fontSize, 10)}px`);
   rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 20)}px`);
+  rootStyle.setProperty(
+    "--cmux-diff-content-max-width",
+    `${metric(appearance.viewport?.maxWidth, 4000)}px`,
+  );
+  rootStyle.setProperty(
+    "--cmux-diff-content-padding",
+    `${Math.max(0, Math.min(160, appearance.viewport?.padding ?? 0))}px`,
+  );
+  const viewer = document.getElementById("viewer");
+  if (viewer) {
+    const maxWidth = metric(appearance.viewport?.maxWidth, 4000);
+    const padding = Math.max(0, Math.min(160, appearance.viewport?.padding ?? 0));
+    viewer.style.maxWidth = `${maxWidth}px`;
+    viewer.style.padding = `${padding}px`;
+    const alignment = appearance.viewport?.alignment ?? "leading";
+    viewer.style.marginLeft = alignment === "center" || alignment === "trailing" ? "auto" : "0";
+    viewer.style.marginRight = alignment === "center" || alignment === "leading" ? "auto" : "0";
+  }
+  if (typeof appearance.cssOverlay === "string" && appearance.cssOverlay.trim() !== "") {
+    const style = document.createElement("style");
+    style.dataset.cmuxTemplate = "diff";
+    style.textContent = appearance.cssOverlay;
+    document.head.appendChild(style);
+  }
+}
+
+export function applyDiffViewerExtensions(appearance: DiffViewerAppearance | undefined, root: HTMLElement) {
+  if (!appearance) return;
+  const insert = (html: string | undefined, position: InsertPosition) => {
+    if (!html || html.trim() === "") return;
+    const element = document.createElement("div");
+    element.className = "cmux-template-extension";
+    element.innerHTML = html;
+    root.insertAdjacentElement(position, element);
+  };
+  insert(appearance.headerExtensions, "beforebegin");
+  insert(appearance.footerExtensions, "afterend");
 }
 
 export function appearanceBackgroundColor(_color: unknown, _appearance?: DiffViewerAppearance) {

@@ -1984,6 +1984,32 @@
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
+  "settings.templates.font.placeholder": {
+    "source": "System",
+    "identityLocales": {
+      "de": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required.",
+      "fr": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required.",
+      "ar": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required.",
+      "es": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required.",
+      "zh-Hant": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required.",
+      "zh-Hans": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required.",
+      "ko": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required.",
+      "ja": "System is a font stack name and must remain an invariant font identifier; a translated entry is still required."
+    }
+  },
+  "settings.templates.diffFont.placeholder": {
+    "source": "Menlo",
+    "identityLocales": {
+      "de": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required.",
+      "fr": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required.",
+      "ar": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required.",
+      "es": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required.",
+      "zh-Hant": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required.",
+      "zh-Hans": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required.",
+      "ko": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required.",
+      "ja": "Menlo is a font family name and must remain an invariant font identifier; a translated entry is still required."
+    }
+  },
   "settings.app.sidebarBranchLayout.inline": {
     "source": "Inline",
     "identityLocales": {

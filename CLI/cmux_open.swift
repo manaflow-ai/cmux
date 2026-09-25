@@ -733,18 +733,40 @@ extension CMUXCLI {
     }
 
     struct DiffViewerAppearance: Codable {
+        struct Viewport: Codable {
+            var maxWidth: Double?
+            var padding: Double?
+            var alignment: String?
+        }
+
         var backgroundOpacity: Double
         var fontFamily: String
         var fontSize: Double
+        var lineHeight: Double
+        var cssOverlay: String?
+        var viewport: Viewport?
+        var headerExtensions: String?
+        var footerExtensions: String?
         var lightTheme: DiffViewerTheme
         var darkTheme: DiffViewerTheme
 
         enum CodingKeys: String, CodingKey {
-            case backgroundOpacity, fontFamily, fontSize, lightTheme, darkTheme
+            case backgroundOpacity, fontFamily, fontSize, lineHeight, cssOverlay, viewport
+            case headerExtensions, footerExtensions, lightTheme, darkTheme
         }
 
-        var lineHeight: Double {
-            20
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            backgroundOpacity = try container.decodeIfPresent(Double.self, forKey: .backgroundOpacity) ?? 1
+            fontFamily = try container.decodeIfPresent(String.self, forKey: .fontFamily) ?? "Menlo"
+            fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 10
+            lineHeight = try container.decodeIfPresent(Double.self, forKey: .lineHeight) ?? 20
+            cssOverlay = try container.decodeIfPresent(String.self, forKey: .cssOverlay)
+            viewport = try container.decodeIfPresent(Viewport.self, forKey: .viewport)
+            headerExtensions = try container.decodeIfPresent(String.self, forKey: .headerExtensions)
+            footerExtensions = try container.decodeIfPresent(String.self, forKey: .footerExtensions)
+            lightTheme = try container.decode(DiffViewerTheme.self, forKey: .lightTheme)
+            darkTheme = try container.decode(DiffViewerTheme.self, forKey: .darkTheme)
         }
 
         var diffHeaderHeight: Double {
@@ -757,6 +779,14 @@ extension CMUXCLI {
                 "fontFamily": fontFamily,
                 "fontSize": fontSize,
                 "lineHeight": lineHeight,
+                "cssOverlay": cssOverlay as Any,
+                "viewport": viewport.map { [
+                    "maxWidth": $0.maxWidth as Any,
+                    "padding": $0.padding as Any,
+                    "alignment": $0.alignment as Any,
+                ] } as Any,
+                "headerExtensions": headerExtensions as Any,
+                "footerExtensions": footerExtensions as Any,
                 "diffHeaderHeight": diffHeaderHeight,
                 "theme": [
                     "light": lightTheme.generatedName,
@@ -3451,6 +3481,7 @@ extension CMUXCLI {
             guard let contents = readOptionalDiffViewerConfig(at: url) else { continue }
             applyDiffViewerGhosttyConfig(contents, to: &appearance)
         }
+        applyDiffViewerTemplate(to: &appearance)
         if let fontSizeOverride {
             appearance.fontSize = fontSizeOverride
         }
@@ -3491,9 +3522,52 @@ extension CMUXCLI {
             backgroundOpacity: 1,
             fontFamily: "Menlo",
             fontSize: 10,
+            lineHeight: 20,
+            cssOverlay: nil,
+            viewport: nil,
+            headerExtensions: nil,
+            footerExtensions: nil,
             lightTheme: lightTheme,
             darkTheme: darkTheme
         )
+    }
+
+    private func applyDiffViewerTemplate(to appearance: inout DiffViewerAppearance) {
+        for path in diffViewerDefaultSettingsPaths() {
+            guard let root = diffViewerSettingsRoot(at: path),
+                  let templates = root["templates"] as? [String: Any],
+                  let diff = templates["diff"] as? [String: Any] else { continue }
+            if let font = diff["font"] as? String,
+               !font.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                appearance.fontFamily = font.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let size = diff["fontSize"] as? NSNumber {
+                appearance.fontSize = min(96, max(8, size.doubleValue))
+            }
+            if let lineHeight = diff["lineHeight"] as? NSNumber {
+                appearance.lineHeight = min(80, max(8, lineHeight.doubleValue))
+            }
+            if let css = diff["cssOverlay"] as? String { appearance.cssOverlay = css }
+            if let viewport = diff["viewport"] as? [String: Any] {
+                appearance.viewport = DiffViewerAppearance.Viewport(
+                    maxWidth: (viewport["maxWidth"] as? NSNumber).map { min(4000, max(200, $0.doubleValue)) },
+                    padding: (viewport["padding"] as? NSNumber).map { min(160, max(0, $0.doubleValue)) },
+                    alignment: viewport["alignment"] as? String
+                )
+            }
+            if let header = diff["headerExtensions"] as? String { appearance.headerExtensions = header }
+            if let footer = diff["footerExtensions"] as? String { appearance.footerExtensions = footer }
+            if let theme = diff["theme"] as? String {
+                applyDiffViewerThemeDirective(theme, to: &appearance)
+            }
+            if let light = diff["lightTheme"] as? String {
+                appearance.lightTheme.ghosttyName = light
+            }
+            if let dark = diff["darkTheme"] as? String {
+                appearance.darkTheme.ghosttyName = dark
+            }
+            break
+        }
     }
 
     private func applyDiffViewerGhosttyConfig(_ contents: String, to appearance: inout DiffViewerAppearance) {

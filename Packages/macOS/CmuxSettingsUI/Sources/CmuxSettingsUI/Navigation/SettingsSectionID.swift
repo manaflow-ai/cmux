@@ -39,6 +39,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case keyboardShortcuts
     case workspaceColors
     case settingsJSON
+    case templates
     case reset
 
     public var id: Self { self }
@@ -77,6 +78,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .keyboardShortcuts: return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
         case .workspaceColors: return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .settingsJSON: return "cmux.json"
+        case .templates: return String(localized: "settings.section.templates", defaultValue: "Templates")
         case .reset: return String(localized: "settings.section.reset", defaultValue: "Reset")
         }
     }
@@ -104,6 +106,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .keyboardShortcuts: return "keyboard"
         case .workspaceColors: return "paintpalette"
         case .settingsJSON: return "doc.text"
+        case .templates: return "doc.richtext"
         case .reset: return "arrow.counterclockwise"
         }
     }
@@ -137,6 +140,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .keyboardShortcuts: return "keybindings commands chords"
         case .workspaceColors: return "palette tabs indicator"
         case .settingsJSON: return "config file preferences editor schema jsonc reload"
+        case .templates: return "templates markdown diff notes panels css font theme preview"
         case .reset: return "defaults reset"
         }
     }

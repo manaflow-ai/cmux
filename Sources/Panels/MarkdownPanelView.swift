@@ -84,6 +84,7 @@ struct MarkdownPanelView: View {
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
+                template: panel.template,
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus,
                 onViewAttachedToWindow: { [weak panel] in

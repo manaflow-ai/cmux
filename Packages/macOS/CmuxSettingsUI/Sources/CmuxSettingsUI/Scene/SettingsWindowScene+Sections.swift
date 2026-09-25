@@ -154,6 +154,10 @@ extension SettingsWindowRoot {
             SettingsJSONSection(jsonStore: jsonStore, hostActions: hostActions)
         }
 
+        slot(.templates, proxy: proxy) {
+            TemplatesSection(jsonStore: jsonStore, errorLog: runtime.errorLog)
+        }
+
         slot(.reset, proxy: proxy) {
             ResetSection(
                 defaultsStore: defaultsStore,

@@ -238,6 +238,44 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "templates": [
+                    "markdown": [
+                        "font": "",
+                        "fontSize": Int(CmuxPanelTemplate.markdownDefault.fontSize ?? 15),
+                        "lineHeight": CmuxPanelTemplate.markdownDefault.lineHeight ?? 1.5,
+                        "cssOverlay": "",
+                        "viewport": [
+                            "maxWidth": Int(CmuxPanelTemplate.markdownDefault.viewport?.maxWidth ?? 980),
+                            "padding": Int(CmuxPanelTemplate.markdownDefault.viewport?.padding ?? 32),
+                            "alignment": "leading",
+                        ],
+                        "headerExtensions": "",
+                        "footerExtensions": "",
+                    ],
+                    "notes": [
+                        "font": "",
+                        "fontSize": Int(CmuxPanelTemplate.notesDefault.fontSize ?? 15),
+                        "lineHeight": CmuxPanelTemplate.notesDefault.lineHeight ?? 1.5,
+                        "cssOverlay": "",
+                        "viewport": [
+                            "maxWidth": Int(CmuxPanelTemplate.notesDefault.viewport?.maxWidth ?? 980),
+                            "padding": Int(CmuxPanelTemplate.notesDefault.viewport?.padding ?? 32),
+                            "alignment": "leading",
+                        ],
+                        "headerExtensions": "",
+                        "footerExtensions": "",
+                    ],
+                    "diff": [
+                        "font": CmuxPanelTemplate.diffDefault.font ?? "Menlo",
+                        "fontSize": CmuxPanelTemplate.diffDefault.fontSize ?? 10,
+                        "lineHeight": CmuxPanelTemplate.diffDefault.lineHeight ?? 20,
+                        "cssOverlay": "",
+                        "headerExtensions": "",
+                        "footerExtensions": "",
+                    ],
+                ],
+            ],
+            [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
                     "syntaxHighlighting": fileEditorSettings.catalog.syntaxHighlighting.defaultValue,

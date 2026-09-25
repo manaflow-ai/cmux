@@ -1670,6 +1670,18 @@
         }
       }
     },
+    "templates": {
+      "x-cmux-scopes": ["global"],
+      "title": "templates",
+      "description": "Shared templates for markdown and diff panels. Changes reload into open panels when cmux.json is reloaded.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "markdown": { "$ref": "#/$defs/panelTemplate" },
+        "notes": { "$ref": "#/$defs/panelTemplate" },
+        "diff": { "$ref": "#/$defs/panelTemplate" }
+      }
+    },
     "canvas": {
       "x-cmux-scopes": ["global"],
       "title": "canvas",
@@ -2015,6 +2027,30 @@
     }
   },
   "$defs": {
+    "panelTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "font": { "type": "string", "description": "Font family used by the panel." },
+        "fontSize": { "type": "number", "minimum": 8, "maximum": 96 },
+        "lineHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "theme": { "type": "string" },
+        "lightTheme": { "type": "string" },
+        "darkTheme": { "type": "string" },
+        "cssOverlay": { "type": "string", "description": "Raw CSS appended after cmux's base panel stylesheet." },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxWidth": { "type": "number", "minimum": 200, "maximum": 4000 },
+            "padding": { "type": "number", "minimum": 0, "maximum": 160 },
+            "alignment": { "type": "string", "enum": ["leading", "center", "trailing"] }
+          }
+        },
+        "headerExtensions": { "type": "string" },
+        "footerExtensions": { "type": "string" }
+      }
+    },
     "colorHex": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",

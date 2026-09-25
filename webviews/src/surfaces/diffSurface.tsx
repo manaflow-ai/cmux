@@ -1,7 +1,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { App } from "../App";
-import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appearance";
+import { applyDiffViewerAppearance, applyDiffViewerExtensions, resolveDiffViewerAppearance } from "../appearance";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "../labels";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
@@ -25,7 +25,9 @@ function readConfig(): DiffViewerConfig {
 export function mountDiffSurface(rootElement: HTMLElement): void {
   const config = readConfig();
   installWebviewStyles("diff", diffViewerStyles);
-  applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+  const appearance = resolveDiffViewerAppearance(config.payload?.appearance);
+  applyDiffViewerAppearance(appearance);
+  applyDiffViewerExtensions(appearance, rootElement);
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;
   }

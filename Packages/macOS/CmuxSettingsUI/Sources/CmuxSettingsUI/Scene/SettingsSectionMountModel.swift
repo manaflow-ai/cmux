@@ -49,7 +49,7 @@ public final class SettingsSectionMountModel {
         .account, .app, .terminal, .textBox, .sleepyMode, .mobile, .cloudMachines,
         .networking, .sidebarAppearance, .customSidebars, .betaFeatures, .automation,
         .computerUse, .browser, .globalHotkey, .keyboardShortcuts, .workspaceColors,
-        .settingsJSON, .reset,
+        .settingsJSON, .templates, .reset,
     ]
 
     /// The slot that hosts `section`'s content.
