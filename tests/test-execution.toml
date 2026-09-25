@@ -1137,6 +1137,10 @@ path = "tests/test_update_release_tag.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_publication_marker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
