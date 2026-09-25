@@ -41,6 +41,11 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
         )
         context.cmuxConfigStore = fixture.store
 
+        // Select the first of two workspaces so the configured action's default
+        // "after the selected one" placement and the end of the list differ.
+        let first = try #require(manager.tabs.first)
+        manager.addWorkspace(placementOverride: .end)
+        manager.selectWorkspace(first)
         let knownIds = Set(manager.tabs.map(\.id))
         appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: manager)
         let created = try createdWorkspace(in: manager, knownIds: knownIds)
@@ -52,6 +57,10 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
                 rawValue: "Empty-area double-click must honor ui.newWorkspace.action, got title "
                     + "\(created.customTitle ?? "<none>")"
             )
+        )
+        #expect(
+            manager.tabs.last?.id == created.id,
+            "A configured-layout empty-area workspace still lands after the last row"
         )
     }
 

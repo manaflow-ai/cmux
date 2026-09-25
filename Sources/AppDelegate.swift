@@ -8576,7 +8576,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
                debugSource: debugSource,
-               workspaceGroupTarget: workspaceGroupTarget
+               workspaceGroupTarget: workspaceGroupTarget,
+               appendsToEnd: placementOverride == .end
            ) {
             return true
         }
@@ -9204,7 +9205,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         in context: MainWindowContext,
         debugSource: String,
         replacingInitialWorkspace initialWorkspace: Workspace? = nil,
-        workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil
+        workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil,
+        appendsToEnd: Bool = false
     ) -> Bool {
         guard let cmuxConfigStore = context.cmuxConfigStore,
               let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
@@ -9230,12 +9232,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) != nil
         }
 
-        let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
+        // `appendsToEnd` is an explicit end-of-list placement (the sidebar
+        // empty-area double-click). Configured actions create their workspace
+        // at the default placement, so snapshot ids here and move the new one
+        // to the end once the action has run.
+        let beforeIds = (workspaceGroupTarget != nil || appendsToEnd)
+            ? Set(context.tabManager.tabs.map(\.id))
+            : nil
         var asyncObserverId: UUID?
         // Named workspace commands and inline workspace actions both create a
         // workspace, so both must retire the throwaway initial workspace.
         let actionCreatesWorkspace = action.workspaceCommandName != nil || action.action.inlineWorkspace != nil || action.action == .builtIn(.newAgentChat)
-        let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
+        let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil && !appendsToEnd) ? nil : { [weak self, weak context] in
+            if appendsToEnd,
+               let context,
+               let beforeIds,
+               let newlyCreatedId = context.tabManager.tabs.first(where: { !beforeIds.contains($0.id) })?.id {
+                context.tabManager.reorderWorkspace(
+                    tabId: newlyCreatedId,
+                    toIndex: context.tabManager.tabs.count - 1
+                )
+            }
             if let context,
                let workspaceGroupTarget,
                let beforeIds {
