@@ -820,7 +820,7 @@ final class WindowTerminalPortal: NSObject {
     weak var window: NSWindow?
     let hostView = WindowTerminalHostView(frame: .zero)
     let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
-    let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
+    private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private var paneSwapSelectionObservers: [NSObjectProtocol] = []
     private var paneSwapSourceWorkspaceID: UUID?
