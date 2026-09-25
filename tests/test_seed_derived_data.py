@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -1370,6 +1371,78 @@ class Wiring(unittest.TestCase):
             if bare.search(line)
         ]
         self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
+
+
+class PruneLocal(unittest.TestCase):
+    """Kept seeds use the disk: only the count cap or a short disk prunes them."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name)
+        self.cache = self.state / "seeds"
+        self.make(self.cache, "s", 10, offset=0)
+
+    def make(self, cache, name, count, offset):
+        """COUNT seeds past the grace period, NAME0 newest; OFFSET shifts them older."""
+        cache.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        for index in range(count):
+            path = cache / f"{name}{index}"
+            path.mkdir()
+            old = now - seed.PRUNE_GRACE_SECONDS - 60 * (index + 1 + offset)
+            os.utime(path, (old, old))
+
+    def left(self, cache=None):
+        return sorted(entry.name for entry in (cache or self.cache).iterdir())
+
+    def disk(self, short_by_seeds):
+        """A disk SHORT_BY_SEEDS deletes under the floor, each delete freeing 8 GiB."""
+        start = seed.LOCAL_KEEP_MIN_FREE_BYTES - short_by_seeds * 8 * 1024**3
+        roots = [self.cache, *(p for p in self.state.glob("cmux-ci-*/seeds"))]
+        total = sum(len(list(root.iterdir())) for root in roots)
+
+        def free(_):
+            now = sum(len(list(root.iterdir())) for root in roots)
+            return start + (total - now) * 8 * 1024**3
+        return mock.patch.object(seed, "free_bytes", side_effect=free)
+
+    def test_a_roomy_disk_keeps_every_seed_under_the_cap(self):
+        with self.disk(0):
+            seed.prune_local(self.cache)
+        self.assertEqual(len(self.left()), 10)
+        with self.disk(0), mock.patch.object(seed, "LOCAL_KEEP", 4):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(), ["s0", "s1", "s2", "s3"])
+
+    def test_a_short_disk_drops_the_oldest_until_there_is_room(self):
+        with self.disk(3):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(), [f"s{index}" for index in range(7)])
+
+    def test_a_short_disk_drops_the_oldest_of_any_root(self):
+        """The root that triggers the prune is not the one holding the oldest seeds."""
+        other = self.state / "cmux-ci-2" / "seeds"
+        self.make(other, "t", 5, offset=20)  # all older than every s seed
+        with self.disk(2):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(other), ["t0", "t1", "t2"])
+        self.assertEqual(len(self.left()), 10)
+        with self.disk(3):
+            seed.prune_local(other)
+        self.assertEqual(self.left(other), ["t0", "t1"])  # each root keeps its newest two
+        self.assertEqual(len(self.left()), 8)
+
+    def test_a_delete_that_frees_nothing_stops_the_prune(self):
+        with mock.patch.object(seed, "free_bytes", return_value=0):
+            seed.prune_local(self.cache)
+        self.assertEqual(len(self.left()), 9)
+
+    def test_the_newest_two_the_spared_and_the_recent_always_stay(self):
+        os.utime(self.cache / "s8")
+        with self.disk(20):
+            seed.prune_local(self.cache, spare=self.cache / "s5")
+        self.assertEqual(self.left(), ["s0", "s5", "s8"])  # touching s8 made it one of the newest two
 
 
 if __name__ == "__main__":
