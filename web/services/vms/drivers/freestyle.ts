@@ -1461,4 +1461,3 @@ export class FreestyleProvider implements VMProvider {
   }
 
 }
-

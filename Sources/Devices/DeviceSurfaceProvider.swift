@@ -138,7 +138,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
                 return (.unavailable, String(localized: "devices.link.ownerUnknown", defaultValue: "Waiting to confirm this Mac belongs to your account…"))
             }
             if needsAuthorization {
-                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Computers to connect."))
+                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Mobile › Computers to connect."))
             }
             return (.unavailable, lastFailure)
         }
