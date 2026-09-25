@@ -28,9 +28,10 @@ take an owned Mac? Owned Macs are `glaeda-<class>-xcode-<version>` pools
                                      `contents: read`, so its runner job cannot
                                      hold the `actions: read` the queue snapshot
                                      needs; it reaches the minis only on request
-    the pool has room              the pull request rule places LANES[lane].jobs
-                                     jobs on an owned pool, within its queue
-                                     rounds (below)
+    the pool has room              LANES[lane].jobs owned machines are free
+                                     live, or without the live read the pull
+                                     request rule places them on an owned
+                                     pool within its queue rounds (below)
     the simulators have room       SIM_LABEL has the run's simulator jobs free
 
 Otherwise the run keeps the default, exactly as before: when the picker would
@@ -50,6 +51,20 @@ restores that rule; a caller that omits the flag gets it too.
 ci-owned-pool-rescue.yml gives a test-ios.yml run's owned jobs the same queue
 allowance as a CI run's before it moves them. The simulators are not queued
 for: SIM_LABEL must have the run's simulator jobs free now.
+
+Live capacity. test-ios.yml mints the org's glaeda-route App token (as ci.yml
+does) for same-repository runs and passes it as ROUTE_TOKEN. With it, "free"
+is read from the runners API instead of estimated: the owned pool's runners
+that are online and not busy (pr_runner_pool.live_owned_free()), and of those
+the ones that also carry SIM_LABEL, less what the test-ios.yml and
+ios-screenshots.yml runs created in the last
+pr_runner_pool.LIVE_WINDOW_MINUTES and still in flight will take (their jobs
+may not have reached a runner yet). The run takes the pool `runner: owned`
+takes when both counts cover it; otherwise it keeps the default. The janitor
+snapshot and CI_OWNED_POOL_SLOTS are not read. On 2026-09-25 the snapshot
+estimate, which charges every newer pull request run it cannot place,
+counted the owned pool full while 20 of its runners sat idle. Without the
+token, or when the runners cannot be listed, the snapshot rules below decide.
 
 Simulator capacity. glaeda puts SIM_LABEL (`glaeda-ios-sim`) on the runners of
 minis that have an iOS simulator role and an iOS 26.x runtime, and runs one
@@ -145,11 +160,21 @@ MAX_SIM_JOBS = 2
 
 
 @dataclasses.dataclass(frozen=True)
+class LiveFree:
+    # The owned pool's runners free now, and those of them with SIM_LABEL,
+    # less the recent iOS runs' jobs (see Live capacity).
+    pool: int
+    sim: int
+
+
+@dataclasses.dataclass(frozen=True)
 class IOSLoad:
     pool: e2e_runner_pool.PoolLoad | None
     # Simulator jobs charged to test-ios.yml and ios-screenshots.yml runs created
     # since the snapshot and still in flight (charged_sim_jobs()).
     ios_since: int = 0
+    # Read from the runners API instead of the snapshot, when the route token works.
+    live: LiveFree | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -300,6 +325,20 @@ def resolve(
         return ephemeral(default)
     try:
         load = measure()
+    except Exception as error:  # noqa: BLE001 - every failure is fail-safe
+        log(f"could not read the runner queue ({error}); staying on {default}")
+        return ephemeral(default)
+    if load.live is not None:
+        pools = pr_runner_pool.owned_pools(pr_xcode_app)
+        jobs = run_jobs(lane, swift_package)
+        if pools and load.live.pool >= jobs and load.live.sim >= needed:
+            log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
+                f"{needed} needed -> {pools[0]} with {SIM_LABEL}")
+            return Route(pools[0], retry_label(default), True)
+        log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
+            f"{needed} needed; staying on {default}")
+        return ephemeral(default)
+    try:
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
                                         owned_slots=pool_slots(owned_slots, pr_xcode_app),
                                         jobs=run_jobs(lane, swift_package))
@@ -334,6 +373,32 @@ def charged_sim_jobs(run: Mapping[str, Any]) -> int:
         return 0
     package = "" if fields[2] == "simulator" else fields[2]
     return sim_jobs("test-ios", fields[4], package)
+
+
+def charged_jobs(run: Mapping[str, Any]) -> int:
+    """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
+    title = str(run.get("display_title") or "")
+    fields = title.split(TITLE_SEPARATOR)
+    if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
+        return LANES["test-ios"].jobs
+    if fields[6][len("on "):].strip() not in ("", "auto", OWNED_CHOICE):
+        return 0
+    return run_jobs("test-ios", "" if fields[2] == "simulator" else fields[2])
+
+
+def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[Mapping[str, Any]]) -> LiveFree:
+    """The pool's idle runners and its idle SIM_LABEL runners, less what `recent` in-flight iOS runs will take."""
+    mine = [runner for runner in runners
+            if pool in {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}]
+    idle = pr_runner_pool.live_owned_free(mine, (pool, SIM_LABEL))
+    return LiveFree(pool=idle[pool] - sum(charged_jobs(run) for run in recent),
+                    sim=idle[SIM_LABEL] - sum(charged_sim_jobs(run) for run in recent))
+
+
+def in_flight_ios_runs(client: Any, since: str, *, exclude_run_id: int | None) -> list[Mapping[str, Any]]:
+    """In-flight test-ios.yml and ios-screenshots.yml runs created at or after `since` (two requests)."""
+    return [run for workflow in IOS_WORKFLOWS for run in client.runs_since(workflow, since)
+            if run.get("id") != exclude_run_id and run.get("status") != "completed"]
 
 
 def ios_runs_since(client: Any, since: str, *, exclude_run_id: int | None) -> int:
@@ -375,10 +440,22 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     exclude = int(run_id) if run_id.isdigit() else None
     now = dt.datetime.now(dt.timezone.utc)
 
+    route_token = (env.get("ROUTE_TOKEN") or "").strip()
+
     def measure() -> IOSLoad:
         if not token or not repo:
             raise RuntimeError("GH_TOKEN and GH_REPO are required")
         client = pr_runner_pool.GitHub(token, repo)
+        pools = pr_runner_pool.owned_pools(args.pr_xcode_app)
+        if route_token and pools:
+            try:
+                runners = pr_runner_pool.GitHub(route_token, repo).runners()
+                since = pr_runner_pool.iso(now - dt.timedelta(minutes=pr_runner_pool.LIVE_WINDOW_MINUTES))
+                recent = in_flight_ios_runs(client, since, exclude_run_id=exclude)
+                return IOSLoad(None, live=live_free(runners, pools[0], recent))
+            except Exception as error:  # noqa: BLE001 - the snapshot path still decides
+                print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot",
+                      file=sys.stderr)
         load = e2e_runner_pool.measure_load(client, now=now, exclude_run_id=exclude)
         if load is None:
             return IOSLoad(None)
