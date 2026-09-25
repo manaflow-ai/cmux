@@ -556715,6 +556715,65 @@
                 }
             }
         }
+    },
+    "cli.sshPtyAttach.launchAcknowledgementTimeoutRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux did not acknowledge the SSH launch; retrying %s in %ss."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux hat den SSH-Start nicht bestätigt; neuer Versuch %s in %ss."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux n’a pas confirmé le démarrage SSH ; nouvelle tentative %s dans %ss."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] لم يؤكد cmux بدء SSH؛ ستتم إعادة المحاولة %s خلال %s ث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux no confirmó el inicio de SSH; reintentando %s en %ss."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 未確認 SSH 啟動；將在第 %s 次於 %s 秒後重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 未确认 SSH 启动；将在第 %s 次于 %s 秒后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux가 SSH 시작을 확인하지 못했습니다. %s초 후 %s번째로 다시 시도합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux が SSH の起動を確認できないため、%s 回目を %s 秒後に再試行します。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

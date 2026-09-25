@@ -9,6 +9,22 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     /// Creates a persistent SSH PTY retry script builder.
     public init() {}
 
+    /// Builds the shared launch acknowledgement retry functions.
+    ///
+    /// The caller defines ``<prefix>_register_attempt`` to invoke the local
+    /// lifecycle RPC. A timeout is returned as the dedicated launch timeout
+    /// status after three acknowledgement attempts; other failures retain
+    /// their original status so stale lifecycle rejections remain terminal.
+    ///
+    /// - Parameter functionPrefix: The shell function prefix, such as
+    ///   `cmux_ssh` or `cmux_ssh_attach`.
+    /// - Returns: Shell lines for the bounded registration loop.
+    public func launchRegistrationRetryLines(functionPrefix: String) -> [String] {
+        [
+            "\(functionPrefix)_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; \(functionPrefix)_attempt_registration_retry=0; while :; do \(functionPrefix)_register_attempt; \(functionPrefix)_attempt_registration_status=$?; if [ \"$\(functionPrefix)_attempt_registration_status\" -eq 0 ]; then return 0; fi; \(functionPrefix)_attempt_registration_retry=$((\(functionPrefix)_attempt_registration_retry + 1)); if [ \"$\(functionPrefix)_attempt_registration_retry\" -ge 3 ]; then return \"$\(functionPrefix)_attempt_registration_status\"; fi; /bin/sleep 0.1; done; }",
+        ]
+    }
+
     /// Builds shell lines that retry PTY attachment and optional foreground authentication.
     ///
     /// The surrounding script supplies `cmux_ssh_attach_foreground_auth` when
@@ -60,6 +76,14 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             localized: "cli.sshPtyAttach.retryReason.noProgress",
             defaultValue: "remote service made no progress"
         ).remoteCommandShellQuoted
+        let launchAcknowledgementTimeoutReason = String(
+            localized: "cli.sshPtyAttach.retryReason.launchAcknowledgementTimeout",
+            defaultValue: "cmux did not acknowledge the SSH launch"
+        ).remoteCommandShellQuoted
+        let launchAcknowledgementTimeoutLimitFormat = String(
+            localized: "cli.sshPtyAttach.launchAcknowledgementTimeoutLimitReached",
+            defaultValue: "[cmux] SSH pane could not contact cmux to start the remote session after %s attempts; reconnect to try again."
+        ).remoteCommandShellQuoted
         let reconnectedFormat = String(
             localized: "cli.sshPtyAttach.reconnected",
             defaultValue: "[cmux] remote PTY reconnected (attempt %s/%s)."
@@ -73,6 +97,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
+        let launchAcknowledgementTimeoutStatus = SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue
         let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
         // Persisted launchers may predate the retry policy.  A missing or
         // malformed limit must fail closed to the same finite supervisor used
@@ -155,10 +180,11 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "    \(retryWithoutReauthenticationStatus)) cmux_ssh_attach_retry_reason=\(daemonNotReadyReason); cmux_ssh_attach_no_progress_retry=0 ;;",
             "    \(sessionRunningStatus)) cmux_ssh_attach_retry_reason=\(bridgeClosedReason); cmux_ssh_attach_no_progress_retry=0; cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;;",
             "    \(transientStatus)) cmux_ssh_attach_retry_reason=\(bridgeClosedReason); cmux_ssh_attach_no_progress_retry=0; \(reauthenticate) ;;",
+            "    \(launchAcknowledgementTimeoutStatus)) cmux_ssh_attach_retry_reason=\(launchAcknowledgementTimeoutReason); cmux_ssh_attach_no_progress_retry=0 ;;",
             "    *) exit \"$cmux_ssh_attach_status\" ;;",
             "  esac",
             "  fi",
-            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then if [ \"$cmux_ssh_attach_status\" -eq \(launchAcknowledgementTimeoutStatus) ]; then printf '\\n\\033[31m%s\\033[0m\\n' \"$(printf \(launchAcknowledgementTimeoutLimitFormat) \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi; exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ \"$cmux_ssh_attach_retry\" -gt 0 ]; then cmux_ssh_attach_suppress_replay=1; fi",
             "  \(backoffBuilder.terminalInputModeResetLine)",
