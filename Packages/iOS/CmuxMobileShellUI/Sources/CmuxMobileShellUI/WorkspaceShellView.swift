@@ -1755,7 +1755,7 @@ struct WorkspaceShellView: View {
             return override
         }
 #endif
-        store.workspaces.filter { $0.hasUnread && $0.id != workspaceID }.count
+        return store.workspaces.filter { $0.hasUnread && $0.id != workspaceID }.count
     }
 
     /// Pop the pushed workspace detail back to the list — the action behind the
