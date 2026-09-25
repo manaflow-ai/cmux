@@ -237,7 +237,7 @@ collect_unit_test_output() {
   shopt -u nullglob
   # Bash with `set -u` treats an empty array expansion as an unset variable.
   # A changed-suites run can legitimately produce no shared-batch output.
-  if ((${#output_paths[@]} > 0)); then
+  if [[ -n ${output_paths[0]+x} ]]; then
     for output_path in "${output_paths[@]}"; do
       {
         echo "===== $(basename "$output_path") ====="

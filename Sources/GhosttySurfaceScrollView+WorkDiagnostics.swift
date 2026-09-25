@@ -26,6 +26,7 @@ extension GhosttySurfaceScrollView {
             let transition = self.pendingVisibilityRefreshTransition
             self.pendingVisibilityRefreshTransition = .unknown
             guard self.isVisibleInUI else { return }
+            guard self.surfaceView.terminalSurface?.hasPresentedFrame != true else { return }
             self.refreshSurfaceNow(reason: "setVisibleInUI.deferred", transition: transition)
         }
     }
