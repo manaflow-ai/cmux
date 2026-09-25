@@ -77,7 +77,7 @@ test("the health route answers without Stack or a team object and rejects other 
   const ok = await routeControl(new Request("https://api.example/v2/health"), { ...dependencies, sourceRevision: revision });
   expect(ok.status).toBe(200);
   expect(ok.headers.get("cache-control")).toBe("no-store");
-  expect(await ok.json() as Record<string, unknown>).toEqual({ schemaId: "health.v1", environment: device.identity.environment, sourceRevision: revision, rules: ["cmux.mac-peer-inbound.v1"] });
+  expect(await ok.json() as Record<string, unknown>).toEqual({ schemaId: "health.v1", environment: device.identity.environment, sourceRevision: revision, rules: ["cmux.mac-peer-inbound.v1"], storage: { maxSchemaVersion: 7, writeSchemaVersion: 6 } });
   const unpublished = await routeControl(new Request("https://api.example/v2/health"), { ...dependencies, sourceRevision: "not a sha" });
   expect((await unpublished.json() as { sourceRevision: string }).sourceRevision).toBe("unknown");
   expect((await routeControl(new Request("https://api.example/v2/health", { method: "POST" }), dependencies)).status).toBe(405);
