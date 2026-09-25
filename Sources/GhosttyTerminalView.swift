@@ -778,9 +778,8 @@ class GhosttyApp {
             // the CoreUI-safe numeric locale on every exit, including failures.
             numericLocaleController.pinProcessNumericLocale()
         }
-
         // Initialize Ghostty library first
-        let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+        let result = GhosttyRuntimeCInterop.initialize()
         if result != GHOSTTY_SUCCESS {
             #if DEBUG
             cmuxDebugLog("ghostty.initialize.failed result=\(result)")
@@ -6069,8 +6068,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
-            guard let surface = surface else { return false }
-            return hasCopyableTerminalSelection(surface: surface)
+            // Enabled whenever a surface exists, not gated on
+            // ghostty_surface_has_selection: that flag can report false while
+            // the runtime still holds a live selection (e.g. under constant
+            // TUI redraw), and a disabled menu item swallows Cmd+C before the
+            // runtime's own copy binding can handle it. Copy with no
+            // selection is a harmless no-op.
+            return surface != nil
         case #selector(paste(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
