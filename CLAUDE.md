@@ -8,13 +8,12 @@ Before committing, setup or a native build, [choose verification for the changed
 
 ## Dev builds on the Mac mini fleet
 
-For team dev builds, use the controller client `~/.local/bin/cmux-ci`. The Mac
-mini fleet is **dev-build-only**. Owned minis will take pull request jobs
-through the pool picker (`scripts/ci/pr_runner_pool.py`, `POOLS`); the earlier
-persistent compile pilot is retired. Release, signing, notarization, nightly,
-TestFlight, merge-queue policy, generic agent execution, and every GUI or
-runtime test remain on their existing lanes. A successful dev build never
-replaces a required check.
+For team dev builds, use the controller client `~/.local/bin/cmux-ci`. Owned
+minis also take pull request CI jobs (compile admission, app-host shards, side
+lanes) through the pool picker (`scripts/ci/pr_runner_pool.py`), with Blacksmith
+as overflow; see [CI runners](docs/ci-runners.md). Release, signing,
+notarization, nightly and TestFlight stay on Blacksmith. A successful dev build
+never replaces a required check.
 
 Before submitting, read the current [HQ AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md)
 and [agent build contract](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/AGENT-BUILDS.md).
@@ -22,17 +21,18 @@ These are the authoritative fleet instructions even when an old PR worktree has
 copied instructions. `AGENTS.md` in this repository is a symlink to this file.
 
 Commit and push the intended edits first. This builds the exact pushed SHA;
-it does not upload dirty local edits. Use the PR owner's GitHub login for
-`SUBMITTER` (for example `lawrencecchen` or `austinywang`), the full PR URL for
-`PR_URL`, and preserve both receipts:
+it does not upload dirty local edits. `--tag` is required: pick a descriptive
+tag and a new iteration suffix per submission. Put the full PR URL in
+`--workspace`. The controller records the submitter from your personal client
+token, so `--submitter` is not needed. Preserve both receipts:
 
 ```bash
 SHA=$(git rev-parse HEAD)
 PR_URL=https://github.com/manaflow-ai/cmux/pull/123
-SUBMITTER=lawrencecchen
+TAG=pr-123-sidebar-star-align-v1
 mkdir -p artifacts/fleet
-JOB_JSON=$(~/.local/bin/cmux-ci build cmux --ref "$SHA" \
-  --workspace "$PR_URL" --submitter "$SUBMITTER" \
+JOB_JSON=$(~/.local/bin/cmux-ci build cmux --ref "$SHA" --tag "$TAG" \
+  --workspace "$PR_URL" \
   --receipt "artifacts/fleet/$SHA-submit.json")
 JOB_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$JOB_JSON")
 ~/.local/bin/cmux-ci wait "$JOB_ID" --receipt "artifacts/fleet/$SHA-terminal.json" && \
@@ -45,11 +45,11 @@ requesting agent, then the receipts and HQ download link when complete. If
 continues if the submitting laptop disconnects. The installed client loads a
 private credential file; never print it or copy secrets into PR evidence.
 
-Use the client's workload defaults: **120 GiB for CMUX**, **250 GiB for a cold
-Chromium build**. The former blanket 250 GiB CMUX requirement is obsolete.
-Do not copy it into new requests or bypass a rejection with an arbitrary lower
-floor. A validated Chromium warm profile may use 200 GiB through the runbook's
-compatibility-receipt workflow. Report a controller/worker policy mismatch;
+Use the client's workload defaults: **80 GiB for CMUX**, **180 GiB for a cold
+Chromium build**. The former 120 GiB and blanket 250 GiB CMUX requirements are
+obsolete. Do not copy them into new requests or bypass a rejection with an
+arbitrary lower floor. A validated Chromium warm profile may use 120 GiB through
+the runbook's compatibility-receipt workflow. Report a controller/worker policy mismatch;
 queueing is not permission to build over SSH.
 
 The disk daemon owns cleanup under the host lock. Do not remove shared caches,
@@ -100,7 +100,9 @@ substitute a raw `.app` path or a `file://` URL.
 
 For standalone contributors without the team controller, the local workflow is
 `./scripts/reload.sh --tag <branch-slug>` (build without launch) or the same
-command with `--launch`. This is not a queue-bypass fallback for team agents.
+command with `--launch`. In a checkout not created through
+cmuxterm-hq, set `CMUX_DEV_BACKEND_MODE=local` (or pass `--prod-auth`); the
+default shared dev backend refuses otherwise. This is not a queue-bypass fallback for team agents.
 Other local variants remain `reloadp.sh` (Release), `reloads.sh` (isolated
 Release staging), and `reload2.sh --tag <tag>` (both). Local compile-only checks
 must use the tagged DerivedData directory rather than an untagged default.
@@ -211,9 +213,12 @@ the broad suite; state which additional lanes are needed and why.
 
 Normal PR CI can already run routed tests, including Swift package and CLI
 wrapper checks, without `full-ci`. A `cmuxTests/` diff runs the suites it
-declares or extends on one app-host worker, with no label. `unit-ci` runs every
-app-host suite across all seven workers; `full-ci` adds the other lanes on top.
-Neither is needed to test the suites you edited. The label permits eligible app-host shards,
+declares or extends, and an app-source diff runs the suites whose tests mention
+what it changed (`reverse_test_impact.py`, #14418), in one changed-suites batch
+with no label (edited suites over its budget take all seven shards). `unit-ci` runs
+every app-host suite across all seven workers; `full-ci` adds the other lanes on
+top. Neither is needed to test the suites you edited. No PR job runs
+`cmuxUITests/`; `no-full-ci` records a deliberate skip for `suite-coverage`. The label permits eligible app-host shards,
 lag builds, and other full-suite lanes; path routing, release routing, and job
 dependencies still apply. It does not request every repository test. Inspect
 actual executed tests on the current SHA: a green skipped job is not coverage.
@@ -235,6 +240,8 @@ its receipts. Required CI and review still apply to the final pushed head.
 A first pass ends when the change is implemented, [scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md) passed, and the PR is open. Native app/build-input changes require the tagged build on the pushed HEAD and focused tests; `web/` PRs also require the live Vercel preview URL. Docs and portable contributor tooling use their relevant checks without an unrelated app build. Then hand off; do not sit watching CI or running speculative review passes.
 
 Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
+
+**Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert. Before merging, wait for the checks that judge the change (macOS compile admission plus the app-host suites CI selected for it) and skip slow unrelated lanes. If you merge without them, say on the PR what was not verified. A main-regression comment on your PR (`main_regression_attribution.py`) is a fix-forward ask.
 
 The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
 
@@ -273,7 +280,7 @@ reasoning about cache warmth.
 
 Each of these has full detail in the skill named in parentheses.
 
-- **Typing-latency-sensitive paths** (`cmux-debugging`): `WindowTerminalHostView.hitTest()` in `TerminalWindowPortal.swift`, `TabItemView` in `ContentView.swift`, and `TerminalSurface.forceRefresh()` in `GhosttyTerminalView.swift` run on every keystroke. Read the skill before touching them.
+- **Typing-latency-sensitive paths** (`cmux-debugging`): `WindowTerminalHostView.hitTest()` in `TerminalWindowPortal.swift`, `TabItemView` in `ContentView.swift`, and `TerminalSurface.forceRefresh()` in `Packages/macOS/CmuxTerminal` run on every keystroke. Read the skill before touching them.
 - **SwiftUI list boundaries** (`cmux-debugging`): no view below a `LazyVStack`/`LazyHStack`/`List`/`ForEach` boundary may hold an observable store reference, and no function called from `body` may write state. Violating either reintroduces the 100% CPU spin loop from https://github.com/manaflow-ai/cmux/issues/2586. Reference pattern: `IndexSectionActions` / `SectionGapActions` / `SessionSearchFn` in `Sources/SessionIndexView.swift`.
 - **Do not add an app-level display link or manual `ghostty_surface_draw` loop.** Rely on Ghostty wakeups and its renderer, or typing lags.
 - **Terminal find layering** (`cmux-debugging`): `SurfaceSearchOverlay` mounts from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift` (AppKit portal layer), never from SwiftUI panel containers such as `Sources/Panels/TerminalPanelView.swift`. Portal-hosted terminal views can sit above SwiftUI during split/workspace churn.
@@ -285,7 +292,7 @@ Each of these has full detail in the skill named in parentheses.
 - **SPM package groups** (`cmux-architecture`): packages live under `Packages/{Shared,iOS,macOS}/<pkg>` and the workspace mirrors that folder shape. To move one, `git mv` the directory then `python3 scripts/check-workspace-package-groups.py --write`. Never hand-edit workspace group membership.
 - **Do not gitignore cmux-owned `Package.resolved`.** SwiftPM resolution changes must show in PR diffs; package-local lockfiles are not replaced by the root one. `python3 scripts/check-package-resolved-policy.py` fails on drift.
 - **"Feature flag" means a remote PostHog runtime flag.** Implement through `CmuxFeatureFlags` with a PostHog key, explicit unavailable fallback, registry metadata, live update behavior, and focused tests. A local override may support dogfood but must not be the production control plane.
-- **Foundation, SwiftUI, AttributeGraph, and WebKit semantics change between macOS major versions.** `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26 (https://github.com/manaflow-ai/cmux/issues/4529); CI and maintainer machines were all on the fixed side while every reporter was on the broken side. Test on the reporter's macOS before declaring a repro disproven. AWS M4 Pro builders (`aws-m4pro-1..6`) run macOS 15.7.4.
+- **Foundation, SwiftUI, AttributeGraph, and WebKit semantics change between macOS major versions.** `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26 (https://github.com/manaflow-ai/cmux/issues/4529); CI and maintainer machines were all on the fixed side while every reporter was on the broken side. Test on the reporter's macOS before declaring a repro disproven. CI's `blacksmith-6vcpu-macos-15` pool runs macOS 15; the AWS M4 Pro Tart hosts were retired in #14427.
 
 ## Shared behavior policy
 
