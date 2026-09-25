@@ -1646,32 +1646,40 @@ class E2EProducerPublishedBeforeItsTests(unittest.TestCase):
         }
 
     def test_a_published_product_counts_while_or_after_its_tests_run(self):
-        step = reuse.PUBLISH_STEPS[self.PATH]
+        steps = reuse.PUBLISH_STEPS[self.PATH]
+        before, after = steps
         for label, job in (
-            ("tests running", self.job("in_progress", None, (step, "success"),
+            ("tests running", self.job("in_progress", None, (before, "success"),
                                        ("Run selected tests on the build runner", None))),
-            ("tests failed", self.job("completed", "failure", (step, "success"),
+            ("tests failed", self.job("completed", "failure", (before, "success"),
                                       ("Run selected tests on the build runner", "failure"))),
+            # An owned Mac tests first and uploads after, whatever the tests did.
+            ("owned, tests failed", self.job("completed", "failure", (before, "skipped"),
+                                             ("Run selected tests", "failure"), (after, "success"))),
         ):
             with self.subTest(label):
-                self.assertTrue(reuse.compile_job_admitted(job, step))
+                self.assertTrue(reuse.compile_job_admitted(job, steps))
                 # Only the workflow that publishes before testing is read so.
                 self.assertFalse(reuse.compile_job_admitted(job))
 
     def test_an_unpublished_product_does_not(self):
-        step = reuse.PUBLISH_STEPS[self.PATH]
+        steps = reuse.PUBLISH_STEPS[self.PATH]
+        before, after = steps
         for label, job in (
-            ("still compiling", self.job("in_progress", None, (step, None))),
-            ("upload failed", self.job("completed", "failure", (step, "failure"))),
+            ("still compiling", self.job("in_progress", None, (before, None))),
+            ("upload failed", self.job("completed", "failure", (before, "failure"))),
             ("compile failed", self.job("completed", "failure",
-                                        ("Build the app-host and UI test product", "failure"), (step, "skipped"))),
+                                        ("Build the app-host and UI test product", "failure"), (before, "skipped"),
+                                        (after, "skipped"))),
+            ("owned, testing", self.job("in_progress", None, (before, "skipped"), (after, None))),
         ):
             with self.subTest(label):
-                self.assertFalse(reuse.compile_job_admitted(job, step))
+                self.assertFalse(reuse.compile_job_admitted(job, steps))
 
     def test_the_step_name_matches_the_workflow(self):
         workflow = (Path(__file__).resolve().parents[1] / self.PATH).read_text(encoding="utf-8")
-        self.assertIn(f"      - name: {reuse.PUBLISH_STEPS[self.PATH]}\n", workflow)
+        for name in reuse.PUBLISH_STEPS[self.PATH]:
+            self.assertIn(f"      - name: {name}\n", workflow)
         self.assertEqual(set(reuse.PUBLISH_STEPS), {self.PATH})
 
 

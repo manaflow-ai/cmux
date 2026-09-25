@@ -10680,11 +10680,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return requestCloseTab(tabId, force: force)
         }
 
-        // Mapping can transiently drift during split-tree mutations. If the target panel is
-        // currently focused (or is the active terminal first responder), close whichever tab
-        // bonsplit marks selected in that focused pane.
         let firstResponderPanelId = (NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder)
             .cmuxStrictOwningGhosttyView()?.terminalSurface?.id
+        return closeUnmappedPanelViaSelectedTab(
+            panelId,
+            firstResponderPanelId: firstResponderPanelId,
+            force: force
+        )
+    }
+
+    /// Fallback for ``closePanel(_:force:)`` when the panel has no bonsplit tab mapping.
+    ///
+    /// Mapping can transiently drift during split-tree mutations. If the target panel is
+    /// currently focused (or is the active terminal first responder), close the tab bonsplit
+    /// marks selected in the focused pane, but only when that tab maps to the target panel or
+    /// has no panel mapping at all. A selected tab owned by another panel is never closed:
+    /// the caller gets a failure instead of losing an unrelated surface (#12524).
+    func closeUnmappedPanelViaSelectedTab(
+        _ panelId: UUID,
+        firstResponderPanelId: UUID?,
+        force: Bool
+    ) -> Bool {
         let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
         guard targetIsActive,
               let focusedPane = bonsplitController.focusedPaneId,
@@ -10695,6 +10711,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 "focusedPanel=\(focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
                 "firstResponderPanel=\(firstResponderPanelId?.uuidString.prefix(5) ?? "nil") " +
                 "focusedPane=\(bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil")"
+            )
+#endif
+            return false
+        }
+
+        if let selectedOwner = panelIdFromSurfaceId(selected.id), selectedOwner != panelId {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.close.fallback.refuse panel=\(panelId.uuidString.prefix(5)) " +
+                "selectedTab=\(String(describing: selected.id).prefix(5)) " +
+                "selectedOwner=\(selectedOwner.uuidString.prefix(5))"
             )
 #endif
             return false
@@ -14523,6 +14550,7 @@ extension Workspace: BonsplitDelegate {
         bindSurface(newTabId, toPanelId: newPanel.id)
         rememberTerminalConfigInheritanceSource(newPanel)
         normalizePinnedTabs(in: newPane)
+        equalizeSplitsAfterCreatingSplitIfEnabled(newPaneId: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG
         cmuxDebugLog(

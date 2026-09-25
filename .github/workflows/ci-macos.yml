@@ -121,7 +121,7 @@ on:
         type: string
       # Set only beside pr_root_runner, when an idle root runner kept a build
       # of this run's merge base: the JSON array ["<root label>",
-      # "glaeda-warm-<sha12>"] (pr_runner_pool.py, warm affinity). Compile
+      # "glaeda-runner-<name>"] (pr_runner_pool.py, warm affinity). Compile
       # admission's attempt 1 takes it as its runs-on; retries do not.
       pr_admission_runner:
         required: false
@@ -439,7 +439,7 @@ jobs:
           # Fixed paths survive across jobs on persistent runners. Clear them
           # before any trusted product/cache restoration.
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
-          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
           # Outside DerivedData: the resolve step below recreates that directory.
           echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
@@ -648,7 +648,7 @@ jobs:
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
@@ -778,26 +778,31 @@ jobs:
         continue-on-error: true
         env:
           FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
-        run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT"
+          # The main commit the kept build merged onto and its pull request:
+          # its warm keys (warm-keys below).
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT" "$MERGED_ONTO" "$PR_NUMBER"
 
-      # The main commits this Mac's kept DerivedData starts from cheaply, for
-      # ci-owned-warm-labels.yml to label its root runner with, so a later run
-      # merging onto one of them can ask for this Mac (pr_runner_pool.py, warm
-      # affinity). Only once owned_build_state.py has `warm-keys`; before
-      # that, and on any failure, nothing is uploaded and nothing changes.
+      # The main commits and pull requests this Mac's kept builds (every
+      # root's) start from cheaply, for the queue janitor to record against
+      # this root runner (owned_warm_state.py), so a later run merging onto
+      # one of them, or re-pushing the same pull request, can ask for this Mac
+      # by its static glaeda-runner- label (pr_runner_pool.py, warm affinity).
+      # On any failure nothing is uploaded and nothing changes.
       - name: List the commits this owned Mac starts from warm
         id: owned-warm-keys
         if: ${{ !cancelled() && steps.owned-state.outputs.fingerprint != '' }}
         continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
+          # The seeds `prefer` may clone count only when it runs (the adopt steps' cache).
+          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
         run: |
           set -euo pipefail
-          usage="$(python3 scripts/ci/owned_build_state.py --help 2>&1 || true)"
-          case "$usage" in
-            *"owned_build_state.py warm-keys"*) ;;
-            *) echo "owned_build_state.py has no warm-keys yet"; exit 0 ;;
-          esac
           python3 scripts/ci/owned_build_state.py warm-keys "$CMUX_OWNED_STATE_ROOT" "$RUNNER_NAME" "$CMUX_PRODUCT_RUNNER" \
-            > "$RUNNER_TEMP/warm-keys.json"
+            "$FINGERPRINT" > "$RUNNER_TEMP/warm-keys.json"
+          cat "$RUNNER_TEMP/warm-keys.json"
           echo "path=$RUNNER_TEMP/warm-keys.json" >> "$GITHUB_OUTPUT"
 
       - name: Upload the owned Mac's warm keys
@@ -805,7 +810,10 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: owned-warm-keys-${{ github.run_id }}-${{ github.run_attempt }}
+          # A fixed name: the janitor lists it by name, the only artifact
+          # listing this repository answers. A re-run attempt replaces it.
+          name: owned-warm-keys
+          overwrite: true
           path: ${{ steps.owned-warm-keys.outputs.path }}
           retention-days: 1
           if-no-files-found: ignore
