@@ -1,17 +1,20 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension Workspace {
     var surfaceOwnershipPolicy: SurfaceOwnershipPolicy {
-        SurfaceOwnershipPolicy(cloudMachine: cloudVMID.map(SurfaceMachineID.cloud))
+        SurfaceOwnershipPolicy(cloudMachine: cloudVMBinding.map { SurfaceMachineID(rawValue: $0.vmID) } ?? cloudVMID.map(SurfaceMachineID.cloud))
     }
 
     /// A pane's projection or remote transport owns its machine, never its title
     /// or merely the workspace it happens to be displayed in.
-    func machineOwningSurface(_ panelID: UUID, catalog: SurfaceCatalog = .shared) -> SurfaceMachineID? {
+    func machineOwningSurface(_ panelID: UUID, catalog: SurfaceCatalog? = nil) -> SurfaceMachineID? {
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard panels[panelID] != nil else { return nil }
         if let machine = catalog.machineOwningPanel(panelID), !machine.isLocal { return machine }
+        if let resource = (panels[panelID] as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.cloudResource { return resource.machine }
         if let reservation = cloudPendingCreations[panelID] { return reservation.machine }
         if activeRemoteTerminalSurfaceIds.contains(panelID),
            let machine = remoteConfiguration?.managedCloudVMID {

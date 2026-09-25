@@ -86,7 +86,10 @@ private struct WorkspacePanelContentHostView: View {
                       let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
                     return false
                 }
-                return workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+                // selectedTabId, not selectedTab: building a Tab reads every
+                // TabItem property, which subscribes this update to the tab's
+                // title. Portal ownership only needs identity.
+                return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
@@ -184,7 +187,12 @@ struct WorkspaceContentView: View {
 
     var body: some View {
 #if DEBUG
-        let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
+        let _ = {
+            if minimalModeInvalidationProbe.shouldTraceBodyChanges?() == true {
+                Self._printChanges()
+            }
+            minimalModeInvalidationProbe.workspaceContentBody?()
+        }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
@@ -424,7 +432,8 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .modifier(CloudPaneCreationFailurePresentation(
             failureStore: workspace.cloudPaneCreationFailureStore,
-            isWorkspaceVisible: isWorkspaceVisible
+            isWorkspaceVisible: isWorkspaceVisible,
+            sourceView: workspace.cloudPaneCreationFailureSourceView
         ))
     }
     private func syncBonsplitNotificationBadges() {

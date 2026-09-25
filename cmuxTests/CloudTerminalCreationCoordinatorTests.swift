@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -91,6 +93,24 @@ struct CloudTerminalCreationCoordinatorTests {
         )
         coordinator.start()
         coordinator.cancel()
+        await Self.yieldUntil { cancelled >= 1 }
+        #expect(cancelled == 1)
+        #expect(failed == 0)
+    }
+
+    @Test @MainActor
+    func classifiedCancellationReportsCancelWithoutFailure() async {
+        var cancelled = 0
+        var failed = 0
+        let coordinator = CloudTerminalCreationCoordinator(
+            create: { throw URLError(.cancelled) },
+            project: { _ in throw URLError(.cancelled) },
+            onFailure: { _ in failed += 1 },
+            onCancel: { cancelled += 1 },
+            onSuccess: {}
+        )
+
+        coordinator.start()
         await Self.yieldUntil { cancelled >= 1 }
         #expect(cancelled == 1)
         #expect(failed == 0)

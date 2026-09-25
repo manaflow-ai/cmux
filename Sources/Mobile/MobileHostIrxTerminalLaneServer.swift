@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
 import Foundation
@@ -14,7 +15,6 @@ enum MobileHostIrxTerminalLaneServer {
         static let invalidInput: UInt64 = 5
     }
 
-    private static let maximumInputFrameByteCount = 16 * 1_024
     private static let maximumInputBufferByteCount = 64 * 1_024
 
     static func serve(
@@ -221,8 +221,7 @@ enum MobileHostIrxTerminalLaneServer {
                     await reject(stream, errorCode: ErrorCode.invalidInput)
                     return true
                 }
-                for input in try MobileHostIrohApplicationLaneRouter
-                    .decodeTerminalInputFrames(from: &buffer)
+                for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
                     guard await deliverInput(
                         input,
@@ -247,15 +246,23 @@ enum MobileHostIrxTerminalLaneServer {
     }
 
     private static func deliverInput(
-        _ input: String,
+        _ input: MobileTerminalInputFrame,
         surfaceID: UUID
     ) async -> Bool {
-        await MainActor.run {
+        // Stamped before the main-actor hop so the Mac's receive-to-accept
+        // stage includes any queueing behind other main-actor work.
+        let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
+        return await MainActor.run {
             guard
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
                     id: surfaceID)
             else { return false }
-            switch surface.sendInputResult(input) {
+            let result = MobileTerminalByteTee.shared.performMobileInput(
+                surfaceID: surfaceID,
+                sequence: input.sequence,
+                receivedAtMicros: receivedAtMicros
+            ) { surface.sendInputResult(input.text) }
+            switch result {
             case .sent:
                 // PTY output is observed by MobileTerminalByteTee, which
                 // schedules the normal render tick. A refresh here would

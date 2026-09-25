@@ -20,6 +20,7 @@ public enum SocketControlSettings {
 public enum SocketPathMarkerFiles {
     public enum Variant {
         case stable
+        case rc(String?)
         case nightly(String?)
         case staging(String?)
         case dev(String?)

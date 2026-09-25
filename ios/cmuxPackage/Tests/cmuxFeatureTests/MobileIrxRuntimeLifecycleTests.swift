@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxAuthRuntime
+import CmuxMobileShellModel
 @testable import CmuxIrxTransport
 @testable import cmuxFeature
 
@@ -8,7 +9,7 @@ import CmuxAuthRuntime
 struct MobileIrxRuntimeLifecycleTests {
     @Test
     func endpointReadyPublishesRuntimeChanges() async {
-        let composition = makeComposition()
+        let composition = await makeComposition()
         let updates = await composition.changes()
         var initial = updates.makeAsyncIterator()
         _ = await initial.next()
@@ -32,7 +33,7 @@ struct MobileIrxRuntimeLifecycleTests {
 
     @Test(arguments: [false, true])
     func nextScopeDoesNotWaitForOldSocketClose(signOutHook: Bool) async throws {
-        let composition = makeComposition()
+        let composition = await makeComposition()
         let previous = scope(generation: 1)
         let next = scope(generation: 2)
         let started = AsyncStream<Void>.makeStream()
@@ -54,7 +55,7 @@ struct MobileIrxRuntimeLifecycleTests {
                 http: { _ in throw V2ControlFailure.stopped }, stackAccessToken: { _ in "test" },
                 sign: { _ in Data() }),
             store: V2FileStateStore(rootDirectory: composition.configuration.stateDirectory,
-                fileManager: FileManager())
+                fileManager: FileManager(), identityKey: V2IdentityKey())
         )
         await control.installLifecycleTestSocket(socket)
         await composition.installLifecycleTestRuntime(scope: previous, control: control)
@@ -100,6 +101,7 @@ struct MobileIrxRuntimeLifecycleTests {
             teamID: "team", generation: generation)
     }
 
+    @MainActor
     private func makeComposition() -> MobileIrxRuntimeComposition {
         MobileIrxRuntimeComposition(
             configuration: MobileIrohV2Configuration(
@@ -112,7 +114,8 @@ struct MobileIrxRuntimeLifecycleTests {
                 displayName: "Test",
                 stateDirectory: FileManager.default.temporaryDirectory
                     .appendingPathComponent("cmux-iroh-runtime-tests-\(UUID().uuidString)")
-            )
+            ),
+            macListAuthState: MobileMacListAuthState()
         )
     }
 }
