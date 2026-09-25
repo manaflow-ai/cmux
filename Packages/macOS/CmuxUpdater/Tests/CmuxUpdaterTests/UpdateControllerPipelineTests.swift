@@ -20,9 +20,26 @@ import Testing
         #expect(harness.updater.updateCheckInterval == 3600)
 
         harness.defaults.set(24 * 60 * 60, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        harness.controller.updateCheckFrequencyDidChange()
         await waitUntil("scheduled interval update") {
             harness.updater.updateCheckInterval == 24 * 60 * 60
+                && harness.updater.automaticallyChecksForUpdates
         }
+    }
+
+    @Test func disablingScheduledChecksKeepsManualChecksAvailable() async {
+        let harness = Harness()
+        harness.defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        harness.controller.updateCheckFrequencyDidChange()
+
+        await waitUntil("scheduled checks to disable") {
+            harness.defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false
+                && !harness.updater.automaticallyChecksForUpdates
+        }
+        #expect(harness.updater.updateCheckInterval == 0)
+
+        harness.controller.checkForUpdates()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
     }
 
     private func updateAvailable(_ version: String, replyingInto box: ChoiceBox) -> UpdateState {
