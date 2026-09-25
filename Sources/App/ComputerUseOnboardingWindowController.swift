@@ -1,6 +1,6 @@
 import CmuxComputerUse
 import AppKit
-import Combine
+import Observation
 import SwiftUI
 
 struct ComputerUseOnboardingPermissionSnapshot: Equatable, Sendable {
@@ -10,15 +10,16 @@ struct ComputerUseOnboardingPermissionSnapshot: Equatable, Sendable {
 }
 
 @MainActor
-final class ComputerUseOnboardingPresentationState: ObservableObject {
-    @Published private(set) var returnToOverviewGeneration = 0
-    @Published private(set) var permissionCompanionVisible = false
-    @Published private(set) var permissionCompanionLayoutReady = false
-    @Published private(set) var onboardingComplete = false
+@Observable
+final class ComputerUseOnboardingPresentationState {
+    private(set) var returnToOverviewGeneration = 0
+    private(set) var permissionCompanionVisible = false
+    private(set) var permissionCompanionLayoutReady = false
+    private(set) var onboardingComplete = false
     /// True while the direct-capture probe can raise Tahoe's system consent
     /// alert, so whichever presentation is on screen explains that alert.
-    @Published private(set) var screenCaptureConsentPending = false
-    @Published private(set) var permissionSnapshot:
+    private(set) var screenCaptureConsentPending = false
+    private(set) var permissionSnapshot:
         ComputerUseOnboardingPermissionSnapshot?
 
     func publishPermissionSnapshot(
@@ -98,16 +99,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
-    static let directCaptureReadyDefaultsKey = "cmux.computerUse.directCapture.ready"
-
-    /// Drops the cached direct-capture verification. Called when the installed
-    /// helper build changes: Tahoe's consent is bound to the helper's code
-    /// signature, so a stale `true` would keep onboarding away while the system
-    /// alert fires at the next capture with no explanation on screen.
-    static func invalidateDirectCaptureReady(in userDefaults: UserDefaults) {
-        userDefaults.removeObject(forKey: directCaptureReadyDefaultsKey)
-    }
-    static let completionDismissDelay: Duration = .seconds(2.4)
+    static let directCaptureReadyDefaultsKey = ComputerUseOnboardingStore.legacyCompletionKey
+    nonisolated static let completionDismissDelay: Duration = .seconds(2.4)
     nonisolated static let permissionCompanionGlideDuration: TimeInterval = 0.48
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
     nonisolated private static let permissionCompanionWindowSize =
@@ -122,7 +115,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var window: ComputerUseOnboardingWindow?
     private var permissionCompanionWindow: ComputerUseOnboardingWindow?
     private let runtimeService: ComputerUseRuntimeService
-    private let userDefaults: UserDefaults
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
     private let externalWindowCompanionPresenter: ExternalWindowCompanionPresenter
     private var systemSettingsWindowTracker: ExternalApplicationWindowTracker?
@@ -133,11 +125,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     init(
         runtimeService: ComputerUseRuntimeService,
-        userDefaults: UserDefaults = .standard,
         externalWindowCompanionPresenter: ExternalWindowCompanionPresenter? = nil
     ) {
         self.runtimeService = runtimeService
-        self.userDefaults = userDefaults
         self.externalWindowCompanionPresenter = externalWindowCompanionPresenter
             ?? ExternalWindowCompanionPresenter()
         super.init()
@@ -191,9 +181,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             runtimeService: runtimeService,
             presentationState: presentationState,
             initialStep: startingPoint.step,
-            initialDirectCaptureReady: userDefaults.bool(
-                forKey: Self.directCaptureReadyDefaultsKey
-            ),
             onPermissionSetupStarted: { [weak self] permissionStep in
                 self?.permissionSetupStarted(for: permissionStep)
             },
@@ -209,7 +196,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.computerUse.onboarding")
-        window.title = String(localized: "computerUse.onboarding.windowTitle", defaultValue: "Computer Use Setup")
+        window.title = String(localized: "computerUse.onboarding.windowTitle", defaultValue: "cmux Computer Use Setup")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
@@ -432,8 +419,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         completionDismissTask?.cancel()
         completionDismissTask = nil
         stopSystemSettingsObservation()
-        userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
-        runtimeService.onboardingWasCompleted()
+        guard runtimeService.onboardingIsComplete else { return }
         guard let window else { return }
         revealExpandedOnboarding(
             window,
