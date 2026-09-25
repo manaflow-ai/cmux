@@ -708,7 +708,7 @@ def watch_run(run_id: int) -> int:
     glaeda = shutil.which("glaeda-gh")
     if glaeda:
         code = subprocess.run([glaeda, "wait", "run", f"{REPO}/{run_id}", "--timeout", "14400"], cwd=ROOT).returncode
-        if code in (0, 1):
+        if code in (0, 1, 130):  # a verdict, or an interrupt: never fall back to polling then
             return code
     return subprocess.run([
         "gh", "run", "watch", "--repo", REPO, str(run_id), "--exit-status", "--interval", "300",
