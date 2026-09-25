@@ -584,7 +584,7 @@ jobs:
       # Stop before compiling when a fast Linux job already failed. The gate
       # usually finishes during this job's setup; one read, no wait, and a
       # gate still running compiles as before. A declined compile measured 0
-      # of 12 reused (2026-09-25) while holding a macOS runner, and the owned
+      # of 12 reused (2026-09-25) while holding a macOS runner, and the Mac
       # minis are the scarce ones. The consumer gate below still covers a gate
       # that declines during the compile. canary/ branches compile anyway:
       # the probe is the point.
