@@ -30,7 +30,8 @@ enum TerminalUploadFailureNotification {
 
     /// What became of a failure handed to ``post(error:surfaceId:)``.
     enum Outcome: Equatable {
-        /// A notification was added to the store.
+        /// A notification was added to the store, or is waiting on the user's
+        /// notification hooks and will be added (with its sound) when they finish.
         case posted
         /// Nothing to say (cancellation, or an error with no message). The
         /// silence is intentional; the caller must not beep.
@@ -104,9 +105,16 @@ enum TerminalUploadFailureNotification {
     /// `surfaceId` must be the surface the upload STARTED on, captured before
     /// the transfer, not read back in the completion: a view can be reattached
     /// to a different surface while the upload runs.
+    ///
+    /// `resolvedHooks` is forwarded to the store; nil (the default) resolves the
+    /// user's configured notification hooks. Tests pass hooks explicitly.
     @MainActor
     @discardableResult
-    static func post(error: Error, surfaceId: UUID?) -> Outcome {
+    static func post(
+        error: Error,
+        surfaceId: UUID?,
+        resolvedHooks: [CmuxResolvedNotificationHook]? = nil
+    ) -> Outcome {
         guard let payload = payload(for: error, surfaceId: surfaceId) else { return .suppressed }
         guard let appDelegate = AppDelegate.shared,
               let notificationStore = appDelegate.notificationStore else { return .unavailable }
@@ -122,19 +130,32 @@ enum TerminalUploadFailureNotification {
             ?? appDelegate.activeTabManagerForCommands(preferredWindow: nil)?.selectedTabId
         else { return .unavailable }
 
-        // The store reports nothing back and silently drops a notification
-        // whose cooldown key is still active, so the only way to know whether
-        // this one landed is to look.
-        let countBefore = notificationStore.notifications.count
-        notificationStore.addNotification(
+        let notificationID = notificationStore.addNotification(
             tabId: tabId,
             surfaceId: anchoredSurfaceId,
             title: payload.title,
             subtitle: payload.subtitle,
             body: payload.body,
             cooldownKey: payload.cooldownKey,
-            cooldownInterval: cooldownInterval
+            cooldownInterval: cooldownInterval,
+            resolvedHooks: resolvedHooks
         )
-        return notificationStore.notifications.count > countBefore ? .posted : .unavailable
+        return outcome(
+            notificationID: notificationID,
+            awaitingHooks: notificationStore.hasPendingNotification(
+                forTabId: tabId,
+                surfaceId: anchoredSurfaceId
+            )
+        )
+    }
+
+    /// Maps what the store reported to an ``Outcome``. The store returns the new
+    /// notification's id when it recorded one synchronously, and nil when it
+    /// dropped it (cooldown, muted workspace) or handed it to the user's
+    /// notification hooks, which record it (and play its sound) later. The
+    /// pending hook request tells those last two apart, so a hook-delayed
+    /// notification is not mistaken for a dropped one and doubled with a beep.
+    static func outcome(notificationID: UUID?, awaitingHooks: Bool) -> Outcome {
+        notificationID != nil || awaitingHooks ? .posted : .unavailable
     }
 }

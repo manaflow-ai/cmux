@@ -76,7 +76,8 @@ import Foundation
         )
         let outcome = TerminalUploadFailureNotification.post(
             error: error,
-            surfaceId: workspace.focusedPanelId
+            surfaceId: workspace.focusedPanelId,
+            resolvedHooks: []
         )
 
         #expect(outcome == .posted)
@@ -91,10 +92,82 @@ import Foundation
         let countBefore = store.notifications.count
         let repeated = TerminalUploadFailureNotification.post(
             error: error,
-            surfaceId: workspace.focusedPanelId
+            surfaceId: workspace.focusedPanelId,
+            resolvedHooks: []
         )
         #expect(repeated == .unavailable)
         #expect(store.notifications.count == countBefore)
+    }
+
+    /// The store's returned id decides, not a notification count: nil with a
+    /// pending hook request means the notification is on its way.
+    @Test func outcomeFollowsTheReturnedNotificationID() {
+        #expect(TerminalUploadFailureNotification.outcome(notificationID: UUID(), awaitingHooks: false) == .posted)
+        #expect(TerminalUploadFailureNotification.outcome(notificationID: nil, awaitingHooks: true) == .posted)
+        #expect(TerminalUploadFailureNotification.outcome(notificationID: nil, awaitingHooks: false) == .unavailable)
+    }
+
+    /// With notification hooks configured the store records the notification
+    /// only after the hooks run, so nothing has landed when `post` returns.
+    /// Reading that as "not delivered" beeped on top of the notification's own
+    /// sound.
+    @Test func aHookDelayedNotificationCountsAsPosted() async throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalStore = appDelegate.notificationStore
+        let originalNotifications = store.notifications
+        let originalSelectedTabId = manager.selectedTabId
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+
+        let workspace = manager.addWorkspace(select: true)
+        let surfaceId = workspace.focusedPanelId
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            if let originalSelectedTabId,
+               manager.tabs.contains(where: { $0.id == originalSelectedTabId }) {
+                manager.selectedTabId = originalSelectedTabId
+            }
+            store.replaceNotificationsForTesting(originalNotifications)
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalStore
+        }
+
+        let hook = CmuxResolvedNotificationHook(
+            id: "upload-failure-passthrough",
+            command: "cat",
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let error = NSError(
+            domain: "cmux.upload.command",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Upload command failed: hook-delayed"]
+        )
+        let outcome = TerminalUploadFailureNotification.post(
+            error: error,
+            surfaceId: surfaceId,
+            resolvedHooks: [hook]
+        )
+
+        #expect(outcome == .posted)
+        #expect(store.hasPendingNotification(forTabId: workspace.id, surfaceId: surfaceId))
+
+        // Let the hook finish before the store is restored, so its delivery
+        // cannot land in another test.
+        let deadline = Date().addingTimeInterval(10)
+        while store.hasPendingNotification(forTabId: workspace.id, surfaceId: surfaceId),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        #expect(!store.hasPendingNotification(forTabId: workspace.id, surfaceId: surfaceId))
     }
 
     /// The built-in scp transport captures scp's stderr and used to replace it
