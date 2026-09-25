@@ -416,6 +416,10 @@ path = "tests/test_ci_prune_xcode_compilation_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_owned_build_state.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
@@ -433,6 +437,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_repo_variable_defaults.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_cache_public_url.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1178,4 +1186,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_git_seed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_13766_terminal_history.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_surface_scoped_keys.py"
 lane = "linux-guard"

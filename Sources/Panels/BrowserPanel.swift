@@ -2996,7 +2996,7 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
-        let webView = CmuxWebView(frame: .zero, configuration: config)
+        let webView = CmuxWebView(frame: .zero, configuration: config, host: CmuxWebViewAppHost())
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
@@ -7207,7 +7207,7 @@ extension BrowserPanel {
 
     private func performDiffViewerFindActionOrFallback(
         _ action: CmuxWebView.DiffViewerFindAction,
-        fallback: @escaping @MainActor () -> Void
+        fallback: @escaping @MainActor @Sendable () -> Void
     ) {
         guard let cmuxWebView = webView as? CmuxWebView else {
             fallback()
@@ -8262,7 +8262,7 @@ private extension NSObject {
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then moving the finished file to the user's
 /// Downloads folder unless the browser save-panel setting is enabled.
-class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFilenameOverriding {
     private nonisolated static let maxDownloadDestinationCollisionRetries = 100
 
     private struct DownloadState: Sendable {

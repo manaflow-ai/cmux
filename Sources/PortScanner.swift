@@ -80,7 +80,11 @@ final class PortScanner: @unchecked Sendable {
 
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
-    private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
+    static let defaultBurstOffsets: [TimeInterval] = [0.5, 1.5, 3, 5, 7.5, 10]
+    /// Quiet window that merges kicks from many shells into one burst.
+    static let defaultCoalesceDelay: TimeInterval = 0.2
+    private let burstOffsets: [TimeInterval]
+    private let coalesceDelay: TimeInterval
     private static let panelMissingPortRetentionLimit = 2
     private static let minimumScansPerKick = panelMissingPortRetentionLimit + 1
     private static let agentRescanInterval: TimeInterval = 2
@@ -97,9 +101,13 @@ final class PortScanner: @unchecked Sendable {
         },
         ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
             TerminalTTYSessionIdentity(ttyName: $0)
-        }
+        },
+        burstOffsets: [TimeInterval] = PortScanner.defaultBurstOffsets,
+        coalesceDelay: TimeInterval = PortScanner.defaultCoalesceDelay
     ) {
         self.commandRunner = commandRunner
+        self.burstOffsets = burstOffsets
+        self.coalesceDelay = coalesceDelay
         self.processIdentityProvider = processIdentityProvider
         self.processPresenceProvider = processPresenceProvider
         self.ttySessionIdentityProvider = ttySessionIdentityProvider
@@ -227,7 +235,7 @@ final class PortScanner: @unchecked Sendable {
     private func startCoalesce() {
         coalesceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 0.2)
+        timer.schedule(deadline: .now() + coalesceDelay)
         timer.setEventHandler { [weak self] in
             self?.coalesceTimerFired()
         }
@@ -247,7 +255,7 @@ final class PortScanner: @unchecked Sendable {
     private func runBurst(index: Int, burstStart: DispatchTime? = nil, generation: UInt64) {
         // Already on `queue`.
         guard generation == burstGeneration else { return }
-        guard index < Self.burstOffsets.count else {
+        guard index < burstOffsets.count else {
             burstActive = false
             // If new kicks arrived during the burst, start a new coalesce cycle.
             if !pendingKicks.isEmpty {
@@ -257,7 +265,7 @@ final class PortScanner: @unchecked Sendable {
         }
 
         let start = burstStart ?? .now()
-        let deadline = start + Self.burstOffsets[index]
+        let deadline = start + burstOffsets[index]
         let timerID = UUID()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: deadline)

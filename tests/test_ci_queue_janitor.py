@@ -13,6 +13,8 @@ import urllib.parse
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/queue_janitor.py"
@@ -622,9 +624,43 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("| cancelled |", live)
 
 
+class OwnedMarkerRunTests(unittest.TestCase):
+    def run_of(self, **overrides):
+        run = {"event": "pull_request", "path": ".github/workflows/ci.yml", "run_attempt": 1,
+               "head_repository": {"id": 1}, "repository": {"id": 1}}
+        run.update(overrides)
+        return run
+
+    def test_ci_pull_requests_and_e2e_dispatches_may_hold_an_owned_pool(self):
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(), []))
+        self.assertTrue(janitor.may_hold_owned_pool(
+            self.run_of(event="workflow_dispatch", path=".github/workflows/test-e2e.yml"), []))
+        for why, run in {
+            "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
+            "e2e as a pull request": self.run_of(path=".github/workflows/test-e2e.yml"),
+            "retry": self.run_of(run_attempt=2),
+            "fork": self.run_of(head_repository={"id": 2}),
+            "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
+        }.items():
+            with self.subTest(why=why):
+                self.assertFalse(janitor.may_hold_owned_pool(run, []))
+
+
 class WorkflowShapeTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def test_a_requested_ci_run_refreshes_a_stale_snapshot(self):
+        # The cron drifts (55 minutes apart on 2026-09-25), so CI being
+        # requested also sweeps, unless the newest snapshot is fresh.
+        workflow = yaml.safe_load(self.text)
+        triggers = workflow[True] if True in workflow else workflow["on"]
+        self.assertEqual(triggers["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        steps = workflow["jobs"]["sweep"]["steps"]
+        self.assertEqual(steps[0]["id"], "fresh")
+        self.assertEqual(steps[0]["if"], "github.event_name == 'workflow_run'")
+        for step in steps[1:]:
+            self.assertIn("steps.fresh.outputs.skip != 'true'", step["if"], step["name"])
 
     def test_triggers_permissions_and_runner(self):
         text = self.text

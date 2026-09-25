@@ -315,3 +315,12 @@ body {
     text-decoration-color: var(--foreground);
   }
 }
+
+/*
+ * Hexclave appends a full-screen, max z-index modal to <body> when an auth
+ * flow fails. It is written for the developer, and it blocks the whole page
+ * for visitors. `hexclave-overlay-guard.ts` reports its text to PostHog.
+ */
+.hexclave-setup-error-overlay {
+  display: none !important;
+}

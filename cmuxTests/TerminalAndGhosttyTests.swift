@@ -4374,7 +4374,35 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         // Holding it fixed is also the stricter test: cumulative retention
         // across cycles now shows up as a rising ratio, where advancing the
         // baseline measured only each cycle's increment and hid a steady leak.
-        let oneRendererBaseline = try settledFootprint("one-renderer baseline")
+        //
+        // The baseline follows the same asynchronous release as every cycle
+        // target below: the four initial evictions only publish unrealize
+        // requests. Measured at once it read 232 MB where the same one
+        // renderer later settled at 210 MB, and a baseline inflated by memory
+        // still being freed left cycle 2's five-renderer peak inside the
+        // noise allowance, failing the "must distinguish" guard. Sample until
+        // settled readings stop falling, within the same bounded window, and
+        // keep the lowest. A pending release can plateau through one whole
+        // settle window, so require two non-falling readings in a row.
+        let baselineDescription = "one-renderer baseline"
+        let baselineDeadline = ProcessInfo.processInfo.systemUptime + 20
+        var settledBaseline: UInt64?
+        var nonFallingReadings = 0
+        repeat {
+            let sample = try sampleFootprint(baselineDescription)
+            guard sample.settled else { continue }
+            if let previous = settledBaseline {
+                nonFallingReadings = previous <= sample.median + sampleNoiseAllowance
+                    ? nonFallingReadings + 1
+                    : 0
+            }
+            settledBaseline = min(settledBaseline ?? sample.median, sample.median)
+            if nonFallingReadings >= 2 { break }
+        } while ProcessInfo.processInfo.systemUptime < baselineDeadline
+        guard let oneRendererBaseline = settledBaseline else {
+            XCTFail("Physical footprint did not settle for \(baselineDescription)")
+            return
+        }
 
         for cycle in 1...3 {
             for surface in hiddenSurfaces {
@@ -6423,10 +6451,36 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
         realizeWindowLayout(window)
 
+        // AppKit keeps the last event it dequeued as NSApp.currentEvent, and
+        // that can be an appKitDefined event of another window. A drag must
+        // still scope to the window hosting its terminals.
+        let otherWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 120)
+        )
+        if let staleEvent = NSEvent.otherEvent(
+            with: .appKitDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: otherWindow.windowNumber,
+            context: nil,
+            subtype: 0,
+            data1: 0,
+            data2: 0
+        ) {
+            NSApp.postEvent(staleEvent, atStart: true)
+            _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        }
+        XCTAssertEqual(NSApp.currentEvent?.type, .appKitDefined)
+
         store.bonsplitController.noteDividerDragSession(true)
         XCTAssertTrue(
             TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
             "Dock split drags should enter the same window-scoped terminal resize transaction"
+        )
+        XCTAssertFalse(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: otherWindow),
+            "A stale non-pointer event must not scope the drag to its window"
         )
         store.bonsplitController.noteDividerDragSession(false)
         XCTAssertFalse(
