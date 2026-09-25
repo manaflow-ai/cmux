@@ -91,7 +91,7 @@ public struct CustomSidebarValidator {
             case .swift:
                 let source = try String(contentsOf: fileURL, encoding: .utf8)
                 let node = SwiftViewInterpreter().evaluate(source, state: dataContext ?? fallbackDataContext)
-                guard node != nil else {
+                guard let node else {
                     return CustomSidebarValidationEntry(
                         name: name,
                         fileURL: fileURL,
@@ -99,6 +99,18 @@ public struct CustomSidebarValidator {
                         errorMessage: String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")
                     )
                 }
+                let skipped = unsupportedModifiers(in: node).sorted()
+                let warnings = skipped.isEmpty ? [] : [String(
+                    format: String(
+                        localized: "sidebar.custom.validation.skippedModifiers",
+                        defaultValue: "Skipped unsupported modifiers: %@.",
+                        bundle: .module
+                    ),
+                    skipped.joined(separator: ", ")
+                )]
+                return CustomSidebarValidationEntry(
+                    name: name, fileURL: fileURL, kind: kind, errorMessage: nil, warnings: warnings
+                )
             case .json:
                 let data = try Data(contentsOf: fileURL)
                 _ = try JSONDecoder().decode(DSLDocument.self, from: data)
@@ -127,6 +139,19 @@ public struct CustomSidebarValidator {
                 errorMessage: describe(error)
             )
         }
+    }
+
+    private func unsupportedModifiers(in node: RenderNode) -> Set<String> {
+        var names = Set<String>()
+        var pending = [node]
+        while let current = pending.popLast() {
+            for modifier in current.modifiers {
+                if RenderModifierKind(rawValue: modifier.name) == nil { names.insert(modifier.name) }
+                pending.append(contentsOf: modifier.children)
+            }
+            pending.append(contentsOf: current.children)
+        }
+        return names
     }
 
     /// Converts decoding and filesystem errors into sidebar-facing text.

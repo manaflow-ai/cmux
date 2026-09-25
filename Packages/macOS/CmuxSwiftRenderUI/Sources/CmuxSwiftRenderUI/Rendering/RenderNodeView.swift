@@ -31,15 +31,15 @@ struct RenderNodeView: View {
     private var content: some View {
         switch node.kind {
         case .vstack:
-            VStack(alignment: .leading, spacing: node.spacing.map { CGFloat($0) }) { children }
+            VStack(alignment: dslHAlignment(clean(node.alignment) ?? "leading"), spacing: node.spacing.map { CGFloat($0) }) { children }
         case .hstack:
-            HStack(spacing: node.spacing.map { CGFloat($0) }) { children }
+            HStack(alignment: dslVAlignment(clean(node.alignment)), spacing: node.spacing.map { CGFloat($0) }) { children }
         case .zstack:
-            ZStack { children }
+            ZStack(alignment: frameAlignment(clean(node.alignment))) { children }
         case .lazyVStack:
-            LazyVStack(alignment: .leading, spacing: node.spacing.map { CGFloat($0) }) { children }
+            LazyVStack(alignment: dslHAlignment(clean(node.alignment) ?? "leading"), spacing: node.spacing.map { CGFloat($0) }) { children }
         case .lazyHStack:
-            LazyHStack(spacing: node.spacing.map { CGFloat($0) }) { children }
+            LazyHStack(alignment: dslVAlignment(clean(node.alignment)), spacing: node.spacing.map { CGFloat($0) }) { children }
         case .group:
             Group { children }
         case .list:
@@ -166,57 +166,57 @@ struct RenderNodeView: View {
 
     private func apply(_ modifier: RenderModifier, to view: AnyView) -> AnyView {
         let token = clean(modifier.firstValue)
-        switch modifier.name {
-        case "font":
+        switch RenderModifierKind(rawValue: modifier.name) {
+        case .font?:
             return AnyView(view.modifier(OptionalDSLFont(spec: resolveFontSpec(token))))
-        case "bold":
+        case .bold?:
             return AnyView(view.fontWeight(.bold))
-        case "strikethrough":
+        case .strikethrough?:
             return AnyView(view.strikethrough())
-        case "underline":
+        case .underline?:
             return AnyView(view.underline())
-        case "italic":
+        case .italic?:
             return AnyView(view.italic())
-        case "monospaced":
+        case .monospaced?:
             return AnyView(view.monospaced())
-        case "monospacedDigit":
+        case .monospacedDigit?:
             return AnyView(view.monospacedDigit())
-        case "fontWeight":
+        case .fontWeight?:
             return AnyView(view.fontWeight(dslFontWeight(token)))
-        case "fontDesign":
+        case .fontDesign?:
             return AnyView(view.fontDesign(dslFontDesign(token)))
-        case "multilineTextAlignment":
+        case .multilineTextAlignment?:
             return AnyView(view.multilineTextAlignment(dslTextAlignment(token)))
-        case "textCase":
+        case .textCase?:
             return AnyView(view.textCase(dslTextCase(token)))
-        case "truncationMode":
+        case .truncationMode?:
             return AnyView(view.truncationMode(dslTruncationMode(token)))
-        case "foregroundColor", "foregroundStyle", "fill", "tint":
+        case .foregroundColor?, .foregroundStyle?, .fill?, .tint?:
             if let color = dslColor(token) { return AnyView(view.foregroundStyle(color)) }
             return view
-        case "padding":
+        case .padding?:
             if let token, let value = Double(token) { return AnyView(view.padding(CGFloat(value))) }
             return AnyView(view.padding())
-        case "background":
+        case .background?:
             if !modifier.children.isEmpty {
                 let alignment = frameAlignment(clean(modifier.value("alignment")))
                 return AnyView(view.background(alignment: alignment) { modifierChildren(modifier) })
             }
             if let color = dslColor(token) { return AnyView(view.background(color)) }
             return view
-        case "overlay":
+        case .overlay?:
             if !modifier.children.isEmpty {
                 let alignment = frameAlignment(clean(modifier.value("alignment")))
                 return AnyView(view.overlay(alignment: alignment) { modifierChildren(modifier) })
             }
             if let color = dslColor(token) { return AnyView(view.overlay(color)) }
             return view
-        case "mask":
+        case .mask?:
             if !modifier.children.isEmpty {
                 return AnyView(view.mask { modifierChildren(modifier) })
             }
             return view
-        case "safeAreaInset":
+        case .safeAreaInset?:
             if !modifier.children.isEmpty {
                 let edge = clean(modifier.value("edge"))
                 if edge == "top" {
@@ -225,108 +225,111 @@ struct RenderNodeView: View {
                 return AnyView(view.safeAreaInset(edge: .bottom) { modifierChildren(modifier) })
             }
             return view
-        case "cornerRadius":
+        case .cornerRadius?:
             if let token, let value = Double(token) {
                 return AnyView(view.clipShape(RoundedRectangle(cornerRadius: CGFloat(value))))
             }
             return view
-        case "opacity":
+        case .opacity?:
             if let token, let value = Double(token) { return AnyView(view.opacity(value)) }
             return view
-        case "lineLimit":
+        case .lineLimit?:
             if let token, let value = Int(token) { return AnyView(view.lineLimit(value)) }
             return view
-        case "frame":
+        case .frame?:
             return applyFrame(modifier, to: view)
-        case "shadow":
+        case .shadow?:
             let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 4
             let color = dslColor(clean(modifier.value("color"))) ?? Color.black.opacity(0.33)
             return AnyView(view.shadow(color: color, radius: CGFloat(radius),
                                        x: CGFloat(modDouble(modifier, "x") ?? 0),
                                        y: CGFloat(modDouble(modifier, "y") ?? 0)))
-        case "border":
+        case .border?:
             let color = dslColor(token) ?? .secondary
             let width = modDouble(modifier, "width") ?? 1
             return AnyView(view.border(color, width: CGFloat(width)))
-        case "blur":
+        case .blur?:
             let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 0
             return AnyView(view.blur(radius: CGFloat(radius)))
-        case "offset":
+        case .offset?:
             return AnyView(view.offset(x: CGFloat(modDouble(modifier, "x") ?? 0),
                                        y: CGFloat(modDouble(modifier, "y") ?? 0)))
-        case "scaleEffect":
+        case .scaleEffect?:
             if let token, let s = Double(token) { return AnyView(view.scaleEffect(CGFloat(s))) }
             return view
-        case "rotationEffect":
+        case .rotationEffect?:
             return AnyView(view.rotationEffect(.degrees(angleDegrees(token) ?? 0)))
-        case "zIndex":
+        case .zIndex?:
             if let token, let z = Double(token) { return AnyView(view.zIndex(z)) }
             return view
-        case "brightness":
+        case .brightness?:
             return AnyView(view.brightness(token.flatMap(Double.init) ?? 0))
-        case "contrast":
+        case .contrast?:
             return AnyView(view.contrast(token.flatMap(Double.init) ?? 1))
-        case "saturation":
+        case .saturation?:
             return AnyView(view.saturation(token.flatMap(Double.init) ?? 1))
-        case "grayscale":
+        case .grayscale?:
             return AnyView(view.grayscale(token.flatMap(Double.init) ?? 0))
-        case "clipShape":
+        case .clipShape?:
             return applyClipShape(token, to: view)
-        case "imageScale":
+        case .imageScale?:
             return AnyView(view.imageScale(dslImageScale(token)))
-        case "symbolRenderingMode":
+        case .symbolRenderingMode?:
             return AnyView(view.symbolRenderingMode(dslSymbolRenderingMode(token)))
-        case "symbolVariant":
+        case .symbolVariant?:
             return AnyView(view.symbolVariant(dslSymbolVariant(token)))
-        case "contextMenu":
+        case .contextMenu?:
             if !modifier.children.isEmpty {
                 return AnyView(view.contextMenu { modifierChildren(modifier) })
             }
             return view
-        case "help":
+        case .help?:
             if let token { return AnyView(view.help(LocalizedStringKey(token))) }
             return view
-        case "keyboardShortcut":
+        case .keyboardShortcut?:
             guard let key = dslKeyEquivalent(token) else { return view }
             return AnyView(view.keyboardShortcut(key, modifiers: dslEventModifiers(modifier.value("modifiers"))))
-        case "disabled":
+        case .disabled?:
             // Disabled only when the arg explicitly resolves to true; an
             // unresolved expression defaults to enabled, not disabled.
             return AnyView(view.disabled(token == "true"))
-        case "redacted":
+        case .redacted?:
             let reason = clean(modifier.value("reason")) ?? token
             return AnyView(view.redacted(reason: reason == "invalidated" ? .invalidated : .placeholder))
-        case "unredacted":
+        case .unredacted?:
             return AnyView(view.unredacted())
-        case "accessibilityLabel":
+        case .accessibilityLabel?:
             return AnyView(view.accessibilityLabel(Text(token ?? "")))
-        case "accessibilityHint":
+        case .accessibilityHint?:
             return AnyView(view.accessibilityHint(Text(token ?? "")))
-        case "accessibilityValue":
+        case .accessibilityValue?:
             return AnyView(view.accessibilityValue(Text(token ?? "")))
-        case "accessibilityHidden":
+        case .accessibilityHidden?:
             return AnyView(view.accessibilityHidden(token != "false"))
-        case "scrollIndicators":
+        case .scrollIndicators?:
             return AnyView(view.scrollIndicators(token == "hidden" || token == "never" ? .hidden : .visible))
-        case "scrollContentBackground":
+        case .scrollContentBackground?:
             return AnyView(view.scrollContentBackground(token == "hidden" ? .hidden : .visible))
-        case "aspectRatio":
+        case .aspectRatio?:
             let mode: ContentMode = clean(modifier.value("contentMode")) == "fill" ? .fill : .fit
             // Only apply an explicit ratio when positive; a zero/negative ratio
             // is invalid in SwiftUI, so fall back to mode-only.
             if let token, let ratio = Double(token), ratio > 0 { return AnyView(view.aspectRatio(CGFloat(ratio), contentMode: mode)) }
             return AnyView(view.aspectRatio(contentMode: mode))
-        case "scaledToFit":
+        case .scaledToFit?:
             return AnyView(view.aspectRatio(contentMode: .fit))
-        case "scaledToFill":
+        case .scaledToFill?:
             return AnyView(view.aspectRatio(contentMode: .fill))
-        case "clipped":
+        case .clipped?:
             return AnyView(view.clipped())
-        case "fixedSize":
+        case .fixedSize?:
             return AnyView(view.fixedSize())
-        case "layoutPriority":
+        case .layoutPriority?:
             return AnyView(view.layoutPriority(token.flatMap(Double.init) ?? 0))
-        default:
+        case .resizable?, .trim?, .stroke?, .strokeBorder?:
+            // These modifiers are applied to the concrete image or shape.
+            return view
+        case nil:
             return view
         }
     }
@@ -408,8 +411,7 @@ struct RenderNodeView: View {
         }
     }
 
-    /// Applies `.frame(width:height:minWidth:maxWidth:alignment:)` from the
-    /// modifier's labeled arguments (`.infinity` supported for max bounds).
+    /// Applies the fixed or flexible frame overload, preserving its alignment.
     private func applyFrame(_ modifier: RenderModifier, to view: AnyView) -> AnyView {
         func dim(_ label: String) -> CGFloat? {
             guard let raw = modifier.value(label) else { return nil }
@@ -417,16 +419,23 @@ struct RenderNodeView: View {
             return Double(raw).map { CGFloat($0) }
         }
         let alignment = frameAlignment(clean(modifier.value("alignment")))
-        return AnyView(
-            view.frame(
+        let flexibleLabels = ["minWidth", "idealWidth", "maxWidth", "minHeight", "idealHeight", "maxHeight"]
+        var result = view
+        if flexibleLabels.contains(where: { modifier.value($0) != nil }) {
+            result = AnyView(result.frame(
                 minWidth: dim("minWidth"),
+                idealWidth: dim("idealWidth"),
                 maxWidth: dim("maxWidth"),
                 minHeight: dim("minHeight"),
+                idealHeight: dim("idealHeight"),
                 maxHeight: dim("maxHeight"),
                 alignment: alignment
-            )
-            .frame(width: dim("width"), height: dim("height"))
-        )
+            ))
+        }
+        if modifier.value("width") != nil || modifier.value("height") != nil {
+            result = AnyView(result.frame(width: dim("width"), height: dim("height"), alignment: alignment))
+        }
+        return result
     }
 
     private func frameAlignment(_ token: String?) -> Alignment {

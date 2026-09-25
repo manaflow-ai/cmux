@@ -14,12 +14,16 @@ public struct CustomSidebarValidationEntry: Equatable, Sendable {
     /// Human-readable validation error, or `nil` when the sidebar is valid.
     public let errorMessage: String?
 
+    /// Nonfatal diagnostics for syntax skipped while producing a view.
+    public let warnings: [String]
+
     /// Creates a validation entry.
-    public init(name: String, fileURL: URL, kind: CustomSidebarFileKind, errorMessage: String?) {
+    public init(name: String, fileURL: URL, kind: CustomSidebarFileKind, errorMessage: String?, warnings: [String] = []) {
         self.name = name
         self.fileURL = fileURL
         self.kind = kind
         self.errorMessage = errorMessage
+        self.warnings = warnings
     }
 
     /// Whether validation succeeded.

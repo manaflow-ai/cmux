@@ -20784,6 +20784,9 @@ struct CMUXCLI {
                     error
                 ))
             }
+            for warning in sidebar["warnings"] as? [String] ?? [] {
+                print("  \(warning)")
+            }
         }
 
         let validCount = intValue(payload["valid_count"])

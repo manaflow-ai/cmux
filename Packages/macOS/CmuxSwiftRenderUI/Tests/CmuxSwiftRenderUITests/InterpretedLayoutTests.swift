@@ -69,6 +69,9 @@ struct InterpretedLayoutTests {
         )
         let host = NSHostingView(rootView: content)
         host.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
+        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
         host.layoutSubtreeIfNeeded()
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -80,7 +83,9 @@ struct InterpretedLayoutTests {
 
     private func expectSameRedBounds(_ source: String, native: some View, width: Double = 240) throws {
         let node = try #require(SwiftViewInterpreter().evaluate(source))
-        let actual = try render(RenderNodeView(node: node), width: width)
+        // The isolated interpreter sends this tree over a Codable boundary.
+        let decoded = try JSONDecoder().decode(RenderNode.self, from: JSONEncoder().encode(node))
+        let actual = try render(RenderNodeView(node: decoded), width: width)
         let expected = try render(native, width: width)
         let actualBounds = try #require(colorBounds(actual, red: true))
         let expectedBounds = try #require(colorBounds(expected, red: true))
