@@ -87,7 +87,7 @@ struct BrowserLocalFileEncodingTests {
         #expect(afterReload.text.contains(expectedText))
     }
 
-    @Test func encodingPolicyLeavesNonUTF8DeclaredAndNonFileNavigationOnWebKitFallback() throws {
+    @Test func encodingPolicyLeavesNonUTF8DeclaredAndNonFileNavigationOnWebKitFallback() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-encoding-policy-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -103,11 +103,10 @@ struct BrowserLocalFileEncodingTests {
                 .data(using: .utf8)
         ).write(to: declaredCharsetURL)
 
-        let policy = BrowserLocalFileEncodingPolicy()
-        #expect(policy.preferredEncodingName(for: utf8URL) == "UTF-8")
-        #expect(policy.preferredEncodingName(for: nonUTF8URL) == nil)
-        #expect(policy.preferredEncodingName(for: declaredCharsetURL) == nil)
-        #expect(policy.preferredEncodingName(for: URL(string: "about:blank")!) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: utf8URL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: nonUTF8URL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: declaredCharsetURL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: URL(string: "about:blank")!) == nil)
     }
 
     private func waitForDocument(

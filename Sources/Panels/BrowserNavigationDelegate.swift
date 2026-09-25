@@ -325,14 +325,6 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
-        if navigationAction.targetFrame?.isMainFrame != false,
-           let url = navigationAction.request.url {
-            // Navigation actions also cover reload and back/forward entries,
-            // which bypass browserLoadRequest and still need the file's
-            // encoding selected before WebKit decodes its response.
-            BrowserLocalFileEncodingPolicy().apply(to: webView, for: url)
-        }
-
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
@@ -643,6 +635,28 @@ import WebKit
             in: webView,
             decisionHandler: decisionHandler
         ) {
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner {
+            // WebKit decodes the response after this decision. Defer only the
+            // accepted main-frame action while the bounded file probe runs so
+            // other navigation policy branches remain synchronous.
+            Task { @MainActor [weak owner, weak webView] in
+                guard let owner else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                await owner.localFileEncodingPolicy.prepare(for: url)
+                guard let webView,
+                      owner.webView === webView else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                decisionHandler(.allow)
+            }
             return
         }
         decisionHandler(.allow)

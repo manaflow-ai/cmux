@@ -993,32 +993,6 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
     return parent
 }
 
-struct BrowserLocalFileEncodingPolicy {
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
-    }
-
-    func preferredEncodingName(for url: URL) -> String? {
-        guard url.isFileURL,
-              fileManager.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-              String(data: data, encoding: .utf8) != nil else {
-            return nil
-        }
-        return "UTF-8"
-    }
-
-    @MainActor
-    func apply(to webView: WKWebView, for url: URL) {
-        let preferences = webView.configuration.preferences
-        let setter = NSSelectorFromString("_setDefaultTextEncodingName:")
-        guard preferences.responds(to: setter) else { return }
-        _ = preferences.perform(setter, with: preferredEncodingName(for: url))
-    }
-}
-
 @MainActor
 @discardableResult
 func browserLoadRequest(
@@ -1038,7 +1012,6 @@ func browserLoadRequest(
         }
     }
     webView.applyBrowserUserAgentPolicy(for: url)
-    BrowserLocalFileEncodingPolicy().apply(to: webView, for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
@@ -2030,6 +2003,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
+    private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
@@ -3153,6 +3127,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func bindWebView(_ webView: CmuxWebView) {
+        localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
+            preferences: webView.configuration.preferences
+        )
         webViewObservationGeneration &+= 1
         browserViewportHostRestorationTask?.cancel()
         browserViewportHostRestorationTask = nil
@@ -3658,6 +3635,9 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
         self.webView = webView
+        self.localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
+            preferences: webView.configuration.preferences
+        )
         self.insecureHTTPAlertFactory = { NSAlert() }
         mobileBrowserDialogBroker.onPresented = { [weak self] dialog in
             guard let self, !self.mobileBrowserStreamSignalHandlers.isEmpty else { return }
