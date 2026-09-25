@@ -319,6 +319,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
       "${attempt_xcodebuild_arguments[@]}"
   status=$?
   set -e
+  echo "exit_status=$status" >>"$metadata_path"
 
   if [ -n "$result_bundle_path" ] && [ -d "$result_bundle_path" ]; then
     typed_result_stem="${result_bundle_path%.xcresult}"
