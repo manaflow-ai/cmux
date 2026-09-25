@@ -17,27 +17,9 @@ extension CMUXCLI {
         let (windowOpt, afterWindow) = parseOption(afterSpec, name: "--window")
         let detach = hasFlag(afterWindow, name: "--detach") || hasFlag(afterWindow, name: "-d")
         let spec = loaded.spec
-
-        let resolveEmpty = try client.sendV2(
-            method: "vm.env_resolve_layers",
-            params: ["chain_hashes": [String]()],
-            responseTimeout: 60
-        )
-        guard let provider = resolveEmpty["provider"] as? String,
-              let defaultBaseImage = resolveEmpty["base_image_id"] as? String else {
-            throw CLIError(message: "vm env up: backend did not return a provider/base image.")
-        }
-        let baseImageId = (spec.base?.isEmpty == false && spec.base?.lowercased() != "default") ? spec.base! : defaultBaseImage
-        let chainHashes = VMEnvSpecCodec.chainHashes(provider: provider, baseImageId: baseImageId, spec: spec)
-        let resolve = try client.sendV2(
-            method: "vm.env_resolve_layers",
-            params: ["provider": provider, "chain_hashes": chainHashes],
-            responseTimeout: 60
-        )
-        guard let layer = resolve["layer"] as? [String: Any],
-              let stepIndex = layer["step_index"] as? Int,
-              let snapshotId = layer["snapshot_id"] as? String, !snapshotId.isEmpty,
-              stepIndex == spec.steps.count - 1 else {
+        let resolution = try vmEnvResolveLayers(spec: spec, client: client, noCache: false, command: "up")
+        guard resolution.cachedLayerIndex == spec.steps.count - 1,
+              let snapshotId = resolution.restoredSnapshotID else {
             throw CLIError(message: """
                 This spec is not fully cached yet (or changed since the last build).
 
@@ -45,6 +27,7 @@ extension CMUXCLI {
                   cmux vm env build
                 """)
         }
+        let provider = resolution.provider
         // The final layer is registered (with the spec digest of that build)
         // only after verify passes, so a digest mismatch means this exact spec
         // text has never had a passing build. `build` on a fully cached spec
@@ -101,7 +84,12 @@ extension CMUXCLI {
             throw CLIError(message: "\(path) already exists. Edit it, then run `cmux vm env build`.")
         }
         try FileManager.default.createDirectory(atPath: ".cmux", withIntermediateDirectories: true)
-        let goalComment = goalOpt.map { "# Goal: \($0)\n" } ?? ""
+        let goalComment = goalOpt.map { goal in
+            goal.split(separator: "\n", omittingEmptySubsequences: false)
+                .enumerated()
+                .map { index, line in "# \(index == 0 ? "Goal: " : "")\(line)" }
+                .joined(separator: "\n") + "\n"
+        } ?? ""
         let template = """
         \(goalComment)# cmux Cloud VM environment spec. Each step becomes a cached snapshot layer:
         # edit a step and only that layer (and later ones) re-run on the next build.

@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// `cmux vm env` — declarative environment setup with layer-cached snapshots.
@@ -12,7 +11,6 @@ import Foundation
 extension CMUXCLI {
     static let vmEnvDir = "/var/tmp/cmux-env"
     static let vmEnvLongOpTimeout: TimeInterval = 16 * 60
-    static let vmEnvPollIntervalSeconds: UInt32 = 2
     static let vmEnvDefaultStepTimeoutMinutes = 30
 
     func runVMEnvCommand(
@@ -66,6 +64,74 @@ extension CMUXCLI {
         let text: String
         let spec: VMEnvSpec
         let digest: String
+    }
+
+    struct VMEnvLayerResolution {
+        let provider: String
+        let baseImageID: String
+        let chainHashes: [String]
+        let cachedLayerIndex: Int
+        let restoredSnapshotID: String?
+    }
+
+    /// Resolves the server-selected base image and the deepest cached layer for
+    /// a spec. Both `build` and `up` use this path so they cannot hash or restore
+    /// different chains when the default image changes.
+    func vmEnvResolveLayers(
+        spec: VMEnvSpec,
+        client: SocketClient,
+        noCache: Bool,
+        command: String
+    ) throws -> VMEnvLayerResolution {
+        let resolveEmpty = try client.sendV2(
+            method: "vm.env_resolve_layers",
+            params: ["chain_hashes": [String]()],
+            responseTimeout: 60
+        )
+        guard let provider = resolveEmpty["provider"] as? String,
+              let defaultBaseImage = resolveEmpty["base_image_id"] as? String else {
+            throw CLIError(message: "vm env \(command): backend did not return a provider/base image.")
+        }
+        let baseImageID: String
+        if let base = spec.base, !base.isEmpty, base.lowercased() != "default" {
+            baseImageID = base
+        } else {
+            baseImageID = defaultBaseImage
+        }
+        let chainHashes = VMEnvSpecCodec.chainHashes(provider: provider, baseImageId: baseImageID, spec: spec)
+        guard !noCache else {
+            return VMEnvLayerResolution(
+                provider: provider,
+                baseImageID: baseImageID,
+                chainHashes: chainHashes,
+                cachedLayerIndex: -1,
+                restoredSnapshotID: nil
+            )
+        }
+
+        let resolve = try client.sendV2(
+            method: "vm.env_resolve_layers",
+            params: ["provider": provider, "chain_hashes": chainHashes],
+            responseTimeout: 60
+        )
+        var cachedLayerIndex = -1
+        var restoredSnapshotID: String?
+        if let layer = resolve["layer"] as? [String: Any],
+           let stepIndex = layer["step_index"] as? Int,
+           let snapshotID = layer["snapshot_id"] as? String,
+           !snapshotID.isEmpty,
+           stepIndex >= 0,
+           stepIndex < spec.steps.count {
+            cachedLayerIndex = stepIndex
+            restoredSnapshotID = snapshotID
+        }
+        return VMEnvLayerResolution(
+            provider: provider,
+            baseImageID: baseImageID,
+            chainHashes: chainHashes,
+            cachedLayerIndex: cachedLayerIndex,
+            restoredSnapshotID: restoredSnapshotID
+        )
     }
 
     func vmEnvLoadSpec(args: [String]) throws -> (spec: VMEnvLoadedSpec, remaining: [String]) {
@@ -136,47 +202,37 @@ extension CMUXCLI {
         }
     }
 
+    private func vmEnvBuildCall<T>(vmId: String, phase: String, _ body: () throws -> T) throws -> T {
+        do {
+            return try body()
+        } catch let error as CLIError {
+            let suffix = error.message.contains(vmId) ? "" : " (VM \(vmId) remains available for inspection.)"
+            throw CLIError(
+                message: "vm env build \(phase) failed: \(error.message)\(suffix)",
+                exitCode: error.exitCode,
+                v2Code: error.v2Code,
+                isStructuredProtocolResponse: error.isStructuredProtocolResponse,
+                v2Retryable: error.v2Retryable,
+                vmBackendCode: error.vmBackendCode,
+                vmBackendHTTPStatus: error.vmBackendHTTPStatus,
+                socketFailureKind: error.socketFailureKind
+            )
+        } catch {
+            throw CLIError(message: "vm env build \(phase) failed: \(error) (VM \(vmId) remains available for inspection.)")
+        }
+    }
+
     private func runVMEnvBuild(args: [String], client: SocketClient, jsonOutput: Bool) throws {
         let (loaded, afterSpec) = try vmEnvLoadSpec(args: args)
         let noCache = hasFlag(afterSpec, name: "--no-cache")
         let spec = loaded.spec
 
-        // Resolve the provider + base image the server would boot so chain
-        // hashes are computed against the deployed image id.
-        let resolveEmpty = try client.sendV2(
-            method: "vm.env_resolve_layers",
-            params: ["chain_hashes": [String]()],
-            responseTimeout: 60
-        )
-        guard let provider = resolveEmpty["provider"] as? String,
-              let defaultBaseImage = resolveEmpty["base_image_id"] as? String else {
-            throw CLIError(message: "vm env build: backend did not return a provider/base image. Update the cmux app and try again.")
-        }
-        let baseImageId: String
-        if let base = spec.base, !base.isEmpty, base.lowercased() != "default" {
-            baseImageId = base
-        } else {
-            baseImageId = defaultBaseImage
-        }
-
-        let chainHashes = VMEnvSpecCodec.chainHashes(provider: provider, baseImageId: baseImageId, spec: spec)
-
-        var cachedLayerIndex = -1
-        var restoredSnapshotId: String?
-        if !noCache {
-            let resolve = try client.sendV2(
-                method: "vm.env_resolve_layers",
-                params: ["provider": provider, "chain_hashes": chainHashes],
-                responseTimeout: 60
-            )
-            if let layer = resolve["layer"] as? [String: Any],
-               let stepIndex = layer["step_index"] as? Int,
-               let snapshotId = layer["snapshot_id"] as? String, !snapshotId.isEmpty,
-               stepIndex >= 0, stepIndex < spec.steps.count {
-                cachedLayerIndex = stepIndex
-                restoredSnapshotId = snapshotId
-            }
-        }
+        let resolution = try vmEnvResolveLayers(spec: spec, client: client, noCache: noCache, command: "build")
+        let provider = resolution.provider
+        let baseImageId = resolution.baseImageID
+        let chainHashes = resolution.chainHashes
+        let cachedLayerIndex = resolution.cachedLayerIndex
+        let restoredSnapshotId = resolution.restoredSnapshotID
 
         var reports: [VMEnvStepReport] = spec.steps.enumerated().map { index, step in
             VMEnvStepReport(
@@ -254,20 +310,24 @@ extension CMUXCLI {
             if !jsonOutput { print("step \(index) [\(step.name)] running...") }
             // Stage exactly this step's script (plus the runner) so the layer
             // snapshot taken after it never contains future step/verify text.
-            try vmEnvShipScripts(
-                vmId: vmId,
-                spec: spec,
-                stepIndices: [index],
-                includeVerify: false,
-                client: client
-            )
+            try vmEnvBuildCall(vmId: vmId, phase: "step \(index) staging") {
+                try vmEnvShipScripts(
+                    vmId: vmId,
+                    spec: spec,
+                    stepIndices: [index],
+                    includeVerify: false,
+                    client: client
+                )
+            }
             let started = Date()
-            let outcome = try vmEnvRunScript(
-                vmId: vmId,
-                scriptId: "step-\(index)",
-                timeoutMinutes: step.timeoutMinutes ?? Self.vmEnvDefaultStepTimeoutMinutes,
-                client: client
-            )
+            let outcome = try vmEnvBuildCall(vmId: vmId, phase: "step \(index) execution") {
+                try vmEnvRunScript(
+                    vmId: vmId,
+                    scriptId: "step-\(index)",
+                    timeoutMinutes: step.timeoutMinutes ?? Self.vmEnvDefaultStepTimeoutMinutes,
+                    client: client
+                )
+            }
             reports[index].durationMs = Int(Date().timeIntervalSince(started) * 1000)
             reports[index].exitCode = outcome.exitCode
             reports[index].logTail = outcome.logTail
@@ -278,24 +338,28 @@ extension CMUXCLI {
                     if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, snapshot after verify)") }
                 } else {
                     // Snapshot the successful layer and register it in the cache.
-                    let snapshotResponse = try client.sendV2(
-                        method: "vm.snapshot",
-                        params: ["id": vmId, "name": "env-\(String(loaded.digest.prefix(12)))-step-\(index)"],
-                        responseTimeout: Self.vmEnvLongOpTimeout
-                    )
+                    let snapshotResponse = try vmEnvBuildCall(vmId: vmId, phase: "step \(index) snapshot") {
+                        try client.sendV2(
+                            method: "vm.snapshot",
+                            params: ["id": vmId, "name": "env-\(String(loaded.digest.prefix(12)))-step-\(index)"],
+                            responseTimeout: Self.vmEnvLongOpTimeout
+                        )
+                    }
                     let snapshotId = (snapshotResponse["snapshot_id"] as? String) ?? (snapshotResponse["id"] as? String)
                     if let snapshotId, !snapshotId.isEmpty {
                         reports[index].snapshotId = snapshotId
-                        try vmEnvRecordLayer(
-                            client: client,
-                            provider: provider,
-                            baseImageId: baseImageId,
-                            chainHash: chainHashes[index],
-                            stepIndex: index,
-                            stepName: step.name,
-                            specDigest: loaded.digest,
-                            snapshotId: snapshotId
-                        )
+                        try vmEnvBuildCall(vmId: vmId, phase: "step \(index) registration") {
+                            try vmEnvRecordLayer(
+                                client: client,
+                                provider: provider,
+                                baseImageId: baseImageId,
+                                chainHash: chainHashes[index],
+                                stepIndex: index,
+                                stepName: step.name,
+                                specDigest: loaded.digest,
+                                snapshotId: snapshotId
+                            )
+                        }
                         if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, layer cached)") }
                     } else if !jsonOutput {
                         // Step succeeded but the provider returned no snapshot id, so
@@ -333,22 +397,26 @@ extension CMUXCLI {
         if failingStepIndex == nil, !spec.verify.isEmpty {
             // Verify scripts are staged only now, after every step snapshot,
             // so no intermediate layer contains verify text.
-            try vmEnvShipScripts(
-                vmId: vmId,
-                spec: spec,
-                stepIndices: [],
-                includeVerify: true,
-                client: client
-            )
+            try vmEnvBuildCall(vmId: vmId, phase: "verify staging") {
+                try vmEnvShipScripts(
+                    vmId: vmId,
+                    spec: spec,
+                    stepIndices: [],
+                    includeVerify: true,
+                    client: client
+                )
+            }
             for (index, _) in spec.verify.enumerated() {
                 if !jsonOutput { print("verify \(index) running...") }
                 let started = Date()
-                let outcome = try vmEnvRunScript(
-                    vmId: vmId,
-                    scriptId: "verify-\(index)",
-                    timeoutMinutes: Self.vmEnvDefaultStepTimeoutMinutes,
-                    client: client
-                )
+                let outcome = try vmEnvBuildCall(vmId: vmId, phase: "verify \(index) execution") {
+                    try vmEnvRunScript(
+                        vmId: vmId,
+                        scriptId: "verify-\(index)",
+                        timeoutMinutes: Self.vmEnvDefaultStepTimeoutMinutes,
+                        client: client
+                    )
+                }
                 verifyReports.append([
                     "index": index,
                     "status": outcome.status,
@@ -380,24 +448,28 @@ extension CMUXCLI {
         if ok {
             let finalIndex = spec.steps.count - 1
             if finalStepRanOK {
-                let snapshotResponse = try client.sendV2(
-                    method: "vm.snapshot",
-                    params: ["id": vmId, "name": "env-\(String(loaded.digest.prefix(12)))-step-\(finalIndex)"],
-                    responseTimeout: Self.vmEnvLongOpTimeout
-                )
+                let snapshotResponse = try vmEnvBuildCall(vmId: vmId, phase: "final snapshot") {
+                    try client.sendV2(
+                        method: "vm.snapshot",
+                        params: ["id": vmId, "name": "env-\(String(loaded.digest.prefix(12)))-step-\(finalIndex)"],
+                        responseTimeout: Self.vmEnvLongOpTimeout
+                    )
+                }
                 let snapshotId = (snapshotResponse["snapshot_id"] as? String) ?? (snapshotResponse["id"] as? String)
                 if let snapshotId, !snapshotId.isEmpty {
                     reports[finalIndex].snapshotId = snapshotId
-                    try vmEnvRecordLayer(
-                        client: client,
-                        provider: provider,
-                        baseImageId: baseImageId,
-                        chainHash: chainHashes[finalIndex],
-                        stepIndex: finalIndex,
-                        stepName: spec.steps[finalIndex].name,
-                        specDigest: loaded.digest,
-                        snapshotId: snapshotId
-                    )
+                    try vmEnvBuildCall(vmId: vmId, phase: "final layer registration") {
+                        try vmEnvRecordLayer(
+                            client: client,
+                            provider: provider,
+                            baseImageId: baseImageId,
+                            chainHash: chainHashes[finalIndex],
+                            stepIndex: finalIndex,
+                            stepName: spec.steps[finalIndex].name,
+                            specDigest: loaded.digest,
+                            snapshotId: snapshotId
+                        )
+                    }
                     finalLayerRegistered = true
                     if !jsonOutput { print("final layer registered") }
                 } else if !jsonOutput {
@@ -406,16 +478,18 @@ extension CMUXCLI {
             } else if cachedLayerIndex == spec.steps.count - 1, let restoredSnapshotId {
                 // Fully cached build: refresh the final layer's spec digest so a
                 // verify-only edit is re-verified exactly once and `up` unblocks.
-                try vmEnvRecordLayer(
-                    client: client,
-                    provider: provider,
-                    baseImageId: baseImageId,
-                    chainHash: chainHashes[spec.steps.count - 1],
-                    stepIndex: spec.steps.count - 1,
-                    stepName: spec.steps[spec.steps.count - 1].name,
-                    specDigest: loaded.digest,
-                    snapshotId: restoredSnapshotId
-                )
+                try vmEnvBuildCall(vmId: vmId, phase: "final layer refresh") {
+                    try vmEnvRecordLayer(
+                        client: client,
+                        provider: provider,
+                        baseImageId: baseImageId,
+                        chainHash: chainHashes[spec.steps.count - 1],
+                        stepIndex: spec.steps.count - 1,
+                        stepName: spec.steps[spec.steps.count - 1].name,
+                        specDigest: loaded.digest,
+                        snapshotId: restoredSnapshotId
+                    )
+                }
                 finalLayerRegistered = true
             }
         }

@@ -685,7 +685,11 @@ extension TerminalController {
                   let snapshotID = Self.socketWorkerString(params["snapshot_id"]),
                   let stepIndex = Self.socketWorkerInt(params["step_index"]),
                   stepIndex >= 0 else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.env_record_layer requires `base_image_id`, `chain_hash`, `spec_digest`, `snapshot_id`, and `step_index`. Use `cmux vm env build` instead of calling the socket method directly.")
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(localized: "cli.vm.env.recordLayer.invalidParams", defaultValue: "vm.env_record_layer requires base image, chain, spec, snapshot, and step fields. Use `cmux vm env build` instead of calling the socket method directly.")
+                )
             }
             let stepName = Self.socketWorkerString(params["step_name"])
             return v2VmCall(id: id) {

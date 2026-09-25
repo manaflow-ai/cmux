@@ -2374,6 +2374,7 @@ public actor VMClient {
                 && extraHeaders.isEmpty
                 && !retryTransientServiceUnavailable
                 && !allowedUnderManagedPolicy
+                && queryItems.isEmpty
                 && (path == "/api/vm" || path.hasSuffix("/stats"))
             if !isSharedRead {
                 return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,

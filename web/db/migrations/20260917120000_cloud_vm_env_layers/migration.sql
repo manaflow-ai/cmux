@@ -22,3 +22,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "cloud_vm_env_layers_team_provider_chain_uniqu
 CREATE INDEX IF NOT EXISTS "cloud_vm_env_layers_team_spec_idx" ON "cloud_vm_env_layers" ("billing_team_id","spec_digest");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "cloud_vm_env_layers_last_used_idx" ON "cloud_vm_env_layers" ("last_used_at");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "cloud_vm_env_layers_provider_snapshot_active_idx"
+  ON "cloud_vm_env_layers" ("provider", "snapshot_id")
+  WHERE "invalidated_at" is null;

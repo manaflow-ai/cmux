@@ -60,9 +60,11 @@ async function grantSnapshotOwnership(input: {
   `;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!runDbTests) return;
   sql = postgres(databaseURL(), { max: 1 });
+  await sql`delete from cloud_vm_env_layers where billing_team_id like 'team-envlayer-%'`;
+  await sql`delete from cloud_vm_usage_events where billing_team_id like 'team-envlayer-%'`;
 });
 
 afterAll(async () => {

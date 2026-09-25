@@ -600,7 +600,17 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Record a deletion intent while fencing registrations for this snapshot. */
+  readonly requestEnvLayerDeletion?: (input: VmUsageEventInput & {
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly hasActiveEnvLayerSnapshot?: (input: {
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Whether the owned snapshot carries the env-build creation marker. */
+  readonly isEnvBuildSnapshot?: (input: {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
@@ -642,6 +652,10 @@ function dbEffect<A>(
     try: run,
     catch: (cause) => new VmDatabaseError({ operation, cause }),
   });
+}
+
+function envLayerSnapshotFenceKey(provider: ProviderId, snapshotId: string): SQL {
+  return sql`pg_advisory_xact_lock(hashtextextended(${`${provider}:${snapshotId}`}, 0))`;
 }
 
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
@@ -3512,7 +3526,23 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         snapshotId: input.snapshotId,
       };
       try {
-        const [inserted] = await db.insert(cloudVmEnvLayers).values(values).returning();
+        const [inserted] = await db.transaction(async (tx) => {
+          // Registration and deletion-intent admission share one transaction
+          // advisory fence. Once retention records an intent, no new layer may
+          // point at that provider snapshot.
+          await tx.execute(envLayerSnapshotFenceKey(input.provider, input.snapshotId));
+          const [deleting] = await tx
+            .select({ id: cloudVmUsageEvents.id })
+            .from(cloudVmUsageEvents)
+            .where(and(
+              eq(cloudVmUsageEvents.provider, input.provider),
+              eq(cloudVmUsageEvents.eventType, "vm.env.layer.delete_requested"),
+              sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+            ))
+            .limit(1);
+          if (deleting) throw new Error("env layer snapshot deletion is already requested");
+          return tx.insert(cloudVmEnvLayers).values(values).returning();
+        });
         if (!inserted) throw new Error("insert returned no env layer row");
         return inserted;
       } catch (err) {
@@ -3567,6 +3597,24 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return !!row;
     }),
 
+  requestEnvLayerDeletion: (input) =>
+    dbEffect("requestEnvLayerDeletion", async () => {
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        await tx.execute(envLayerSnapshotFenceKey(input.provider, input.snapshotId));
+        await tx.insert(cloudVmUsageEvents).values({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId ?? null,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: { ...(input.metadata ?? {}), snapshotId: input.snapshotId },
+        });
+      });
+    }),
+
   hasActiveEnvLayerSnapshot: (input) =>
     dbEffect("hasActiveEnvLayerSnapshot", async () => {
       const [row] = await cloudDb()
@@ -3576,6 +3624,23 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           eq(cloudVmEnvLayers.provider, input.provider),
           eq(cloudVmEnvLayers.snapshotId, input.snapshotId),
           isNull(cloudVmEnvLayers.invalidatedAt),
+        ))
+        .limit(1);
+      return !!row;
+    }),
+
+  isEnvBuildSnapshot: (input) =>
+    dbEffect("isEnvBuildSnapshot", async () => {
+      const [row] = await cloudDb()
+        .select({ id: cloudVmUsageEvents.id })
+        .from(cloudVmUsageEvents)
+        .where(and(
+          eq(cloudVmUsageEvents.provider, input.provider),
+          eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+          sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+          // Env builds use the stable name marker emitted by the CLI. Manual
+          // snapshots are never eligible for duplicate-registration cleanup.
+          sql`${cloudVmUsageEvents.metadata}->>'name' like 'env-%-step-%'`,
         ))
         .limit(1);
       return !!row;

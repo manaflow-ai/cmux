@@ -1698,6 +1698,29 @@ function requireEnvLayerProvider(provider: ProviderId) {
     : Effect.fail(new VmEnvProviderUnsupportedError({ provider }));
 }
 
+function shouldDiscardDuplicateEnvSnapshot(input: {
+  readonly repo: VmRepositoryShape;
+  readonly provider: ProviderId;
+  readonly snapshotId: string;
+}) {
+  return Effect.gen(function* () {
+    if (input.repo.hasActiveEnvLayerSnapshot) {
+      const referenced = yield* input.repo.hasActiveEnvLayerSnapshot({
+        provider: input.provider,
+        snapshotId: input.snapshotId,
+      });
+      if (referenced) return false;
+    }
+    if (input.repo.isEnvBuildSnapshot) {
+      return yield* input.repo.isEnvBuildSnapshot({
+        provider: input.provider,
+        snapshotId: input.snapshotId,
+      });
+    }
+    return true;
+  });
+}
+
 export function resolveEnvLayers(input: {
   readonly billingTeamId: string;
   readonly provider: ProviderId;
@@ -1793,10 +1816,15 @@ export function recordEnvLayer(input: {
     // snapshot while keeping a durable intent so a transient delete failure
     // remains visible to the hourly retention job.
     if (layer.snapshotId !== input.snapshotId) {
-      const duplicateSnapshotIsReferenced = repo.hasActiveEnvLayerSnapshot
-        ? yield* repo.hasActiveEnvLayerSnapshot({ provider: input.provider, snapshotId: input.snapshotId })
-        : false;
-      if (duplicateSnapshotIsReferenced) {
+      const shouldDiscard = yield* shouldDiscardDuplicateEnvSnapshot({
+        repo,
+        provider: input.provider,
+        snapshotId: input.snapshotId,
+      });
+      if (!shouldDiscard) {
+        // A concurrent registration must never turn a manually created team
+        // snapshot into a deletion candidate just because its chain lost a
+        // uniqueness race.
         return layer;
       }
       if (!deleteSnapshotById) {
@@ -1814,7 +1842,18 @@ export function recordEnvLayer(input: {
         baseImageId: input.baseImageId,
         source: "duplicate_registration",
       };
-      yield* repo.recordUsageEvent({
+      yield* (repo.requestEnvLayerDeletion
+        ? repo.requestEnvLayerDeletion({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId,
+          billingPlanId: input.billingPlanId ?? null,
+          eventType: "vm.env.layer.delete_requested",
+          provider: input.provider,
+          imageId: input.baseImageId,
+          metadata: duplicateMetadata,
+          snapshotId: input.snapshotId,
+        })
+        : repo.recordUsageEvent({
         userId: input.userId,
         billingTeamId: input.billingTeamId,
         billingPlanId: input.billingPlanId ?? null,
@@ -1822,7 +1861,7 @@ export function recordEnvLayer(input: {
         provider: input.provider,
         imageId: input.baseImageId,
         metadata: duplicateMetadata,
-      }).pipe(Effect.retry({ times: 2 }));
+      })).pipe(Effect.retry({ times: 2 }));
       yield* deleteSnapshotById(input.provider, input.snapshotId).pipe(
         Effect.retry({ times: 2 }),
         Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.void : Effect.fail(error)),
@@ -1849,7 +1888,8 @@ export function recordEnvLayer(input: {
         stepIndex: input.stepIndex,
         stepName: input.stepName ?? null,
         specDigest: input.specDigest,
-        snapshotId: input.snapshotId,
+        snapshotId: layer.snapshotId,
+        ...(layer.snapshotId === input.snapshotId ? {} : { discardedSnapshotId: input.snapshotId }),
       },
     });
     return layer;
@@ -1941,7 +1981,7 @@ export function cleanupEnvLayers(input: {
           }));
         }
         if (!candidate.deletionRequested) {
-          yield* repo.recordUsageEvent({
+          const deletion = {
             userId: candidate.userId,
             billingTeamId: candidate.billingTeamId,
             vmId: null,
@@ -1953,7 +1993,10 @@ export function cleanupEnvLayers(input: {
               chainHash: candidate.chainHash,
               source: "retention",
             },
-          });
+          } as const;
+          yield* (repo.requestEnvLayerDeletion
+            ? repo.requestEnvLayerDeletion({ ...deletion, snapshotId: candidate.snapshotId })
+            : repo.recordUsageEvent(deletion));
         }
         yield* deleteSnapshotById(candidate.provider, candidate.snapshotId).pipe(
           Effect.retry({ times: 2 }),
