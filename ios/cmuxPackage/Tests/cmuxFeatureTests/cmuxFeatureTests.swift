@@ -789,7 +789,10 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func qrPairingWhileOfflineFailsFastWithoutDial() async throws {
-    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    // The preflight runs only when the ticket has a route this build may
+    // dial. A scanned QR under Automatic dials Iroh, never a raw Tailscale
+    // host, so the route here is Iroh.
+    let route = try irohPeerRoute()
     let ticket = try CmxAttachTicket(
         workspaceID: UUID().uuidString,
         terminalID: nil,
@@ -801,7 +804,7 @@ final class TerminalOutputCollector {
     )
     let dials = TransportDialRecorder()
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.iroh],
         transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
     )
     let store = CMUXMobileShellStore(
@@ -829,7 +832,10 @@ final class TerminalOutputCollector {
     // with no dial — reconnecting and rescanning the same code is expected
     // to work, so "offline" is the honest, actionable message.
     let ticketExpiresAt = Date().addingTimeInterval(60)
-    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    // The preflight runs only when the ticket has a route this build may
+    // dial. A scanned QR under Automatic dials Iroh, never a raw Tailscale
+    // host, so the route here is Iroh.
+    let route = try irohPeerRoute()
     let ticket = try CmxAttachTicket(
         workspaceID: UUID().uuidString,
         terminalID: nil,
@@ -842,7 +848,7 @@ final class TerminalOutputCollector {
     )
     let dials = TransportDialRecorder()
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.iroh],
         transportFactory: RecordingNeverConnectTransportFactory(dials: dials),
         now: { ticketExpiresAt.addingTimeInterval(1) }
     )
@@ -1805,8 +1811,9 @@ final class TerminalOutputCollector {
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
     // routes point at the phone itself fails closed with copy that names the
-    // actual fix (Iroh), instead of dialing 127.0.0.1 and burning the
-    // whole request timeout before a generic connect error.
+    // actual fix (scan a fresh code from the Mac's pairing window), instead
+    // of dialing 127.0.0.1 and burning the whole request timeout before a
+    // generic connect error.
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
@@ -1815,9 +1822,9 @@ final class TerminalOutputCollector {
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
-    #expect(store.connectionError?.contains("Iroh") == true)
-    // The loopback failure must name the fix (Iroh), not fall through to
-    // the generic invalid-code copy.
+    // The loopback failure must name the fix, not fall through to the
+    // generic invalid-code copy.
+    #expect(store.connectionError == MobilePairingFailureCategory.loopbackRejected.message)
     #expect(store.connectionError != MobilePairingFailureCategory.invalidCode.message)
 }
 
@@ -3173,6 +3180,19 @@ private func rpcAttachTicketFrame(
     encoder.dateEncodingStrategy = .iso8601
     let ticketObject = try JSONSerialization.jsonObject(with: encoder.encode(ticket))
     return try rpcResultFrame(result: ["ticket": ticketObject])
+}
+
+private func irohPeerRoute() throws -> CmxAttachRoute {
+    try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            id: String(repeating: "a", count: 64),
+            relayHint: nil,
+            directAddrs: [],
+            relayURL: nil
+        )
+    )
 }
 
 private func hostPortRoute(
