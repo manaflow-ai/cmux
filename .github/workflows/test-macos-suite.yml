@@ -217,11 +217,15 @@ jobs:
 
       - name: Restore Swift packages
         continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          # Consume the existing E2E dependency cache without publishing caches
-          # from a manually selected revision. Test products remain fresh.
+          # Consume the Swift package seed nightly.yml saves, without
+          # publishing caches from a manually selected revision. Test products
+          # remain fresh.
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
