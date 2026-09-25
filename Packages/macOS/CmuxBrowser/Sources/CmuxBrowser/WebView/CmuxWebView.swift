@@ -96,7 +96,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
       ]);
 
       const deepestActiveElement = (root) => {
-        public let active = root?.activeElement ?? null;
+        let active = root?.activeElement ?? null;
         while (active) {
           const shadowActive = active.shadowRoot?.activeElement ?? null;
           if (shadowActive && shadowActive !== active) {
@@ -330,7 +330,8 @@ public final class CmuxWebView: CmuxUndoableWebView {
     public var onMouseForwardButton: (() -> Void)?
     public var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     public var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
-    public var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    public var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?
+    public var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
     public var cmuxDownloadDelegate: (any WKDownloadDelegate)? {
         get {
             objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? any WKDownloadDelegate
