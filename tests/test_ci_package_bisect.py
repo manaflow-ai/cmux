@@ -118,6 +118,37 @@ class NextPointsTests(unittest.TestCase):
         self.assertEqual(len(MODULE.next_points(s, include_fixed=True)), 1)
 
 
+class NextPointsSkipTests(unittest.TestCase):
+    def test_steps_past_a_probe_that_answered_nothing(self):
+        s, shas = state([set(), {"t"}])
+        inside = MODULE.between(s, shas[0], shas[1])
+        stuck = inside[len(inside) // 2]
+        s.probes[stuck] = MODULE.Probe(sha=stuck, branch="", status="error")
+        picks = MODULE.next_points(s)
+        self.assertEqual(len(picks), 1)
+        self.assertNotEqual(picks[0], stuck)
+        self.assertIn(picks[0], inside)
+
+
+class SaveTests(unittest.TestCase):
+    def test_save_keeps_probes_another_invocation_added(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as scratch:
+            path = pathlib.Path(scratch) / "Pkg.json"
+            original = MODULE.State.path
+            MODULE.State.path = classmethod(lambda cls, name: path)
+            try:
+                first, shas = state([set()])
+                first.save()
+                second = MODULE.State.load("Pkg")
+                second.probes[shas[0][::-1]] = MODULE.Probe(sha=shas[0][::-1], branch="b/other")
+                second.save()
+                first.save()  # a long-running `status --wait` saving stale state
+                self.assertIn(shas[0][::-1], MODULE.State.load("Pkg").probes)
+            finally:
+                MODULE.State.path = original
+
+
 class OverlayTests(unittest.TestCase):
     def test_drops_only_the_package_job_lint_gate(self):
         workflow = (ROOT / MODULE.WORKFLOW_PATH).read_text()

@@ -19,7 +19,7 @@ the same commits with `start --patch <fix>` applied to get past a hang.
 
 State lives in <git-common-dir>/package-bisect/<package>.json, so every
 worktree of one checkout shares a bisect; finished job logs are cached beside
-it, so `status --refetch` re-parses without spending the shared REST budget. Probes leave the runner on `auto`
+it per run attempt, so `status --refetch` re-reads a rerun but not an old log. Probes leave the runner on `auto`
 (owned minis first, Blacksmith overflow).
 """
 from __future__ import annotations
@@ -159,9 +159,16 @@ class State:
         return cls(**data)
 
     def save(self) -> None:
+        """Write atomically, keeping probes another invocation added meanwhile."""
         path = self.path(self.name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(dataclasses.asdict(self), indent=2) + "\n")
+        if path.exists():
+            on_disk = json.loads(path.read_text()).get("probes", {})
+            for sha, probe in on_disk.items():
+                self.probes.setdefault(sha, Probe(**probe))
+        scratch = path.with_suffix(f".{os.getpid()}.tmp")
+        scratch.write_text(json.dumps(dataclasses.asdict(self), indent=2) + "\n")
+        scratch.replace(path)
 
     def ordered(self) -> list[Probe]:
         index = {sha: i for i, sha in enumerate(self.history)}
@@ -214,26 +221,33 @@ def dispatch(state: State, sha: str) -> Probe:
     match = RUN_URL.search(run(*args))
     probe = Probe(sha=sha, branch=branch, run_id=int(match["id"]) if match else None)
     state.probes[sha] = probe
+    state.save()  # a later probe's failure must not orphan this branch and run
     print(f"{sha[:10]} -> {branch} run {probe.run_id}")
     return probe
 
 
-def log_cache(run_id: int) -> Path:
+def log_cache(run_id: int, attempt: int) -> Path:
     common = Path(git("rev-parse", "--git-common-dir").strip()).resolve()
-    return common / "package-bisect" / "logs" / f"{run_id}.log"
+    return common / "package-bisect" / "logs" / f"{run_id}-{attempt}.log"
 
 
 def package_job_log(run_id: int) -> tuple[str, str]:
-    """(status, log). A finished log is cached: the REST budget is shared."""
-    cached = log_cache(run_id)
-    if cached.exists():
-        return "completed", cached.read_text()
-    jobs = gh_json("run", "view", str(run_id), "--repo", REPO, "--json", "status,jobs")
+    """(status, log) for the run's latest attempt.
+
+    One cheap run lookup finds the attempt; its job log is downloaded once and
+    cached, because the REST budget is shared. A rerun is a new attempt, so it
+    never reads the previous attempt's log. A cancelled job (a job timeout
+    reports as cancelled) still has partial results worth reading.
+    """
+    jobs = gh_json("run", "view", str(run_id), "--repo", REPO, "--json", "status,attempt,jobs")
     job = next((j for j in jobs["jobs"] if j["name"] == PACKAGE_JOB), None)
     if jobs["status"] != "completed" or job is None:
         return jobs["status"], ""
-    if job["conclusion"] in ("skipped", "cancelled"):
+    if job["conclusion"] == "skipped" or not job.get("steps"):
         return "error", ""
+    cached = log_cache(run_id, jobs.get("attempt", 1))
+    if cached.exists():
+        return "completed", cached.read_text()
     log = run("gh", "api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['databaseId']}/logs")
     cached.parent.mkdir(parents=True, exist_ok=True)
     cached.write_text(log)
@@ -324,12 +338,15 @@ def print_status(state: State) -> None:
     width = max(len(t) for t in found)
     print(f"\n{'test':{width}}  " + " ".join(f"{n:>2}" for n in range(len(probes))))
 
+    watched = set(state.candidates)
+
     def describe(verb: str, window: tuple[str, str]) -> str:
         left, right = window
         inside = between(state, left, right)
-        if not inside:
+        if not inside and right in watched:
             return f"{verb} by {right[:10]} {subjects[right][12:72]}"
-        return f"{verb} in {left[:10]}..{right[:10]} ({len(inside) + 1} commits)"
+        suspects = len(inside) + (right in watched)
+        return f"{verb} in {left[:10]}..{right[:10]} ({suspects} watched commits)"
 
     for test, verdict in found.items():
         cells = []
@@ -348,12 +365,17 @@ def print_status(state: State) -> None:
 
 
 def next_points(state: State, include_fixed: bool = False) -> list[str]:
+    """The unprobed commit nearest the middle of each open window.
+
+    A probe inside the window that answered nothing for the test (an error,
+    or a hang before it ran) leaves the window unchanged, so step past it.
+    """
     picks = set()
     for left, right in open_windows(state, include_fixed):
-        inside = between(state, left, right)
+        inside = [sha for sha in between(state, left, right) if sha not in state.probes]
         if inside:
             picks.add(inside[len(inside) // 2])
-    return sorted(picks - set(state.probes), key=state.history.index)
+    return sorted(picks, key=state.history.index)
 
 
 # --- commands --------------------------------------------------------------
@@ -371,25 +393,34 @@ def cmd_start(args) -> None:
     patches = [git("rev-parse", p).strip() for p in args.patch]
     name = args.bisect or args.package
     state = State(name, args.package, args.filter, ci_base, history, candidates, {}, patches)
-    if State.path(name).exists() and not args.force:
-        raise SystemExit(f"bisect {name} already exists; `cleanup`, --force, or another --bisect name")
+    if State.path(name).exists():
+        if not args.force:
+            raise SystemExit(f"bisect {name} already exists; `cleanup`, --force, or another --bisect name")
+        old = State.load(name)
+        leftover = sorted({p.branch for p in old.probes.values() if p.branch})
+        if leftover:
+            print(f"--force: not deleting {len(leftover)} old probe branches: {' '.join(leftover)}", file=sys.stderr)
+        State.path(name).unlink()
+    on_history = set(history)
+
+    def resolve(spec: str) -> str:
+        sha = git("rev-parse", spec).strip()
+        if sha not in on_history:
+            raise SystemExit(f"{spec} is not on {args.ci_base}'s first-parent history")
+        return sha
+
     shas = []
     for spec in args.commits:
         if ".." in spec:
-            good, bad = (git("rev-parse", s).strip() for s in spec.split("..", 1))
-            span = [good] + git(
-                "rev-list", "--first-parent", "--reverse", f"{good}..{bad}", "--", *args.paths
-            ).split()
-            step = max(1, (len(span) - 1) // max(1, args.points - 1))
-            shas += span[::step] + [span[-1]]
+            good, bad = (resolve(s) for s in spec.split("..", 1))
+            span = [good] + [c for c in between(state, good, bad)] + [bad]
+            count = min(len(span), max(2, args.points))
+            shas += [span[round(i * (len(span) - 1) / (count - 1))] for i in range(count)]
         else:
-            sha = git("rev-parse", spec).strip()
-            if sha not in history:
-                raise SystemExit(f"{spec} is not on {args.ci_base}'s first-parent history")
-            shas.append(sha)
+            shas.append(resolve(spec))
+    state.save()
     for sha in dict.fromkeys(shas):
         dispatch(state, sha)
-    state.save()
 
 
 def cmd_adopt(args) -> None:
@@ -397,7 +428,8 @@ def cmd_adopt(args) -> None:
     sha = git("rev-parse", args.sha).strip()
     if sha not in state.history:
         raise SystemExit(f"{args.sha} is not on the bisect's first-parent history")
-    state.probes[sha] = Probe(sha=sha, branch="", run_id=args.run_id)
+    branch = state.probes[sha].branch if sha in state.probes else ""
+    state.probes[sha] = Probe(sha=sha, branch=branch, run_id=args.run_id)
     refresh(state)
 
 
@@ -429,11 +461,15 @@ def cmd_next(args) -> None:
 
 def cmd_cleanup(args) -> None:
     state = State.load(args.bisect or args.package)
-    for probe in state.probes.values():
-        if probe.branch:
-            subprocess.run(["git", "push", "-q", REMOTE_URL, f":refs/heads/{probe.branch}"])
+    branches = sorted({p.branch for p in state.probes.values() if p.branch})
+    failed = [
+        b for b in branches
+        if subprocess.run(["git", "push", "-q", REMOTE_URL, f":refs/heads/{b}"]).returncode != 0
+    ]
+    if failed:
+        raise SystemExit(f"could not delete {', '.join(failed)}; state kept, rerun cleanup")
     State.path(state.name).unlink()
-    print(f"deleted {len(state.probes)} probe branches and the bisect state")
+    print(f"deleted {len(branches)} probe branches and the bisect state")
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -9,9 +9,8 @@ PR CI runs selected tests, so a package suite can stay red on main for weeks
 with nobody noticing. This skill finds the commit behind each failure on CI,
 never on the Mac (no full cmux builds on laptops).
 
-App-host (`cmuxTests`) failures on main are bisected automatically by
-`scripts/ci/main_regression_bisect.py`. Use this skill for the SwiftPM package
-suites under `Packages/iOS` and `Packages/Shared` that `test-ios.yml` can run
+App-host (`cmuxTests`) failures on main have their own automatic bisect
+(#14510). Use this skill for the SwiftPM package suites under `Packages/iOS` and `Packages/Shared` that `test-ios.yml` can run
 (`CMUXMobileCore`, `CmuxSyncStore`, `CmuxMobilePairedMac`, `CmuxMobileChanges`,
 `CmuxMobileShell`, `CmuxMobileShellModel`).
 
@@ -35,7 +34,7 @@ python3 $T --package CmuxMobileShell next --dispatch   # split each break window
 python3 $T --package CmuxMobileShell cleanup           # delete probe branches
 ```
 
-- Each probe pushes `bisect/<package>/<sha>`: the old commit with today's iOS
+- Each probe pushes `bisect/<name>/<sha10>` (the name defaults to the package): the old commit with today's iOS
   CI files laid over it and the package-lint gate dropped. Old commits carry
   old CI scripts, which is why a plain `-f ref=<sha>` dispatch fails early.
 - Probes leave the runner on `auto` (idle owned mini first, Blacksmith
@@ -59,17 +58,20 @@ python3 $T --package CmuxMobileShell cleanup           # delete probe branches
 
 `status` prints one row per test and one column per probe, oldest first:
 `X` failed, `.` passed, `-` never ran at that probe, `?` pending, `E` no test
-ran at all (compile or runner failure; check the log, then rerun it).
+ran at all (compile or runner failure; check the log, rerun the run, then
+`status --refetch`; a rerun is a new attempt, so its log is read fresh).
 
-Check the probe list first. A probe marked `INCOMPLETE` hung or hit the job
-timeout, so every test after the hang shows `-`. A `-` is never a pass: a
-suite that hangs early makes a whole cluster look like it "broke" at the
-commit that fixed the hang. Rerun those probes with `--patch <hang fix>`.
+Check the probe list first. A probe marked `INCOMPLETE` never printed its
+"Test run with" summary: the hung-test watchdog killed it or the job timed
+out, so every test after that point shows `-`. A `-` is never a pass: a suite
+that hangs early makes a whole cluster look like it "broke" at the commit that
+fixed the hang. Probe those commits again in a second bisect with the hang fix
+applied: `start --bisect <pkg>-patched --patch <hang fix> <shas>`.
 
 | Verdict | Meaning | Next |
 | --- | --- | --- |
 | `broken by <sha>` | Passed at the probe before, failed from here on | Read that PR's diff against the test |
-| `broken in a..b (n commits)` | Window not yet one commit wide | `next --dispatch` |
+| `broken in a..b (n watched commits)` | Window not yet one commit wide | `next --dispatch` |
 | `failing at the oldest probe` | Older than the bisect | Start again further back, or trace with `git log -S '<symbol>'` |
 | `fixed by` / `fixed in` | Failed, then something fixed it | Usually ignore; `next --fixed` splits these too |
 | `flaky` | Passes between failures | Treat as a flake; confirm with a focused rerun before fixing |
