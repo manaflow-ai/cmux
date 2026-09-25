@@ -4491,11 +4491,6 @@ fn walk_files(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// A memory snapshot keeps the terminal host (and its shell) running while
-/// the daemon is parked and its per-machine state is wiped. A clone's daemon
-/// must adopt that warm host into a brand-new registry: same PTY and screen,
-/// fresh machine id, pepper, session id, and registry.
-#[test]
 /// What a parked template host looked like before its daemon was wiped.
 struct ParkedTemplate {
     terminal_id: String,
@@ -4574,6 +4569,11 @@ fn park_template_host(harness: &mut RecoveryHarness) -> ParkedTemplate {
     }
 }
 
+/// A memory snapshot keeps the terminal host (and its shell) running while
+/// the daemon is parked and its per-machine state is wiped. A clone's daemon
+/// must adopt that warm host into a brand-new registry: same PTY and screen,
+/// fresh machine id, pepper, session id, and registry.
+#[test]
 fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     let mut harness = RecoveryHarness::start("template-adopt");
     let ParkedTemplate {
