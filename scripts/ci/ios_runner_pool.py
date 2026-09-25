@@ -430,8 +430,13 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
 
 
 def in_flight_ios_runs(client: Any, since: str, *, exclude_run_id: int | None) -> list[Mapping[str, Any]]:
-    """In-flight test-ios.yml and ios-screenshots.yml runs created at or after `since` (two requests)."""
-    return [run for workflow in IOS_WORKFLOWS for run in client.runs_since(workflow, since)
+    """In-flight test-ios.yml and ios-screenshots.yml runs created at or after `since` (four requests).
+
+    Asked for by status, so completed runs never fill the one page of 100 a
+    long window would need (505 test-ios.yml runs in 6 hours on 2026-09-25).
+    """
+    return [run for workflow in IOS_WORKFLOWS for status in ("in_progress", "queued")
+            for run in client.runs_since(workflow, since, status=status)
             if run.get("id") != exclude_run_id and run.get("status") != "completed"]
 
 

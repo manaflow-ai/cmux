@@ -2488,11 +2488,13 @@ class IOSRouting(unittest.TestCase):
                 return idle
 
             def runs_since(self, workflow, since, **filters):
+                FakeGitHub.asked.append((workflow, filters.get("status")))
                 return []
 
             def snapshot(self, *, now):
                 return None
 
+        FakeGitHub.asked = []
         args = ["--lane", "test-ios", "--owned", "1", "--ios-owned", "1", "--owned-slots", json.dumps(IOS_SLOTS),
                 "--pr-xcode-app", PR_XCODE, "--order", MINI]
         env = {"GH_TOKEN": "t", "GH_REPO": "manaflow-ai/cmux", "ROUTE_TOKEN": "route"}
@@ -2505,6 +2507,9 @@ class IOSRouting(unittest.TestCase):
             outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
             self.assertEqual(outputs["persistent"], persistent, err.getvalue())
             self.assertEqual("using the snapshot" in err.getvalue(), fail)
+        # In-flight runs are asked for by status, so completed ones never fill the page.
+        self.assertIn(("test-ios.yml", "in_progress"), FakeGitHub.asked)
+        self.assertIn(("ios-screenshots.yml", "queued"), FakeGitHub.asked)
 
 class E2EQueueRounds(unittest.TestCase):
     """e2e_runner_pool.py queues for an owned pool within CI_PR_POOL_QUEUE_ROUNDS, as pull requests do."""
