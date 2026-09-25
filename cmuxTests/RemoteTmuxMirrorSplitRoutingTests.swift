@@ -108,7 +108,13 @@ import Testing
         })
         let beforeTarget = target.workspace.panels.count
         let beforeOther = other.workspace.panels.count
-        if entrypoint == "menu" { window.makeKeyAndOrderFront(nil) }
+        if entrypoint == "menu" {
+            // App-host tests run headless, so AppKit cannot reliably make a
+            // programmatic window key. Pin the same focused-window seam that
+            // the menu action uses in the running app before exercising it.
+            window.makeKeyAndOrderFront(nil)
+            delegate.debugSetShortcutRoutingFocusedWindowForTesting(window)
+        }
         delegate.tabManager = otherManager
 
         let accepted: Bool
