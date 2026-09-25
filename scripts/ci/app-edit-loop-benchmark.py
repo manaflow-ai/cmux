@@ -72,6 +72,10 @@ SCENARIOS = [
                                  f"    func editLoopBenchmarkMemberProbe{n}() {{}}\n")),
     ("package_body", "body-level comment edit in a CmuxCloud package file the app imports",
      lambda n: append(PACKAGE_FILE, f"\n// edit-loop benchmark: package comment edit {n}\n")),
+    ("package_top_level_private", "new private top-level let in that package file (changes its module)",
+     lambda n: append(PACKAGE_FILE, f"\nprivate let editLoopBenchmarkPackageProbe{n} = 0\n")),
+    ("extension_hot_type", "new internal method on SurfaceCatalog in a separate top-level extension",
+     lambda n: append(HOT_TYPE, f"\nextension SurfaceCatalog {{\n    func editLoopBenchmarkExtensionProbe{n}() {{}}\n}}\n")),
 ]
 
 # Variants rerun every scenario with different reload.sh settings. The first build of a variant
@@ -79,6 +83,7 @@ SCENARIOS = [
 VARIANTS = {
     "base": {},
     "no_app_module": {"CMUX_RELOAD_APP_EMIT_MODULE": "0"},
+    "no_app_module_implicit": {"CMUX_RELOAD_APP_EMIT_MODULE": "0", "CMUX_RELOAD_SWIFT_EXPLICIT_MODULES": "0"},
 }
 
 TIMING_RE = re.compile(r"^(?P<phase>[A-Za-z][A-Za-z0-9 ]+?) \((?P<tasks>\d+) tasks?\) \| (?P<secs>[\d.]+) seconds")
@@ -143,7 +148,7 @@ def main() -> int:
     parser.add_argument("--derived-data", required=True)
     parser.add_argument("--out", default="edit-loop-results.json")
     parser.add_argument("--only", help="comma-separated scenario names")
-    parser.add_argument("--variants", default="base,no_app_module", help=f"comma-separated, from {sorted(VARIANTS)}")
+    parser.add_argument("--variants", default="base,no_app_module,no_app_module_implicit", help=f"comma-separated, from {sorted(VARIANTS)}")
     args = parser.parse_args()
     slug = re.sub(r"[^a-z0-9]+", "-", args.tag.lower()).strip("-")
     log_path = Path(f"/tmp/cmux-reload-{slug}.log")
@@ -162,6 +167,14 @@ def main() -> int:
             log = log_path.read_text(errors="replace") if log_path.exists() else ""
             record = {"variant": variant, "scenario": name, "models": what, "seconds": round(seconds, 1),
                       "exit": code, **parse_log(log)}
+        # The standalone driver prints no per-file SwiftCompile lines; reload.sh's driver
+        # diagnostics summary counts what it scheduled for every driver alike.
+        diag = Path(f"{log_path}.incremental.json")
+        if diag.exists():
+            try:
+                record["driver_counts"] = json.loads(diag.read_text()).get("counts")
+            except ValueError:
+                pass
             (Path(args.out).parent / f"reload-{variant}-{name}.log").write_text(log)
             results.append(record)
             print(json.dumps(record), flush=True)
@@ -175,11 +188,13 @@ def main() -> int:
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### App edit loop (reload.sh, incremental)\n\n")
-            handle.write("| variant | scenario | wall s | Swift files | modules emitted | top phases |\n"
-                         "| --- | --- | --- | --- | --- | --- |\n")
+            handle.write("| variant | scenario | wall s | Swift files | driver scheduled | modules emitted | top phases |\n"
+                         "| --- | --- | --- | --- | --- | --- | --- |\n")
             for r in results:
                 top = ", ".join(f"{k} {v:.1f}s" for k, v in list(r["phases"].items())[:4])
-                handle.write(f"| {r['variant']} | {r['scenario']} | {r['seconds']} | {r['swift_files_compiled']} | "
+                dc = r.get("driver_counts") or {}
+                sched = dc.get("initial_files", 0) + dc.get("dependency_cascade_files", 0) if dc else "-"
+                handle.write(f"| {r['variant']} | {r['scenario']} | {r['seconds']} | {r['swift_files_compiled']} | {sched} | "
                              f"{', '.join(r['modules_emitted']) or '-'} | {top} |\n")
     return 0 if all(r["exit"] == 0 for r in results) else 1
 

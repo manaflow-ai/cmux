@@ -1684,6 +1684,10 @@ if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-1}" == "0" ]]; then
   SWIFT_OTHER_FLAGS+=' $(CMUX_RELOAD_SWIFT_FLAGS_$(TARGET_NAME))'
   XCODEBUILD_ARGS+=(CMUX_RELOAD_SWIFT_FLAGS_cmux=-no-emit-module-separately)
 fi
+if [[ "${CMUX_RELOAD_SWIFT_EXPLICIT_MODULES:-}" == "0" ]]; then
+  # Experiment switch for the edit-loop benchmark: implicit module builds.
+  XCODEBUILD_ARGS+=(SWIFT_ENABLE_EXPLICIT_MODULES=NO)
+fi
 if [[ "$SWIFT_OTHER_FLAGS" != '$(inherited)' ]]; then
   XCODEBUILD_ARGS+=("OTHER_SWIFT_FLAGS=$SWIFT_OTHER_FLAGS")
 fi
