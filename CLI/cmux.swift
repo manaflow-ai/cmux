@@ -18572,6 +18572,10 @@ struct CMUXCLI {
               --legacy         Force the older built-in Swift TUI
             """
         case "hooks":
+            let hooksStatusHelp = String(
+                localized: "cli.hooks.help.statusDescription",
+                defaultValue: "Show installed hooks and agent availability"
+            )
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                    cmux hooks status [--agent <name>] [--json]
@@ -18589,7 +18593,7 @@ struct CMUXCLI {
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
-              status             Show installed hooks and agent availability
+              status             \(hooksStatusHelp)
               uninstall          Remove hooks for all supported agents
               <agent> install    Install one agent integration
               <agent> uninstall  Remove one agent integration
@@ -40585,7 +40589,9 @@ export default CMUXSessionRestore;
             let definitions: [AgentHookDef]
             if let filter {
                 guard let definition = Self.agentDef(named: filter) else {
-                    throw CLIError(message: "Unknown hooks target: \(filter)")
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), filter
+                    ))
                 }
                 definitions = [definition]
             } else {
@@ -40846,7 +40852,7 @@ export default CMUXSessionRestore;
             let arg = args[index]
             if arg == "--agent" {
                 guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: "--agent requires an agent name")
+                    throw CLIError(message: String(localized: "cli.hooks.error.agentNameRequired", defaultValue: "--agent requires an agent name"))
                 }
                 flagAgent = args[index + 1]
                 index += 2
@@ -40855,7 +40861,7 @@ export default CMUXSessionRestore;
             if arg.hasPrefix("--agent=") {
                 let value = String(arg.dropFirst("--agent=".count))
                 guard !value.isEmpty else {
-                    throw CLIError(message: "--agent requires an agent name")
+                    throw CLIError(message: String(localized: "cli.hooks.error.agentNameRequired", defaultValue: "--agent requires an agent name"))
                 }
                 flagAgent = value
                 index += 1
@@ -40867,7 +40873,7 @@ export default CMUXSessionRestore;
             }
             if !arg.hasPrefix("-") {
                 guard positionalAgent == nil else {
-                    throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
+                    throw CLIError(message: String(localized: "cli.hooks.error.tooManyTargets", defaultValue: "Too many hooks targets: specify at most one positional agent"))
                 }
                 positionalAgent = arg
             }
@@ -40876,13 +40882,17 @@ export default CMUXSessionRestore;
 
         if let flagAgent, let positionalAgent {
             guard let flagDef = Self.agentDef(named: flagAgent) else {
-                throw CLIError(message: "Unknown hooks target: \(flagAgent)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), flagAgent
+                ))
             }
             guard let positionalDef = Self.agentDef(named: positionalAgent) else {
-                throw CLIError(message: "Unknown hooks target: \(positionalAgent)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), positionalAgent
+                ))
             }
             guard flagDef.name == positionalDef.name else {
-                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+                throw CLIError(message: String(localized: "cli.hooks.error.conflictingTargets", defaultValue: "Conflicting hooks target: use either --agent or a positional target, not both"))
             }
             return flagDef.name
         }
@@ -40897,20 +40907,26 @@ export default CMUXSessionRestore;
         let flagAgentFilter = optionValue(args, name: "--agent")
         if let flagAgentFilter, let positionalAgentFilter {
             guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
-                throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), flagAgentFilter
+                ))
             }
             guard let positionalDef = Self.agentDef(named: positionalAgentFilter) else {
-                throw CLIError(message: "Unknown hooks target: \(positionalAgentFilter)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), positionalAgentFilter
+                ))
             }
             if flagDef.name != positionalDef.name {
-                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+                throw CLIError(message: String(localized: "cli.hooks.error.conflictingTargets", defaultValue: "Conflicting hooks target: use either --agent or a positional target, not both"))
             }
         }
         let agentFilter = flagAgentFilter ?? positionalAgentFilter
         let agentFilterDef: AgentHookDef?
         if let agentFilter {
             guard let def = Self.agentDef(named: agentFilter) else {
-                throw CLIError(message: "Unknown hooks target: \(agentFilter)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), agentFilter
+                ))
             }
             agentFilterDef = def
         } else {

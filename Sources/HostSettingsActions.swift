@@ -213,7 +213,9 @@ final class HostSettingsActions: SettingsHostActions {
         // on the remote host. Reuse an existing local workspace when possible;
         // otherwise create a new local workspace explicitly.
         let targetWorkspaceID: UUID
-        if let localWorkspace = manager.tabs.first(where: { !$0.isRemoteWorkspace }) {
+        if let localWorkspace = manager.selectedWorkspace, !localWorkspace.isRemoteWorkspace {
+            targetWorkspaceID = localWorkspace.id
+        } else if let localWorkspace = manager.tabs.first(where: { !$0.isRemoteWorkspace }) {
             targetWorkspaceID = localWorkspace.id
         } else {
             do {

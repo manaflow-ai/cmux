@@ -4679,6 +4679,72 @@
             "state": "translated",
             "value": "代理程式掛鉤"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kuke agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-hooks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook degli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Hooks"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-hooks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooki agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Hooks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı kancaları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки агентів"
+          }
         }
       }
     },
@@ -4737,6 +4803,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "開啟代理程式掛鉤文件"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori dokumentaciju o kukama agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn dokumentation om agent-hooks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri la documentazione degli hook degli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open agent hooks documentation"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne dokumentasjon for agent-hooks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz dokumentację hooków agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir a documentação de hooks de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть документацию хуков агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดเอกสาร Agent Hooks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı kancası belgelerini aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити документацію хуків агентів"
           }
         }
       }
@@ -4797,6 +4929,72 @@
             "state": "translated",
             "value": "一鍵安裝偵測到的代理程式掛鉤，或執行 `cmux hooks setup --agent <name>` 為單一代理程式安裝。cmux 包裝器會自動注入 Claude Code 掛鉤。您可以從同一個終端機指令查看掛鉤狀態並解除安裝。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalirajte otkrivene kuke agenata jednim klikom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer registrerede agent-hooks med ét klik."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa gli hook degli agenti rilevati con un clic."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install detected agent hooks with one click."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer oppdagede agent-hooks med ett klikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluj wykryte hooki agentów jednym kliknięciem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instale hooks de agentes detectados com um clique."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установите найденные хуки агентов одним щелчком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง Agent Hooks ที่ตรวจพบในคลิกเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algılanan aracı kancalarını tek tıklamayla yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установіть знайдені хуки агентів одним натисканням."
+          }
         }
       }
     },
@@ -4855,6 +5053,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "安裝偵測到的掛鉤"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaliraj otkrivene kuke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer registrerede hooks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa hook rilevati"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install detected hooks"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer oppdagede hooks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluj wykryte hooki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar hooks detectados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установить найденные хуки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง hooks ที่ตรวจพบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algılanan kancaları yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановити знайдені хуки"
           }
         }
       }
@@ -4915,6 +5179,72 @@
             "state": "translated",
             "value": "查看狀態"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeri status"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tjek status"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla stato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check status"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekk status"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź status"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificar status"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверить статус"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบสถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durumu kontrol et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірити стан"
+          }
         }
       }
     },
@@ -4973,6 +5303,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "將 Codex、Claude、Gemini、OpenCode、Amp 和 Pi 連接到 cmux 的狀態、Feed 與通知。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite Codex, Claude, Gemini, OpenCode, Amp i Pi sa cmux statusom, Feedom i obavijestima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind Codex, Claude, Gemini, OpenCode, Amp og Pi med cmux-status, Feed og notifikationer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega Codex, Claude, Gemini, OpenCode, Amp e Pi allo stato, al Feed e alle notifiche di cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect coding agents to cmux status, Feed, and notifications."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble Codex, Claude, Gemini, OpenCode, Amp og Pi til cmux-status, Feed og varsler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz Codex, Claude, Gemini, OpenCode, Amp i Pi ze statusem, Feedem i powiadomieniami cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte Codex, Claude, Gemini, OpenCode, Amp e Pi ao status, Feed e notificações do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите Codex, Claude, Gemini, OpenCode, Amp и Pi к статусу, Feed и уведомлениям cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อ Codex, Claude, Gemini, OpenCode, Amp และ Pi กับสถานะ Feed และการแจ้งเตือนของ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, Claude, Gemini, OpenCode, Amp ve Pi’yi cmux durumu, Feed ve bildirimlerine bağlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть Codex, Claude, Gemini, OpenCode, Amp і Pi до стану, Feed та сповіщень cmux."
           }
         }
       }
@@ -5033,6 +5429,72 @@
             "state": "translated",
             "value": "安裝"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaliraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановити"
+          }
         }
       }
     },
@@ -5091,6 +5553,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "解除安裝"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deinstaliraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afinstaller"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disinstalla"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uninstall"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avinstaller"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odinstaluj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desinstalar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถอนการติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видалити"
           }
         }
       }
@@ -5151,6 +5679,72 @@
             "state": "translated",
             "value": "安裝或移除此代理程式的掛鉤。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalirajte ili uklonite kuke za ovog agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer eller fjern hooks for denne agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa o rimuovi gli hook per questo agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install or remove hooks for this agent."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer eller fjern hooks for denne agenten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluj lub usuń hooki tego agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instale ou remova hooks deste agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установите или удалите хуки этого агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งหรือนำ hooks ของ Agent นี้ออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu aracı için kancaları yükleyin veya kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановіть або видаліть хуки цього агента."
+          }
         }
       }
     },
@@ -5206,6 +5800,72 @@
           }
         },
         "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode CLI"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode CLI"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode CLI"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI OpenCode"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode CLI"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode CLI"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI OpenCode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI OpenCode"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI OpenCode"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode CLI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode CLI"
+          }
+        },
+        "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "OpenCode CLI"
@@ -5268,6 +5928,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pi 代理程式"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi-agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi agent"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi-agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi agent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi aracısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент Pi"
           }
         }
       }

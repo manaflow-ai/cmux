@@ -558051,6 +558051,72 @@
             "state": "translated",
             "value": "可用"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dostupno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "available"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dostępny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "доступно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kullanılabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "доступно"
+          }
         }
       }
     },
@@ -558109,6 +558175,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理程式掛鉤狀態"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status kuka agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status for agent-hooks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato degli hook degli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook status"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status for agent-hooks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stan hooków agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status dos hooks de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статус хуков агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถานะ Agent Hooks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı kancası durumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стан хуків агентів"
           }
         }
       }
@@ -558169,6 +558301,72 @@
             "state": "translated",
             "value": "已安裝"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "instalirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "installeret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "installato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "installed"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "installert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zainstalowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "instalado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "установлено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yüklü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "встановлено"
+          }
         }
       }
     },
@@ -558227,6 +558425,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "未安裝"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nije instalirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ikke installeret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non installato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not installed"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ikke installert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nie zainstalowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "não instalado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не установлено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yüklü değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не встановлено"
           }
         }
       }
@@ -558287,6 +558551,72 @@
             "state": "translated",
             "value": "PATH 中找不到 CLI"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI nije pronađen na PATH-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ikke fundet på PATH"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI non trovato nel PATH"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI not found on PATH"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ikke funnet på PATH"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono CLI w PATH"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI não encontrado no PATH"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI не найден в PATH"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบ CLI ใน PATH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI PATH üzerinde bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI не знайдено в PATH"
+          }
         }
       }
     },
@@ -558345,6 +558675,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "執行 cmux hooks setup，將已安裝的程式設計代理程式連接到 cmux。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenite cmux hooks setup da povežete instalirane agente za kodiranje s cmuxom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kør cmux hooks setup for at forbinde installerede coding-agenter med cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esegui cmux hooks setup per collegare gli agenti di codice installati a cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run cmux hooks setup to connect installed coding agents to cmux."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjør cmux hooks setup for å koble installerte kodeagenter til cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchom cmux hooks setup, aby połączyć zainstalowanych agentów kodowania z cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execute cmux hooks setup para conectar agentes de código instalados ao cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустите cmux hooks setup, чтобы подключить установленных агентов кода к cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียกใช้ cmux hooks setup เพื่อเชื่อมต่อตัวแทนเขียนโค้ดที่ติดตั้งกับ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklü kodlama aracılarını cmux’a bağlamak için cmux hooks setup çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустіть cmux hooks setup, щоб підключити встановлених агентів кодування до cmux."
           }
         }
       }
@@ -558405,6 +558801,72 @@
             "state": "translated",
             "value": "執行 cmux hooks status，查看哪些代理程式已連接。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenite cmux hooks status da provjerite instalirane integracije kuka i dostupne CLI-je agenata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kør cmux hooks status for at se installerede hook-integrationer og tilgængelige agent-CLI’er."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esegui cmux hooks status per verificare le integrazioni hook installate e le CLI degli agenti disponibili."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run cmux hooks status to check installed hook integrations and available agent CLIs."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjør cmux hooks status for å se installerte hook-integrasjoner og tilgjengelige agent-CLI-er."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchom cmux hooks status, aby sprawdzić zainstalowane integracje hooków i dostępne CLI agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execute cmux hooks status para verificar integrações de hooks instaladas e CLIs de agentes disponíveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустите cmux hooks status, чтобы проверить установленные интеграции хуков и доступные CLI агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียกใช้ cmux hooks status เพื่อตรวจสอบการผสานรวม hooks ที่ติดตั้งและ CLI ของ Agent ที่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklü kanca entegrasyonlarını ve kullanılabilir aracı CLI’larını kontrol etmek için cmux hooks status çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустіть cmux hooks status, щоб перевірити встановлені інтеграції хуків і доступні CLI агентів."
+          }
         }
       }
     },
@@ -558419,7 +558881,1198 @@
         "ja": {"stringUnit": {"state": "translated", "value": "cmux フック"}},
         "ko": {"stringUnit": {"state": "translated", "value": "cmux 후크"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "cmux 挂钩"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "cmux 掛鉤"}}
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "cmux 掛鉤"}},
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kuke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-hooks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hook cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-hooks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hooki cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hooks cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "хуки cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kancaları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "хуки cmux"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.unknownTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown hooks target: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekanntes Hook-Ziel: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cible de hook inconnue : %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino de hooks desconocido: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هدف خطافات غير معروف: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なフック対象: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 후크 대상: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的挂钩目标：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的掛鉤目標：%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznata meta kuka: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt hook-mål: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinazione hook sconosciuta: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown hooks target: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent hook-mål: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznany cel hooka: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino de hooks desconhecido: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная цель хуков: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักเป้าหมาย hooks: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen kanca hedefi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідома ціль хуків: %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.agentNameRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires an agent name"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent benötigt einen Agentennamen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent nécessite un nom d’agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requiere un nombre de agente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --agent اسم وكيل"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent にはエージェント名が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent에는 에이전트 이름이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要代理名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要代理程式名稱"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent zahtijeva naziv agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent kræver et agentnavn"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent richiede un nome agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires an agent name"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent krever et agentnavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent wymaga nazwy agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requer um nome de agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent требует имя агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent ต้องการชื่อ Agent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent bir aracı adı gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent потребує назву агента"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.tooManyTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many hooks targets: specify at most one positional agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Hook-Ziele: Geben Sie höchstens einen positionellen Agenten an"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de cibles de hooks : indiquez au plus un agent positionnel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiados destinos de hooks: especifica como máximo un agente posicional"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أهداف خطافات كثيرة: حدّد وكيلاً موضعياً واحداً كحد أقصى"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フック対象が多すぎます: 位置引数のエージェントは1つまで指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후크 대상이 너무 많습니다. 위치 에이전트는 하나만 지정하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂钩目标过多：最多指定一个位置代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "掛鉤目標過多：最多指定一個位置代理程式"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previše meta kuka: navedite najviše jednog pozicionog agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For mange hook-mål: angiv højst én positionsagent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Troppi obiettivi hook: specifica al massimo un agente posizionale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many hooks targets: specify at most one positional agent"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For mange hook-mål: angi maksimalt én posisjonsagent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zbyt wiele celów hooków: podaj najwyżej jednego agenta pozycyjnego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muitos destinos de hooks: especifique no máximo um agente posicional"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слишком много целей хуков: укажите не более одного позиционного агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เป้าหมาย hooks มากเกินไป: ระบุ Agent แบบตำแหน่งได้ไม่เกินหนึ่งรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çok fazla kanca hedefi: en fazla bir konumsal aracı belirtin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Забагато цілей хуків: вкажіть не більше одного позиційного агента"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.conflictingTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicting hooks target: use either --agent or a positional target, not both"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widersprüchliche Hook-Ziele: Verwenden Sie entweder --agent oder ein Positionsziel, nicht beides"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cibles de hooks contradictoires : utilisez --agent ou une cible positionnelle, pas les deux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinos de hooks en conflicto: usa --agent o un destino posicional, no ambos"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أهداف خطافات متعارضة: استخدم --agent أو هدفاً موضعياً، وليس كليهما"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フック対象が競合しています: --agent または位置対象のどちらか一方を使用してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후크 대상이 충돌합니다. --agent 또는 위치 대상을 하나만 사용하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂钩目标冲突：使用 --agent 或位置目标，不能同时使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "掛鉤目標衝突：請使用 --agent 或位置目標，不能同時使用"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sukob meta kuka: koristite --agent ili pozicionu metu, ne oboje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikt mellem hook-mål: brug enten --agent eller et positionsmål, ikke begge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obiettivi hook in conflitto: usa --agent o un obiettivo posizionale, non entrambi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicting hooks target: use either --agent or a positional target, not both"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikterende hook-mål: bruk enten --agent eller et posisjonsmål, ikke begge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprzeczne cele hooków: użyj --agent albo celu pozycyjnego, nie obu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinos de hooks conflitantes: use --agent ou um destino posicional, não ambos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфликтующие цели хуков: используйте --agent или позиционную цель, но не оба"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เป้าหมาย hooks ขัดแย้งกัน: ใช้ --agent หรือเป้าหมายแบบตำแหน่งอย่างใดอย่างหนึ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çakışan kanca hedefi: --agent veya konumsal hedef kullanın, ikisini birden değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфлікт цілей хуків: використовуйте --agent або позиційну ціль, але не обидва"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.unknownTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown hooks target: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekanntes Hook-Ziel: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cible de hook inconnue : %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino de hooks desconocido: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هدف خطافات غير معروف: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なフック対象: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 후크 대상: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的挂钩目标：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的掛鉤目標：%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznata meta kuka: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt hook-mål: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinazione hook sconosciuta: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown hooks target: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent hook-mål: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznany cel hooka: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino de hooks desconhecido: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная цель хуков: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักเป้าหมาย hooks: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen kanca hedefi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідома ціль хуків: %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.agentNameRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires an agent name"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent benötigt einen Agentennamen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent nécessite un nom d’agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requiere un nombre de agente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --agent اسم وكيل"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent にはエージェント名が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent에는 에이전트 이름이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要代理名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要代理程式名稱"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent zahtijeva naziv agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent kræver et agentnavn"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent richiede un nome agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires an agent name"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent krever et agentnavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent wymaga nazwy agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requer um nome de agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent требует имя агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent ต้องการชื่อ Agent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent bir aracı adı gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent потребує назву агента"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.tooManyTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many hooks targets: specify at most one positional agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Hook-Ziele: Geben Sie höchstens einen positionellen Agenten an"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de cibles de hooks : indiquez au plus un agent positionnel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiados destinos de hooks: especifica como máximo un agente posicional"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أهداف خطافات كثيرة: حدّد وكيلاً موضعياً واحداً كحد أقصى"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フック対象が多すぎます: 位置引数のエージェントは1つまで指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후크 대상이 너무 많습니다. 위치 에이전트는 하나만 지정하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂钩目标过多：最多指定一个位置代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "掛鉤目標過多：最多指定一個位置代理程式"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previše meta kuka: navedite najviše jednog pozicionog agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For mange hook-mål: angiv højst én positionsagent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Troppi obiettivi hook: specifica al massimo un agente posizionale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many hooks targets: specify at most one positional agent"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For mange hook-mål: angi maksimalt én posisjonsagent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zbyt wiele celów hooków: podaj najwyżej jednego agenta pozycyjnego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muitos destinos de hooks: especifique no máximo um agente posicional"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слишком много целей хуков: укажите не более одного позиционного агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เป้าหมาย hooks มากเกินไป: ระบุ Agent แบบตำแหน่งได้ไม่เกินหนึ่งรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çok fazla kanca hedefi: en fazla bir konumsal aracı belirtin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Забагато цілей хуків: вкажіть не більше одного позиційного агента"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.conflictingTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicting hooks target: use either --agent or a positional target, not both"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widersprüchliche Hook-Ziele: Verwenden Sie entweder --agent oder ein Positionsziel, nicht beides"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cibles de hooks contradictoires : utilisez --agent ou une cible positionnelle, pas les deux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinos de hooks en conflicto: usa --agent o un destino posicional, no ambos"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أهداف خطافات متعارضة: استخدم --agent أو هدفاً موضعياً، وليس كليهما"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フック対象が競合しています: --agent または位置対象のどちらか一方を使用してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후크 대상이 충돌합니다. --agent 또는 위치 대상을 하나만 사용하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂钩目标冲突：使用 --agent 或位置目标，不能同时使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "掛鉤目標衝突：請使用 --agent 或位置目標，不能同時使用"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sukob meta kuka: koristite --agent ili pozicionu metu, ne oboje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikt mellem hook-mål: brug enten --agent eller et positionsmål, ikke begge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obiettivi hook in conflitto: usa --agent o un obiettivo posizionale, non entrambi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicting hooks target: use either --agent or a positional target, not both"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikterende hook-mål: bruk enten --agent eller et posisjonsmål, ikke begge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprzeczne cele hooków: użyj --agent albo celu pozycyjnego, nie obu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinos de hooks conflitantes: use --agent ou um destino posicional, não ambos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфликтующие цели хуков: используйте --agent или позиционную цель, но не оба"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เป้าหมาย hooks ขัดแย้งกัน: ใช้ --agent หรือเป้าหมายแบบตำแหน่งอย่างใดอย่างหนึ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çakışan kanca hedefi: --agent veya konumsal hedef kullanın, ikisini birden değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфлікт цілей хуків: використовуйте --agent або позиційну ціль, але не обидва"
+          }
+        }
+      }
+    },
+    "cli.hooks.help.statusDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show installed hooks and agent availability"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installierte Hooks und Agentenverfügbarkeit anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les hooks installés et la disponibilité des agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar los hooks instalados y la disponibilidad de los agentes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الخطافات المثبتة وتوفر الوكلاء"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済みのフックとエージェントの利用状況を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치된 후크 및 에이전트 사용 가능 여부 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示已安装的挂钩和代理可用性"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示已安裝的掛鉤與代理程式可用性"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži instalirane kuke i dostupnost agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis installerede hooks og agenttilgængelighed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra gli hook installati e la disponibilità degli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show installed hooks and agent availability"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis installerte hooks og agenttilgjengelighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż zainstalowane hooki i dostępność agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar hooks instalados e disponibilidade dos agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать установленные хуки и доступность агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง hooks ที่ติดตั้งและความพร้อมใช้งานของ Agent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklü kancaları ve aracı kullanılabilirliğini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати встановлені хуки та доступність агентів"
+          }
+        }
       }
     }
   },

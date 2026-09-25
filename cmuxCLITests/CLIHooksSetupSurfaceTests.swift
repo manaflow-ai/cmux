@@ -58,7 +58,7 @@ struct CLIHooksSetupSurfaceTests {
         let process = Process()
         let output = Pipe()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-hooks-surface-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-hooks-surface-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 

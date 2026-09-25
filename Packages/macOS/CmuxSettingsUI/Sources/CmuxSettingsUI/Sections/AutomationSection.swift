@@ -100,7 +100,7 @@ public struct AutomationSection: View {
     private static let columnWidth: CGFloat = 196
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
+            SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation", bundle: .module), section: .automation)
             hooksSetupCard
             socketControlCard
             automationRulesCard
@@ -165,19 +165,19 @@ public struct AutomationSection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.automation.agentHooks", defaultValue: "Agent Hooks"),
-                subtitle: String(localized: "settings.automation.agentHooks.subtitle", defaultValue: "Connect Codex, Claude, Gemini, OpenCode, Amp, and Pi to cmux status, Feed, and notifications."),
+                String(localized: "settings.automation.agentHooks", defaultValue: "Agent Hooks", bundle: .module),
+                subtitle: String(localized: "settings.automation.agentHooks.subtitle", defaultValue: "Connect Codex, Claude, Gemini, OpenCode, Amp, and Pi to cmux status, Feed, and notifications.", bundle: .module),
                 controlWidth: Self.columnWidth
             ) {
                 HStack(spacing: 8) {
-                    Button(String(localized: "settings.automation.agentHooks.setup", defaultValue: "Install detected hooks")) {
+                    Button(String(localized: "settings.automation.agentHooks.setup", defaultValue: "Install detected hooks", bundle: .module)) {
                         hostActions.openAgentHooksSetup()
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAgentHooksSetupButton")
 
-                    Button(String(localized: "settings.automation.agentHooks.status", defaultValue: "Check status")) {
+                    Button(String(localized: "settings.automation.agentHooks.status", defaultValue: "Check status", bundle: .module)) {
                         hostActions.openAgentHooksStatus()
                     }
                     .buttonStyle(.bordered)
@@ -186,26 +186,26 @@ public struct AutomationSection: View {
                 }
             }
             SettingsCardDivider()
-            SettingsCardNote(String(localized: "settings.automation.agentHooks.note", defaultValue: "Install detected agent hooks with one click, or run `cmux hooks setup --agent <name>` for one agent. Claude Code hooks are injected automatically by the cmux wrapper. Hook status and uninstall are available from the same terminal command."))
+            SettingsCardNote(String(localized: "settings.automation.agentHooks.note", defaultValue: "Install detected agent hooks with one click, or run `cmux hooks setup --agent <name>` for one agent. Claude Code hooks are injected automatically by the cmux wrapper. Hook status and uninstall are available from the same terminal command.", bundle: .module))
             ForEach(Self.agentHookSettingsItems) { item in
                 SettingsCardDivider()
                 SettingsCardRow(
                     configurationReview: .action,
-                    String(localized: item.titleKey, defaultValue: item.defaultTitle),
+                    String(localized: item.titleKey, defaultValue: item.defaultTitle, bundle: .module),
                     subtitle: String(
                         localized: "settings.automation.agentHooks.perAgentSubtitle",
-                        defaultValue: "Install or remove hooks for this agent."
+                        defaultValue: "Install or remove hooks for this agent.", bundle: .module
                     )
                 ) {
                     HStack(spacing: 8) {
-                        Button(String(localized: "settings.automation.agentHooks.install", defaultValue: "Install")) {
+                        Button(String(localized: "settings.automation.agentHooks.install", defaultValue: "Install", bundle: .module)) {
                             hostActions.openAgentHooksInstall(agent: item.agent)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .accessibilityIdentifier("SettingsAgentHooksInstall\(item.agent.capitalized)Button")
 
-                        Button(String(localized: "settings.automation.agentHooks.uninstall", defaultValue: "Uninstall")) {
+                        Button(String(localized: "settings.automation.agentHooks.uninstall", defaultValue: "Uninstall", bundle: .module)) {
                             hostActions.openAgentHooksUninstall(agent: item.agent)
                         }
                         .buttonStyle(.bordered)
@@ -216,7 +216,7 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             Link(
-                String(localized: "settings.automation.agentHooks.docs", defaultValue: "Open agent hooks documentation"),
+                String(localized: "settings.automation.agentHooks.docs", defaultValue: "Open agent hooks documentation", bundle: .module),
                 destination: URL(string: "https://cmux.com/docs/session-restore")!
             )
             .cmuxFont(.caption)
