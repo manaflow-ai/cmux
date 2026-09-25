@@ -354,7 +354,7 @@ Command actions can use `"target": "background"` to run locally with `/bin/sh -c
   "actions": {
     "workspace.moveAfter": {
       "type": "command",
-      "command": "cmux reorder-workspace --after workspace:1",
+      "command": "cmux reorder-workspace --workspace \"$CMUX_WORKSPACE_ID\" --after workspace:1",
       "target": "background",
       "shortcut": "ctrl+opt+cmd+down"
     }
