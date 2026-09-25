@@ -265,5 +265,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(reuse["run"].strip(), 'python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"')
 
 
+    def test_only_an_owned_mac_moves_to_another_root_and_publishes_under_its_key(self) -> None:
+        reuse = next(step for step in self.jobs["build"]["steps"] if step.get("id") == "reuse")
+        self.assertEqual(reuse["env"]["CMUX_REUSE_SWITCH_ROOTS"],
+                         "${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}")
+        # A product taken from another root is sealed and published at that root.
+        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        self.assertNotIn("${{ steps.product-key.outputs.key }}", text)
+        self.assertEqual(text.count("steps.reuse.outputs.product_key || steps.product-key.outputs.key"), 4)
+
 if __name__ == "__main__":
     unittest.main()
