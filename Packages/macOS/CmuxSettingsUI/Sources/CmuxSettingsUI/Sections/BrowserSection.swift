@@ -322,8 +322,8 @@ public struct BrowserSection: View {
             // Terminal Link Split Direction
             SettingsCardRow(
                 configurationReview: .json("browser.terminalLinkSplitDirection"),
-                String(localized: "settings.browser.terminalLinkSplitDirection", defaultValue: "Terminal Link Split Direction"),
-                subtitle: String(localized: "settings.browser.terminalLinkSplitDirection.subtitle", defaultValue: "Choose whether terminal links open the embedded browser to the right or below the terminal."),
+                String(localized: "settings.browser.terminalLinkSplitDirection", defaultValue: "Terminal Link Split Direction", bundle: .module),
+                subtitle: String(localized: "settings.browser.terminalLinkSplitDirection.subtitle", defaultValue: "Choose whether terminal links open the embedded browser to the right or below the terminal.", bundle: .module),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { terminalLinkSplitDirection.current }, set: { terminalLinkSplitDirection.set($0) })) {
@@ -817,9 +817,9 @@ public struct BrowserSection: View {
     private func terminalLinkSplitDirectionLabel(_ direction: BrowserTerminalLinkSplitDirection) -> String {
         switch direction {
         case .right:
-            return String(localized: "settings.browser.terminalLinkSplitDirection.right", defaultValue: "Right")
+            return String(localized: "settings.browser.terminalLinkSplitDirection.right", defaultValue: "Right", bundle: .module)
         case .down:
-            return String(localized: "settings.browser.terminalLinkSplitDirection.down", defaultValue: "Down")
+            return String(localized: "settings.browser.terminalLinkSplitDirection.down", defaultValue: "Down", bundle: .module)
         }
     }
 

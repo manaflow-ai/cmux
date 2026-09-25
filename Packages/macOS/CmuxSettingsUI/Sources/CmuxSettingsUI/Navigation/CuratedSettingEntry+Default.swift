@@ -452,8 +452,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .browser,
                 id: "terminal-link-split-direction",
-                title: String(localized: "settings.browser.terminalLinkSplitDirection", defaultValue: "Terminal Link Split Direction"),
-                detailText: String(localized: "settings.browser.terminalLinkSplitDirection.subtitle", defaultValue: "Choose whether terminal links open the embedded browser to the right or below the terminal."),
+                title: String(localized: "settings.browser.terminalLinkSplitDirection", defaultValue: "Terminal Link Split Direction", bundle: .module),
+                detailText: String(localized: "settings.browser.terminalLinkSplitDirection.subtitle", defaultValue: "Choose whether terminal links open the embedded browser to the right or below the terminal.", bundle: .module),
                 paths: ["browser.terminalLinkSplitDirection"],
                 synonyms: "browser.terminalLinkSplitDirection terminal links browser split right down below direction pane"
             ),
