@@ -7,75 +7,56 @@ struct TerminalAgentFooterUpdate: Sendable {
     let surfaceID: UUID
     let state: AgentFooterState?
 
-    private struct Snapshot: Sendable {
-        let state: AgentFooterState?
+    @MainActor
+    private static let stateStore = AgentFooterStateStore()
+
+    /// Installs a new lease before the PTY callback can publish output.
+    @MainActor
+    static func activate(surfaceID: UUID) -> AgentFooterStateStore.Lease {
+        stateStore.activate(surfaceID: surfaceID)
     }
 
-    private struct Cache: Sendable {
-        var snapshots: [UUID: Snapshot] = [:]
-        var retiredSurfaceIDs: Set<UUID> = []
-        var releasedSurfaceIDs: Set<UUID> = []
-    }
-
-    // Footer updates can arrive while a startup command is creating its
-    // surface, before TerminalPanel has installed its notification observer.
-    // This short-lived replay cache closes that construction gap; the lock
-    // protects only the synchronous snapshot read/write, not ongoing domain
-    // state.
-    private static let latestStates = OSAllocatedUnfairLock(
-        initialState: Cache()
-    )
-
-    static func post(surfaceID: UUID, state: AgentFooterState?) {
-        let shouldPost = latestStates.withLock { cache in
-            guard !cache.retiredSurfaceIDs.contains(surfaceID) else { return false }
-            cache.snapshots[surfaceID] = Snapshot(state: state)
-            return true
+    /// Publishes a PTY snapshot through the main-actor state owner.
+    ///
+    /// The lease check runs before the notification is posted, so an update
+    /// from an old tee cannot restore state after teardown or surface reuse.
+    static func post(lease: AgentFooterStateStore.Lease, state: AgentFooterState?) {
+        Task { @MainActor in
+            guard stateStore.update(state, for: lease) else { return }
+            NotificationCenter.default.post(
+                name: .terminalAgentFooterDidUpdate,
+                object: TerminalAgentFooterUpdate(surfaceID: lease.surfaceID, state: state)
+            )
         }
-        guard shouldPost else { return }
-        NotificationCenter.default.post(
-            name: .terminalAgentFooterDidUpdate,
-            object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: state)
-        )
     }
 
+    @MainActor
     static func latestState(for surfaceID: UUID) -> AgentFooterState? {
-        latestStates.withLock { cache in
-            cache.snapshots[surfaceID]?.state
+        stateStore.snapshot(for: surfaceID)
+    }
+
+    static func clear(surfaceID: UUID) {
+        Task { @MainActor in
+            guard stateStore.retire(surfaceID: surfaceID) else { return }
+            NotificationCenter.default.post(
+                name: .terminalAgentFooterDidUpdate,
+                object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
+            )
         }
     }
 
-    static func activate(surfaceID: UUID) {
-        latestStates.withLock { cache in
-            cache.retiredSurfaceIDs.remove(surfaceID)
-            cache.releasedSurfaceIDs.remove(surfaceID)
-            cache.snapshots.removeValue(forKey: surfaceID)
-        }
-    }
-
+    @MainActor
     static func retire(surfaceID: UUID) {
-        latestStates.withLock { cache in
-            cache.retiredSurfaceIDs.insert(surfaceID)
-            cache.snapshots[surfaceID] = Snapshot(state: nil)
-            if cache.releasedSurfaceIDs.contains(surfaceID) {
-                cache.retiredSurfaceIDs.remove(surfaceID)
-                cache.releasedSurfaceIDs.remove(surfaceID)
-                cache.snapshots.removeValue(forKey: surfaceID)
-            }
-        }
+        guard stateStore.retire(surfaceID: surfaceID) else { return }
         NotificationCenter.default.post(
             name: .terminalAgentFooterDidUpdate,
             object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
         )
     }
 
-    static func teeDidRelease(surfaceID: UUID) {
-        latestStates.withLock { cache in
-            cache.releasedSurfaceIDs.insert(surfaceID)
-            guard cache.retiredSurfaceIDs.contains(surfaceID) else { return }
-            cache.retiredSurfaceIDs.remove(surfaceID)
-            cache.releasedSurfaceIDs.remove(surfaceID)
-            cache.snapshots.removeValue(forKey: surfaceID)
+    static func teeDidRelease(lease: AgentFooterStateStore.Lease) {
+        Task { @MainActor in
+            stateStore.release(lease)
         }
     }
 }
@@ -127,6 +108,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     let workspaceID: UUID
     let surfaceID: UUID
+    private let footerLease: AgentFooterStateStore.Lease
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
@@ -136,11 +118,12 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
+        footerLease: AgentFooterStateStore.Lease,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
     ) {
-        TerminalAgentFooterUpdate.activate(surfaceID: surfaceID)
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.footerLease = footerLease
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -158,7 +141,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
         if let footerState = footerParser.consume(bytes) {
             TerminalAgentFooterUpdate.post(
-                surfaceID: surfaceID,
+                lease: footerLease,
                 state: footerState.isEmpty ? nil : footerState
             )
         }

@@ -96,16 +96,19 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
-        private let surfaceID: UUID
+        private let footerLease: AgentFooterStateStore.Lease
 
-        init(context: Unmanaged<TerminalOutputTeeContext>, surfaceID: UUID) {
+        init(
+            context: Unmanaged<TerminalOutputTeeContext>,
+            footerLease: AgentFooterStateStore.Lease
+        ) {
             self.context = context
-            self.surfaceID = surfaceID
+            self.footerLease = footerLease
         }
 
         func release() {
             context.release()
-            TerminalAgentFooterUpdate.teeDidRelease(surfaceID: surfaceID)
+            TerminalAgentFooterUpdate.teeDidRelease(lease: footerLease)
         }
     }
 
@@ -115,10 +118,11 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
-        TerminalAgentFooterUpdate.activate(surfaceID: surfaceID)
+        let footerLease = TerminalAgentFooterUpdate.activate(surfaceID: surfaceID)
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
+            footerLease: footerLease,
             agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
         ))
         ghostty_surface_set_pty_tee_cb(
@@ -126,7 +130,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext, surfaceID: surfaceID)
+        return Lease(context: teeContext, footerLease: footerLease)
     }
 
     @MainActor

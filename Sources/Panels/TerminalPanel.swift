@@ -96,7 +96,6 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
-    @Published private(set) var agentFooter: AgentFooterState?
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?
@@ -110,7 +109,6 @@ final class TerminalPanel: Panel, ObservableObject {
     var onTerminalFocus: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
-    private var agentFooterUpdateObserver: NSObjectProtocol?
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
     private var attentionFlashActiveUntil: TimeInterval = 0
 
@@ -167,26 +165,6 @@ final class TerminalPanel: Panel, ObservableObject {
             }
             .store(in: &cancellables)
 
-        agentFooterUpdateObserver = NotificationCenter.default.addObserver(
-            forName: .terminalAgentFooterDidUpdate,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                guard let update = notification.object as? TerminalAgentFooterUpdate,
-                      update.surfaceID == self?.id else {
-                    return
-                }
-                self?.agentFooter = update.state
-            }
-        }
-        agentFooter = TerminalAgentFooterUpdate.latestState(for: id)
-    }
-
-    deinit {
-        if let agentFooterUpdateObserver {
-            NotificationCenter.default.removeObserver(agentFooterUpdateObserver)
-        }
     }
 
     /// Create a new terminal panel with a fresh surface

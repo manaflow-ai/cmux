@@ -12,6 +12,7 @@ import CmuxSettings
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
+    @State private var agentFooter: AgentFooterState?
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
@@ -36,33 +37,45 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        switch panel.agentHibernationPhase {
-        case .live:
-            terminalBody
-        case .terminating:
-            Color(nsColor: appearance.contentBackgroundColor)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .id("hibernation-terminating-\(panel.id.uuidString)")
-        case .recovering(let hibernationState):
-            AgentHibernationPlaceholderView(
-                state: hibernationState,
-                appearance: appearance,
-                mode: AgentHibernationPlaceholderMode.recovering,
-                onAction: nil
-            )
-            .id("hibernation-termination-recovery-\(panel.id.uuidString)")
-        case .terminationFailed(let hibernationState):
-            AgentHibernationPlaceholderView(
-                state: hibernationState,
-                appearance: appearance,
-                mode: AgentHibernationPlaceholderMode.failed,
-                onAction: {
-                    panel.retryAgentHibernationTermination()
-                }
-            )
-            .id("hibernation-termination-failed-\(panel.id.uuidString)")
-        case .hibernated(let hibernationState):
-            hibernationBody(hibernationState)
+        Group {
+            switch panel.agentHibernationPhase {
+            case .live:
+                terminalBody
+            case .terminating:
+                Color(nsColor: appearance.contentBackgroundColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .id("hibernation-terminating-\(panel.id.uuidString)")
+            case .recovering(let hibernationState):
+                AgentHibernationPlaceholderView(
+                    state: hibernationState,
+                    appearance: appearance,
+                    mode: AgentHibernationPlaceholderMode.recovering,
+                    onAction: nil
+                )
+                .id("hibernation-termination-recovery-\(panel.id.uuidString)")
+            case .terminationFailed(let hibernationState):
+                AgentHibernationPlaceholderView(
+                    state: hibernationState,
+                    appearance: appearance,
+                    mode: AgentHibernationPlaceholderMode.failed,
+                    onAction: {
+                        panel.retryAgentHibernationTermination()
+                    }
+                )
+                .id("hibernation-termination-failed-\(panel.id.uuidString)")
+            case .hibernated(let hibernationState):
+                hibernationBody(hibernationState)
+            }
+        }
+        .onAppear {
+            agentFooter = TerminalAgentFooterUpdate.latestState(for: panel.id)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .terminalAgentFooterDidUpdate)) { notification in
+            guard let update = notification.object as? TerminalAgentFooterUpdate,
+                  update.surfaceID == panel.id else {
+                return
+            }
+            agentFooter = update.state
         }
     }
 
@@ -131,7 +144,7 @@ struct TerminalPanelView: View {
 #endif
             .layoutPriority(1)
 
-            if let agentFooter = panel.agentFooter {
+            if let agentFooter {
                 TerminalAgentFooterView(state: agentFooter, appearance: appearance)
             }
 
