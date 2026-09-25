@@ -174,7 +174,7 @@ public actor ExternalHoverWorkService {
         callSetter: @escaping CallSetter,
         callClear: @escaping CallClear,
         drainDiagnostics: @escaping DrainDiagnostics,
-        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate.isEnabled },
+        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate().isEnabled },
         readMetricsCalculator: @escaping ReadMetricsCalculator = { ExternalHoverWorkService.defaultReadMetrics($0) }
     ) {
         self.teardownCoordinator = teardownCoordinator
@@ -380,8 +380,8 @@ public actor ExternalHoverWorkService {
     private func resolveFully(_ request: ExternalHoverWorkRequest) async -> ExternalHoverCandidateCache? {
 #if DEBUG
         // Review round2 B4: ONE snapshot for this whole call — the
-        // injected `diagnosticsEnabled()` (never the static
-        // `ExternalHoverDiagnosticsGate.isEnabled` directly), matching
+        // injected `diagnosticsEnabled()` (never the default
+        // `ExternalHoverDiagnosticsGate().isEnabled` directly), matching
         // every other gated call this actor makes and making the gate
         // itself injectable/testable here too. Every metric computation
         // AND log call below lives inside `if diagnosticsOn { ... }` —
@@ -723,7 +723,7 @@ public actor ExternalHoverWorkService {
         // reject decision.
         //
         // Review round2 B4: uses the injected `diagnosticsEnabled()`
-        // (never the static `ExternalHoverDiagnosticsGate.isEnabled`
+        // (never the default `ExternalHoverDiagnosticsGate().isEnabled`
         // directly), matching `resolveFully`'s own gate and making this
         // testable the same way.
         func logSetter(outcome: String, reason: String) {

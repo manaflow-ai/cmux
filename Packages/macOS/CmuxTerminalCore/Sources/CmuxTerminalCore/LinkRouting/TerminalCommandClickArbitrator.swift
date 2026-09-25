@@ -27,7 +27,10 @@ public enum CommandClickContextState: Equatable {
 /// candidate against Ghostty's own `open_url` callback and the eventual
 /// release, isolated from `GhosttyNSView` so every transition can be
 /// exercised without a live Ghostty surface.
-public enum TerminalCommandClickArbitrator {
+public struct TerminalCommandClickArbitrator: Sendable {
+    /// Creates a stateless command-click arbitrator.
+    public init() {}
+
     /// The effect the release handler should perform for a gesture's final
     /// state.
     public enum ReleaseAction: Equatable {
@@ -64,7 +67,7 @@ public enum TerminalCommandClickArbitrator {
     ///   claim the URL (return `true`, suppressing Ghostty's own
     ///   `internal_os.open`) instead of passing through to
     ///   `TerminalLinkOpenCoordinator`.
-    public static func openURLCallbackResult(
+    public func openURLCallbackResult(
         currentState: CommandClickContextState?,
         hasExplicitScheme: Bool,
         matchKey: String
@@ -93,7 +96,7 @@ public enum TerminalCommandClickArbitrator {
     ///     `open_url` callback it triggered.
     ///   - ghosttyConsumed: Whether Ghostty's release call reported the
     ///     click as consumed (it resolved a native link target itself).
-    public static func releaseAction(
+    public func releaseAction(
         finalState: CommandClickContextState?,
         ghosttyConsumed: Bool
     ) -> ReleaseAction {

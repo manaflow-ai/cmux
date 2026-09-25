@@ -1007,7 +1007,7 @@ import Testing
 
     /// Review B1: with the REAL production composition — neither the
     /// coordinator's nor the service's `diagnosticsEnabled` overridden,
-    /// both defaulting to `ExternalHoverDiagnosticsGate.isEnabled`, which
+    /// both defaulting to `ExternalHoverDiagnosticsGate().isEnabled`, which
     /// is always `false` in a `swift test` process since
     /// `CMUX_EXTERNAL_HOVER_DIAGNOSTICS` is never set for it — a
     /// successful setter call must retain ZERO render demand, and a drain
@@ -1170,7 +1170,7 @@ import Testing
     /// happen without the other).
     ///
     /// Before this fix, `logRead`'s own internal guard checked the
-    /// STATIC `ExternalHoverDiagnosticsGate.isEnabled` (always `false` in
+    /// the default `ExternalHoverDiagnosticsGate().isEnabled` (always `false` in
     /// a `swift test` process) instead of the actor's injected
     /// `diagnosticsEnabled`, so an injected `{ true }` here would have
     /// produced NO line at all — exactly the "static vs. injected gate

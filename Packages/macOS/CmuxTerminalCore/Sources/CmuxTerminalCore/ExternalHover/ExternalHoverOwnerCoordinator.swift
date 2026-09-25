@@ -44,11 +44,11 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     public typealias ManageDiagnosticsRenderDemand = (Bool) -> Void
     /// (C) ExternalHover diagnostics — review B1: an injectable seam for
     /// design v4 §7 guard 4's "gate OFF ⇒ no allocation/ring/demand work",
-    /// rather than hardcoding `ExternalHoverDiagnosticsGate.isEnabled`
+    /// rather than hardcoding `ExternalHoverDiagnosticsGate().isEnabled`
     /// directly at each call site. Production composition never overrides
     /// this (the default IS the real gate); tests inject a controllable
-    /// closure, since the real gate is a process-wide memoized `static
-    /// let` that a single `swift test` run can never flip both ways.
+    /// closure, since the production gate is captured once and a single
+    /// `swift test` run should not depend on process-global environment state.
     public typealias DiagnosticsEnabled = @Sendable () -> Bool
 
     /// (C) ExternalHover diagnostics — design v4 §5's `transition` stage,
@@ -124,7 +124,7 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         project: @escaping Project,
         manageDiagnosticsRenderDemand: @escaping ManageDiagnosticsRenderDemand = { _ in },
         logTransition: @escaping LogTransition = { _ in },
-        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate.isEnabled }
+        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate().isEnabled }
     ) {
         self.scheduler = scheduler
         self.project = project

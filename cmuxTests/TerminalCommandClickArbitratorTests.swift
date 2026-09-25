@@ -10,6 +10,8 @@ import Testing
 
 @Suite("Terminal command-click composition")
 struct TerminalCommandClickCompositionTests {
+    private let arbitrator = TerminalCommandClickArbitrator()
+
     // MARK: - review R2-B3/B4: production-shared click composition
 
     // review §R2-B3 — `GhosttyNSView.resolveCommandClickWrappedCandidate`
@@ -148,7 +150,7 @@ struct TerminalCommandClickCompositionTests {
         ))
         #expect(candidate.path == existingFile)
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(
+            arbitrator.releaseAction(
                 finalState: .prepared(candidate),
                 ghosttyConsumed: false
             ) == .openWrappedCandidate(candidate)

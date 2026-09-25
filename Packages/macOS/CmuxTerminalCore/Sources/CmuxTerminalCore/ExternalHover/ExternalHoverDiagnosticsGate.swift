@@ -8,11 +8,10 @@ import Foundation
 /// same env var, the same `"1"` value), not by any cross-process
 /// coordination.
 ///
-/// `isEnabled` is a plain immutable `static let`, not
-/// `ProcessInfo.processInfo.environment` re-read on every mouse-moved —
-/// this is what "a fixed, cheap branch" (not "zero cost") means per the
-/// design doc: one read at process start, then a plain `Bool` compare
-/// forever after.
+/// `isEnabled` is a plain immutable instance property, not
+/// `ProcessInfo.processInfo.environment` re-read on every mouse-moved. The
+/// app constructs one gate per native surface and injects it into the
+/// surface's coordinators, so the hot path is one plain `Bool` compare.
 ///
 /// Review non-blocking N3 — the explicit Release-build contract: this
 /// gate is readable (and, if the env var is set, `true`) in EVERY build
@@ -30,8 +29,16 @@ import Foundation
 /// builds can see the resulting text) are deliberately independent
 /// knobs, matching every other `#if DEBUG`-gated `logDebugEvent` call in
 /// this codebase.
-public enum ExternalHoverDiagnosticsGate {
-    public static let isEnabled: Bool = {
-        ProcessInfo.processInfo.environment["CMUX_EXTERNAL_HOVER_DIAGNOSTICS"] == "1"
-    }()
+public struct ExternalHoverDiagnosticsGate: Sendable {
+    /// Whether diagnostics are enabled for the process environment captured at initialization.
+    public let isEnabled: Bool
+
+    /// Captures the diagnostics switch once so callers can inject a stable gate.
+    ///
+    /// - Parameter environment: The environment to inspect. Production callers
+    ///   use the default process environment; tests can provide a deterministic
+    ///   dictionary without mutating process-global state.
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        isEnabled = environment["CMUX_EXTERNAL_HOVER_DIAGNOSTICS"] == "1"
+    }
 }

@@ -3460,7 +3460,7 @@ class GhosttyApp {
             // the apprt (if that one lands promptly but this one is
             // late). Same gate as every other (C) diagnostics line.
             #if DEBUG
-            if ExternalHoverDiagnosticsGate.isEnabled {
+            if surfaceView.externalHoverDiagnosticsGate.isEnabled {
                 cmuxDebugLog(
                     "link.externalHover stage=callbackEntry surfaceSerial=\(surfaceView.externalHoverSurfaceSerial) " +
                     "active=\(hoverAction.active) tokenBits0=\(hoverAction.token_bits.0)"
@@ -3978,6 +3978,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
+    private let commandClickArbitrator = TerminalCommandClickArbitrator()
     private var commandClickReleaseRoutingActive = false
     private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var commandClickReleaseCanOpenURL = false
@@ -4179,7 +4180,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// directly, since a concurrent teardown could otherwise race this
     /// main-thread read against `ghostty_surface_free`.
     private func drainExternalHoverDiagnosticsOnRenderTrigger() {
-        guard ExternalHoverDiagnosticsGate.isEnabled,
+        guard externalHoverDiagnosticsGate.isEnabled,
               let surface, let terminalSurface else { return }
         let lifetimeID = RuntimeSurfaceLifetimeID(
             surfaceID: terminalSurface.id,
@@ -4244,6 +4245,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // its own `stage=callbackEntry` diagnostic line — same rationale as
     // `hoverCallbackMirror`'s own `fileprivate` above.
     fileprivate let externalHoverSurfaceSerial: UInt64 = GhosttyNSView.externalHoverSurfaceSerialCounter.wrappingIncrementRelaxed()
+    fileprivate let externalHoverDiagnosticsGate = ExternalHoverDiagnosticsGate()
     // Pure reducer (see `TerminalHoverIndicatorState`'s own doc) — the
     // sole owner of "which mechanism is currently displayed" and "what
     // native result is being held back while external is active". This
@@ -4262,7 +4264,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
         logTransition: { [surfaceSerial = externalHoverSurfaceSerial] verdict in
             #if DEBUG
-            if ExternalHoverDiagnosticsGate.isEnabled {
+            if externalHoverDiagnosticsGate.isEnabled {
                 cmuxDebugLog(
                     "link.externalHover stage=transition surfaceSerial=\(surfaceSerial) " +
                     "event=\(verdict.event.map(String.init) ?? "none") active=\(verdict.active) " +
@@ -4271,7 +4273,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
             #endif
-        }
+        },
+        diagnosticsEnabled: { [externalHoverDiagnosticsGate] in externalHoverDiagnosticsGate.isEnabled }
     )
     // (C) ExternalHover diagnostics — the "render 後" trigger's demand
     // counter/retention. `manageDiagnosticsRenderDemand` above calls this
@@ -8437,7 +8440,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // decided.
         func abortRecompute(_ reason: String) {
             #if DEBUG
-            if ExternalHoverDiagnosticsGate.isEnabled {
+            if externalHoverDiagnosticsGate.isEnabled {
                 cmuxDebugLog(
                     "link.externalHover stage=recompute surfaceSerial=\(externalHoverSurfaceSerial) event=\(hoverEventID) " +
                     "outcome=aborted reason=\(reason)"
@@ -8479,7 +8482,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         #if DEBUG
-        if ExternalHoverDiagnosticsGate.isEnabled {
+        if externalHoverDiagnosticsGate.isEnabled {
             cmuxDebugLog(
                 "link.externalHover stage=recompute surfaceSerial=\(externalHoverSurfaceSerial) event=\(hoverEventID) outcome=accepted"
             )
@@ -8602,7 +8605,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// No raw token/path/URL values, per design v4 §5's secrecy policy —
     /// only the owner KIND label, a boolean, and a length.
     private func logHoverProjection(event: UInt64?, ownerBefore: TerminalHoverIndicatorOwner) {
-        guard ExternalHoverDiagnosticsGate.isEnabled else { return }
+        guard externalHoverDiagnosticsGate.isEnabled else { return }
         let ownerAfter = hoverIndicatorState.displayedOwner
         cmuxDebugLog(
             "link.externalHover stage=projection surfaceSerial=\(externalHoverSurfaceSerial) " +
@@ -8954,7 +8957,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         let hasScheme = Self.hasExplicitScheme(urlString)
         let matchKey = Self.normalizedCommandClickMatchKey(for: urlString)
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = commandClickArbitrator.openURLCallbackResult(
             currentState: pendingCommandClickContext,
             hasExplicitScheme: hasScheme,
             matchKey: matchKey
@@ -9348,7 +9351,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         commandClickState: CommandClickContextState? = nil
     ) -> WordPathResolution? {
         let ghosttyConsumed = runtimeOutcome != .unhandled
-        switch TerminalCommandClickArbitrator.releaseAction(
+        switch commandClickArbitrator.releaseAction(
             finalState: commandClickState,
             ghosttyConsumed: ghosttyConsumed
         ) {

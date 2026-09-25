@@ -4,6 +4,8 @@ import Testing
 
 @Suite("Terminal command-click arbitrator")
 struct TerminalCommandClickArbitratorTests {
+    private let arbitrator = TerminalCommandClickArbitrator()
+
     private static let candidate = TerminalWrappedPathResolution(
         path: "/Users/dev/project/TMLlaboratory",
         nativeMatchKeys: [
@@ -22,7 +24,7 @@ struct TerminalCommandClickArbitratorTests {
 
     @Test("An explicit scheme always passes through, even with a prepared candidate")
     func explicitSchemePassesThroughOverPreparedCandidate() {
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = arbitrator.openURLCallbackResult(
             currentState: .prepared(Self.candidate),
             hasExplicitScheme: true,
             matchKey: Self.candidate.nativeMatchKeys[0]
@@ -33,7 +35,7 @@ struct TerminalCommandClickArbitratorTests {
 
     @Test("file: scheme passes through like any other explicit scheme")
     func fileSchemePassesThrough() {
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = arbitrator.openURLCallbackResult(
             currentState: nil,
             hasExplicitScheme: true,
             matchKey: "file:///Users/dev/project/TMLlaboratory"
@@ -49,7 +51,7 @@ struct TerminalCommandClickArbitratorTests {
     // for the winning direction.
     @Test("An exact match against any of a prepared candidate's finite keys claims the URL", arguments: [0, 1, 2])
     func exactMatchAgainstAnyPreparedKeyClaims(keyIndex: Int) {
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = arbitrator.openURLCallbackResult(
             currentState: .prepared(Self.candidate),
             hasExplicitScheme: false,
             matchKey: Self.candidate.nativeMatchKeys[keyIndex]
@@ -60,7 +62,7 @@ struct TerminalCommandClickArbitratorTests {
 
     @Test("A mismatched key against a prepared candidate passes through")
     func mismatchedKeyPassesThrough() {
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = arbitrator.openURLCallbackResult(
             currentState: .prepared(Self.candidate),
             hasExplicitScheme: false,
             matchKey: Self.otherCandidate.nativeMatchKeys[0]
@@ -82,7 +84,7 @@ struct TerminalCommandClickArbitratorTests {
     )
     func unknownOrPartialTargetsNeverClaim(matchKey: String) {
         #expect(!Self.candidate.nativeMatchKeys.contains(matchKey))
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = arbitrator.openURLCallbackResult(
             currentState: .prepared(Self.candidate),
             hasExplicitScheme: false,
             matchKey: matchKey
@@ -93,7 +95,7 @@ struct TerminalCommandClickArbitratorTests {
 
     @Test("No prepared state and no scheme still passes through (substring matching is never attempted)")
     func noPreparedStatePassesThrough() {
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = arbitrator.openURLCallbackResult(
             currentState: nil,
             hasExplicitScheme: false,
             matchKey: "/Users/dev/project/TMLlaboratory"
@@ -104,7 +106,7 @@ struct TerminalCommandClickArbitratorTests {
 
     @Test("nativePassthrough state never re-claims a later callback")
     func nativePassthroughStateDoesNotClaim() {
-        let result = TerminalCommandClickArbitrator.openURLCallbackResult(
+        let result = arbitrator.openURLCallbackResult(
             currentState: .nativePassthrough,
             hasExplicitScheme: false,
             matchKey: Self.candidate.nativeMatchKeys[0]
@@ -118,33 +120,33 @@ struct TerminalCommandClickArbitratorTests {
     @Test("nil final state falls through to the existing word-under-cursor logic")
     func nilFinalStateDefers() {
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: nil, ghosttyConsumed: false) == .fallThroughToWordUnderCursor
+            arbitrator.releaseAction(finalState: nil, ghosttyConsumed: false) == .fallThroughToWordUnderCursor
         )
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: nil, ghosttyConsumed: true) == .fallThroughToWordUnderCursor
+            arbitrator.releaseAction(finalState: nil, ghosttyConsumed: true) == .fallThroughToWordUnderCursor
         )
     }
 
     @Test("nativePassthrough final state finishes without a fallback open")
     func nativePassthroughFinalStateFinishesWithoutFallback() {
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: false) == .finishWithoutFallback
+            arbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: false) == .finishWithoutFallback
         )
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: true) == .finishWithoutFallback
+            arbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: true) == .finishWithoutFallback
         )
     }
 
     @Test("overridePending opens the candidate regardless of ghosttyConsumed")
     func overridePendingAlwaysOpens() {
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(
+            arbitrator.releaseAction(
                 finalState: .overridePending(Self.candidate),
                 ghosttyConsumed: false
             ) == .openWrappedCandidate(Self.candidate)
         )
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(
+            arbitrator.releaseAction(
                 finalState: .overridePending(Self.candidate),
                 ghosttyConsumed: true
             ) == .openWrappedCandidate(Self.candidate)
@@ -154,13 +156,13 @@ struct TerminalCommandClickArbitratorTests {
     @Test("prepared opens the candidate only when Ghostty didn't consume the release")
     func preparedOpensOnlyWhenNotConsumed() {
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(
+            arbitrator.releaseAction(
                 finalState: .prepared(Self.candidate),
                 ghosttyConsumed: false
             ) == .openWrappedCandidate(Self.candidate)
         )
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(
+            arbitrator.releaseAction(
                 finalState: .prepared(Self.candidate),
                 ghosttyConsumed: true
             ) == .finishWithoutFallback
@@ -173,11 +175,11 @@ struct TerminalCommandClickArbitratorTests {
         // either wrapped row must open exactly once under the same policy,
         // whether or not Ghostty's own link detection fired for the other
         // row.
-        let fromTopRowClick = TerminalCommandClickArbitrator.releaseAction(
+        let fromTopRowClick = arbitrator.releaseAction(
             finalState: .prepared(Self.candidate),
             ghosttyConsumed: false
         )
-        let fromBottomRowClickThatGhosttyPartiallyMatched = TerminalCommandClickArbitrator.releaseAction(
+        let fromBottomRowClickThatGhosttyPartiallyMatched = arbitrator.releaseAction(
             finalState: .overridePending(Self.candidate),
             ghosttyConsumed: true
         )

@@ -26,7 +26,7 @@ extension RenderDemandActivationTracker {
         project: @escaping ExternalHoverOwnerCoordinator.Project,
         logTransition: @escaping ExternalHoverOwnerCoordinator.LogTransition = { _ in },
         diagnosticsEnabled: @escaping ExternalHoverOwnerCoordinator.DiagnosticsEnabled = {
-            ExternalHoverDiagnosticsGate.isEnabled
+            ExternalHoverDiagnosticsGate().isEnabled
         }
     ) -> ExternalHoverOwnerCoordinator {
         ExternalHoverOwnerCoordinator(

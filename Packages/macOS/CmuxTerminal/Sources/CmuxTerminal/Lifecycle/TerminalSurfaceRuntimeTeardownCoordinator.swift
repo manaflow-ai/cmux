@@ -38,7 +38,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// (C) diagnostics — review round3 B4/B1: matches
     /// `ExternalHoverWorkService.DiagnosticsEnabled`'s own rationale —
     /// `defaultDrainExternalHoverDiagnostics` reads the injected gate
-    /// rather than the static `ExternalHoverDiagnosticsGate.isEnabled`
+    /// rather than the default `ExternalHoverDiagnosticsGate().isEnabled`
     /// directly, so a test can flip it independently of the real
     /// process-wide env var.
     public typealias DiagnosticsEnabled = @Sendable () -> Bool
@@ -112,7 +112,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Creates the process's teardown coordinator.
     public init(
         drainExternalHoverRing: @escaping DrainExternalHoverRing = TerminalSurfaceRuntimeTeardownCoordinator.defaultDrainExternalHoverRing,
-        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate.isEnabled }
+        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate().isEnabled }
     ) {
         self.drainExternalHoverRing = drainExternalHoverRing
         self.diagnosticsEnabled = diagnosticsEnabled
@@ -269,8 +269,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             droppedCountTracker.closeLifetime(lifetimeID)
             surfaceSerialRegistry.closeLifetime(lifetimeID)
         }
-        // Review round3 B4: the injected gate, not the static
-        // `ExternalHoverDiagnosticsGate.isEnabled` directly — matches
+        // Review round3 B4: the injected gate, not the default
+        // `ExternalHoverDiagnosticsGate().isEnabled` directly — matches
         // `ExternalHoverWorkService`'s own gates, and is what lets a test
         // observe this function's real formatter/log path without the
         // real process-wide env var.
