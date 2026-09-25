@@ -17,8 +17,15 @@ run finishes. If a job on the persistent pool is still queued with no runner
 after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
 pull request head has not moved, cancels the run, waits for it to finish, and
 re-runs it. The re-run is attempt 2, and pr_runner_pool.py never gives a
-retry attempt a persistent pool, so every macOS job of the re-run lands on
-Blacksmith together.
+retry attempt the std pool, so every macOS job of the re-run lands on
+Blacksmith together, unless CI_OWNED_LIGHT_RETRY is 1 (passed here as
+OWNED_LIGHT_RETRY). Then that full re-run runs `changes` again and may take
+the `light` owned pool, so the watch follows attempt 2 the way it follows
+attempt 1: it waits for `changes` and looks for attempt 2's own marker (the
+marker name carries the attempt), because a macOS job gets its label only
+after the picker has chosen. A job stuck or refused on light has its failed
+and cancelled jobs re-run on attempt 3, which always takes Blacksmith. With
+the variable off, the full re-run is not watched.
 
 An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails
@@ -49,8 +56,9 @@ refused, or queued past the budget, on attempt 2 gets the run cancelled if it
 is still going and its failed and cancelled jobs re-run once more, keeping the
 jobs that passed; attempt 3 and later always take retry_runner on
 Blacksmith, so a busy fleet costs at most one extra refusal and never loops.
-Attempt 2 needs no marker: `changes` is not re-run, so the watch follows any
-job on an owned label and stops when none appears.
+Attempt 2 of a re-run of failed jobs needs no marker: `changes` is not
+re-run, so the watch follows any job on an owned label and stops when none
+appears.
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -96,7 +104,9 @@ It stops watching, doing nothing, when:
   or a side-lane workflow;
 - a side-lane run finished with no job on an owned label, or the fleet
   accepted all of its owned jobs;
-- on the attempt 2 it re-ran, no job runs on an owned label;
+- on the attempt 2 it re-ran from failed jobs, no job runs on an owned label;
+- on the attempt 2 it re-ran in full, `changes` finished without that
+  attempt's marker, or CI_OWNED_LIGHT_RETRY is off (not watched at all);
 - `changes` finished without a marker: the run is on an ephemeral pool;
 - the run finished, or the watch limit passed.
 
@@ -365,6 +375,9 @@ class Target:
     pr_number: int  # 0 for an E2E dispatch, which has no pull request
     e2e: bool = False  # a dispatch of DISPATCH_WORKFLOW_PATHS, watched as an E2E run
     path: str = CI_WORKFLOW_PATH
+    # This attempt is a full re-run: `changes` runs again and picks a pool,
+    # so it is watched the attempt-1 way (picker, then marker).
+    full_rerun: bool = False
     side: bool = False  # a side-lane workflow (SIDE_WORKFLOW_PATHS): no picker job
 
     @property
@@ -451,7 +464,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 log("a side-lane job asked for a persistent pool")
             elif run_finished(jobs):
                 return "stop", "no job of the run asked for a persistent pool"
-        elif not on_persistent and target.attempt > 1:
+        elif not on_persistent and target.attempt > 1 and not target.full_rerun:
             # A re-run of failed jobs: no `changes` job, no marker, and every
             # job is created with the re-run. Follow it only if one asks for
             # an owned pool; the first look that lists jobs decides.
@@ -582,7 +595,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         api.rerun_failed(target.run_id)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id)
-    return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
+    return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool, "
+            "or the light tier when CI_OWNED_LIGHT_RETRY is 1 and it is free")
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
@@ -608,6 +622,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if (env.get("POOL_OWNED") or "").strip() != "1":
         return finish("owned pools are off (CI_PR_POOL_OWNED is not 1); nothing to watch")
     seconds = budget(env.get("RESCUE_SECONDS"))
+    light_retry = (env.get("OWNED_LIGHT_RETRY") or "").strip() == "1"
     if seconds is None:
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
                       "nothing to watch")
@@ -623,9 +638,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if target.side:
         subject += " (side lane)"
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
-    # One watch deadline for every attempt this job watches. A rescue may run
-    # past it, within the job's own timeout, so a cancel is never started
-    # without the time to settle and re-run.
+    # A watch deadline for attempt 1, and a fresh one (capped by the job's
+    # timeout) for an attempt it re-ran and follows. A rescue may run past it,
+    # within the job's own timeout, so a cancel is never started without the
+    # time to settle and re-run.
     started = clock()
     deadline = started + dt.timedelta(seconds=target.watch_limit)
     rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
@@ -645,11 +661,21 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                             refused=(outcome == "refused") if target.e2e or target.side else None)
             log(result)
             # A side lane's re-run never takes an owned label, so there is nothing more to watch.
-            if target.side or not (failed_only and result.startswith("re-ran")
-                                   and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
+            if target.side or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
                 return finish("done")
-            # The re-run may take the owned pool once more; watch it here.
-            target = dataclasses.replace(target, attempt=target.attempt + 1)
+            # The re-run may take the owned pool once more: a refused job's
+            # re-run reuses the owned label, and a stuck run's full re-run may
+            # take the light tier (CI_OWNED_LIGHT_RETRY). Watch it here. A
+            # full re-run without the variable never holds an owned machine.
+            if not failed_only and not light_retry:
+                return finish("done")
+            target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only)
+            # The followed attempt gets its own watch: a late rescue of attempt 1
+            # would otherwise leave it the tail of attempt 1's, ending before its
+            # owned jobs even queue. The job's timeout still caps watch plus grace.
+            deadline = min(clock() + dt.timedelta(seconds=target.watch_limit), started + dt.timedelta(
+                seconds=JOB_TIMEOUT_SECONDS - RESCUE_GRACE_SECONDS - JOB_TIMEOUT_MARGIN_SECONDS))
+            rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
             outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
                                     deadline=deadline)
             if outcome not in ("rescue", "refused"):
