@@ -1,17 +1,23 @@
+// Frozen v6 migration reader from 8c7ae55e03; used to prove rollback to the deployed schema.
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
-import { storageSchema } from "./schema";
-import { SOCKET_MIGRATION_STATEMENTS } from "./socket-schema";
+import { storageSchema } from "../../src/storage/schema";
+// Copied verbatim from socket-schema.ts at 8c7ae55e03; independent of live migrations.
+const SOCKET_MIGRATION_STATEMENTS = [
+  `CREATE TABLE "socket_reservations" ("scope_key" TEXT NOT NULL, "user_id" TEXT NOT NULL, "team_id" TEXT NOT NULL, "session_id" TEXT NOT NULL, "device_key" TEXT NOT NULL, "output_bytes" INTEGER NOT NULL DEFAULT 0 CHECK ("output_bytes" BETWEEN 0 AND 2097152), "output_messages" INTEGER NOT NULL DEFAULT 0 CHECK ("output_messages" BETWEEN 0 AND 1024), "output_revision" INTEGER NOT NULL DEFAULT 0 CHECK ("output_revision" >= 0), PRIMARY KEY ("scope_key", "user_id", "session_id"), CHECK (length(CAST("scope_key" AS BLOB)) <= 2048), CHECK (length(CAST("user_id" AS BLOB)) BETWEEN 1 AND 512), CHECK (length(CAST("team_id" AS BLOB)) BETWEEN 1 AND 512), CHECK (length(CAST("session_id" AS BLOB)) BETWEEN 1 AND 128), CHECK (length(CAST("device_key" AS BLOB)) = 64))`,
+  `CREATE INDEX "socket_reservations_user_idx" ON "socket_reservations" ("scope_key", "user_id")`,
+  `CREATE TRIGGER "socket_reservations_insert_guard" BEFORE INSERT ON "socket_reservations" WHEN NOT EXISTS (SELECT 1 FROM "socket_reservations" WHERE "scope_key" = NEW."scope_key" AND "user_id" = NEW."user_id" AND "session_id" = NEW."session_id") AND ((SELECT count(*) FROM "socket_reservations" WHERE "scope_key" = NEW."scope_key" AND "user_id" = NEW."user_id") >= 501 OR ((SELECT count(*) FROM "socket_reservations" WHERE "scope_key" = NEW."scope_key" AND "user_id" = NEW."user_id") >= 500 AND NOT EXISTS (SELECT 1 FROM "socket_reservations" WHERE "scope_key" = NEW."scope_key" AND "user_id" = NEW."user_id" AND "device_key" = NEW."device_key"))) BEGIN SELECT RAISE(ABORT, 'socket_capacity'); END`,
+  `CREATE TRIGGER "socket_reservations_output_guard" BEFORE UPDATE OF "output_bytes", "output_messages" ON "socket_reservations" WHEN (SELECT coalesce(sum("output_bytes"), 0) FROM "socket_reservations" WHERE "scope_key" = NEW."scope_key" AND "user_id" = NEW."user_id") - OLD."output_bytes" + NEW."output_bytes" > 8388608 OR (SELECT coalesce(sum("output_messages"), 0) FROM "socket_reservations" WHERE "scope_key" = NEW."scope_key" AND "user_id" = NEW."user_id") - OLD."output_messages" + NEW."output_messages" > 4096 BEGIN SELECT RAISE(ABORT, 'socket_output_capacity'); END`,
+  `UPDATE "team_meta" SET "schema_version" = 4 WHERE "id" = 1`,
+];
+const SOCKET_MIGRATION_HASH = "e2616e47bbe8698b";
 
 /**
  * Runtime migrations are deliberately explicit. The SQL files in drizzle/ are
  * the source for generation and review; this manifest is the immutable runtime
  * copy loaded by the Worker bundle.
  */
-export const STORAGE_SCHEMA_VERSION = 7;
-// Reader-first rollout: this version can read v7, but normal activation keeps
-// v6 so the currently deployed v6 binary remains a valid rollback target.
-export const STORAGE_WRITE_SCHEMA_VERSION = 6;
+export const STORAGE_SCHEMA_VERSION = 6;
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS "schema_history" ("version" INTEGER PRIMARY KEY NOT NULL, "hash" TEXT NOT NULL, "applied_at" INTEGER NOT NULL)`,
@@ -67,15 +73,6 @@ const metadataBytesStatements = [
   `CREATE TRIGGER "devices_usage_update_bytes" AFTER UPDATE OF "capabilities_json", "relay_urls_json" ON "devices" BEGIN UPDATE "storage_usage" SET "metadata_bytes" = "metadata_bytes" - length(CAST(OLD."capabilities_json" AS BLOB)) - length(CAST(OLD."relay_urls_json" AS BLOB)) + length(CAST(NEW."capabilities_json" AS BLOB)) + length(CAST(NEW."relay_urls_json" AS BLOB)) WHERE "id" = 1; END`,
   `UPDATE "team_meta" SET "schema_version" = 6 WHERE "id" = 1`,
 ];
-const auditUsageStatements = [
-  `CREATE TABLE "authority_audit_usage" ("id" INTEGER PRIMARY KEY NOT NULL CHECK ("id" = 1), "row_count" INTEGER NOT NULL CHECK ("row_count" BETWEEN 0 AND 65536))`,
-  `INSERT INTO "authority_audit_usage" ("id", "row_count") SELECT 1, count(*) FROM "authority_audit"`,
-  `DROP TRIGGER "authority_audit_limit_guard"`,
-  `CREATE TRIGGER "authority_audit_limit_guard" BEFORE INSERT ON "authority_audit" WHEN (SELECT "row_count" FROM "authority_audit_usage" WHERE "id" = 1) >= 65536 BEGIN SELECT RAISE(ABORT, 'audit_limit'); END`,
-  `CREATE TRIGGER "authority_audit_insert_count" AFTER INSERT ON "authority_audit" BEGIN UPDATE "authority_audit_usage" SET "row_count" = "row_count" + 1 WHERE "id" = 1; END`,
-  `CREATE TRIGGER "authority_audit_delete_count" AFTER DELETE ON "authority_audit" BEGIN UPDATE "authority_audit_usage" SET "row_count" = "row_count" - 1 WHERE "id" = 1; END`,
-  `UPDATE "team_meta" SET "schema_version" = 7 WHERE "id" = 1`,
-];
 
 function contentHash(parts: readonly string[]): string {
   let hash = 1469598103934665603n;
@@ -93,10 +90,8 @@ const PROOF_MIGRATION_HASH = contentHash(proofRingStatements);
 export const STORAGE_MIGRATION_HASH = contentHash(authorityStatements);
 export const AUTHORITY_LEASE_MIGRATION_HASH = contentHash(authorityLeaseStatements);
 const METADATA_BYTES_MIGRATION_HASH = contentHash(metadataBytesStatements);
-const AUDIT_USAGE_MIGRATION_HASH = contentHash(auditUsageStatements);
 
-export function applyStorageMigrations(storage: DurableObjectStorage, now = Date.now(), writeVersion: number = STORAGE_WRITE_SCHEMA_VERSION): void {
-  if (writeVersion !== 6 && writeVersion !== 7) throw new Error("iroh_v2_unsupported_write_schema");
+export function applyStorageMigrations(storage: DurableObjectStorage, now = Date.now()): void {
   const db = drizzle(storage, { schema: storageSchema });
   storage.transactionSync(() => {
     db.run(sql.raw(statements[0]!));
@@ -109,7 +104,7 @@ export function applyStorageMigrations(storage: DurableObjectStorage, now = Date
     const apply = (version: number, hash: string, migrationStatements: string[]) => {
       const existing = rows.find((row) => row.version === version);
       if (existing && existing.hash !== hash) throw new Error("iroh_v2_schema_migration_hash_mismatch");
-      if (existing || version > writeVersion) return;
+      if (existing) return;
       for (const statement of migrationStatements) db.run(sql.raw(statement));
       db.run(sql`INSERT INTO "schema_history" ("version", "hash", "applied_at") VALUES (${version}, ${hash}, ${now})`);
       rows = [...rows, { version, hash }];
@@ -117,9 +112,8 @@ export function applyStorageMigrations(storage: DurableObjectStorage, now = Date
     apply(1, BASE_MIGRATION_HASH, statements.slice(1));
     apply(2, PROOF_MIGRATION_HASH, proofRingStatements);
     apply(3, STORAGE_MIGRATION_HASH, authorityStatements);
-    apply(4, contentHash(SOCKET_MIGRATION_STATEMENTS), SOCKET_MIGRATION_STATEMENTS);
+    apply(4, SOCKET_MIGRATION_HASH, SOCKET_MIGRATION_STATEMENTS);
     apply(5, AUTHORITY_LEASE_MIGRATION_HASH, authorityLeaseStatements);
     apply(6, METADATA_BYTES_MIGRATION_HASH, metadataBytesStatements);
-    apply(7, AUDIT_USAGE_MIGRATION_HASH, auditUsageStatements);
   });
 }
