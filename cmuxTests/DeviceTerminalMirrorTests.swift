@@ -166,9 +166,9 @@ struct DeviceTerminalMirrorTests {
         #expect(DeviceTerminalEvent.decode(try envelope("terminal.bytes", ["surface_id": "nope", "data_b64": "aGk="])) == nil)
     }
 
-    @Test("terminal.updated carries the host grid when the host sends it, and nothing otherwise")
-    func updatedEvent() throws {
-        let sized = try #require(DeviceTerminalEvent.decode(try envelope("terminal.updated", [
+    @Test("Named resize events carry the host grid", arguments: ["terminal.updated", "device.terminal.grid"])
+    func updatedEvent(topic: String) throws {
+        let sized = try #require(DeviceTerminalEvent.decode(try envelope(topic, [
             "surface_id": surfaceID.uuidString, "columns": 132, "rows": 40,
         ])))
         #expect(sized.surfaceID == surfaceID)
