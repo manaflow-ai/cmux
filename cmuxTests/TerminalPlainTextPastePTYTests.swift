@@ -12,7 +12,7 @@ import Testing
 /// Uses a raw Python receiver, with no shell prompt, Codex, or agent hooks in the data path.
 @MainActor
 extension TerminalPlainTextPasteStartupTests {
-    @Test("Cold and repeated keyboard, menu and runtime pastes preserve PTY bytes")
+    @Test("Cold and repeated keyboard, menu and runtime pastes preserve PTY bytes", ExclusiveAppContextTrait())
     func realPTYDelivery() async throws {
         defer { NSPasteboard.general.clearContents() }
         for optimized in [false, true] {
@@ -26,6 +26,8 @@ extension TerminalPlainTextPasteStartupTests {
                 let started = Date().timeIntervalSince1970
                 switch trial % 3 {
                 case 0:
+                    // Readiness and receipt waits let AppKit process focus changes.
+                    try #require(fixture.window.makeFirstResponder(fixture.view))
                     let event = try #require(NSEvent.keyEvent(
                         with: .keyDown, location: .zero, modifierFlags: .command,
                         timestamp: ProcessInfo.processInfo.systemUptime,
