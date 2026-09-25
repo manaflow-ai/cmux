@@ -80,6 +80,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var machineTeardowns: [String: Task<Void, Never>] = [:]
     private var featureResumeTask: Task<Void, Never>?
     private var featureSuspensionTask: Task<Void, Never>?
+    /// The account-level carrier preparation belongs to this registry activation.
+    /// Keeping its handle prevents a late task from enrolling a retired account.
+    private var activationPreparationTask: Task<Void, Never>?
     private var isFeatureSuspended = false
     init(
         links: CloudMachineLinkManager,
@@ -190,6 +193,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshInFlight?.cancel()
         discoveryInFlight?.cancel()
         featureSuspensionTask?.cancel()
+        activationPreparationTask?.cancel()
     }
 
     /// Live headless links, for the Cloud tunnel's idle policy.
@@ -282,6 +286,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard isCloudEnabled() else {
             featureResumeTask?.cancel()
             featureResumeTask = nil
+            cancelActivationPreparation()
             refreshGeneration &+= 1
             pollTask?.cancel()
             pollTask = nil
@@ -310,7 +315,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             pollTask = nil
             return
         }
-        if hasCloudSession() { Task { await wireGuardHub?.prepareForCloudUse() } }
+        if hasCloudSession() { prepareCarrierForActivation() }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -471,6 +476,19 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     // MARK: - internals
 
+    /// Starts one account-level carrier preparation and retains it for this activation.
+    private func prepareCarrierForActivation() {
+        guard activationPreparationTask == nil else { return }
+        let prepareCloudCarrier = self.prepareCloudCarrier
+        activationPreparationTask = Task { await prepareCloudCarrier() }
+    }
+
+    /// Cancels a carrier preparation that has not completed before access ended.
+    private func cancelActivationPreparation() {
+        activationPreparationTask?.cancel()
+        activationPreparationTask = nil
+    }
+
     private func performDiscovery(generation: UInt64, updateExisting: Bool) async -> [CmuxTuiSurfaceProvider]? {
         guard !isRetired, let catalog, let page = await listPage() else { return nil }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
@@ -552,6 +570,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshInFlight = nil
         featureResumeTask?.cancel()
         featureResumeTask = nil
+        cancelActivationPreparation()
         // Suspend before unregistering so terminal callbacks cannot race a
         // catalog removal during account teardown.
         for provider in providers.values { provider.suspendForFeatureFlag() }
@@ -561,6 +580,9 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     func accessDidEnd() async {
         invalidateAccess()
+        // Stop the shared carrier before deferred provider and link teardown can
+        // yield to a late preparation task.
+        await wireGuardHub?.stop()
         let suspension = featureSuspensionTask
         featureSuspensionTask = nil
         isFeatureSuspended = false
