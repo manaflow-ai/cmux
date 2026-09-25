@@ -35,8 +35,11 @@ struct SidebarAccessibilityTreeTests {
         // until an assistive client enables the application's AX hierarchy.
         // This in-process test must establish and restore that client state.
         let enhancedUI = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
-        try #require(NSApp.accessibilityIsAttributeSettable(enhancedUI))
-        let previousEnhancedUI = try #require(NSApp.accessibilityAttributeValue(enhancedUI) as? Bool)
+        guard NSApp.accessibilityIsAttributeSettable(enhancedUI) else {
+            Issue.record("AppKit must allow AXEnhancedUserInterface in this hosted test")
+            return
+        }
+        let previousEnhancedUI = (NSApp.accessibilityAttributeValue(enhancedUI) as? NSNumber)?.boolValue ?? false
         NSApp.accessibilitySetValue(true, forAttribute: enhancedUI)
         defer { NSApp.accessibilitySetValue(previousEnhancedUI, forAttribute: enhancedUI) }
 
