@@ -288,6 +288,14 @@ runs:
         echo "Resolved selectors: $resolved"
         echo "selectors=$resolved" >> "$GITHUB_OUTPUT"
 
+    # test-e2e.yml turns this into a failed top-level step of the same name
+    # as the step above, which main_regression_bisect.py reads as "this test
+    # does not exist at this revision".
+    - name: Record a selector that matched no built test
+      if: ${{ failure() && steps.resolve-selectors.outcome == 'failure' }}
+      shell: bash
+      run: touch "$RUNNER_TEMP/cmux-e2e-selectors-unresolved"
+
     - name: Run selected tests
       id: tests
       env:

@@ -864,7 +864,8 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      - name: Run selected tests on the build runner
+      - name: Run selected tests
+        id: tests
         if: ${{ steps.test-here.outputs.tested == 'true' }}
         uses: ./.e2e-workflow/.github/actions/e2e-run-tests
         with:
@@ -883,6 +884,14 @@ jobs:
           sha256: ${{ steps.package.outputs.sha256 }}
           product-contract: ${{ steps.product-key.outputs.key }}
           product-from-producer: "true"
+
+      # main_regression_bisect.py reads a run's verdict from its failed
+      # top-level step names, and the jobs API does not list an action's own
+      # steps. This step fails, under the name the bisect reads as "no such
+      # test", when a selector matched no built test at this revision.
+      - name: Resolve selectors against the built tests
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
+        run: test ! -e "$RUNNER_TEMP/cmux-e2e-selectors-unresolved"
 
   test:
     needs: [resolve-ref, filter, runner, build]
@@ -1012,6 +1021,7 @@ jobs:
           persist-credentials: false
 
       - name: Run selected tests
+        id: tests
         uses: ./.e2e-workflow/.github/actions/e2e-run-tests
         with:
           target: ${{ needs.filter.outputs.target }}
@@ -1030,3 +1040,11 @@ jobs:
           product-contract: ${{ needs.build.outputs.product_contract }}
           parallel-product-hit: ${{ steps.parallel-product.outputs.hit }}
           parallel-product-transfer-seconds: ${{ steps.parallel-product.outputs.transfer_seconds }}
+
+      # main_regression_bisect.py reads a run's verdict from its failed
+      # top-level step names, and the jobs API does not list an action's own
+      # steps. This step fails, under the name the bisect reads as "no such
+      # test", when a selector matched no built test at this revision.
+      - name: Resolve selectors against the built tests
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
+        run: test ! -e "$RUNNER_TEMP/cmux-e2e-selectors-unresolved"

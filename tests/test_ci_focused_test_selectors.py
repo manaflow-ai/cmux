@@ -324,7 +324,7 @@ open(path, "w").write({json.dumps(json.dumps(enumeration))})
 ''')
 
     def test_every_e2e_test_run_passes_the_filter_jobs_selectors(self):
-        for job, name in (("build", "Run selected tests on the build runner"), ("test", "Run selected tests")):
+        for job, name in (("build", "Run selected tests"), ("test", "Run selected tests")):
             with self.subTest(job=job):
                 call = step(E2E, job, name)
                 self.assertEqual(call["uses"], "./.e2e-workflow/.github/actions/e2e-run-tests")

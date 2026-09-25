@@ -191,7 +191,7 @@ exit 97
         self.assertEqual(WORKFLOW['jobs']['build']['outputs']['tested'],
                          '${{ steps.test-here.outputs.tested }}')
         self.assertNotIn('always()', here.get('if', ''))
-        run = step('Run selected tests on the build runner', 'build')
+        run = step('Run selected tests', 'build')
         self.assertEqual(run['uses'], './.e2e-workflow/.github/actions/e2e-run-tests')
         self.assertEqual(run['if'], "${{ steps.test-here.outputs.tested == 'true' }}")
         self.assertEqual(run['with']['product-from-producer'], 'true')
