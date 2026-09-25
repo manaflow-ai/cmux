@@ -70,6 +70,14 @@ Load command 0
 BAD_BUNDLE_PATH
   exit 0
 fi
+if [[ "\${CMUX_FAKE_MODE:-}" == bad-system-traversal && "\$target" == */nested-macho ]]; then
+  cat <<'BAD_SYSTEM_TRAVERSAL'
+Load command 0
+      cmd LC_LOAD_DYLIB
+     name /usr/lib/../../tmp/libexample.dylib (offset 24)
+BAD_SYSTEM_TRAVERSAL
+  exit 0
+fi
 cat <<'GOOD'
 Load command 0
       cmd LC_RPATH
@@ -118,5 +126,11 @@ if CMUX_FAKE_MODE=bad-bundle-path run_guard > "$TMP_DIR/bad-bundle-path.log" 2>&
   exit 1
 fi
 grep -Fq "$APP/Contents/Frameworks/nested-macho" "$TMP_DIR/bad-bundle-path.log"
+
+if CMUX_FAKE_MODE=bad-system-traversal run_guard > "$TMP_DIR/bad-system-traversal.log" 2>&1; then
+  echo 'FAIL: the guard accepted a traversal through an allowed system root' >&2
+  exit 1
+fi
+grep -Fq '/usr/lib/../../tmp/libexample.dylib' "$TMP_DIR/bad-system-traversal.log"
 
 echo 'PASS: bundle load-command guard rejects bad rpaths and load paths across nested Mach-O files'

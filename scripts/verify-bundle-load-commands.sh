@@ -28,10 +28,15 @@ fi
 
 is_allowed_load_path() {
   local load_path="$1"
+  if [[ "$load_path" == @* ]]; then
+    return 0
+  fi
   case "$load_path" in
-    @*)
-      return 0
+    ..|../*|*/..|*/../*)
+      return 1
       ;;
+  esac
+  case "$load_path" in
     /usr/lib|/usr/lib/*|/System|/System/*)
       return 0
       ;;
