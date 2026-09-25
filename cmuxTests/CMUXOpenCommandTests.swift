@@ -544,6 +544,10 @@ final class CMUXOpenCommandTests: XCTestCase {
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("cmux.json", isDirectory: false)
+        let legacyCmuxConfigURL = homeURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
         let cmuxAppSupportConfigURL = homeURL
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
@@ -616,9 +620,25 @@ final class CMUXOpenCommandTests: XCTestCase {
               "diffViewerScrollToTop": ["g", "g"],
               "diffViewerOpenFileSearch": null
             }
+          },
+          "diffViewer": {
+            "cssVariables": {
+              "--cmux-diff-accent": "#123456",
+              "--cmux-diff-error": "#abcdef"
+            }
           }
         }
         """.write(to: cmuxConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "diffViewer": {
+            "cssVariables": {
+              "--cmux-diff-accent": "#fedcba",
+              "--cmux-diff-renamed-light": "#654321"
+            }
+          }
+        }
+        """.write(to: legacyCmuxConfigURL, atomically: true, encoding: .utf8)
         try """
         diff --git a/hello.txt b/hello.txt
         index 8ab686e..d95f3ad 100644
@@ -744,6 +764,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
         let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
         XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
+        let customProperties = try XCTUnwrap(appearance["customProperties"] as? [String: String])
+        XCTAssertEqual(customProperties["--cmux-diff-accent"], "#123456")
+        XCTAssertEqual(customProperties["--cmux-diff-error"], "#abcdef")
+        XCTAssertEqual(customProperties["--cmux-diff-renamed-light"], "#654321")
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
         XCTAssertTrue(html.contains("\"fontSize\":13"), html)
         XCTAssertFalse(html.contains("\"fontSize\":15"), html)

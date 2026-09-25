@@ -3490,12 +3490,17 @@ extension CMUXCLI {
             guard let contents = readOptionalDiffViewerConfig(at: url) else { continue }
             applyDiffViewerGhosttyConfig(contents, to: &appearance)
         }
+        var managedCustomProperties = Set<String>()
         for path in diffViewerDefaultSettingsPaths() {
             guard let root = diffViewerSettingsRoot(at: path),
                   let section = root["diffViewer"] as? [String: Any] else {
                 continue
             }
-            applyDiffViewerCustomProperties(from: section, to: &appearance)
+            applyDiffViewerCustomProperties(
+                from: section,
+                to: &appearance,
+                managedNames: &managedCustomProperties
+            )
         }
         if let fontSizeOverride {
             appearance.fontSize = fontSizeOverride
@@ -3510,7 +3515,8 @@ extension CMUXCLI {
 
     private func applyDiffViewerCustomProperties(
         from section: [String: Any],
-        to appearance: inout DiffViewerAppearance
+        to appearance: inout DiffViewerAppearance,
+        managedNames: inout Set<String>
     ) {
         guard let values = section["cssVariables"] as? [String: Any] else { return }
         for (name, rawValue) in values {
@@ -3519,6 +3525,7 @@ extension CMUXCLI {
                   let color = normalizedDiffViewerHexColor(rawColor) else {
                 continue
             }
+            guard managedNames.insert(name).inserted else { continue }
             appearance.customProperties[name] = color
         }
     }
