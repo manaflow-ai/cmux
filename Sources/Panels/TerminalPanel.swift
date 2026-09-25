@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import CmuxTerminalCore
 import Combine
@@ -48,6 +49,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
     let shellActivity = TerminalPanelShellActivityModel()
+    let restoreRecovery = AgentRestoreRecoveryPresentation()
     let textBoxState = TerminalPanelTextBoxState()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
@@ -118,12 +120,6 @@ final class TerminalPanel: Panel, ObservableObject {
         "terminal.fill"
     }
 
-    func updateShellActivityState(_ state: PanelShellActivityState) {
-        if shellActivity.state != state {
-            shellActivity.state = state
-        }
-        textBoxState.updateShellActivityState(state)
-    }
 
     func recordTextBoxLaunchCommand(_ command: String) {
         guard let boundedContext = TextBoxAgentDetection.boundedLaunchCommandContext(from: command) else { return }
@@ -716,8 +712,12 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func sendText(_ text: String) -> Bool {
+        sendTextResult(text).accepted
+    }
+
+    func sendTextResult(_ text: String) -> TerminalSurface.TextSendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendText(text)
+        return surface.sendTextResult(text)
     }
 
     func sendInput(_ text: String) {

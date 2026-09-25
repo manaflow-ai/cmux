@@ -3,7 +3,7 @@
 
 Shards are packed greedily by weight. Weights are measured milliseconds from
 scripts/ci/cmux-unit-test-timings.json when present (regenerate it with
-scripts/ci/generate_test_timings.py from a green main run's shard logs).
+scripts/ci/generate_test_timings.py from a few recent green runs' shard logs).
 Suites and methods missing from the manifest fall back to a per-test estimate,
 so new or renamed tests never break sharding — they just pack less precisely
 until the manifest is refreshed.
@@ -38,27 +38,15 @@ FALLBACK_TEST_MS = 200
 # so each runs once per pull request. A suite that a strict step runs only
 # partly stays in the batch.
 FOCUSED_GATE_SELECTORS = {
-    "cmuxTests/AgentChatFallbackTranscriptResolutionCoordinatorTests",
-    "cmuxTests/AgentChatSessionRegistryLifecycleReviewRegressionTests",
     "cmuxTests/AgentJournalLifecycleCenterTests",
     "cmuxTests/AgentNotificationRegressionTests",
-    "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
-    "cmuxTests/BackgroundPrimeStartableSurfaceTests",
     "cmuxTests/BrowserOmnibarSuggestionClickRoutingTests",
     "cmuxTests/BrowserPanelViewIdentityTests",
-    "cmuxTests/BrowserSystemProxyMirrorTests",
-    "cmuxTests/BrowserViewportRuntimeTests",
-    "cmuxTests/CLISSHSessionAttachAnchorTests",
-    "cmuxTests/CLISendQueuedOutputTests",
     "cmuxTests/ClaudeBackgroundWorkNotifyTests",
-    "cmuxTests/ClaudeHookLifecycleCleanupTests",
-    "cmuxTests/ClaudeHookLiveDeliveryTargetTests",
-    "cmuxTests/ClaudeHookPIDAuthenticationTests",
     "cmuxTests/CloudMachineDragSourceTests",
     "cmuxTests/CloudMachineOrderingTests",
-    "cmuxTests/CloudNotificationDismissParityTests",
-    "cmuxTests/CloudWorkspaceRenameSurfaceParityTests",
-    "cmuxTests/CmuxBundledBinPathIntegrationTests",
+    "cmuxTests/CloudOperationRecorderTests",
+    "cmuxTests/CloudReadRequestCoordinatorTests",
     "cmuxTests/DeviceDirectoryLifecycleTests",
     "cmuxTests/DeviceDirectoryMergeTests",
     "cmuxTests/DeviceLinkReconnectPolicyTests",
@@ -69,22 +57,14 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/DeviceWorkspaceProjectionTests",
     "cmuxTests/DevicesCloudTreeBuilderTests",
     "cmuxTests/DevicesSidebarModeTests",
-    "cmuxTests/DockNotificationAttentionTests",
     "cmuxTests/FeedCoordinatorTests",
     "cmuxTests/FeedWaiterRegistryTests",
     "cmuxTests/GhosttyNumericLocaleTests",
-    "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/GhosttyCopyModeScrollbackTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GlobalSearchShortcutBehaviorTests",
-    "cmuxTests/HostSettingsShortcutNotificationTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
-    "cmuxTests/MainWindowZoomPlacementTests",
-    "cmuxTests/LiveAgentIndexRelevantChurnTests",
-    "cmuxTests/NotificationRowSnapshotBoundaryTests",
-    "cmuxTests/NotificationScrollRestoreLifecycleTests",
-    "cmuxTests/NotificationScrollRestoreRecoveryTests",
     "cmuxTests/OpenCodeHookRegressionTests",
-    "cmuxTests/PhonePushPresenceGateTests",
     "cmuxTests/PiFeedDockOwnershipTests",
     "cmuxTests/PiFeedOwnershipTests",
     "cmuxTests/RemoteTmuxMirrorCloseDetachTests",
@@ -92,13 +72,11 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/RemoteTmuxMirrorFocusPolicyTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
     "cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests",
-    "cmuxTests/RestoreAdmissionRetryPolicyTests",
-    "cmuxTests/RestoredAgentShellActivityLivenessTests",
     "cmuxTests/SidebarIssue8373StressTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
     "cmuxTests/SocketACLReloadRegressionTests",
+    "cmuxTests/VMClientReadCoalescingTests",
     "cmuxTests/SurfaceMachineIDDeviceEncodingTests",
-    "cmuxTests/SurfaceResumeAgentHookDowngradeTests",
 
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
@@ -345,9 +323,15 @@ def reweight_selectors(
     return reweighted, measured
 
 
-# The batch runs tests in parallel, so one second of wall time holds about this
-# many seconds of measured test time. Only balance depends on it.
-BATCH_TEST_SECONDS_PER_WALL_SECOND = 2.5
+# How many seconds of measured test time one second of batch wall time holds.
+# Only balance depends on it. A batch runs its XCTest cases and then its Swift
+# Testing suites one at a time: in the app-host shard logs of green runs
+# 36043411778, 36056804560 and 36062245739, each batch's Swift Testing suite
+# walls add up to its "Test run ... passed after" total, and XCTest's summed
+# case times equal its "Executed" total. So a second of wall is a second of
+# measured time. The old 2.5 assumed parallel execution and made every
+# reserved worker give up 2.5 times its strict steps' wall time.
+BATCH_TEST_SECONDS_PER_WALL_SECOND = 1.0
 
 
 def parse_reservations(values: list[str], physical_total: int) -> dict[int, int]:

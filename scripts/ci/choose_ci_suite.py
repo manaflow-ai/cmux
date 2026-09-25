@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Decide whether a CI run gets the full macOS suite or only compile admission.
+"""Select the full macOS suite policy or the reduced PR suite policy.
 
-The full suite (app-host shards, package tests, the lag build, the Release
-build) is what proves a change. Compile admission is the cheap check that a
-push still builds. With a merge queue the full suite runs on the commit that
-will land, so running it on every push as well spends most Mac time on commits
-that never merge.
+The full policy permits expensive app-host shards, package tests, lag builds,
+and Release lanes, subject to each lane's path routing and dependencies.
+The reduced policy still runs compile admission and independently routed tests;
+it is not a request to skip all tests. `full-ci` explicitly opts into the broad
+policy, not normal PR validation or a generic review/merge prerequisite. Choose
+coverage appropriate to the change and verify which tests actually executed.
 
 The answer is "full" unless everything says otherwise: only a pull_request
 event, under the compile-only policy, without the opt-in label, gets less.
@@ -23,17 +24,85 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_impact import affected_suites, changed_lines  # noqa: E402
+from cmux_unit_test_shard import (  # noqa: E402
+    DEFAULT_TIMINGS_PATH,
+    FOCUSED_GATE_SELECTORS,
+    discover_selectors,
+    load_timings,
+    reweight_selectors,
+)
+
 COMPILE_ONLY_POLICY = "compile-only"
 FULL_SUITE_LABEL = "full-ci"
 SUITE_OPT_OUT_LABEL = "no-full-ci"
+UNIT_SUITE_LABEL = "unit-ci"
 
 # Editing these runs no code under compile admission, which builds the test
 # bundle and stops. Nothing else in a pull request observes them.
-UNJUDGED_BY_COMPILE_PREFIXES = ("cmuxTests/", "cmuxUITests/")
+#
+# They differ in what could observe them. `app-host unit tests` runs cmuxTests/
+# against the product compile admission already built, so asking for that one
+# job is enough to judge a cmuxTests/ diff. No pull request job runs
+# cmuxUITests/ at all -- only the dispatch-only test-e2e lane does -- so those
+# stay unobserved until someone takes the full suite or records the skip.
+UNIT_JUDGED_PREFIXES = ("cmuxTests/",)
+UNJUDGED_BY_ANY_PR_JOB_PREFIXES = ("cmuxUITests/",)
+UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PREFIXES
+
+# Measured serial test time a changed-suites run may hold. One runner executes
+# it as a single batch, so it has to fit comfortably inside the batch timeout
+# a normal shard's batch fits in; a larger diff takes all seven shards.
+CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
+
+# Compile admission builds the app-host product and stops, unless it runs a
+# changed-suites run itself (runs_in_admission). Restoring the product on a
+# shard's runner and running tests against it happens only in `app-host unit
+# tests`, so a compile-only pull request that edits that path runs none of its
+# change. These are the paths that job's steps run and nothing else in a pull
+# request exercises the same way; the artifact transport scripts are left out
+# because ci-artifact-transport.yml runs them on their own edits.
+#
+# The canary only rides on a compile the pull request pays for anyway: ci.yml
+# drops it when the build inputs were already compiled, which covers most of
+# these paths on their own, since the fingerprint leaves them out. It never
+# adds a compile just to run the canary.
+MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
+APP_HOST_CONSUMER_JOB = "app-host-unit-tests"
+APP_HOST_CONSUMER_PATHS = (
+    MACOS_WORKFLOW_PATH,  # only hunks inside APP_HOST_CONSUMER_JOB count
+    "scripts/ci/app-host-isolation.sh",
+    "scripts/ci/app-host-known-failures.json",
+    "scripts/ci/app-host-processes.sh",
+    "scripts/ci/app_host_result_accounting.py",
+    "scripts/ci/app_host_test_lock.py",
+    "scripts/ci/app_host_test_products.py",
+    "scripts/ci/classify-app-host-test-output.py",
+    "scripts/ci/cleanup-app-host-home.sh",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/collect-app-host-diagnostics.sh",
+    "scripts/ci/enable-xctest-automation-mode.sh",
+    "scripts/ci/enumerate-app-host-tests.sh",
+    "scripts/ci/prepare-app-host-home.sh",
+    "scripts/ci/require_selected_test_execution.sh",
+    "scripts/ci/restore-app-host-test-product.sh",
+    "scripts/ci/run-and-capture.sh",
+    "scripts/ci/run-app-host-unit-batches.sh",
+    "scripts/ci/run-app-host-xcodebuild.sh",
+    "scripts/ci/run-in-console-session.sh",
+    "scripts/ci/xcodebuild_noninteractive.py",
+)
+# What a consumer edit runs instead of seven shards: one small, pure-logic
+# XCTest suite (57 tests, 62 ms measured) on the changed-suites worker. It
+# proves the product restored, the app host launched, and selected tests
+# executed and were accounted for, which is what a consumer edit can break.
+CONSUMER_CANARY_SELECTOR = "cmuxTests/CmuxSSHURLRequestTests"
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -59,6 +128,259 @@ def wants_full_suite(event_name: str, pull_request_policy: str, labels: Iterable
     if labels is None:
         return True
     return FULL_SUITE_LABEL in {label.strip() for label in labels}
+
+
+def wants_unit_suite(
+    event_name: str,
+    pull_request_policy: str,
+    labels: Iterable[str] | None,
+    paths: Iterable[str] | None = (),
+) -> bool:
+    """True when this run should execute `app-host unit tests`.
+
+    The full suite already includes them, so it implies this. Otherwise the
+    diff decides: a change under cmuxTests/ is judged by exactly this job and
+    by nothing compile admission does, so it selects the job itself rather
+    than failing `suite-coverage` and waiting for someone to add a label that
+    this module could already have derived. An unreadable diff (`paths` is
+    None) runs it too. The `unit-ci` label still asks for it on any diff.
+
+    Only this job is selected: the package tests, the lag lane, release
+    admission and the Release build the full suite also unlocks cost a paid
+    runner and judge nothing about a change to cmuxTests/.
+    """
+    if wants_full_suite(event_name, pull_request_policy, labels):
+        return True
+    if UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}:
+        return True
+    if paths is None:
+        return True
+    return any(path.strip().startswith(UNIT_JUDGED_PREFIXES) for path in paths)
+
+
+def strict_steps(workflow: str, suites: Iterable[str]) -> list[str] | None:
+    """Names of the app-host steps a changed-suites run of `suites` must run.
+
+    A suite a strict step owns (FOCUSED_GATE_SELECTORS) gets an app host and
+    settings of its own from its step, so a changed-suites run runs that step
+    rather than putting the suite in its shared batch.
+
+    Any other shard step that names a suite with `-only-testing:` runs part of
+    it in a way the shared batch cannot, such as the renderer memory
+    regression, which skips itself unless its step sets
+    CMUX_RENDERER_MEMORY_REGRESSION=1. The suite stays in the shared batch and
+    that step runs too: otherwise the edited test reports "skipped" and the
+    run passes without executing it.
+
+    None when a selected strict suite has no step that names it, or when a
+    step that must run cannot be selected because its `if:` does not read
+    `unit_strict_steps`. The caller then runs every shard, where each such
+    step runs on its own shard.
+    """
+    job = workflow[workflow.index("\n  app-host-unit-tests:\n") :]
+    job = job[: re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
+    owners: dict[str, set[str]] = {}
+    selectable: set[str] = set()
+    for block in job.split("\n      - name: ")[1:]:
+        name = block.split("\n", 1)[0].strip()
+        condition = re.search(r"^        if: (.*)$", block, re.M)
+        if condition is None or "_SHARD)" not in condition.group(1) or "!=" in condition.group(1):
+            continue
+        if f"contains(inputs.unit_strict_steps, '|{name}|')" in condition.group(1):
+            selectable.add(name)
+        for selector in FOCUSED_GATE_SELECTORS:
+            if re.search(rf"\b{selector.split('/', 1)[1]}\b", block):
+                owners.setdefault(selector, set()).add(name)
+        for suite in re.findall(r"-only-testing:[\"']?(cmuxTests/[A-Za-z0-9_]+)", block):
+            owners.setdefault(suite, set()).add(name)
+    names: set[str] = set()
+    for suite in suites:
+        if suite in owners:
+            names |= owners[suite]
+        elif suite in FOCUSED_GATE_SELECTORS:
+            return None
+    if not names <= selectable:
+        return None
+    return sorted(names)
+
+
+def changed_unit_selectors(
+    root: Path, paths: Iterable[str] | None, diff: str | None = None
+) -> list[str]:
+    """Suite selectors for a unit run the diff selected, or [] for all of them.
+
+    A pull request that edits a few tests needs those tests run, not the
+    other few thousand across seven shards. An empty answer keeps the full
+    unit suite: see test_impact.affected_suites(), strict_steps(), and a
+    shared batch whose measured time would not fit one worker's.
+    """
+    if paths is None:
+        return []
+    suites = affected_suites(root, [path.strip() for path in paths], diff)
+    if not suites:
+        return []
+    workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+    if strict_steps(workflow, suites) is None:
+        return []
+    wanted = {suite.split("/", 1)[1] for suite in suites}
+    selectors, _ = reweight_selectors(discover_selectors(root), load_timings(DEFAULT_TIMINGS_PATH))
+    cost = sum(
+        selector.weight for selector in selectors if selector.identifier.split("/")[1] in wanted
+    )
+    if cost > CHANGED_SUITES_BUDGET_MS:
+        return []
+    return suites
+
+
+def reverse_unit_selectors(
+    root: Path, paths: Iterable[str] | None, app_diff: str | None, already: list[str]
+) -> list[str]:
+    """Suites that could observe an app-source change, within what the budget has left.
+
+    A pull request that changes Sources/ or a macOS/Shared package without
+    touching cmuxTests/ otherwise runs no behavior test. reverse_test_impact.py
+    names the suites whose tests mention what the diff changed; this keeps the
+    ones that fit beside `already` in one changed-suites run. It only adds:
+    anything it cannot judge (no diff, a selector error) adds nothing, and a
+    suite that would push the run past its budget or out of the changed-suites
+    lane is left out rather than turning the run into seven shards. Only
+    suites the shared batch discovers are added: the selector also names
+    helper types in cmuxTests/, and a selector that matches no test fails the
+    run. A suite a strict step owns is left out, since that step runs apart
+    from the budget. Suites with entries in app-host-known-failures.json are
+    left out too: a known failure that happens to pass fails a changed-suites
+    run, which is right for a suite the pull request edited and wrong for one
+    it only reached.
+    """
+    if paths is None or app_diff is None or not app_diff.strip():
+        return []
+    try:
+        import reverse_test_impact as reverse
+
+        if not any(reverse.is_app_path(path.strip()) for path in paths):
+            return []
+        selection = reverse.select(reverse.read_root(root), app_diff)
+        if not selection.reached:
+            return []
+        timings = load_timings(DEFAULT_TIMINGS_PATH)
+        default_ms = (timings or {}).get("default_test_ms", reverse.FALLBACK_TEST_MS)
+        costs = reverse.suite_costs(root, timings)
+        spent = sum(costs.get(selector.split("/", 1)[1], default_ms) for selector in already)
+        if spent >= CHANGED_SUITES_BUDGET_MS:
+            return []
+        catalog = json.loads((root / "scripts/ci/app-host-known-failures.json").read_text(encoding="utf-8"))
+        known = {identifier.split("/", 1)[0] for identifier in catalog.get("tests", {})}
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        batch_suites = {selector.identifier.split("/")[1] for selector in discover_selectors(root)}
+        data = reverse.report(selection, costs, default_ms, CHANGED_SUITES_BUDGET_MS - spent)
+        chosen: list[str] = []
+        for suite in data["would_run"]:
+            selector = f"cmuxTests/{suite}"
+            if suite in known or suite not in batch_suites or selector in already:
+                continue
+            steps = strict_steps(workflow, already + chosen)
+            if strict_steps(workflow, already + chosen + [selector]) != steps:
+                continue
+            chosen.append(selector)
+        return chosen
+    except Exception as error:  # an addition only: never the reason a run fails
+        print(f"::warning::Reverse test impact selection failed: {error!r}", file=sys.stderr)
+        return []
+
+
+def job_lines(workflow: str, job: str) -> range | None:
+    """1-based line numbers of `job` in a workflow's text, header included."""
+    lines = workflow.splitlines()
+    try:
+        start = lines.index(f"  {job}:") + 1
+    except ValueError:
+        return None
+    end = next(
+        (
+            number
+            for number, line in enumerate(lines[start:], start=start + 1)
+            if re.match(r"^  [A-Za-z0-9_-]+:$", line)
+        ),
+        len(lines) + 1,
+    )
+    return range(start, end)
+
+
+def admission_route_lines(workflow: str) -> set[int]:
+    """1-based lines of compile admission that route the product's consumers.
+
+    Its `outputs:` block, and the CMUX_PRODUCT_RUNNER and CMUX_CI_XCODE_APP
+    env the `runner` and `xcode_app` outputs read: the shards run on that pool
+    and pin that Xcode (#14163).
+    """
+    job = job_lines(workflow, "macos-compile-admission")
+    if job is None:
+        return set()
+    lines = workflow.splitlines()
+    route: set[int] = set()
+    in_outputs = False
+    for number in job:
+        text = lines[number - 1]
+        if re.match(r"^    [A-Za-z_-]+:", text):
+            in_outputs = text.startswith("    outputs:")
+        if in_outputs or re.match(r"^      (CMUX_PRODUCT_RUNNER|CMUX_CI_XCODE_APP):", text):
+            route.add(number)
+    return route
+
+
+def consumer_canary_selectors(
+    root: Path, paths: Iterable[str] | None, diff: str | None
+) -> list[str]:
+    """[CONSUMER_CANARY_SELECTOR] when the diff edits the app-host consumer path.
+
+    A ci-macos.yml edit counts only when one of its hunks sits inside
+    `app-host unit tests` or compile admission's consumer route
+    (admission_route_lines); most of that file is other jobs, which the lanes
+    they define already judge. When the diff has no hunks for it, the edit
+    cannot be placed and counts. An unreadable file list returns [] because
+    the caller already runs every unit suite for it.
+    """
+    if paths is None:
+        return []
+    stripped = {path.strip() for path in paths}
+    if stripped & set(APP_HOST_CONSUMER_PATHS[1:]):
+        return [CONSUMER_CANARY_SELECTOR]
+    if MACOS_WORKFLOW_PATH not in stripped:
+        return []
+    hunks = changed_lines(diff).get(MACOS_WORKFLOW_PATH) if diff else None
+    if not hunks:
+        return [CONSUMER_CANARY_SELECTOR]
+    try:
+        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return [CONSUMER_CANARY_SELECTOR]
+    job = job_lines(workflow, APP_HOST_CONSUMER_JOB)
+    route = admission_route_lines(workflow)
+    if job is None or any(line in job or line in route for line in hunks):
+        return [CONSUMER_CANARY_SELECTOR]
+    return []
+
+
+def runs_in_admission(
+    root: Path,
+    paths: Iterable[str] | None,
+    diff: str | None,
+    selectors: Iterable[str],
+    steps: Iterable[str],
+    canary: bool,
+) -> bool:
+    """True when compile admission should run `selectors` itself.
+
+    The runner that just compiled the product can run a few suites in less
+    time than a separate worker spends queueing, checking out and downloading
+    it. It runs only the shared batch, so a suite a strict step owns keeps the
+    worker, and so does any diff the consumer canary would flag: that worker is
+    what a consumer edit has to prove.
+    """
+    selectors = list(selectors)
+    if not selectors or canary or list(steps):
+        return False
+    return not consumer_canary_selectors(root, paths, diff)
 
 
 def labels_from_event(event_path: str | Path) -> list[str] | None:
@@ -94,17 +416,29 @@ def coverage_gap(
     full_suite: bool,
     paths: Iterable[str] | None,
     labels: Iterable[str] | None,
+    unit_suite: bool = False,
 ) -> bool:
     """True when this run skips the only check that could judge its diff.
 
     An explicit opt-out label records the decision on the pull request, which
     is the point: the skip stops being silent.
+
+    `unit_suite` closes the gap only for the paths `app-host unit tests` can
+    actually judge. A cmuxUITests/ diff stays a gap however this run is routed,
+    because no pull request job executes it.
     """
     if full_suite or event_name != "pull_request":
         return False
     if labels is not None and SUITE_OPT_OUT_LABEL in {label.strip() for label in labels}:
         return False
-    return diff_needs_the_suite(paths)
+    if paths is None:
+        return True
+    stripped = [path.strip() for path in paths]
+    if any(path.startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES) for path in stripped):
+        return True
+    if unit_suite:
+        return False
+    return any(path.startswith(UNIT_JUDGED_PREFIXES) for path in stripped)
 
 
 def main(argv: list[str]) -> int:
@@ -122,6 +456,15 @@ def main(argv: list[str]) -> int:
         "--files-from",
         help="changed paths, one per line; omit when the diff could not be read",
     )
+    parser.add_argument(
+        "--diff-from",
+        help="`git diff -U0` of cmuxTests/ and ci-macos.yml; omit to count every line of a changed file",
+    )
+    parser.add_argument(
+        "--app-diff-from",
+        help="`git diff -U0` of Sources/, Packages/ and CLI/; adds the suites that could observe it",
+    )
+    parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
 
     labels = None
@@ -139,11 +482,68 @@ def main(argv: list[str]) -> int:
         except (OSError, UnicodeError):
             paths = None
 
+    diff = None
+    if args.diff_from:
+        try:
+            diff = Path(args.diff_from).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            diff = None
+
+    app_diff = None
+    if args.app_diff_from:
+        try:
+            app_diff = Path(args.app_diff_from).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            app_diff = None
+
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
-    gap = coverage_gap(args.event_name, full, paths, labels)
+    unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
+    gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
+    # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
+    # explicit requests for every suite.
+    asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
+    selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
+    canary = False
+    reached: list[str] = []
+    # A narrowed run (or none yet) also takes the suites that could observe
+    # the app-source change; an empty `selectors` under `unit` is already
+    # every suite.
+    if not asked_for_every_suite and (selectors or not unit):
+        reached = reverse_unit_selectors(args.root, paths, app_diff, selectors)
+        if reached:
+            # Alone, these ride on a compile this run pays for, like the
+            # consumer canary: a re-push of admitted inputs reuses the build
+            # and drops them rather than compiling again.
+            canary = not unit
+            if canary:
+                # Keep the consumer canary a consumer edit would have taken.
+                selectors = [
+                    selector for selector in consumer_canary_selectors(args.root, paths, diff)
+                    if selector not in reached
+                ]
+            selectors = selectors + reached
+            unit = True
+    if not unit:
+        # Nothing else asked for the unit tests, so a consumer edit takes the
+        # one-suite canary rather than seven shards. ci.yml drops it again when
+        # the compile is reused: it only rides on a compile this run pays for.
+        selectors = consumer_canary_selectors(args.root, paths, diff)
+        unit = canary = bool(selectors)
+    steps: list[str] = []
+    if selectors:
+        workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        steps = strict_steps(workflow, selectors) or []
+    # Suites reached this way can fill the whole budget; they take the
+    # changed-suites worker rather than holding compile admission.
+    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary or bool(reached))
     lines = [
         f"full_suite={'true' if full else 'false'}",
+        f"unit_suite={'true' if unit else 'false'}",
+        f"unit_selectors={' '.join(selectors)}",
+        f"unit_strict_steps={''.join(f'|{step}' for step in steps) + '|' if steps else ''}",
         f"coverage_gap={'true' if gap else 'false'}",
+        f"unit_canary={'true' if canary else 'false'}",
+        f"unit_in_admission={'true' if in_admission else 'false'}",
     ]
     for line in lines:
         print(line)

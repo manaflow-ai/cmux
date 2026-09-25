@@ -12,11 +12,17 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = yaml.safe_load((ROOT / '.github/workflows/test-e2e.yml').read_text())['jobs']['e2e']['steps']
+WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/test-e2e.yml').read_text())
+JOBS = {name: spec['steps'] for name, spec in WORKFLOW['jobs'].items() if 'steps' in spec}
 
 
-def step(name):
-    return next(s for s in STEPS if s.get('name') == name)
+def step(name, job=None):
+    """One named step. `build` and `test` share several step names."""
+    found = [(owner, s) for owner, steps in JOBS.items() if job in (None, owner)
+             for s in steps if s.get('name') == name]
+    if len(found) != 1:
+        raise AssertionError(f"expected one {name!r} step in {job or 'the workflow'}, found {len(found)}")
+    return found[0][1]
 
 
 class E2ECompilationCache(unittest.TestCase):
@@ -34,17 +40,18 @@ class E2ECompilationCache(unittest.TestCase):
         self.env = dict(os.environ, GITHUB_WORKSPACE=str(self.workspace),
                         RUNNER_TEMP=str(self.root), GITHUB_RUN_ID='11', GITHUB_RUN_ATTEMPT='1',
                         GITHUB_ENV=str(self.root / 'env'), GITHUB_OUTPUT=str(self.root / 'output'),
-                        PATH=str(tools) + ':' + os.environ['PATH'], FIXTURE_XCODE='Xcode 26.6')
+                        PATH=str(tools) + ':' + os.environ['PATH'], FIXTURE_XCODE='Xcode 26.6',
+                        CMUX_CI_CANONICAL_ROOT=str(self.root / 'canonical'))
 
-    def run_step(self, name, **env):
-        return subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', step(name)['run']],
+    def run_step(self, name, job='build', **env):
+        return subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', step(name, job)['run']],
                               cwd=self.workspace, env=dict(self.env, **env),
                               text=True, capture_output=True)
 
     def prepare(self):
         for file in ('env', 'output'):
             (self.root / file).write_text('')
-        result = self.run_step('Prepare isolated DerivedData')
+        result = self.run_step('Prepare isolated DerivedData', 'build')
         self.assertEqual(result.returncode, 0, result.stderr)
         values = dict(line.split('=', 1) for file in ('env', 'output')
                       for line in (self.root / file).read_text().splitlines())
@@ -72,28 +79,50 @@ class E2ECompilationCache(unittest.TestCase):
         self.env['GITHUB_WORKSPACE'] = str(other)
         self.assertNotEqual(original, self.prepare()['fingerprint'])
 
-    def test_both_test_targets_enable_cache_without_changing_selectors(self):
-        self.assertEqual(step('Install zig')['if'], "${{ steps.filter.outputs.target == 'cmuxUITests' }}")
+    def test_both_test_targets_run_the_prebuilt_product(self):
+        # The build job compiles every scheme once, so the test job's setup no
+        # longer depends on which target was selected, and its xcodebuild
+        # invocation must not compile anything.
         values = self.prepare()
-        script = step('Run selected tests')['run']
+        script = step('Run selected tests', 'test')['run']
         start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
         end = script.index('\nset +e', start)
         construction = script[start:end]
-        for target in ('cmuxTests', 'cmuxUITests'):
+        for target, variable in (('cmuxTests', 'CMUX_APP_HOST_XCTESTRUN'),
+                                 ('cmuxUITests', 'CMUX_UI_XCTESTRUN')):
             with self.subTest(target=target):
+                manifest = self.root / (target + '.xctestrun')
+                manifest.write_text('fixture')
                 command = ('ONLY_TESTING=("-only-testing:' + target + '/Focused")\n' +
                            construction + '\nprintf "%s\\0" "${XCODEBUILD_CMD[@]}"')
                 result = subprocess.run(['bash', '-eu', '-c', command], cwd=self.workspace,
                     env=dict(self.env, **values, TEST_TARGET=target, TEST_TIMEOUT='120',
-                             SOURCE_PACKAGES_DIR=str(self.workspace / '.ci-source-packages')),
+                             **{variable: str(manifest)}),
                     capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = result.stdout.decode().strip('\0').split('\0')
-                self.assertIn('COMPILATION_CACHE_ENABLE_CACHING=YES', args)
-                self.assertIn('COMPILATION_CACHE_CAS_PATH=' + values['CMUX_E2E_COMPILATION_CACHE'], args)
+                self.assertIn('test-without-building', args)
+                self.assertIn('-xctestrun', args)
+                self.assertIn(str(manifest), args)
                 self.assertIn('-only-testing:' + target + '/Focused', args)
-                self.assertEqual(args[-1], 'test')
-                self.assertEqual('CMUX_SKIP_ZIG_BUILD=1' in args, target == 'cmuxTests')
+                self.assertNotIn('test', args)
+                self.assertNotIn('build-for-testing', args)
+                for setting in args:
+                    self.assertFalse(setting.startswith('COMPILATION_CACHE_'), setting)
+                    self.assertFalse(setting.startswith('CMUX_SKIP_ZIG_BUILD'), setting)
+
+    def test_a_missing_manifest_fails_instead_of_silently_compiling(self):
+        values = self.prepare()
+        script = step('Run selected tests', 'test')['run']
+        start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
+        end = script.index('\nset +e', start)
+        result = subprocess.run(['bash', '-eu', '-c',
+            'ONLY_TESTING=()\n' + script[start:end]], cwd=self.workspace,
+            env=dict(self.env, **values, TEST_TARGET='cmuxTests', TEST_TIMEOUT='120',
+                     CMUX_APP_HOST_XCTESTRUN=str(self.root / 'absent.xctestrun')),
+            text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('no cmuxTests test manifest', result.stdout + result.stderr)
 
     def test_unit_helper_skip_uses_clang_without_invoking_zig(self):
         zig = self.root / 'bin' / 'zig'
@@ -123,6 +152,77 @@ exit 97
         self.assertEqual(output.read_text(), 'fixture-clang-output')
         self.assertIn('Skipping zig CLI helper build', result.stdout)
 
+    def test_one_build_serves_the_test_job_and_every_retry(self):
+        # The whole point of the split: compilation happens in `build`, once,
+        # and `test` consumes that exact artifact. A rerun of a failed `test`
+        # job re-downloads the product instead of recompiling it.
+        build = JOBS['build']
+        compiles = [s for s in build if 'compile-app-host-test-product.sh canonical-build' in (s.get('run') or '')]
+        self.assertEqual(len(compiles), 1, 'build must compile exactly once')
+        for job in ('test',):
+            for entry in JOBS[job]:
+                run = entry.get('run') or ''
+                self.assertNotIn('compile-app-host-test-product.sh', run, entry.get('name'))
+                self.assertNotIn('build-for-testing', run, entry.get('name'))
+
+        upload = step('Upload the compiled test product', 'build')
+        self.assertEqual(
+            upload['with']['name'],
+            'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
+            'publish under the name ci.yml uses, so a later run can adopt it')
+
+        outputs = WORKFLOW['jobs']['build']['outputs']
+        self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
+        self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
+        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'runner', 'build'])
+
+    def test_the_build_adopts_the_admission_seed_at_the_canonical_root(self):
+        # The seed is only reusable at the paths it was built at, so the build
+        # must run at the canonical root under compile admission's DerivedData
+        # name, key the seed the way ci-macos.yml does, and adopt it for the
+        # tested revision before compiling.
+        names = [entry.get('name') for entry in JOBS['build']]
+        admission = (ROOT / '.github/workflows/ci-macos.yml').read_text()
+        self.assertIn('admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-', admission)
+        key = step('Compute the DerivedData seed key')
+        self.assertIn('canonical-fingerprint "$CMUX_DERIVED_DATA_PATH"', key['run'])
+        self.assertIn('admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-$fingerprint-', key['run'])
+        start = step('Start the DerivedData seed download')
+        self.assertIn('seed_derived_data.py start', start['run'])
+        self.assertIn('"$TEST_REF"', start['run'])
+        adopt = step('Adopt the DerivedData seed')
+        self.assertIn('seed_derived_data.py adopt', adopt['run'])
+        self.assertIn('"$CMUX_CI_CANONICAL_SRC" "$CMUX_DERIVED_DATA_PATH"', adopt['run'])
+        self.assertIn('"$TEST_REF"', adopt['run'])
+        self.assertIs(adopt.get('continue-on-error'), True)
+        resolve = step('Resolve Swift packages')
+        self.assertIn('compile-app-host-test-product.sh canonical-resolve', resolve['run'])
+        self.assertLess(names.index('Start the DerivedData seed download'), names.index('Resolve Swift packages'))
+        self.assertLess(names.index('Resolve Swift packages'), names.index('Adopt the DerivedData seed'))
+        self.assertLess(names.index('Adopt the DerivedData seed'), names.index('Build the app-host and UI test product'))
+        values = self.prepare()
+        self.assertEqual(values['CMUX_DERIVED_DATA_PATH'],
+                         str(self.root / 'canonical' / 'derived-data-compile-admission'))
+        # The CAS path is a compiler argument: a different one than admission
+        # passes invalidates every compile the seed carries.
+        self.assertIn('CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas', admission)
+        self.assertEqual(values['CMUX_E2E_COMPILATION_CACHE'],
+                         str(self.root / 'canonical' / 'compile-admission-cas'))
+
+    def test_the_test_job_verifies_the_product_before_using_it(self):
+        # A transport is allowed to miss; it is not allowed to hand over
+        # unverified bytes. The restore step checks the archive SHA-256 that
+        # the build job published, whichever transport delivered it.
+        restore = step('Restore the compiled test product', 'test')
+        self.assertEqual(restore['env']['EXPECTED_SHA256'], '${{ needs.build.outputs.sha256 }}')
+        self.assertEqual(restore['run'], 'scripts/ci/restore-app-host-test-product.sh')
+        self.assertNotIn('continue-on-error', restore)
+
+        fast = step('Read the compiled test product over parallel range requests', 'test')
+        self.assertIs(fast['continue-on-error'], True)
+        fallback = step('Download the compiled test product', 'test')
+        self.assertEqual(fallback['if'], "${{ steps.parallel-product.outputs.hit != 'true' }}")
+
     def test_cleanup_removes_only_owned_paths(self):
         values = self.prepare()
         unrelated = self.root / 'keep'
@@ -138,30 +238,92 @@ exit 97
         self.assertFalse(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
         self.assertFalse(Path(values['CMUX_E2E_COMPILATION_CACHE']).exists())
 
+    def prepare_test_job(self):
+        for file in ('env', 'output'):
+            (self.root / file).write_text('')
+        result = self.run_step('Prepare isolated DerivedData', 'test')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return dict(line.split('=', 1) for file in ('env', 'output')
+                    for line in (self.root / file).read_text().splitlines())
+
+    def test_the_test_job_cleans_up_the_product_it_restored(self):
+        # This cleanup runs under `if: always()`, so an ownership pattern that
+        # does not match the job's own prepared path turns a passing test run
+        # red after the tests have already succeeded. The path also has to stay
+        # under RUNNER_TEMP: app-host cleanup refuses to inspect a host whose
+        # DerivedData lives anywhere else.
+        values = self.prepare_test_job()
+        derived = Path(values['CMUX_DERIVED_DATA_PATH'])
+        self.assertTrue(derived.is_relative_to(self.root))
+        self.assertFalse(derived.is_relative_to(self.workspace))
+        self.assertNotIn('CMUX_E2E_COMPILATION_CACHE', values)
+        unrelated = self.root / 'keep'
+        unrelated.mkdir()
+        rejected = self.run_step('Clean owned DerivedData', 'test',
+                                 **dict(values, CMUX_DERIVED_DATA_PATH=str(unrelated)))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertTrue(unrelated.exists())
+        result = self.run_step('Clean owned DerivedData', 'test', **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(derived.exists())
+
     def test_only_successful_trusted_main_build_can_seed(self):
         values = self.prepare()
         cache = Path(values['CMUX_E2E_COMPILATION_CACHE'])
         (cache / 'compiler-entry').write_bytes(b'cached')
-        for ref, selected, outcome, allowed in (
-            ('refs/heads/main', 'a' * 40, 'success', True),
-            ('refs/heads/main', 'b' * 40, 'success', False),
-            ('refs/heads/topic', 'a' * 40, 'success', False),
-            ('refs/heads/main', 'a' * 40, 'failure', False),
+        for ref, selected, on_main, outcome, allowed in (
+            # A revision main already contains seeds, whether or not it is the tip.
+            ('refs/heads/main', 'a' * 40, 'true', 'success', True),
+            ('refs/heads/main', 'b' * 40, 'true', 'success', True),
+            ('refs/heads/main', 'a' * 40, 'false', 'success', False),
+            # An unreachable containment check leaves the cache read-only.
+            ('refs/heads/main', 'a' * 40, '', 'success', False),
+            ('refs/heads/main', 'not-a-sha', 'true', 'success', False),
+            ('refs/heads/topic', 'a' * 40, 'true', 'success', False),
+            ('refs/heads/main', 'a' * 40, 'true', 'failure', False),
         ):
             (self.root / 'output').write_text('')
             result = self.run_step('Bound E2E compilation cache', **values,
-                                  WORKFLOW_REF=ref, WORKFLOW_SHA='a' * 40,
+                                  WORKFLOW_REF=ref, REVISION_ON_MAIN=on_main,
                                   TEST_REF=selected, TEST_OUTCOME=outcome)
             self.assertEqual(result.returncode, 0, result.stderr)
             outputs = dict(line.split('=', 1) for line in (self.root / 'output').read_text().splitlines())
-            self.assertEqual(outputs['save'], str(allowed).lower())
+            self.assertEqual(outputs['save'], str(allowed).lower(),
+                             f'{ref} {selected} on_main={on_main!r} {outcome}')
+
+    def test_containment_maps_compare_status_to_seeding_permission(self):
+        sys.path.insert(0, str(ROOT / 'scripts/ci'))
+        import revision_on_main
+
+        sha = 'a' * 40
+        for status, contained in (('identical', True), ('behind', True),
+                                  ('ahead', False), ('diverged', False), (None, False)):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    revision_on_main.contained_in_main(
+                        'o/r', sha, 'token', compare=lambda *_, s=status: s),
+                    contained,
+                )
+        # Missing repository, token or a non-SHA revision never reaches the API.
+        for repository, revision, token in (('', sha, 't'), ('o/r', 'main', 't'), ('o/r', sha, '')):
+            with self.subTest(revision=revision, repository=repository, token=token):
+                self.assertFalse(revision_on_main.contained_in_main(
+                    repository, revision, token,
+                    compare=lambda *_: self.fail('API must not be called')))
+        # A transport failure is not evidence of containment.
+        def explode(*_):
+            raise OSError('unreachable')
+        self.assertFalse(revision_on_main.contained_in_main('o/r', sha, 't', compare=explode))
 
     def test_empty_and_oversized_caches_are_not_published(self):
         values = self.prepare()
-        env = dict(values, WORKFLOW_REF='refs/heads/main', WORKFLOW_SHA='a' * 40,
+        # A revision main contains, so both runs reach the cache checks rather
+        # than stopping at the containment gate ahead of them.
+        env = dict(values, WORKFLOW_REF='refs/heads/main', REVISION_ON_MAIN='true',
                    TEST_REF='a' * 40, TEST_OUTCOME='success')
         result = self.run_step('Bound E2E compilation cache', **env)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('cache is empty', result.stdout)
         self.assertNotIn('save=true', (self.root / 'output').read_text())
         (Path(values['CMUX_E2E_COMPILATION_CACHE']) / 'compiler-entry').write_bytes(b'cached')
         fake_du = self.root / 'bin' / 'du'
@@ -169,6 +331,7 @@ exit 97
         fake_du.chmod(0o755)
         result = self.run_step('Bound E2E compilation cache', **env)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('exceeds 5 GiB', result.stdout)
         self.assertNotIn('save=true', (self.root / 'output').read_text())
 
     def test_failed_restore_discards_partial_cache_without_removing_products(self):
@@ -190,7 +353,7 @@ exit 97
     def test_failure_guard_only_allows_optional_compilation_cache_steps(self):
         guard = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
         start = guard.index('check_e2e_runner_fallbacks() {')
-        end = guard.index('\ncheck_ios_tart_canary()', start)
+        end = guard.index('\ncheck_ios_runner_routing()', start)
         invoke = guard[start:end] + '\ncheck_e2e_runner_fallbacks\n'
         workflow = (ROOT / '.github/workflows/test-e2e.yml').read_text()
         candidate = self.root / 'workflow.yml'
@@ -200,7 +363,7 @@ exit 97
                               '      - name: Run selected tests\n        continue-on-error: true\n'), False),
             (workflow.replace('      - name: Select Xcode\n',
                               '      - name: Select Xcode\n        continue-on-error: true\n'), False),
-            (workflow.replace('  e2e:\n', '  e2e:\n    continue-on-error: true\n'), False),
+            (workflow.replace('  test:\n', '  test:\n    continue-on-error: true\n'), False),
             (workflow.replace('        id: compilation-cache-restore\n',
                               '        id: unrelated-setup\n'), False),
         ):
@@ -264,7 +427,7 @@ else:
                 # timeout, before substituting an expensive setup side effect.
                 reached = root / 'dependency-setup'
                 command = ''
-                for entry in STEPS:
+                for entry in JOBS['test']:
                     if entry.get('name') == 'Verify screen capture before dependency setup':
                         timeout = '2' if mode == 'timeout' else '10'
                         command += entry['run'].rstrip() + ' --timeout-seconds ' + timeout + '\n'

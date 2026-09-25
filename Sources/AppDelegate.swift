@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
 import AppKit
@@ -7,6 +9,7 @@ import CmuxBrowser
 import CmuxCommandPalette
 import CmuxPanes
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore
@@ -566,6 +569,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    lazy var sshTuiWorkspaceCoordinator = SSHTuiWorkspaceCoordinator(
+        catalog: SurfaceCatalog.shared, clientURL: { CloudTuiClientPaths.clientURL() }, paths: CloudTuiClientPaths()
+    )
     /// Owns every main-window registration, recovery, and close phase.
     let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
     /// Owns the process-scoped idle-sleep assertion shared by every local and
@@ -606,15 +612,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the SDK is off.
     private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
-    private let connectivityInvalidationSubscriberCoordinator =
-        ConnectivityInvalidationSubscriberCoordinator()
+    private let connectivityInvalidationSubscriberCoordinator = ConnectivityInvalidationSubscriberCoordinator()
+    let workspacePresenceController = WorkspacePresenceController()
     private let sudoApprovalCoordinator: SudoApprovalCoordinator?
-
-    private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
-        // exists before XCTest connects. Standard XCTest keys cover other paths.
-        MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
-    }
 
     @MainActor
     final class MainWindowContext {
@@ -963,7 +963,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         layoutModel: titlebarControlsLayoutModel
     )
     private let windowDecorationsController = WindowDecorationsController()
-    private var menuBarExtraController: MenuBarExtraController?
+    /// Internal so app-host tests can substitute a controller whose Global
+    /// Search callback records the request.
+    var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
     /// App-owned computer-use graph; all runtime dependencies are injected here.
@@ -990,15 +992,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ),
             runtimeService: computerUseRuntimeService,
             userDefaults: .standard,
-            workspaceTitle: { [weak self] workspaceID in
-                self?.tabTitle(for: workspaceID)
-            },
-            featureEnabled: {
-                CmuxFeatureFlags.shared.isComputerUseUXEnabled
+            workspaceTitle: { [weak self] in self?.tabTitle(for: $0) },
+            featureEnabled: { CmuxFeatureFlags.shared.isComputerUseUXEnabled },
+            ownsSurface: { [weak self] surfaceID, workspaceID in
+                self?.ownsLocalComputerUseSurface(surfaceID, workspaceID: workspaceID) == true
             }
         )
     }()
-    private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
+    internal lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
                 TerminalController.shouldSuppressSocketCommandActivation()
@@ -1300,14 +1301,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didReplyToTerminate = false
     // True while owned asynchronous cleanup controls the terminate reply.
     private var isAwaitingTerminateCleanup = false
-    enum TerminateCleanupPhase: Equatable, Sendable {
-        case ownedRuntimeCleanup
-        case freshSnapshot
-    }
-    enum TerminateCleanupDeadlineDisposition: Equatable, Sendable {
-        case persistCachedSnapshotAndTerminate
-        case cancelTerminationAfterRuntimeCleanupFailure
-    }
     private var terminateCleanupPhase: TerminateCleanupPhase?
     private var terminateOwnedCleanupTask: Task<Void, Never>?
     private var terminateCleanupWatchdogTask: Task<Void, Never>?
@@ -2083,9 +2076,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
-        guard hasOwnedRuntimeCleanup || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
-            return false
-        }
+        let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
+        guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
+            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup
@@ -2126,13 +2119,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard !Task.isCancelled else { return }
                 self.mainWindowLifecycleCoordinator
                     .cancelAllWindowlessRouteFreezeTasks()
-                _ = self.saveSessionSnapshot(
+                let savedForQuit = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
                     restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+                self.terminateCleanupPhase = .agentTermination
+                if savedForQuit {
+                    await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
+                }
+                guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
@@ -2147,7 +2145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // this quit request. Once owned cleanup succeeds, the fresh agent-index
             // load is the only remaining work; its timeout falls back to cached
             // indexes and lets termination proceed without reporting cleanup failure.
-            let cleanupDeadline: Duration
+            var cleanupDeadline: Duration
             if !simulatorCleanupTasks.isEmpty {
                 cleanupDeadline = .seconds(155)
             } else if !markedForKill.isEmpty {
@@ -2155,21 +2153,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 cleanupDeadline = .seconds(5)
             }
+            if hasLocalTerminalSurfaces {
+                cleanupDeadline = max(cleanupDeadline, .seconds(5) + AgentQuitTerminationCoordinator().budget)
+            }
             terminateCleanupWatchdogTask?.cancel()
             terminateCleanupWatchdogTask = Task { @MainActor in
                 try? await ContinuousClock().sleep(for: cleanupDeadline)
                 guard !Task.isCancelled else { return }
+                if self.terminateCleanupPhase == .agentTermination {
+                    self.terminationWatchdog.arm()
+                    await cleanupTask.value
+                    return
+                }
                 cleanupTask.cancel()
                 let disposition = Self.terminateCleanupDeadlineDisposition(
                     phase: self.terminateCleanupPhase,
                     hasOwnedRuntimeCleanup: hasOwnedRuntimeCleanup
                 )
                 guard disposition == .cancelTerminationAfterRuntimeCleanupFailure else {
-                    _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
-                        includeScrollback: true,
-                        removeWhenEmpty: false
-                    )
-                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                    if disposition == .persistCachedSnapshotAndTerminate {
+                        _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+                            includeScrollback: true,
+                            removeWhenEmpty: false
+                        )
+                        ClosedItemHistoryStore.shared.flushPendingSaves()
+                    }
                     self.terminationWatchdog.arm()
                     self.replyToTerminateOnce(true)
                     return
@@ -2186,16 +2194,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return true
-    }
-
-    nonisolated static func terminateCleanupDeadlineDisposition(
-        phase: TerminateCleanupPhase?,
-        hasOwnedRuntimeCleanup: Bool
-    ) -> TerminateCleanupDeadlineDisposition {
-        if phase == .freshSnapshot || !hasOwnedRuntimeCleanup {
-            return .persistCachedSnapshotAndTerminate
-        }
-        return .cancelTerminationAfterRuntimeCleanupFailure
     }
 
     private func cancelTerminationAfterSimulatorCleanupFailure() {
@@ -2351,10 +2349,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
-
     func applicationWillTerminate(_ notification: Notification) {
         cloudWorkspaceOperationController?.cancelAll()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        agentChatTranscriptService.shutdown()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
         // persisted a fresh index before AppKit receives its reply; do not overwrite that
@@ -2477,12 +2475,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
         CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
-        VMClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
+        let cloudReads = VMClient.bootstrap(
+            auth: auth.coordinator,
+            checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator,
+            operations: cloudOperations,
+            telemetry: .live(),
+            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }
+        )
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)
-        MachineUsageClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
+        MachineUsageClient.bootstrap(auth: auth.coordinator, operations: cloudOperations, readRequests: cloudReads)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         caffeineController.onStateChange = { [weak self] enabled in
@@ -2498,7 +2502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             computersService.configure(auth: auth.coordinator)
             devicesRegistry.configure(auth: auth.coordinator, catalog: .shared, authorization: computersService)
         }
-        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        configureWorkspacePresence(auth: auth.coordinator)
         PhoneReplyInboxClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
         // Relayed phone replies share the direct RPC paste-and-submit path,
@@ -5973,10 +5977,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager
     ) {
-        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true
+            || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil {
             _ = performNewWorkspaceAction(
                 tabManager: tabManager,
-                debugSource: "sidebar.emptyArea.remoteTmux"
+                debugSource: "sidebar.emptyArea.remote"
             )
         } else if addWorkspace(
             windowId: windowId,
@@ -14339,7 +14344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
         return true
     }
-
+    /// Dispatches configured shortcuts using the event window’s focus and chord state.
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             clearConfiguredShortcutChordState()
@@ -14889,13 +14894,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
-            let shortcutContext = shortcutEventFocusContext(event).shortcutContext
+            let focusContext = shortcutEventFocusContext(event)
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
                 // Arm by the effective `when` clause (its shortcuts.when override or
                 // the built-in context default), matching the keyDown gate, so a
                 // `when`-broadened chord arms in its allowed context and a narrowed
                 // one does not swallow its first stroke elsewhere (issue #5189).
-                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
+                KeyboardShortcutSettings.effectiveWhenClause(for: action)
+                    .evaluate(focusContext.whenClauseContext(for: action))
             }
             if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
                 return true
@@ -14968,10 +14974,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             openPreferencesWindow(debugSource: "shortcut.openSettings")
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .openTeamPicker) {
-            NotificationCenter.default.post(name: .cmuxTeamPickerShortcutRequested, object: self)
-            return true
-        }
+        if handleCloudTeamPickerShortcut(event) { return true }
         if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
             reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true
@@ -15994,7 +15997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomOut) }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomReset) }
-
+        if matchConfiguredShortcut(event: event, action: .toggleFileEditorWordWrap) { return shortcutFocusedSavingTextView(in: resolvedShortcutEventWindow(event))?.toggleFilePreviewWordWrap() ?? false }
         if matchConfiguredShortcut(event: event, action: .markdownZoomIn) {
             return shortcutEventMarkdownPanel(event)?.zoomIn() ?? false
         }
@@ -17168,7 +17171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// handlers that previously ignored context (issue #5189).
     func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
         KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(shortcutEventFocusContext(event).shortcutContext)
+            .evaluate(shortcutEventFocusContext(event).whenClauseContext(for: action))
     }
 
     /// Resolves a right-sidebar mode shortcut after applying the action's

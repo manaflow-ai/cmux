@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Otkrivena konfiguracija harnessa",
+    "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",
+    "selectProvider": "Odaberi {provider}",
+    "foundPath": "Pronađen {path}",
+    "foundCommand": "Pronađena naredba {command}",
+    "installed": "Provajder je instaliran",
+    "missing": "Provajder nije instaliran",
+    "install": "Instaliraj pomoću: {command}",
+    "benefitPi": "Sažimanje, memorija i rutiranje provajdera",
+    "benefitOpenagent": "Paralelni specijalisti i oporavak za OpenCode",
+    "benefitClaude": "Timovi i provjera za Claude Code",
+    "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Postavljanje Cloud VM-a nije završeno",
+      "reason": "Postavljanje gosta za Cloud VM nije završeno.",
+      "message": "cmux nije mogao završiti postavljanje Cloud VM-a.",
+      "action": "Pokušajte ponovo. Ako se problem nastavi, obratite se podršci."
+    },
+    "createCleanupPending": {
+      "title": "Čišćenje Cloud VM-a na čekanju",
+      "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
+      "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
@@ -399,6 +424,22 @@
       "savingRelaySettings": "Spremanje…"
     },
     "coderouterAccounts": {
+      "transferAction": "Prenesi",
+      "transferringAction": "Prenos…",
+      "transferDialogTitle": "Prenesi račun u drugi tim",
+      "transferChooseBody": "Odaberite tim koji treba primiti {account}. Trenutno pripada timu {source}.",
+      "transferDestinationLabel": "Odredišni tim",
+      "continueAction": "Nastavi",
+      "backAction": "Nazad",
+      "transferConfirmTitle": "Prenijeti {account}?",
+      "transferConfirmBody": "{account} prelazi iz tima {source} u tim {destination}. Cloud mašine i članovi tima {source} odmah ga prestaju koristiti. U timu {destination} zadržava trenutnu postavku dijeljenja.",
+      "transferConfirmAction": "Prenesi račun",
+      "transferSuccess": "{account} je premješten u {destination}.",
+      "transferError": "Prenos ovog računa nije uspio. Pokušajte ponovo.",
+      "transferForbiddenError": "Više ne možete premještati račune u taj tim.",
+      "transferNotFoundError": "Ovaj račun više nije u ovom timu. Osvježite da vidite gdje se nalazi.",
+      "transferConflictError": "Račun se promijenio tokom prenosa. Osvježite i pokušajte ponovo.",
+      "transferUnavailableError": "Prenosi su privremeno nedostupni ili se račun osvježava. Pokušajte ponovo za trenutak.",
       "shareWithTeam": "Podijeli s timom",
       "makePrivate": "Učini privatnim",
       "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
@@ -1248,6 +1289,10 @@
       "schemaDescriptions": {
         "root": "Konfiguracija za cmux. Globalni cmux.json podržava postavke aplikacije, prečice, radnje, prilagođene komande, hookove obavijesti i rasporede radnih prostora. Projektni .cmux/cmux.json ili cmux.json podržava radnje, komande, hookove obavijesti, povezivanje UI radnji, Agent Chat izmjene, vault agente, izmjene grupa radnih prostora te konfiguraciju pokretanja i dugmadi radnog prostora.",
         "rightSidebar": "Naslijeđena konfiguracija desne bočne trake kojom upravljaju ekstenzije i koja se čuva u cmux.json.",
+        "packs": {
+          "description": "Lokalne datoteke ili direktoriji cmux paketa koji se učitavaju prije ove konfiguracije. Direktoriji upućuju na cmux.pack.json. Koristite tekstualnu putanju ili objekt s poljem path.",
+          "path": "Putanja lokalne datoteke ili direktorija, relativna u odnosu na ovu konfiguracijsku datoteku ako nije apsolutna."
+        },
         "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
         "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "automation": {
@@ -1259,6 +1304,7 @@
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Naziv ekrana koji se koristi samo u DEBUG izdanjima pri otvaranju novih prozora. Prazna vrijednost koristi zadanu vrijednost sistema.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
@@ -1434,6 +1480,7 @@
       "restartNew": "Kreiraj novi radni prostor (zadano)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z).",
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
@@ -4026,5 +4073,15 @@
     "organization": "Organizacija",
     "personalAccount": "lični račun",
     "switchAccountButton": "Koristi drugi račun"
+  },
+  "MobileRelease106": {
+    "title": "Novosti u verziji 1.0.6",
+    "releaseLabel": "1.0.6 · Septembar 2026",
+    "connectionTitle": "Ažurirane veze s Mac računarima",
+    "connectionDetail": "Ovo ažuriranje koristi novu uslugu povezivanja i Iroh prijenos. Starije Mac verzije treba ažurirati da bi se povezale.",
+    "updateTitle": "Ažurirajte cmux na Mac računaru",
+    "updateDetail": "Potreban je cmux {stableVersion} ili noviji, ili NIGHTLY {nightlyVersion} ili noviji. Omogućite iOS uparivanje u Postavke > Mobilni uređaji na svakom Mac računaru.",
+    "rollbackTitle": "Trebate zadržati stariju Mac verziju?",
+    "rollbackDetail": "Koristite cmux BETA 1.0.5 ({rollbackBuild}) iz TestFlight > Prethodne verzije dok je dostupna. Odaberite upravo tu verziju jer novije koriste noviju uslugu povezivanja."
   }
 }

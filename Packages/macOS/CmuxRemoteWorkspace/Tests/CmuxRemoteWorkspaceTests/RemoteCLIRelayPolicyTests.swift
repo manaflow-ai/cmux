@@ -154,6 +154,42 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    /// `workspace.reorder` has no relay parameter contract, so the method gate
+    /// denies it before any selector is read.
+    ///
+    /// The selectors below are UUIDs on purpose. Ref-form selectors such as
+    /// `workspace:1` are rejected by the *selector* gate
+    /// (`RemoteRelayCommandPolicy.malformedSelector`) whether or not the method
+    /// is allowlisted, so a ref-form payload reports `remote_relay_denied`
+    /// either way and this test would stay green through exactly the
+    /// regression it exists to catch. With UUIDs, the method gate is the only
+    /// thing left denying these, so allowlisting `workspace.reorder` turns them
+    /// into `ALLOW` and fails the test.
+    @Test("workspace.reorder has no relay contract")
+    func workspaceReorderHasNoRelayContract() {
+        #expect(
+            RemoteRelayRoutingSchema().parameters(for: "workspace.reorder") == nil,
+            "workspace.reorder must stay absent from the relay routing schema"
+        )
+    }
+
+    @Test("workspace.reorder is denied through a relay", arguments: [
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","index":0}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","before_workspace_id":"1EA7D9C4-0000-4000-8000-00000000A002"}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","after_workspace_id":"1EA7D9C4-0000-4000-8000-00000000A002"}}"#,
+    ])
+    func deniesWorkspaceReorder(commandLine: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: commandLine
+            )
+            expectDenial(exchange, unixServer, "workspace.reorder")
+        }
+    }
+
     @Test("non-JSON command lines are denied")
     func deniesNonJSONCommandLine() throws {
         try withServer { port, unixServer in

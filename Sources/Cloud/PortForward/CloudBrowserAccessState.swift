@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
 import CmuxFoundation
@@ -26,6 +27,7 @@ final class CloudBrowserAccessState {
     @ObservationIgnored private let connectionDeadline: MainActorDeferredActionScheduler
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
     @ObservationIgnored private var observationGeneration: UInt64 = 0
+    @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
     @ObservationIgnored private let logID = UUID().uuidString
     @ObservationIgnored private var attempt = 0
@@ -50,16 +52,23 @@ final class CloudBrowserAccessState {
         self.resourceID = resourceID
         self.model = model
         remoteURL = url
-        navigationURL = nil
+        // WebKit has already committed this URL. Retain that identity so the
+        // delegate's finish/desktop callbacks are accepted without issuing a
+        // second request after a same-VM redirect.
+        navigationURL = url
+        hasCommittedNavigation = true
+        preservingCommittedRoute = true
+        loaded = false
         error = nil
         desktopFailure = nil
         dismissedFailure = nil
-        activeNavigationID = nil
+        desktopConnected = false
         connectionDeadline.cancel()
+        startDeadline()
         trace("route_adopted")
+        observeRoute()
     }
 
-    func routeDidConfigure() { observeRoute() }
     func retainResource(_ resource: SurfaceResourceID) { resourceID = resource }
 
     private func observeRoute() {
@@ -73,6 +82,13 @@ final class CloudBrowserAccessState {
                 guard let self, self.observationGeneration == generation else { return }
                 self.observeRoute()
             }
+        }
+        if preservingCommittedRoute {
+            // The new model may still be acquiring its proxy. Keep the URL and
+            // committed-document identity stable until it is ready; adoption
+            // must never replay a request WebKit already committed.
+            if model.isReady { preservingCommittedRoute = false }
+            return
         }
         if let url = nextURL() { navigate?(url) }
     }
@@ -190,6 +206,7 @@ final class CloudBrowserAccessState {
         self.model = model
         remoteURL = url
         navigationURL = nil
+        preservingCommittedRoute = false
         hasCommittedNavigation = false
         loaded = false
         error = nil
@@ -277,8 +294,11 @@ final class CloudBrowserAccessState {
     }
 
     func didCancel(navigationID: ObjectIdentifier? = nil) {
-        guard model != nil, !loaded, navigationURL != nil,
+        guard model != nil, !loaded,
               navigationID == nil || navigationID == activeNavigationID else { return }
+        // Stop also applies while the shared route is still connecting. Other
+        // projections can keep that route alive without restarting this pane.
+        observationGeneration &+= 1
         connectionDeadline.cancel()
         error = String(localized: "cloud.display.connectionCancelled", defaultValue: "The Cloud page connection was cancelled. Retry to connect.")
         hasCommittedNavigation = false
@@ -291,6 +311,7 @@ final class CloudBrowserAccessState {
         attempt += 1
         trace("retry")
         navigationURL = nil
+        preservingCommittedRoute = false
         hasCommittedNavigation = false
         loaded = false
         error = nil
