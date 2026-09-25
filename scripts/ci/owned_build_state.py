@@ -6,6 +6,7 @@
     owned_build_state.py record SOURCE DERIVED_DATA
     owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
+    owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -65,6 +66,20 @@ xctestruns, which a later build must not start from (seed-derived-data.yml
 saves its seed before them for the same reason). A failed or cancelled
 compile keeps nothing, so the store still holds the state it started from.
 `save` runs last, always, and replaces the kept packages with the job's.
+
+A warm Mac is not always the cheapest start. Its kept DerivedData is the
+previous pull request's build, so the compile undoes that diff as well as
+building this one: warm compiles took 365 to 428 s on 2026-09-25, against 50
+to 160 s from a seed a few commits behind. `prefer` runs on a warm Mac when
+CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
+DerivedData. It digests the workspace once and counts the inputs each would
+rebuild: those whose content differs from the kept RECORD, and from the
+seed's MANIFEST when this Mac keeps that seed (seed_derived_data.py
+CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the one with fewer changed
+inputs wins. A seed this Mac does not keep costs a download of about 190 s,
+so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
+given. A kept DerivedData without a record replays nothing and rebuilds the
+whole `cmux` module, so any seed beats it. Every error keeps the warm path.
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
@@ -301,6 +316,51 @@ def save(store: Path, source_packages: Path, workspace: Path, package_store: Pat
     return {"packages": "false"}
 
 
+# Not build inputs of the compile, and not present at every recording.
+UNCOMPARED = (".ci-source-packages/", "GhosttyKit.xcframework/")
+
+
+def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
+    """Files whose content differs between two records, or that only one has."""
+    def files(entries: dict[str, list]) -> dict[str, str]:
+        return {
+            path: entry[0] for path, entry in entries.items()
+            if not path.endswith("/") and not path.startswith(UNCOMPARED) and isinstance(entry, list) and entry
+        }
+    now, then = files(current), files(recorded)
+    return sum(1 for path in now.keys() | then.keys() if now.get(path) != then.get(path))
+
+
+def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distance: int | None) -> dict[str, str]:
+    """Whether a seed should replace this warm Mac's kept DerivedData."""
+    result = {"prefer": "false"}
+    exact, distance = seed.locate(prefix, revision)
+    if distance is None:
+        result["reason"] = "no seed in this commit's history"
+        return result
+    local = seed.cached(exact)
+    result.update(seed_key=exact, seed_distance=str(distance), local="true" if local else "false")
+    manifest = store / DERIVED / RECORD
+    if not manifest.is_file():
+        result.update(prefer="true", reason="kept DerivedData has no input record")
+        return result
+    current = seed.warm.record(workspace)
+    kept_changed = changed_inputs(current, json.loads(manifest.read_text()))
+    result["kept_changed"] = str(kept_changed)
+    if local:
+        seed_changed = changed_inputs(current, json.loads((local / seed.MANIFEST).read_text()))
+        result["seed_changed"] = str(seed_changed)
+        if seed_changed < kept_changed:
+            result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
+        else:
+            result["reason"] = "the kept DerivedData has no more changed inputs than the seed"
+    elif max_distance is not None and distance <= max_distance and kept_changed > 0:
+        result.update(prefer="true", reason=f"seed {distance} commits behind, within {max_distance}")
+    else:
+        result["reason"] = "the seed is not on this Mac and not near enough to download"
+    return result
+
+
 def package_store(argv: list[str]) -> Path | None:
     return Path(argv[5]) if len(argv) == 6 and argv[5] else None
 
@@ -320,6 +380,14 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) in (5, 6) and argv[1] == "save":
         write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4]), package_store(argv)))
+        return 0
+    if len(argv) in (6, 7) and argv[1] == "prefer":
+        max_distance = int(argv[6]) if len(argv) == 7 and argv[6].isdigit() else None
+        try:
+            result = prefer(Path(argv[2]), Path(argv[3]).resolve(), argv[4], argv[5], max_distance)
+        except Exception as error:  # noqa: BLE001 - any doubt keeps the warm path
+            result = {"prefer": "false", "reason": f"{type(error).__name__}: {error}"[:200]}
+        write_outputs(result)
         return 0
     print(__doc__, file=sys.stderr)
     return 2

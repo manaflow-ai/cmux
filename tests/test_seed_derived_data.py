@@ -130,6 +130,60 @@ class SeedDerivedData(unittest.TestCase):
         self.assertIn("hit=false", output.read_text())
         self.assertTrue((self.derived / "from-resolve").exists())
 
+    def test_an_owned_mac_keeps_the_seed_and_clones_it_next_time(self):
+        """Minis download a seed at about a third of Blacksmith's speed, so an
+        owned Mac keeps the seeds it adopted and clones an exact key instead."""
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        self.publish_seed()
+        first = self.adopt("hit")
+        key = first["key"]
+        self.assertEqual((first["hit"], first["local"]), ("true", "true"))
+        self.assertTrue((cache / key / seed.MANIFEST).is_file())
+        self.assertEqual(seed.cached(key), cache / key)
+        # The next job: a fresh DerivedData from resolve, and no download at all.
+        import shutil
+        shutil.rmtree(self.derived)
+        self.derived.mkdir()
+        (self.derived / "from-resolve").write_text("resolve")
+        os.environ["FAKE_MODE"] = "fail"
+        with mock.patch.object(seed.sys, "platform", "linux"):
+            second = seed.adopt(self.source, self.derived, key, "admission-derived-data-v1-x-")
+        self.assertEqual((second["hit"], second["key"], second["local"]), ("true", key, "local"))
+        self.assertEqual((self.derived / "Build/App.o").read_text(), "object")
+        self.assertFalse((self.derived / "from-resolve").exists())
+        # The kept copy is untouched by the build that follows.
+        (self.derived / "Build/App.o").write_text("rebuilt")
+        self.assertEqual((cache / key / "Build/App.o").read_text(), "object")
+
+    def test_start_downloads_nothing_for_a_kept_seed(self):
+        cache = self.root / "seeds"
+        (cache / "p-j6-base").mkdir(parents=True)
+        (cache / "p-j6-base" / seed.MANIFEST).write_text("{}")
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        os.environ["FAKE_CALLS"] = str(self.root / "calls")
+        seed.start(self.derived, "p-j6-base", "p-j6-", "base", 0)
+        self.assertFalse(self.derived.with_name(self.derived.name + ".seed.ticket").exists())
+        self.assertFalse((self.root / "calls").exists())
+        # Without the cache it downloads as before.
+        del os.environ["CMUX_SEED_LOCAL_CACHE"]
+        self.assertIsNone(seed.cached("p-j6-base"))
+
+    def test_the_local_cache_keeps_only_the_newest_seeds(self):
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        for index, key in enumerate(("k-1", "k-2", "k-3")):
+            seed.stash(self.derived, key)
+            os.utime(cache / key, (1000 + index, 1000 + index))
+        seed.stash(self.derived, "k-4")
+        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-3", "k-4"])
+        # Never a path outside the cache, whatever the key.
+        seed.stash(self.derived, "../escape")
+        self.assertFalse((self.root / "escape").exists())
+        self.assertIsNone(seed.cached("../k-3"))
+
     def start_then_adopt(self, mode, start_args=None):
         """Download in the background, as compile admission does while it resolves."""
         os.environ["FAKE_MODE"] = mode

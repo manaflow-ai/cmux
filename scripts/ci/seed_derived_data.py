@@ -44,6 +44,14 @@ prefix a saver writes under, and `start` and `adopt` take the unscoped
 PREFIX, prefer their own width, and fall back to another width's seed,
 which still beats a cold build.
 
+An owned Mac downloads a seed at about a third of Blacksmith's speed (about
+190 s against 64 s on 2026-09-25). With CMUX_SEED_LOCAL_CACHE set, `adopt`
+clones the seed it just restored into that directory, keeping the newest
+LOCAL_KEEP, and `start` and `adopt` clone an exact key from there instead of
+downloading it. A clone shares blocks on APFS, so it costs seconds.
+owned_build_state.py `prefer` reads the same cache. The cache is this Mac's
+own state, like its kept DerivedData: nothing in it is uploaded.
+
 Only jobs holding the bucket credentials can write R2 objects or pointers, and
 only the main-branch seeder is given them, so a pull request can read the seed
 but never replace it.
@@ -82,6 +90,9 @@ ANCESTOR_LIMIT = 50
 # own Xcode in the key's fingerprint, so a width is shared, never a seed.
 SEEDED_JOB_WIDTHS = (12, 6)
 USER_AGENT = "cmux-ci-seed-derived-data"
+# Seeds an owned Mac keeps in CMUX_SEED_LOCAL_CACHE: the one it builds on now
+# and the one before, for a job whose base is one seed behind.
+LOCAL_KEEP = 2
 # Shorter than the adopt step's 8-minute timeout, so adopt stops the detached
 # download itself rather than leaving it pulling a seed through the compile.
 FETCH_WAIT_SECONDS = 420
@@ -236,13 +247,58 @@ def fetch_detached(derived: Path, exact: str, prefix: str) -> None:
     partial.rename(beside(derived, ".seed.result"))
 
 
+def local_cache() -> Path | None:
+    value = os.environ.get("CMUX_SEED_LOCAL_CACHE", "")
+    return Path(value) if value else None
+
+
+def cached(key: str) -> Path | None:
+    """This Mac's copy of seed KEY, when it has a complete one."""
+    cache = local_cache()
+    if cache is None or not key or "/" in key or key.startswith("."):
+        return None
+    copy = cache / key
+    return copy if (copy / MANIFEST).is_file() else None
+
+
+def clone_tree(source: Path, destination: Path) -> None:
+    """An APFS clone of a directory tree, falling back to a copy."""
+    shutil.rmtree(destination, ignore_errors=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.copytree(source, destination, symlinks=True)
+
+
+def stash(derived: Path, key: str) -> None:
+    """Keep a copy of the seed just adopted, and only the newest LOCAL_KEEP."""
+    cache = local_cache()
+    if cache is None or not key or "/" in key or key.startswith(".") or cached(key):
+        return
+    incoming = cache / f".{key}.incoming-{os.getpid()}"
+    clone_tree(derived, incoming)
+    shutil.rmtree(cache / key, ignore_errors=True)
+    incoming.rename(cache / key)
+    os.utime(cache / key)
+    for stale in cache.glob(".*.incoming-*"):
+        shutil.rmtree(stale, ignore_errors=True)
+    kept = sorted((entry for entry in cache.iterdir() if entry.is_dir() and not entry.name.startswith(".")),
+                  key=lambda entry: entry.stat().st_mtime, reverse=True)
+    for old in kept[LOCAL_KEEP:]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
 def start(derived: Path, exact: str, prefix: str, revision: str = "", distance: int | None = None) -> None:
     """Download the seed in a process that outlives the calling step.
 
     Its output goes to a file, not the step's pipes, so the runner does not
-    wait for it at the end of the step. `adopt` prints that file.
+    wait for it at the end of the step. `adopt` prints that file. A seed this
+    Mac keeps (CMUX_SEED_LOCAL_CACHE) needs no download: `adopt` clones it.
     """
     clear_download(derived)
+    if cached(exact):
+        print(f"This Mac keeps {exact}; adopt clones it instead of downloading")
+        return
     derived.parent.mkdir(parents=True, exist_ok=True)
     with beside(derived, ".seed.log").open("w") as log:
         process = subprocess.Popen(
@@ -343,9 +399,16 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
     staging = beside(derived, ".seed")
     started = time.monotonic()
     try:
-        key = await_download(derived, exact, prefix)
-        if key is None:
-            key = fetch(derived, exact, prefix)
+        local = cached(exact)
+        if local:
+            # Nothing was started for it; a leftover ticket is another job's.
+            clear_download(derived)
+            clone_tree(local, staging)
+            key = exact
+        else:
+            key = await_download(derived, exact, prefix)
+            if key is None:
+                key = fetch(derived, exact, prefix)
         if not key:
             return {"hit": "false", "reason": "no-seed"}
         manifest = staging / MANIFEST
@@ -354,6 +417,14 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
         recorded = json.loads(manifest.read_text())
         shutil.rmtree(derived, ignore_errors=True)
         staging.rename(derived)
+        stashed = "local" if local else "false"
+        if not local and local_cache() is not None:
+            try:
+                stash(derived, key)
+                stashed = "true"
+            except (OSError, shutil.Error) as error:
+                # The next job downloads it again; this one is unaffected.
+                print(f"Could not keep the seed on this Mac: {error}")
         unchanged, changed = warm.replay(source, recorded)
         if sys.platform == "darwin":
             # Both the checkout and the extracted DerivedData have new inodes;
@@ -368,6 +439,7 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
             "unchanged_inputs": str(unchanged),
             "changed_inputs": str(changed),
             "seconds": f"{time.monotonic() - started:.1f}",
+            "local": stashed,
         }
     finally:
         clear_download(derived)
