@@ -72,8 +72,7 @@ struct TerminalPanelView: View {
         }
         .onReceive(
             NotificationCenter.default.publisher(
-                for: .terminalAgentFooterDidUpdate,
-                object: panel.id
+                for: .terminalAgentFooterDidUpdate(surfaceID: panel.id)
             )
         ) { notification in
             agentFooter = notification.userInfo?[

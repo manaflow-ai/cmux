@@ -30,8 +30,7 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
         Task { @MainActor in
             guard store.update(state, for: lease) else { return }
             NotificationCenter.default.post(
-                name: .terminalAgentFooterDidUpdate,
-                object: lease.surfaceID,
+                name: .terminalAgentFooterDidUpdate(surfaceID: lease.surfaceID),
                 userInfo: [
                     Notification.Name.terminalAgentFooterStateUserInfoKey:
                         state.map { $0 as Any } ?? NSNull()
@@ -49,8 +48,7 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
     func retire(surfaceID: UUID) {
         guard store.retire(surfaceID: surfaceID) else { return }
         NotificationCenter.default.post(
-            name: .terminalAgentFooterDidUpdate,
-            object: surfaceID,
+            name: .terminalAgentFooterDidUpdate(surfaceID: surfaceID),
             userInfo: [Notification.Name.terminalAgentFooterStateUserInfoKey: NSNull()]
         )
     }
@@ -65,9 +63,9 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
 }
 
 extension Notification.Name {
-    static let terminalAgentFooterDidUpdate = Notification.Name(
-        "cmux.terminalAgentFooterDidUpdate"
-    )
+    static func terminalAgentFooterDidUpdate(surfaceID: UUID) -> Notification.Name {
+        Notification.Name("cmux.terminalAgentFooterDidUpdate.\(surfaceID.uuidString)")
+    }
     static let terminalAgentFooterStateUserInfoKey = "state"
 }
 
