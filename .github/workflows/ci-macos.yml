@@ -783,6 +783,9 @@ jobs:
             echo "cmux CLI binary missing from this admission build" >&2
             exit 1
           fi
+          # The first launch of a new executable pays a one-time system check on
+          # the owned Macs; take it here, before the tests' short timeouts.
+          "$CLI_BIN" --help >/dev/null 2>&1 || true
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
