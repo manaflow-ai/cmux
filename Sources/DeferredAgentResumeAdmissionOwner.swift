@@ -42,6 +42,7 @@ extension DeferredAgentResumeAdmissionOwner {
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 let outcome = await refresh()
+                guard !Task.isCancelled else { return }
                 // Do not hold the owner across the evidence wait: teardown must
                 // not be delayed by a restore that is still observing evidence.
                 let processIdentities: [AgentPIDProcessIdentity]? = {

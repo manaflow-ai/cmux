@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 #if canImport(cmux_DEV)

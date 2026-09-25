@@ -16,6 +16,11 @@ struct AgentRestoreEvidenceObservation: Sendable {
     /// Waits for any supplied process generation or watched path to change.
     /// Every PID is checked before and after registration so a reused PID can
     /// never make a stale owner look live.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func wait(
         processes: [AgentPIDProcessIdentity],
         paths: [String]
