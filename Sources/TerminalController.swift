@@ -5577,6 +5577,9 @@ class TerminalController {
         guard surface.liveSurfaceForGhosttyAccess(reason: "socket.readTerminalText.start") == nil else {
             return false
         }
+        // Hibernated agents and restores awaiting admission cannot start now;
+        // report them right away instead of waiting out the deadline.
+        guard surface.canCreateRuntimeSurface else { return false }
         // A read waits on the result, so it is input demand like socket
         // send_text, not restore-paced background priming.
         surface.requestInputDemandSurfaceStartIfNeeded()

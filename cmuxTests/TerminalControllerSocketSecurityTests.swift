@@ -888,13 +888,12 @@ final class TerminalControllerSocketSecurityTests {
                 manager.closeWorkspace(workspace)
             }
         }
-        // Release the focused terminal's Ghostty surface so the capture hop
-        // fails deterministically at the raw-snapshot read: the reply must be
-        // the legacy `internal_error` bytes. A worker-lane dispatch drift
-        // (policy lists the method but the worker switch case is missing)
-        // would instead answer the loud "has no worker handler" backstop, and
-        // a coordinator re-lift would answer method_not_found — both caught
-        // here.
+        // Release the focused terminal's Ghostty surface, as for a terminal
+        // that was never shown. The read must start it and answer with its
+        // text (#1472). A worker-lane dispatch drift (policy lists the method
+        // but the worker switch case is missing) would instead answer the
+        // loud "has no worker handler" backstop, and a coordinator re-lift
+        // would answer method_not_found; both are caught here.
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
         panel.surface.releaseSurfaceForTesting()
 
@@ -919,23 +918,24 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertTrue(inline.contains("surface.read_text must run off the main thread"), inline)
 
         // Worker-lane round-trip from a background sender (timeout-bounded by
-        // the await): byte-faithful legacy error for a released surface.
+        // the await): the released surface is started and read.
         let envelope = try await sendV2RequestAsync(
             method: "surface.read_text",
             params: ["workspace_id": workspace.id.uuidString],
             to: socketPath
         )
-        XCTAssertEqual(envelope["ok"] as? Bool, false)
-        let error = try XCTUnwrap(envelope["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "internal_error")
-        XCTAssertEqual(error["message"] as? String, "Failed to read terminal text")
+        XCTAssertEqual(envelope["ok"] as? Bool, true, "\(envelope)")
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any], "\(envelope)")
+        XCTAssertNotNil(result["text"] as? String)
 
         // v1 twin: read_screen shares the capture-hop/format-off-main split
         // and the not-mainThreadCallable policy.
         let v1Inline = TerminalController.shared.handleSocketLine("read_screen")
         XCTAssertEqual(v1Inline, "ERROR: read_screen must run off the main thread")
+        panel.surface.releaseSurfaceForTesting()
         let v1Replies = try await sendV1CommandsAsync(["read_screen"], to: socketPath)
-        XCTAssertEqual(v1Replies, ["ERROR: Terminal surface not found"])
+        XCTAssertEqual(v1Replies.count, 1)
+        XCTAssertFalse(v1Replies.first?.hasPrefix("ERROR") ?? true, "\(v1Replies)")
     }
 
     @Test func testSurfaceReadSelectionIsDiscoverableAndServicedOnTheWorkerLane() async throws {
