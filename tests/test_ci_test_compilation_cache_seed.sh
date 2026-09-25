@@ -196,7 +196,6 @@ run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR
 for expected in \
   cmux \
   cmux-unit \
-  cmux-numeric-locale \
   cmux-cli-tests \
   build-for-testing \
   -showBuildTimingSummary \
@@ -216,8 +215,8 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 4 ] || [ ! -d "$TMP_DIR/cas" ]; then
-  echo "FAIL: the build must run all four schemes against an existing CAS directory"
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 3 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run the app/UI, unit and CLI test schemes against an existing CAS directory"
   exit 1
 fi
 # `build` compiles no test files: the cmux-unit scheme marks cmuxTests
@@ -226,7 +225,11 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles all four schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
+if grep -Fxq -- cmux-numeric-locale "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: numeric locale must reuse the cmux-unit xctestrun instead of compiling another scheme"
+  exit 1
+fi
+echo "PASS: the build compiles all three schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
 if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
   exit 1
