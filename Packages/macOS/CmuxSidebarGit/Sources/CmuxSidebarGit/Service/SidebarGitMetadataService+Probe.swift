@@ -333,6 +333,7 @@ extension SidebarGitMetadataService {
             panelId: probeKey.panelId
         )
         var didApplyMaterialSidebarGitChange = false
+        var didInvalidatePullRequestChecks = false
         let nextBranch = snapshot.branch
         if let nextBranch {
             if let headSignature = snapshot.headSignature {
@@ -399,6 +400,13 @@ extension SidebarGitMetadataService {
                     branch: pullRequest.branch,
                     isStale: false
                 )
+                // A local probe cannot verify the remote commit. If it
+                // rebuilds an existing open badge without its check summary,
+                // queue the remote refresh immediately instead of waiting for
+                // the normal polling interval.
+                didInvalidatePullRequestChecks = host.pullRequestChecksEnabled
+                    && previousPullRequestBadge?.checks != nil
+                    && nextBadge.checks == nil
                 didApplyMaterialSidebarGitChange = didApplyMaterialSidebarGitChange
                     || previousPullRequestBadge != nextBadge
                 host.updatePanelPullRequest(
@@ -436,7 +444,9 @@ extension SidebarGitMetadataService {
             .contains(probeKey.panelId)
         if let nextBranch,
            shouldTrackPullRequests,
-           previousBranchState?.branch != nextBranch || !isPullRequestRefreshTracked {
+           previousBranchState?.branch != nextBranch
+                || !isPullRequestRefreshTracked
+                || didInvalidatePullRequestChecks {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
