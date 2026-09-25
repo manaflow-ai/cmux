@@ -18,7 +18,7 @@ import { DashboardControl } from "./dashboard-control";
 
 const SessionSchema = z.strictObject({
   sessionId: identifier, identity: IdentitySchema, endpointId: endpointID, identityGeneration: revision,
-  authority: AuthoritySchema, expiresAt: timestamp,
+  authority: AuthoritySchema, expiresAt: timestamp, issueTicket: z.boolean().default(false),
 });
 const AttachmentSchema = z.strictObject({
   version: z.literal(1), session: SessionSchema, deviceKey: z.string().regex(/^[a-f0-9]{64}$/),
@@ -59,7 +59,7 @@ export class TeamControl extends DurableObject<Environment> {
       stage = incoming.path === "/request" ? "execute" : "open";
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
-        const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt);
+        const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt, incoming.issueTicket);
         const result = await broker.execute(session, incoming.input);
         this.scheduleChanges(result, session.identity.teamId);
         observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
@@ -263,7 +263,7 @@ export class TeamControl extends DurableObject<Environment> {
     // The budget RPC yields. Re-check authority before private data leaves us.
     if (response.schemaId === "session.ready.v1") {
       const broker = this.broker(attachment.session.identity.teamId);
-      if (broker.dependencies.store.getDevice(attachment.session.identity)) broker.requiredDevice(attachment.session);
+      broker.validateSetup(attachment.session, response.challenge !== undefined);
       if (attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
     }
     if (["directory.result.v1", "relay.result.v1", "ticket.result.v1", "device.registered.v1"].includes(response.schemaId)) {
@@ -293,7 +293,10 @@ export class TeamControl extends DurableObject<Environment> {
         const record = broker.dependencies.store.getDevice(attachment.session.identity);
         // Broadcast revision invalidations, never another user's device record.
         if (record && change.revokedDeviceRecordId === record.deviceRecordId) {
-          await this.send(ws, { schemaId: "device.revoked.v1", teamId, deviceRecordId: record.deviceRecordId, revision: change.revision });
+          await this.send(ws, {
+            schemaId: "device.revoked.v1", teamId, deviceRecordId: record.deviceRecordId,
+            revision: change.revision, recoverable: change.revokedDeviceRecoverable === true,
+          });
           this.close(ws, "device_revoked");
         } else {
           try { broker.requiredDevice(attachment.session); }

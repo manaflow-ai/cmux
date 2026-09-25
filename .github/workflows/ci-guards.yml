@@ -396,9 +396,9 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
-      - name: Validate the owned Mac warm labels
+      - name: Validate the owned Mac warm state
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_owned_warm_labels.py
+        run: python3 tests/test_ci_owned_warm_state.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -552,6 +552,10 @@ jobs:
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
+
+      - name: Validate package test bisect
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_bisect.py
 
       - name: Validate app-host test failure classification
         if: ${{ matrix.group == 'app-host-process' }}
@@ -738,6 +742,10 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ghostty_zig_version_sync.sh
+
+      - name: Validate GhosttyKit source-build Zig requirement
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ensure_ghosttykit_zig.py
 
       - name: Validate bundled-resource incremental outputs
         if: ${{ matrix.group == 'quality-runtime' }}
