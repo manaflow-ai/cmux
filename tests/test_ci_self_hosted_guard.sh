@@ -1358,9 +1358,12 @@ check_no_self_hosted_fleet_runners() {
 check_owned_pools_route_through_picker() {
   # An owned pool label never appears in workflow text (the fleet pattern
   # refuses it), so the only way one reaches runs-on is the value
-  # pr_runner_pool.py writes for a pull request run: it hands owned labels
-  # only to same-repository heads on a first attempt, and only once
-  # CI_PR_POOL_OWNED is 1. This check keeps that the only way. The picker's
+  # pr_runner_pool.py writes for a pull request run or main's full-suite
+  # dispatch: it hands owned labels only to same-repository heads (and to a
+  # workflow_dispatch on refs/heads/main, which runs main's own code) on a
+  # first attempt, and only once CI_PR_POOL_OWNED is 1. ci-macos.yml reads
+  # the pick for both through the inputs below. This check keeps that the
+  # only way. The picker's
   # runner output feeds exactly the macos_pr_runner output and the rescue
   # marker; macos_pr_runner reaches a job only as a `pr_runner` input written
   # exactly one way, or inside a runs-on branch that a pull_request condition
