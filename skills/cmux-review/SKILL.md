@@ -1,6 +1,6 @@
 ---
 name: cmux-review
-description: "Adversarial code review workflow for agent-written changes: build a change map, run independent discovery, suppress low-value noise, challenge credible findings, gather executable evidence, and produce a compact review receipt. Use before opening a PR, after substantial agent edits, or when re-reviewing a repair."
+description: "Subagent code review for agent-written changes. The default pre-merge pass is a review subagent on the exact diff (correctness first), fixes, and a quick second pass when the fixes were non-trivial. The full adversarial protocol (change map, independent discovery, challenge, executable evidence, review receipt) is for high-risk changes or when the user asks for a deep review. Use before merging, after substantial agent edits, or when re-reviewing a repair."
 ---
 
 # cmux Review
@@ -10,6 +10,15 @@ Review code to reduce developer attention, not to maximize comment count.
 > Spend compute freely on investigation; spend developer attention reluctantly.
 
 The final output should be small enough that every surfaced finding deserves attention.
+
+## Default pre-merge review
+
+1. Spawn a review subagent with the task intent, the base and head SHAs, and the exact diff. Ask for correctness first (regressions, broken edge cases, lifecycle, races, data loss), then repository rules. Do not pass it your own reasoning.
+2. Fix the concrete findings and push.
+3. When the fixes were non-trivial, run a quick second subagent pass on the updated diff.
+4. Merge once the checks that judge the change pass (`CLAUDE.md`, "Merge fast, not blind") and, for app/runtime/UI changes, the user approved after dogfood or gave a direct merge directive.
+
+Review runs as subagents in the current agent runtime, not as a second model or an external review service. Use the full protocol below for high-risk changes (security, persistence, concurrency, data loss) or when the user asks for a deep review.
 
 ## Start
 
