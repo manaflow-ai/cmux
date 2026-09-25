@@ -243,10 +243,14 @@ def reverse_unit_selectors(
     ones that fit beside `already` in one changed-suites run. It only adds:
     anything it cannot judge (no diff, a selector error) adds nothing, and a
     suite that would push the run past its budget or out of the changed-suites
-    lane is left out rather than turning the run into seven shards. Suites
-    with entries in app-host-known-failures.json are left out too: a known
-    failure that happens to pass fails a changed-suites run, which is right for
-    a suite the pull request edited and wrong for one it only reached.
+    lane is left out rather than turning the run into seven shards. Only
+    suites the shared batch discovers are added: the selector also names
+    helper types in cmuxTests/, and a selector that matches no test fails the
+    run. A suite a strict step owns is left out, since that step runs apart
+    from the budget. Suites with entries in app-host-known-failures.json are
+    left out too: a known failure that happens to pass fails a changed-suites
+    run, which is right for a suite the pull request edited and wrong for one
+    it only reached.
     """
     if paths is None or app_diff is None or not app_diff.strip():
         return []
@@ -267,13 +271,15 @@ def reverse_unit_selectors(
         catalog = json.loads((root / "scripts/ci/app-host-known-failures.json").read_text(encoding="utf-8"))
         known = {identifier.split("/", 1)[0] for identifier in catalog.get("tests", {})}
         workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        batch_suites = {selector.identifier.split("/")[1] for selector in discover_selectors(root)}
         data = reverse.report(selection, costs, default_ms, CHANGED_SUITES_BUDGET_MS - spent)
         chosen: list[str] = []
         for suite in data["would_run"]:
             selector = f"cmuxTests/{suite}"
-            if suite in known or selector in already:
+            if suite in known or suite not in batch_suites or selector in already:
                 continue
-            if strict_steps(workflow, already + chosen + [selector]) is None:
+            steps = strict_steps(workflow, already + chosen)
+            if strict_steps(workflow, already + chosen + [selector]) != steps:
                 continue
             chosen.append(selector)
         return chosen
@@ -498,12 +504,17 @@ def main(argv: list[str]) -> int:
     asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
     canary = False
+    reached: list[str] = []
     # A narrowed run (or none yet) also takes the suites that could observe
     # the app-source change; an empty `selectors` under `unit` is already
     # every suite.
     if not asked_for_every_suite and (selectors or not unit):
         reached = reverse_unit_selectors(args.root, paths, app_diff, selectors)
         if reached:
+            # Alone, these ride on a compile this run pays for, like the
+            # consumer canary: a re-push of admitted inputs reuses the build
+            # and drops them rather than compiling again.
+            canary = not unit
             selectors = selectors + reached
             unit = True
     if not unit:
@@ -516,7 +527,9 @@ def main(argv: list[str]) -> int:
     if selectors:
         workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
         steps = strict_steps(workflow, selectors) or []
-    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary)
+    # Suites reached this way can fill the whole budget; they take the
+    # changed-suites worker rather than holding compile admission.
+    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary or bool(reached))
     lines = [
         f"full_suite={'true' if full else 'false'}",
         f"unit_suite={'true' if unit else 'false'}",

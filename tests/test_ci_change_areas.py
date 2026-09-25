@@ -4844,7 +4844,10 @@ def test_an_app_source_diff_runs_the_suites_that_mention_what_it_changed() -> No
 
         result = outputs(f"--- a/{path}\n+++ b/{path}\n@@ -{declaration},1 +{declaration},1 @@\n")
         assert result["unit_suite"] == "true", result
-        assert result["unit_canary"] == "false", result
+        # Like the consumer canary, these ride only on a compile the run pays
+        # for, and take the changed-suites worker rather than admission.
+        assert result["unit_canary"] == "true", result
+        assert result["unit_in_admission"] == "false", result
         assert "cmuxTests/AgentQuitOwnershipTests" in result["unit_selectors"].split(), result
 
         for unreadable in (None, ""):
