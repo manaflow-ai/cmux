@@ -8,6 +8,20 @@ nonisolated private let oneShotTerminalLauncherLogger = Logger(
 
 /// Stores one-shot terminal actions in private, self-deleting launcher scripts.
 struct OneShotTerminalLauncherStore {
+    enum LauncherInterpreter {
+        case sh
+        case zsh
+
+        var path: String {
+            switch self {
+            case .sh:
+                return "/bin/sh"
+            case .zsh:
+                return "/bin/zsh"
+            }
+        }
+    }
+
     enum CommandExecution {
         /// Runs post-start input directly in the launcher child, then returns
         /// to the terminal host's already-initialized shell.
@@ -59,7 +73,8 @@ struct OneShotTerminalLauncherStore {
     func writeLauncherScript(
         command: String,
         workingDirectory: String?,
-        execution: CommandExecution = .direct
+        execution: CommandExecution = .direct,
+        interpreter: LauncherInterpreter = .zsh
     ) -> URL? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
@@ -73,7 +88,7 @@ struct OneShotTerminalLauncherStore {
             pruneOldLaunchers(in: directoryURL)
 
             var lines = [
-                "#!/bin/zsh",
+                "#!\(interpreter.path)",
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if let workingDirectory = normalized(workingDirectory) {
@@ -150,11 +165,12 @@ struct OneShotTerminalLauncherStore {
         guard let launcherURL = writeLauncherScript(
             command: command,
             workingDirectory: workingDirectory,
-            execution: .direct
+            execution: .direct,
+            interpreter: .sh
         ) else {
             return nil
         }
-        return "/bin/zsh \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
+        return "/bin/sh \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
     }
 
     /// Returns a non-resume startup command that interprets a private launcher script.
