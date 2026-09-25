@@ -20,7 +20,7 @@ extension KeyboardShortcutSettings.Action {
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
              .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
              .selectSurfaceByNumber,
-             .focusHistoryBack, .focusHistoryForward,
+             .focusHistoryBack, .focusHistoryForward, .focusHistoryLast,
              .renameTab,
              .closeTab, .closeOtherTabsInPane,
              .reopenClosedBrowserPanel,
