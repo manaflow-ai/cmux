@@ -1,3 +1,5 @@
+import Darwin
+import CmuxFoundation
 import Foundation
 
 /// Terminates the agent processes cmux spawned and waits for their exact
