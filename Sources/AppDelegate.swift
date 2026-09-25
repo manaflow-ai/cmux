@@ -2119,7 +2119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard !Task.isCancelled else { return }
                 self.mainWindowLifecycleCoordinator
                     .cancelAllWindowlessRouteFreezeTasks()
-                _ = self.saveSessionSnapshot(
+                let savedForQuit = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
                     restorableAgentIndex: resumeIndexes.restorableAgentIndex,
@@ -2127,7 +2127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
                 self.terminateCleanupPhase = .agentTermination
-                await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
+                if savedForQuit {
+                    await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
+                }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
                 self.terminationWatchdog.arm()
@@ -2158,7 +2160,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             terminateCleanupWatchdogTask = Task { @MainActor in
                 try? await ContinuousClock().sleep(for: cleanupDeadline)
                 guard !Task.isCancelled else { return }
-                if self.terminateCleanupPhase == .agentTermination { self.replyToTerminateOnce(false); return }
+                if self.terminateCleanupPhase == .agentTermination {
+                    self.terminationWatchdog.arm()
+                    await cleanupTask.value
+                    return
+                }
                 cleanupTask.cancel()
                 let disposition = Self.terminateCleanupDeadlineDisposition(
                     phase: self.terminateCleanupPhase,
@@ -2171,10 +2177,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             removeWhenEmpty: false
                         )
                         ClosedItemHistoryStore.shared.flushPendingSaves()
-                    } else {
-                        StartupBreadcrumbLog.append(
-                            "appDelegate.shouldTerminate.agentTerminationDeadline"
-                        )
                     }
                     self.terminationWatchdog.arm()
                     self.replyToTerminateOnce(true)

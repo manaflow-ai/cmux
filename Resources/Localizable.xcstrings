@@ -552989,6 +552989,124 @@
           }
         }
       }
+    },
+    "agentRestore.writerLock.held": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation is in use by another process. Continue there or close it normally, then retry restoring it here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Unterhaltung wird von einem anderen Prozess verwendet. Setzen Sie sie dort fort oder schließen Sie sie regulär und versuchen Sie dann erneut, sie hier wiederherzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation est utilisée par un autre processus. Continuez là-bas ou fermez-la normalement, puis réessayez de la restaurer ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم عملية أخرى هذه المحادثة. تابع هناك أو أغلقها بالطريقة المعتادة، ثم أعد محاولة استعادتها هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro proceso está usando esta conversación. Continúa allí o ciérrala normalmente y vuelve a intentar restaurarla aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個程序正在使用此對話。請在該處繼續，或正常關閉後再嘗試於此處還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个进程正在使用此对话。请在该处继续，或正常关闭后再尝试在此处恢复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 프로세스가 이 대화를 사용 중입니다. 해당 프로세스에서 계속하거나 정상적으로 닫은 후 여기에서 다시 복원하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のプロセスがこの会話を使用しています。そちらで続けるか、通常の手順で閉じてから、ここでの復元を再試行してください。"
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possible owners: %1$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mögliche Besitzer: %1$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propriétaires possibles : %1$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المالكون المحتملون: %1$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posibles propietarios: %1$@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的擁有者：%1$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的所有者：%1$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가능한 소유자: %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者の候補: %1$@。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

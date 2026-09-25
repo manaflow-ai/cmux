@@ -10,13 +10,10 @@ extension CMUXCLI {
     /// signals the process that owns it; Codex remains the atomic authority
     /// after this advisory observation.
     func requireCodexWriterAvailable(
-        record: RestoreRecord,
         invocation: AgentRestoreInvocation,
         workingDirectory: String
     ) throws {
-        guard record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
-              record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
-              let sessionID = record.checkpointID,
+        guard let sessionID = invocation.codexResumeSessionID,
               !CodexRestoreAccount().usesRemoteProvider(arguments: invocation.arguments) else {
             return
         }
@@ -25,17 +22,24 @@ extension CMUXCLI {
             workingDirectory: workingDirectory,
             fallbackHome: NSHomeDirectory()
         )
-        let inspection = CodexWriterLockInspector().inspect(
+        var inspection = CodexWriterLockInspector().inspect(
             sessionID: sessionID,
             codexHome: home
         )
+        var candidates: [CodexWriterProcessInspector.Candidate] = []
+        if inspection.state == .active {
+            let observed = inspection
+            candidates = CodexWriterProcessInspector().candidates(for: observed)
+            inspection = CodexWriterLockInspector().inspect(sessionID: sessionID, codexHome: home)
+            if !inspection.deviceAndInodeMatch(observed) { candidates = [] }
+        }
         guard inspection.state == .available else {
             throw loggedRestoreError(
                 stage: inspection.state == .active
                     ? "session.writer-lock-held"
                     : "session.writer-check-unavailable",
                 detail: "session=\(sessionID)",
-                message: String(
+                message: inspection.state == .active ? CodexWriterRestoreNotice().message(candidates: candidates) : String(
                     localized: "agentRestore.admission.unavailable",
                     defaultValue: "cmux could not verify whether this agent session is already running. Retry 'cmux restore --surface'."
                 )

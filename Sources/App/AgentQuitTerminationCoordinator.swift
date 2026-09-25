@@ -45,8 +45,7 @@ struct AgentQuitTerminationCoordinator: Sendable {
         self.postKillExitPeriod = postKillExitPeriod
     }
 
-    /// Upper bound on the time `terminateAndWait` spends for any number of panels
-    /// (panels are terminated concurrently).
+    /// Duration reserved for the grace and post-kill waits, excluding validation.
     var budget: Duration {
         gracePeriod + postKillExitPeriod
     }
@@ -57,7 +56,8 @@ struct AgentQuitTerminationCoordinator: Sendable {
     @Sendable
     #endif
     nonisolated func terminateAndWait(
-        scopes: [AgentHibernationController.ProcessTerminationScope]
+        scopes: [AgentHibernationController.ProcessTerminationScope],
+        shouldCommit: @escaping @MainActor @Sendable (AgentHibernationPanelKey) -> Bool = { _ in true }
     ) async -> Outcome {
         let liveScopes = scopes.filter { !$0.processIDs.isEmpty }
         var outcome = Outcome()
@@ -84,7 +84,8 @@ struct AgentQuitTerminationCoordinator: Sendable {
                         processScopeKey: scope.key,
                         gracePeriod: gracePeriod,
                         postKillExitPeriod: postKillExitPeriod,
-                        snapshotCoordinator: snapshotCoordinator
+                        snapshotCoordinator: snapshotCoordinator,
+                        shouldCommit: shouldCommit
                     )
                 }
             }
@@ -123,13 +124,21 @@ struct AgentQuitTerminationCoordinator: Sendable {
         processScopeKey: AgentHibernationPanelKey,
         gracePeriod: Duration,
         postKillExitPeriod: Duration,
-        snapshotCoordinator: AgentHibernationProcessSnapshotCoordinator
+        snapshotCoordinator: AgentHibernationProcessSnapshotCoordinator,
+        shouldCommit: @escaping @MainActor @Sendable (AgentHibernationPanelKey) -> Bool
     ) async -> PanelResult {
         guard !terminations.isEmpty else { return .exited }
+        guard !Task.isCancelled, terminations.allSatisfy({
+            AgentQuitProcessOwnership().isOwned($0.processIdentity)
+        }) else { return .rejected }
         let signalled = await AgentHibernationController
             .terminateScopedProcessesForHibernation(
                 terminations,
-                processScopeKey: processScopeKey
+                processScopeKey: processScopeKey,
+                shouldCommit: {
+                    !Task.isCancelled && shouldCommit(processScopeKey)
+                        && terminations.allSatisfy { AgentQuitProcessOwnership().isOwned($0.processIdentity) }
+                }
             )
         switch signalled {
         case .rejected:
