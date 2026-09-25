@@ -134,7 +134,7 @@ linked it. The run takes the first pool in `CI_PR_POOL_ORDER` that has a
 machine free for it and no queued release or nightly job, so a full pool
 rolls over to the next one every time, the macOS 15 pool included. A pool's
 capacity is what it ran at most while jobs queued behind it
-(`POOL_CAPACITIES`): 4 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
+(`POOL_CAPACITIES`): 5 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
 2026-09-24, counted at 10, 12vcpu ran 3 with 18 queued while macOS 15 ran 1
 of 10. When every pool is full, the run takes the shortest queue in rounds
 (queued jobs over capacity). The macOS 15 pool counts one round more
@@ -208,11 +208,13 @@ names no owned pool.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
-| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}` |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
+| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online, idle runners carrying an owned label are that pool's free machines, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age. Any failure falls back to them |
 
-Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label with a positive
-whole number of machines counts as none. While owned pools are on, the
-`changes` job raises a workflow warning and a summary line for each such entry,
+Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label or class with a
+positive whole number of machines counts as none. A full label wins over its
+class. While owned pools are on, the `changes` job raises a workflow error
+annotation and a summary line for each such entry,
 so a typo shows up on every run instead of quietly leaving a pool unused.
 
 An owned pool is persistent, which needs one more rule because GitHub never

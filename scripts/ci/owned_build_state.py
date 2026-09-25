@@ -2,7 +2,8 @@
 """Keep compile admission's build state on an owned Mac between jobs.
 
     owned_build_state.py check STORE FINGERPRINT WORKSPACE
-    owned_build_state.py adopt STORE DERIVED_DATA
+    owned_build_state.py adopt STORE DERIVED_DATA SOURCE
+    owned_build_state.py record SOURCE DERIVED_DATA
     owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE
 
@@ -18,9 +19,9 @@ This keeps two things under STORE (CMUX_OWNED_STATE_ROOT,
 
 - `derived-data`: the admission DerivedData, stamped with the canonical
   fingerprint (Xcode build, canonical paths, file-system mode). Builds run
-  with FileSystemMode=checksum-only (compile-app-host-test-product.sh), so
-  Xcode compares input contents, not times: a fresh copy of the source into
-  the canonical tree rebuilds only what changed since the last job here.
+  with FileSystemMode=checksum-only (compile-app-host-test-product.sh), but
+  swift-driver still decides what to recompile by modification time, so the
+  kept DerivedData also carries the input times it was built against (below).
 - `source-packages`: the resolved `.ci-source-packages`, so the resolve
   fetches what changed instead of restoring the whole cache. It is not
   handed to the resolve as an exact hit: that would change the Resolve step,
@@ -31,7 +32,20 @@ match or that grew past MAX_DERIVED_BYTES, and moves the packages into the
 workspace, where the resolve step picks them up. Its
 `warm` output tells the workflow to skip the SwiftPM cache restore and the
 seed. `adopt` runs where the seed would: the resolve step has just recreated
-the DerivedData, so it swaps the kept one in. `keep` runs right after a
+the DerivedData, so it swaps the kept one in and replays the input times
+recorded in it, as the seed's adopt does (seed_derived_data.py). Each job
+copies a fresh source tree into the canonical root, so without the replay
+every file is newer than the kept build and the whole `cmux` module
+recompiles: 2629 SwiftCompile tasks, 386 s, in job 107904138254, against
+50 s after a distance-0 seed in job 107906033416. `record` runs just before
+the compile on every owned job, warm or seeded, so the DerivedData it keeps
+always carries the times that compile saw. It deletes the old record first:
+a stale one could age an input back to a time the kept build never saw, and
+swift-driver misses a changed file whose time is older. A failed record
+means a full rebuild, never a missed one. The record has its own file
+(RECORD), never the seed's MANIFEST, and the stamp carries STATE_VERSION, so
+a DerivedData kept from a seeded job before `record` existed is dropped
+rather than replayed with the seed's times. `keep` runs right after a
 successful compile and clones the DerivedData as Xcode left it: the steps
 after it stage package frameworks into Build/Products and rewrite the
 xctestruns, which a later build must not start from (seed-derived-data.yml
@@ -57,6 +71,9 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import seed_derived_data as seed  # noqa: E402
+
 STAMP = "stamp.json"
 DERIVED = "derived-data"
 PACKAGES = "source-packages"
@@ -65,6 +82,18 @@ PACKAGES = "source-packages"
 MAX_DERIVED_BYTES = 40 * 1024**3
 # Written by every build and read by none (seed_derived_data.UNREAD).
 UNREAD = ("Logs", "Index.noindex")
+# The owned record, apart from the seed's MANIFEST: a DerivedData adopted from
+# a seed still carries the seed's record, whose times belong to the seed's
+# source, not to what this Mac last compiled.
+RECORD = "cmux-owned-input-mtimes.json"
+# Appended to the canonical fingerprint in every stamp. A DerivedData kept
+# before `record` existed may hold only a seed's record, so bumping this
+# discards every older kept DerivedData instead of trusting it.
+STATE_VERSION = "owned-rec1"
+
+
+def stamped(fingerprint: str) -> str:
+    return f"{fingerprint}-{STATE_VERSION}" if fingerprint else ""
 
 
 def write_outputs(result: dict[str, str]) -> None:
@@ -140,7 +169,7 @@ def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
     derived = store / DERIVED
     if not derived.is_dir():
         result["reason"] = "no kept DerivedData"
-    elif not fingerprint or stamp.get("fingerprint") != fingerprint:
+    elif not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
         clear(derived)
         result["reason"] = "kept DerivedData is for another Xcode or layout"
     else:
@@ -159,11 +188,24 @@ def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
     return result
 
 
-def adopt(store: Path, derived: Path) -> dict[str, str]:
+def adopt(store: Path, derived: Path, source: Path) -> dict[str, str]:
     kept = store / DERIVED
     if not kept.is_dir():
         return {"hit": "false", "reason": "no kept DerivedData"}
     move(kept, derived)
+    result = {"hit": "true", "replayed": "false"}
+    # Only the owned record: a seed's record describes the seed's source.
+    manifest = derived / RECORD
+    if not manifest.is_file():
+        result["reason"] = "kept DerivedData has no input record"
+    else:
+        try:
+            unchanged, changed = seed.warm.replay(source, json.loads(manifest.read_text()))
+        except (OSError, ValueError) as error:
+            # A replay cut short can only rebuild more (seed_derived_data.py).
+            result["reason"] = f"{type(error).__name__}: {error}"[:200]
+        else:
+            result.update(replayed="true", unchanged_inputs=str(unchanged), changed_inputs=str(changed))
     if sys.platform == "darwin":
         # The source tree is a fresh copy, so every input has a new inode;
         # without this llbuild reruns every task whose files merely moved.
@@ -172,7 +214,20 @@ def adopt(store: Path, derived: Path) -> dict[str, str]:
             ["defaults", "write", "com.apple.dt.XCBuild", "IgnoreFileSystemDeviceInodeChanges", "-bool", "YES"],
             check=True,
         )
-    return {"hit": "true"}
+    return result
+
+
+def record(source: Path, derived: Path) -> dict[str, str]:
+    """Record the input times this compile sees, for the next job's adopt."""
+    manifest = derived / RECORD
+    if manifest.is_file() or manifest.is_symlink():
+        manifest.unlink()
+    recorded = seed.warm.record(source)
+    derived.mkdir(parents=True, exist_ok=True)
+    incoming = derived / f".{RECORD}.incoming"
+    incoming.write_text(json.dumps(recorded, sort_keys=True))
+    incoming.rename(manifest)
+    return {"recorded": "true", "inputs": str(len(recorded))}
 
 
 def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
@@ -182,14 +237,15 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
     incoming = store / f".{DERIVED}.incoming"
     clone(derived, incoming)
-    for name in UNREAD:
+    # A seed's record is never replayed here (adopt reads RECORD only).
+    for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
     write_stamp(store, stamp)
     clear(store / DERIVED)
     incoming.rename(store / DERIVED)
-    stamp["fingerprint"] = fingerprint
+    stamp["fingerprint"] = stamped(fingerprint)
     write_stamp(store, stamp)
     return {"kept": "true"}
 
@@ -209,8 +265,11 @@ def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "check":
         write_outputs(check(Path(argv[2]), argv[3], Path(argv[4])))
         return 0
-    if len(argv) == 4 and argv[1] == "adopt":
-        write_outputs(adopt(Path(argv[2]), Path(argv[3])))
+    if len(argv) == 5 and argv[1] == "adopt":
+        write_outputs(adopt(Path(argv[2]), Path(argv[3]), Path(argv[4]).resolve()))
+        return 0
+    if len(argv) == 4 and argv[1] == "record":
+        write_outputs(record(Path(argv[2]).resolve(), Path(argv[3])))
         return 0
     if len(argv) == 5 and argv[1] == "keep":
         write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))

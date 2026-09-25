@@ -1,8 +1,8 @@
-import AppKit
-import WebKit
+public import AppKit
+public import WebKit
 
 extension WKWebView {
-    func cmuxOwnsKeyEvent(_ event: NSEvent) -> Bool {
+    public func cmuxOwnsKeyEvent(_ event: NSEvent) -> Bool {
         guard let eventWindow = event.window ?? window,
               eventWindow === window,
               let responder = eventWindow.firstResponder else { return false }
@@ -19,7 +19,7 @@ extension WKWebView {
     }
 
     @discardableResult
-    func cmuxSetPageAudioMuted(_ muted: Bool) -> Bool {
+    public func cmuxSetPageAudioMuted(_ muted: Bool) -> Bool {
         let selector = Self.cmuxSetPageMutedSelector
         guard responds(to: selector),
               let implementation = method(for: selector) else {
@@ -32,7 +32,7 @@ extension WKWebView {
         return true
     }
 
-    var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
+    public var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
         switch fullscreenState {
         case .notInFullscreen:
             return false
@@ -43,7 +43,7 @@ extension WKWebView {
         }
     }
 
-    func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
+    public func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
         guard cmuxIsElementFullscreenActiveOrTransitioning else { return false }
         guard let expectedWindow else { return true }
         return window !== expectedWindow

@@ -50,7 +50,7 @@ the choice exactly as they do for pull requests: only when
 `vars.CI_PR_POOL_OWNED == '1'`, only the labels for the lane's Xcode pin
 (vars.CMUX_CI_XCODE_APP_PR), ahead of Blacksmith, and only while
 vars.CI_OWNED_POOL_SLOTS leaves a machine free on a snapshot younger than
-pr_runner_pool.OWNED_MAX_AGE_MINUTES. An E2E run holds one machine at a time
+pr_runner_pool.MAX_SNAPSHOT_MINUTES. An E2E run holds one machine at a time
 (build, then test), so it needs one free machine. An owned pool is never the
 fewest-queued fallback: with no free machine the run takes Blacksmith. A job
 that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
@@ -306,7 +306,7 @@ def resolve(
         measure=measure,
         now=now,
         log=log,
-        owned_slots=pr_runner_pool.slots(owned_slots),
+        owned_slots=pr_runner_pool.slots(owned_slots, pr_xcode_app),
     ) or SMALL_RUNNER
 
 
