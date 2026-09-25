@@ -93,6 +93,37 @@ struct SplitDividerOverlayTests {
         NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
         #expect(overlay.repaintRequestCount == before + 1)
     }
+
+    @Test
+    func dynamicDividerColorUsesTheWindowsAppearanceOutsideDrawing() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        defer { window.close() }
+        let root = try #require(window.contentView)
+        let split = MutableColorSplitView(frame: root.bounds)
+        split.color = .separatorColor
+        split.addArrangedSubview(NSView())
+        split.addArrangedSubview(NSView())
+        root.addSubview(split)
+        let overlay = SplitDividerOverlayView(frame: root.bounds)
+        root.addSubview(overlay)
+        let image = NSImage(size: root.bounds.size)
+        image.lockFocus()
+        overlay.effectiveAppearance.performAsCurrentDrawingAppearance {
+            overlay.draw(overlay.bounds)
+        }
+        image.unlockFocus()
+        let before = overlay.repaintRequestCount
+        try #require(NSAppearance(named: .aqua)).performAsCurrentDrawingAppearance {
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        }
+        #expect(overlay.repaintRequestCount == before)
+    }
 }
 
 @MainActor

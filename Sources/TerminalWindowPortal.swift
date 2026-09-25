@@ -1665,8 +1665,8 @@ final class WindowTerminalPortal: NSObject {
                 hostedView.autoresizingMask = restoredMask
             }
             if hostedView.superview === hostView {
-                if !hostedView.isHidden { dividerOverlayView.invalidateRendering() }
                 hostedView.removeFromSuperview()
+                dividerOverlayView.refreshIfGeometryChanged()
             }
         } else {
             preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId)
@@ -1686,11 +1686,11 @@ final class WindowTerminalPortal: NSObject {
         entry.provisionalGeometry = nil
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
-        if entry.hostedView?.isHidden == false { dividerOverlayView.invalidateRendering() }
         entry.hostedView?.isHidden = true
         if let hostedView = entry.hostedView, hostedView.superview === hostView {
             hostedView.removeFromSuperview()
         }
+        dividerOverlayView.refreshIfGeometryChanged()
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
