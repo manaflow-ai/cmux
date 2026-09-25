@@ -14103,8 +14103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let modifier = KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier()
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                workspace.bonsplitController.surfaceNumberShortcutModifier = modifier
-                workspace._dockSplit?.bonsplitController.surfaceNumberShortcutModifier = modifier
+                workspace.updateSurfaceNumberShortcutModifier(modifier)
             }
             context.windowDock?.bonsplitController.surfaceNumberShortcutModifier = modifier
         }
