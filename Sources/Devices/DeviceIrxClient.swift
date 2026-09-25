@@ -38,7 +38,6 @@ actor DeviceIrxClient {
         let permissionExpiresAt: Int
         let relayURLs: [String]
         let revoked: Bool
-        let rules: [String]
 
         init?(cache: V2CachedState?) {
             guard let cache, let directory = cache.directory else { return nil }
@@ -49,7 +48,6 @@ actor DeviceIrxClient {
             }.sorted { $0.deviceRecordID < $1.deviceRecordID }
             permissionExpiresAt = directory.permissionExpiresAt
             relayURLs = directory.relayURLs
-            rules = (directory.rules ?? []).sorted()
             revoked = cache.authorityRevoked
         }
     }

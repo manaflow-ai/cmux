@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "cmux-v2-local",
+  "name": "cmux-iroh-v2-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-10",
   "compatibility_flags": [
@@ -62,7 +62,7 @@
   },
   "env": {
     "development": {
-      "name": "cmux-v2-development",
+      "name": "cmux-iroh-v2-development",
       "vars": {
         "ENVIRONMENT": "development",
         "STACK_API_URL": "https://api.stack-auth.com",
@@ -99,7 +99,7 @@
       }
     },
     "staging": {
-      "name": "cmux-v2-staging",
+      "name": "cmux-iroh-v2-staging",
       "vars": {
         "ENVIRONMENT": "staging",
         "STACK_API_URL": "https://api.stack-auth.com",
@@ -136,7 +136,7 @@
       }
     },
     "production": {
-      "name": "cmux-v2",
+      "name": "cmux-iroh-v2",
       "vars": {
         "ENVIRONMENT": "production",
         "STACK_API_URL": "https://api.stack-auth.com",

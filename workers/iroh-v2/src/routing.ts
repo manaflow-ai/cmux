@@ -3,7 +3,6 @@ import type { StackAuthority, VerifiedAuthority } from "./auth";
 import { decodeJSON, errorResponse, httpFailure, inputRequestId, parseInput, parseSocketSetup, readBoundedBody, INPUT_BYTES } from "./boundary";
 import { identifier, timestamp } from "./contracts/common";
 import { SocketSetupSchema, type SocketSetup } from "./contracts/requests";
-import { STORAGE_SCHEMA_VERSION, STORAGE_WRITE_SCHEMA_VERSION } from "./storage/migrations";
 import { HealthSchema } from "./health";
 import { CONTROL_PLANE_RULES, sourceRevision } from "./rules";
 import { API_TICKET_SECONDS, canonicalJSON, decodeBase64URL, encodeBase64URL, verifyTicket } from "./crypto";
@@ -97,7 +96,6 @@ function healthResponse(request: Request, dependencies: RoutingDependencies): Re
   const body = HealthSchema.parse({
     schemaId: "health.v1", environment: dependencies.environment,
     sourceRevision: sourceRevision(dependencies.sourceRevision), rules: [...CONTROL_PLANE_RULES],
-    storage: { maxSchemaVersion: STORAGE_SCHEMA_VERSION, writeSchemaVersion: STORAGE_WRITE_SCHEMA_VERSION },
   });
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }

@@ -147,12 +147,11 @@ test("authority lease accepts newer verification and ignores stale updates", asy
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6600, now: 6600 })).status).toBe(500);
 });
 
-test.each([6, 7])("schema %i: audit retention keeps revocation available at the bounded history limit", async (version) => {
+test("audit retention keeps revocation available at the bounded history limit", async () => {
   // This test owns a fresh DO. It does not depend on the registration/revision
   // state built by the other cases in this file.
-  const auditStub = storageNamespace.getByName("audit-retention-rollback-" + version);
+  const auditStub = storageNamespace.getByName("audit-retention-rollback");
   const auditPost = (path: string, body: unknown = {}) => postTo(auditStub, path, body);
-  expect((await auditPost("/upgrade-schema", {version})).status).toBe(200);
   const targetIdentity = { ...identity, userId: "audit-test", deviceId: "revocation-device" };
   const targetDescriptor = { ...descriptor, identity: targetIdentity, endpointId: "f".repeat(64) };
   const targetIssue = { challengeId: "audit-target", nonceHash: "audit-target-nonce", payloadHash: "audit-target-payload", expiresAt: 7000, issuedAt: 6000 };
@@ -220,34 +219,4 @@ test("socket reservations survive a second workerd restart", async () => {
   const namespace = await mf.getDurableObjectNamespace("STORAGE");
   stub = namespace.getByName("team-e2e");
   expect((await post("/socket/list", { userId: "socket-capacity" })).body.length).toBe(501);
-});
-
-
-test("ordinary activation retains schema 6 so the deployed reader can reopen it", async () => {
-  const result = await post("/schema", {});
-  expect(result.status).toBe(200);
-  expect(result.body.map((row: any) => row.version)).toEqual([1, 2, 3, 4, 5, 6]);
-});
-
-
-test("reader-first rollout preserves devices and can reopen both schemas without downgrading", async () => {
-  const namespace = await mf.getDurableObjectNamespace("STORAGE");
-  const stub = namespace.getByName("reader-first-upgrade");
-  const request = (path: string, body: unknown = {}) => postTo(stub, path, body);
-  const challenge = {challengeId: "upgrade", nonceHash: "n", payloadHash: "p", issuedAt: 100, expiresAt: 200};
-  await request("/issue", {identity, issue: challenge});
-  const registered = await request("/register", {input: {descriptor, ...challenge, requestId: "r", requestHash: "h", now: 101}});
-  expect(registered.status).toBe(200);
-  const id = registered.body.device.deviceRecordId;
-  expect((await request("/legacy-reopen")).status).toBe(200);
-  expect((await request("/device", {deviceRecordId: id})).body).toEqual(registered.body.device);
-  expect((await request("/upgrade-schema", {version: 7})).status).toBe(200);
-  const legacy = await request("/legacy-reopen");
-  expect(legacy.status).toBe(500);
-  expect(legacy.body.code).toBe("iroh_v2_unsupported_schema_history");
-  expect((await request("/bridge-reopen")).status).toBe(200);
-  expect((await request("/schema")).body.at(-1).version).toBe(7);
-  expect((await request("/device", {deviceRecordId: id})).body).toEqual(registered.body.device);
-  expect((await request("/revoke", {deviceRecordId: id, now: 102, actorUserId: identity.userId})).status).toBe(200);
-  expect((await request("/device", {deviceRecordId: id})).body.revoked).toBe(true);
 });

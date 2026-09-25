@@ -126,8 +126,7 @@ struct CloudNativeLayoutProjectionTests {
         #expect(Set(viewer.panels.keys) == [first, second], "Layout reconciliation preserves terminal instances")
     }
 
-    @Test(arguments: [false, true])
-    func newWorkspaceActionKeepsTheSelectedDeviceContext(fromSidebar: Bool) async throws {
+    @Test func newWorkspaceActionKeepsTheSelectedDeviceContext() async throws {
         let manager = TabManager(createInitialWorkspace: false)
         let workspace = Workspace(title: "Other Mac", initialSurface: .cloudVMLoading)
         manager.tabs = [workspace]
@@ -144,22 +143,13 @@ struct CloudNativeLayoutProjectionTests {
                 #expect(owner === manager)
                 targets.append(target)
             })
-        if fromSidebar {
-            app.createWorkspaceAtEndFromSidebar(windowId: UUID(), tabManager: manager)
-            app.createWorkspaceAtEndFromSidebar(windowId: UUID(), tabManager: manager)
-        } else {
-            #expect(app.performNewWorkspaceAction(tabManager: manager))
-            #expect(!app.performNewWorkspaceAction(tabManager: manager))
-        }
+        #expect(app.performNewWorkspaceAction(tabManager: manager))
+        #expect(!app.performNewWorkspaceAction(tabManager: manager))
         await operations.waitForPendingOperations()
         #expect(targets == [machine])
         #expect(manager.tabs.map(\.id) == [workspace.id], "The route must not create a local fallback workspace")
         app.deviceWorkspaceCreationCoordinator = nil
-        if fromSidebar {
-            app.createWorkspaceAtEndFromSidebar(windowId: UUID(), tabManager: manager)
-        } else {
-            #expect(!app.performNewWorkspaceAction(tabManager: manager))
-        }
+        #expect(!app.performNewWorkspaceAction(tabManager: manager))
         #expect(manager.tabs.map(\.id) == [workspace.id])
     }
 

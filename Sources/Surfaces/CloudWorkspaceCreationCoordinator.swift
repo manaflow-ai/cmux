@@ -204,11 +204,8 @@ final class CloudWorkspaceCreationCoordinator {
             operation.provider.discardMaterialization(opened.projection)
             throw error
         }
-        // A provider may create a different pane instead of adopting the reservation.
-        // Commit before its native teardown reports projectionDidEnd, so retiring
-        // the placeholder cannot cancel and delete the accepted remote workspace.
-        finish(operation, catalog: catalog)
         host.complete(reservation, projection: opened.projection)
+        finish(operation, catalog: catalog)
         return (receipt.workspace, terminal, (reservation.workspaceID, [opened.projection]))
     }
 

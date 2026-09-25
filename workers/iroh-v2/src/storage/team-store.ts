@@ -123,12 +123,7 @@ export class TeamStore {
     // Keep the history bounded without allowing the guard trigger to turn a
     // full audit log into a revocation or permission-update outage. This runs
     // inside the caller's transaction, so a failed insert rolls the prune back.
-    // Use the v7 counter only when that migration is already present. The
-    // reader-first v6 rollout retains bounded pruning without changing schema.
-    const version = this.#db.get<{ version: number }>(sql`SELECT max("version") AS "version" FROM "schema_history"`)!.version;
-    const count = version >= 7
-      ? this.#db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`)!.count
-      : this.#db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`)!.count;
+    const count = this.#db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`)!.count;
     const remove = Math.max(0, count - (AUTHORITY_AUDIT_LIMIT - 1));
     if (remove > 0) {
       this.#db.run(sql`DELETE FROM "authority_audit" WHERE "id" IN (

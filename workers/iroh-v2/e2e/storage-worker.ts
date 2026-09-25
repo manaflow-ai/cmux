@@ -1,7 +1,6 @@
 import { TeamStore, type TeamScope } from "../src/storage/team-store";
 import { UserUsageStore } from "../src/storage/user-usage";
 import { UserSocketStore } from "../src/storage/socket-store";
-import { applyStorageMigrations as applyDeployedMigrations } from "./fixtures/schema-v6";
 import { applyStorageMigrations } from "../src/storage/migrations";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { sql } from "drizzle-orm";
@@ -57,10 +56,6 @@ export class StorageTestDO {
       if (path === "/socket/output") { this.sockets.setOutput(body.userId, body.sessionId, body.revision, body.bytes, body.messages); return Response.json({ ok: true }); }
       if (path === "/socket/release") { this.sockets.releaseSocket(body.userId, body.sessionId); return Response.json({ ok: true }); }
       if (path === "/socket/list") return Response.json(this.sockets.listSocketReservations(body.userId));
-      if (path === "/upgrade-schema") { applyStorageMigrations(this.team.storage, Date.now(), body.version); return Response.json({ok: true}); }
-      if (path === "/legacy-reopen") { applyDeployedMigrations(this.team.storage); return Response.json({ok: true}); }
-      if (path === "/bridge-reopen") { applyStorageMigrations(this.team.storage); return Response.json({ok: true}); }
-      if (path === "/schema") return Response.json(Array.from(this.team.storage.sql.exec("SELECT version FROM schema_history ORDER BY version")));
       if (path === "/revision") return Response.json({ revision: this.team.readRevision() });
       if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
       if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));
@@ -75,10 +70,7 @@ export class StorageTestDO {
       }
       if (path === "/audit/usage") {
         const db = drizzle((this.team.storage));
-        const version = db.get<{version: number}>(sql`SELECT max("version") AS "version" FROM "schema_history"`)!.version;
-        return Response.json(version === 7
-          ? db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`)
-          : db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`));
+        return Response.json(db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`));
       }
       if (path === "/audit/first") {
         const db = drizzle((this.team.storage));
@@ -105,7 +97,7 @@ export class MigrationProbeDO {
     try {
       switch (new URL(request.url).pathname) {
         case "/seed":
-          applyStorageMigrations(this.ctx.storage, 1, 7);
+          applyStorageMigrations(this.ctx.storage, 1);
           return Response.json({ ok: true });
         case "/corrupt": {
           const mode = body.mode;
@@ -133,7 +125,7 @@ export class MigrationProbeDO {
           return Response.json({ ok: true });
         }
         case "/migrate":
-          applyStorageMigrations(this.ctx.storage, 2, 7);
+          applyStorageMigrations(this.ctx.storage, 2);
           return Response.json({ ok: true });
         case "/inspect": {
           const history = db.all(sql`SELECT "version", "hash" FROM "schema_history" ORDER BY "version"`);

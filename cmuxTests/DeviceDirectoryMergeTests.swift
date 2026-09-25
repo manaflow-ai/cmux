@@ -16,28 +16,6 @@ import Testing
 /// account's, since the viewer presents its bearer token only to those.
 @Suite("Devices: directory merge")
 struct DeviceDirectoryMergeTests {
-    @Test("A newly deployed Mac admission rule refreshes discovery without a device change")
-    func admissionRuleRefreshesDiscovery() async {
-        let identity = V2Identity(appNamespace: "cmux", buildTag: "test", deviceID: "self",
-            environment: "development", projectID: "project", teamID: "team", userID: "user")
-        let client = DeviceIrxClient(context: { throw DeviceLinkError.notConnected },
-            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "device-rules"))
-        var cache = V2CachedState(identity: identity)
-        cache.directory = V2Directory(devices: [], inboundPeers: [], issuedAt: 1,
-            permissionExpiresAt: 100, relayURLs: [], revision: 1, teamID: "team")
-        await client.enforce(cache)
-        var iterator = await client.directoryChanges().makeAsyncIterator()
-        _ = await iterator.next()
-        cache.directory = V2Directory(devices: [], inboundPeers: [], issuedAt: 1,
-            permissionExpiresAt: 100, relayURLs: [], revision: 1,
-            rules: [DeviceLinkControlPlaneRules.macPeerInbound], teamID: "team")
-        await client.enforce(cache)
-        await client.stop()
-        var updates = 0
-        while await iterator.next() != nil { updates += 1 }
-        #expect(updates == 1)
-    }
-
     @Test("Only outgoing directory changes refresh My Devices", arguments: [false, true])
     func hostingMetadataDoesNotReloadDiscovery(peerChanged: Bool) async {
         let identity = V2Identity(appNamespace: "com.cmuxterm.app", buildTag: "default", deviceID: "self",

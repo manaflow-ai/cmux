@@ -9,9 +9,6 @@ import { SOCKET_MIGRATION_STATEMENTS } from "./socket-schema";
  * copy loaded by the Worker bundle.
  */
 export const STORAGE_SCHEMA_VERSION = 7;
-// Reader-first rollout: this version can read v7, but normal activation keeps
-// v6 so the currently deployed v6 binary remains a valid rollback target.
-export const STORAGE_WRITE_SCHEMA_VERSION = 6;
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS "schema_history" ("version" INTEGER PRIMARY KEY NOT NULL, "hash" TEXT NOT NULL, "applied_at" INTEGER NOT NULL)`,
@@ -95,8 +92,7 @@ export const AUTHORITY_LEASE_MIGRATION_HASH = contentHash(authorityLeaseStatemen
 const METADATA_BYTES_MIGRATION_HASH = contentHash(metadataBytesStatements);
 const AUDIT_USAGE_MIGRATION_HASH = contentHash(auditUsageStatements);
 
-export function applyStorageMigrations(storage: DurableObjectStorage, now = Date.now(), writeVersion: number = STORAGE_WRITE_SCHEMA_VERSION): void {
-  if (writeVersion !== 6 && writeVersion !== 7) throw new Error("iroh_v2_unsupported_write_schema");
+export function applyStorageMigrations(storage: DurableObjectStorage, now = Date.now()): void {
   const db = drizzle(storage, { schema: storageSchema });
   storage.transactionSync(() => {
     db.run(sql.raw(statements[0]!));
@@ -109,7 +105,7 @@ export function applyStorageMigrations(storage: DurableObjectStorage, now = Date
     const apply = (version: number, hash: string, migrationStatements: string[]) => {
       const existing = rows.find((row) => row.version === version);
       if (existing && existing.hash !== hash) throw new Error("iroh_v2_schema_migration_hash_mismatch");
-      if (existing || version > writeVersion) return;
+      if (existing) return;
       for (const statement of migrationStatements) db.run(sql.raw(statement));
       db.run(sql`INSERT INTO "schema_history" ("version", "hash", "applied_at") VALUES (${version}, ${hash}, ${now})`);
       rows = [...rows, { version, hash }];

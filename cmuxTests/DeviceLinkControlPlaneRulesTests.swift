@@ -10,7 +10,9 @@ import Testing
 @testable import cmux
 #endif
 
-/// The issuing Worker must explicitly advertise the Mac admission rule.
+/// The directory proves the admission rules the Devices service applied.
+/// Current Workers name the rule; the previous v2 Worker proves the same
+/// admission query with its `inboundPeers` field.
 @Suite("Devices: control-plane rules")
 struct DeviceLinkControlPlaneRulesTests {
     private let selfID = "11111111-1111-1111-1111-111111111111"
@@ -23,14 +25,14 @@ struct DeviceLinkControlPlaneRulesTests {
         #expect(!DeviceLinkControlPlaneRules.current.isSatisfied(by: bare))
         let legacy = V2Directory(devices: [], inboundPeers: [], issuedAt: 1, permissionExpiresAt: 2,
             relayURLs: [], revision: 1, teamID: "team")
-        #expect(!DeviceLinkControlPlaneRules.current.isSatisfied(by: legacy))
+        #expect(DeviceLinkControlPlaneRules.current.isSatisfied(by: legacy))
         let named = V2Directory(devices: [], issuedAt: 1, permissionExpiresAt: 2, relayURLs: [], revision: 1,
             rules: ["cmux.mac-peer-inbound.v1", "cmux.future.v9"], teamID: "team")
         #expect(DeviceLinkControlPlaneRules.current.isSatisfied(by: named))
     }
 
-    @Test("Only a named admission rule enables Mac links", arguments: [true, false])
-    func controlPlaneRules(advertised: Bool) throws {
+    @Test("A directory names or proves the admission rule it applied", arguments: [true, false])
+    func controlPlaneRules(legacyServiceProvesAdmission: Bool) throws {
         func record(deviceID: String, endpoint: String) -> V2DeviceRecord {
             let identity = V2Identity(appNamespace: "com.cmuxterm.app.nightly", buildTag: "nightly",
                 deviceID: deviceID, environment: "production", projectID: "project",
@@ -44,18 +46,18 @@ struct DeviceLinkControlPlaneRulesTests {
         var cache = V2CachedState(identity: own.descriptor.identity)
         cache.device = own
         cache.directory = V2Directory(devices: [record(deviceID: studioID, endpoint: String(repeating: "ab", count: 32))],
-            inboundPeers: [],
+            inboundPeers: legacyServiceProvesAdmission ? [] : nil,
             issuedAt: 1000, permissionExpiresAt: 1060, relayURLs: [], revision: 1,
-            rules: advertised ? [DeviceLinkControlPlaneRules.macPeerInbound] : nil, teamID: "work-team")
+            rules: nil, teamID: "work-team")
         let macs = DeviceIrxClient.displayBindings(cache: cache, now: Date(timeIntervalSince1970: 1001))
-        #expect(macs.map(\.controlPlaneSupportsMacPeers) == [advertised])
+        #expect(macs.map(\.controlPlaneSupportsMacPeers) == [legacyServiceProvesAdmission])
         let records = DeviceDirectoryMerge.merge(.init(
             authenticatedMacs: macs, ownersKnown: true, selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: "nightly"),
             currentUserID: "my-account", resolvedTeamID: "work-team"
         ))
         let row = try #require(records.first)
         #expect(row.isDialable, "the Mac stays listed and dialable; the link decides what to say")
-        #expect(row.controlPlaneSupport == (advertised ? .supported : .outdated))
+        #expect(row.controlPlaneSupport == (legacyServiceProvesAdmission ? .supported : .outdated))
         let retained = DeviceDirectoryMerge.merge(.init(
             previous: records, selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: "nightly"),
             currentUserID: "my-account", resolvedTeamID: "work-team"

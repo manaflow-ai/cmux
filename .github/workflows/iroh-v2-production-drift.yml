@@ -70,7 +70,7 @@ jobs:
               }
               return;
             }
-            const body = `The production IROH v2 Worker does not match main at ${process.env.HEAD_SHA} (${runUrl}).\n\nMac clients built from main depend on the directory rules in workers/iroh-v2/src/rules.ts; until production is deployed they show "The Devices service is out of date" for other Macs.\n\nDeploy from a clean main checkout: \`cd workers/iroh-v2 && bun install --frozen-lockfile && CLOUDFLARE_ACCOUNT_ID=<account> bun run deploy:production\`, then confirm with \`curl -sS https://cmux-v2.debussy.workers.dev/v2/health\`. This issue closes itself on the next run that finds no drift.\n\n\`\`\`\n${report}\n\`\`\``;
+            const body = `The production IROH v2 Worker does not match main at ${process.env.HEAD_SHA} (${runUrl}).\n\nMac clients built from main depend on the directory rules in workers/iroh-v2/src/rules.ts; until production is deployed they show "The Devices service is out of date" for other Macs.\n\nDeploy from a clean main checkout: \`cd workers/iroh-v2 && bun install --frozen-lockfile && CLOUDFLARE_ACCOUNT_ID=<account> bun run deploy:production\`, then confirm with \`curl -sS https://cmux-iroh-v2.debussy.workers.dev/v2/health\`. This issue closes itself on the next run that finds no drift.\n\n\`\`\`\n${report}\n\`\`\``;
             try {
               await github.rest.issues.getLabel({ owner, repo, name: label });
             } catch (error) {

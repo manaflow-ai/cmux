@@ -5974,11 +5974,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager
     ) {
-        if tabManager.selectedTab?.isRemoteTmuxMirror == true
-            || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil {
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
             _ = performNewWorkspaceAction(
                 tabManager: tabManager,
-                debugSource: "sidebar.emptyArea.remote"
+                debugSource: "sidebar.emptyArea.remoteTmux"
             )
         } else if addWorkspace(
             windowId: windowId,
