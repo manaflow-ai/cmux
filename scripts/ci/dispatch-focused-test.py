@@ -395,7 +395,8 @@ def routed_runner(default: str | None, test_target: str | None = None) -> str | 
         measure=lambda: pool.measure_load(GhApi(), now=now),
         now=now,
         log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
-        owned_slots=pool.pr_runner_pool.slots(repository_variable(pool.SLOTS_VARIABLE, SLOTS_ENV)),
+        owned_slots=pool.pr_runner_pool.slots(repository_variable(pool.SLOTS_VARIABLE, SLOTS_ENV),
+                                              repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV)),
     )
 
 

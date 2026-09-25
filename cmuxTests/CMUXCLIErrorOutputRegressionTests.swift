@@ -2351,6 +2351,9 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CFFIXED_USER_HOME"] = home.path
+        // restore and fork wait for the app's socket before reporting that
+        // cmux is still opening; the default 45 s wait made this test 90 s.
+        environment["CMUX_RESTORE_SOCKET_STARTUP_TIMEOUT_SECONDS"] = "1"
 
         let cases: [(arguments: [String], expectedError: String)] = [
             (["settings", "invalid-target"], "Unknown settings subcommand 'invalid-target'"),
