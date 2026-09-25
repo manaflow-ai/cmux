@@ -37,11 +37,22 @@ REUSE_RECEIPT = "Build/Products/cmux-product-reuse.json"
 PRODUCT_RECEIPT = "Build/Products/cmux-test-products.json"
 DEFAULT_BUDGET_BYTES = 24 * 1024**3
 DEFAULT_WAIT_SECONDS = 180.0
+# How long a consumer in CI waits for another job's fill on the same node
+# unless CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS says otherwise. A filler only
+# publishes from its finalize step, after its whole download and restore
+# (about 130 s of download alone on a mini, plus extraction and the
+# canonical-root lock), so a waiter would usually time out and then download
+# anyway. Until the fill publishes right after its checksum, a waiter
+# downloads at once; the producing mini's seeded object still hits.
+CI_WAIT_SECONDS = 0.0
 DEFAULT_FILL_LEASE_SECONDS = 360.0
 DEFAULT_RESTORE_LEASE_SECONDS = 2 * 60 * 60
 MAX_RECEIPT_BYTES = 1024 * 1024
 MAX_TAR_MEMBERS = 250_000
 MAX_WAITERS_PER_FILL = 64
+# glaeda names its runners `<mini>-glaeda` and `<mini>-glaeda-<n>`.
+OWNED_RUNNER = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]*-glaeda(?:-[0-9]+)?")
+OWNED_DEFAULT_ROOT = "/Users/Shared/cmux-build-fleet/node-products"
 _HEX64 = re.compile(r"[a-f0-9]{64}")
 _REVISION = re.compile(r"[a-f0-9]{6,64}")
 
@@ -227,8 +238,27 @@ class Store:
                 os.close(fd)
 
 
-def configured_store(env=os.environ) -> Store | None:
+def configured_root(env=os.environ) -> str | None:
+    """The store root: CMUX_NODE_PRODUCT_CACHE_ROOT, else OWNED_DEFAULT_ROOT on an owned Mac.
+
+    Every owned runner is persistent and named `<mini>-glaeda[-N]`, all as one
+    user, so one store per mini serves each of its runners. Until 2026-09-25 the
+    root came only from a repository variable that was never set, so every
+    owned consumer downloaded the ~830 MB product from GitHub (7 MiB/s, about
+    130 s) even on the mini whose admission had just built it. A disposable
+    runner (Blacksmith, GitHub-hosted) keeps no store unless the variable names
+    one; `off` turns the store off everywhere.
+    """
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_ROOT", "").strip()
+    if raw.lower() == "off":
+        return None
+    if raw:
+        return raw
+    return OWNED_DEFAULT_ROOT if OWNED_RUNNER.fullmatch(env.get("RUNNER_NAME", "").strip()) else None
+
+
+def configured_store(env=os.environ) -> Store | None:
+    raw = configured_root(env)
     if not raw:
         return None
     try:
@@ -251,11 +281,11 @@ def budget_bytes(env=os.environ) -> int:
 def wait_seconds(env=os.environ) -> float:
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS", "").strip()
     if not raw:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     try:
         value = float(raw)
     except ValueError:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     return min(max(value, 0.0), 600.0)
 
 
