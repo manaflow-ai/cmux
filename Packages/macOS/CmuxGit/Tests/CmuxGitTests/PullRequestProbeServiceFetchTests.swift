@@ -325,6 +325,65 @@ struct PullRequestProbeServiceFetchTests {
         #expect(summary?.status == .unavailable)
     }
 
+    @Test func disprovedHeadRejectsAnAlreadyRunningOlderPage() async throws {
+        let secondPage = try checksStub(nodes: [checkNode()])
+        let requestsStarted = PullRequestProbeStubURLProtocol.reset(stubs: [
+            try checksStub(nodes: [], cursor: "next"),
+            .init(statusCode: 200, data: secondPage.data, gate: "old-page"),
+            try checksStub(sha: "def456", nodes: []),
+            try checksStub(sha: "def456", nodes: [])
+        ])
+        defer { PullRequestProbeStubURLProtocol.releaseGate("old-page") }
+        let service = makeService()
+        let older = Task {
+            await service.fetchPullRequestChecks(
+                repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123", allowCachedResults: false
+            )
+        }
+        #expect(await requestsStarted.wait(until: 2))
+        let disproved = await service.fetchPullRequestChecks(
+            repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123", allowCachedResults: false
+        )
+        #expect(disproved == nil)
+        PullRequestProbeStubURLProtocol.releaseGate("old-page")
+        #expect(await older.value == nil)
+        let cached = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(cached == nil)
+        #expect(requestURLStrings().count == 4)
+    }
+
+    @Test(arguments: [false, true])
+    func fullWidthIdentifiersOrderQueuedReruns(reverse: Bool) async throws {
+        var old = checkNode(id: "old")
+        old["fullDatabaseId"] = "108000000001"
+        var queued = checkNode(id: "queued")
+        queued["fullDatabaseId"] = "108000000002"
+        queued["status"] = "QUEUED"
+        queued["conclusion"] = NSNull()
+        queued["startedAt"] = NSNull()
+        let nodes = reverse ? [old, queued] : [queued, old]
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: nodes)])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .pending)
+        #expect(summary?.checks.map(\.id) == ["queued"])
+    }
+
+    @Test func optionalPrimaryQuotaDoesNotDelayMetadataPolling() async throws {
+        let deadline = Date().addingTimeInterval(600)
+        PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 403, headers: [
+            "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(Int(deadline.timeIntervalSince1970))
+        ])])
+        let result = WorkspacePullRequestRefreshResult(
+            workspaceId: UUID(), panelId: UUID(),
+            resolution: .resolved(WorkspacePullRequestResolvedItem(
+                number: 1, urlString: "https://github.com/o/r/pull/1", statusRawValue: "open",
+                branch: "feature", repoSlug: repoSlug, headSHA: "abc123"
+            )), usedCachedRepoData: false
+        )
+        let enriched = await makeService().enrichPullRequestChecks([result])
+        #expect(enriched.rateLimitRetryDate == nil)
+    }
+
     @Test func partialGraphQLErrorsCannotBecomeSuccess() async throws {
         PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 200, data: Data("{\"errors\":[{\"message\":\"unavailable\"}]}".utf8))])
         let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
