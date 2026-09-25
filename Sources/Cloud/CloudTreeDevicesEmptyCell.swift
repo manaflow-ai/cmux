@@ -5,7 +5,7 @@ import SwiftUI
 /// Unlike display-only outline rows, this host accepts clicks on its buttons.
 final class CloudTreeDevicesEmptyCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeDevicesEmptyCell")
-    private let host = NSHostingView(rootView: AnyView(EmptyView()))
+    private let host = CloudTreeRowControlsHostingView(rootView: AnyView(EmptyView()))
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -25,8 +25,10 @@ final class CloudTreeDevicesEmptyCell: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(section: CloudTreeDevicesSection, actions: CloudTreeNodeActions, style: CloudTreeStyle) {
-        host.rootView = AnyView(CloudTreeDevicesEmptyView(section: section, actions: actions, style: style))
+    func configure(section: CloudTreeDevicesSection, actions: CloudTreeNodeActions, style: CloudTreeStyle, level: Int) {
+        let inset = CloudTreeNSOutlineView.leadingMargin + CGFloat(max(0, level)) * style.indentPerLevel
+            + style.rowGrid.disclosureSlot + style.rowGrid.disclosureGap
+        host.rootView = AnyView(CloudTreeDevicesEmptyView(section: section, actions: actions, style: style, contentInset: inset))
         host.invalidateIntrinsicContentSize()
     }
 }

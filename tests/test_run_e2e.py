@@ -678,7 +678,7 @@ class FocusedLauncherTests(unittest.TestCase):
         # who asked the default pool. Dispatch instead.
         result = self.launch(
             "cmuxTests/ExampleTests", "--wait",
-            LAUNCHER_PRIOR_RUNS=self._live(runner="tart-canary"),
+            LAUNCHER_PRIOR_RUNS=self._live(runner="blacksmith-6vcpu-macos-latest"),
             LAUNCHER_WATCH_STATUS="0",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1122,7 +1122,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                                                    measure=measure, now=NOW), SMALL)
 
     def test_an_explicit_choice_or_admin_variable_is_never_rerouted(self):
-        for requested in (SMALL, LARGE, "tart-canary"):
+        for requested in (SMALL, LARGE, OLD, MINI):
             with self.subTest(requested=requested):
                 label, calls, _ = self.decide(queue(), requested=requested)
                 self.assertEqual((label, calls), (requested, []))
@@ -1144,8 +1144,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
 
     def test_runs_since_the_snapshot_are_replayed(self):
         load = self.pool.measure_load(FakeActions(queue(
-            e2e_since=[LARGE, LARGE, SMALL, "tart-small"], pr_since=3)), now=NOW)
-        self.assertEqual(dict(load.e2e_since), {LARGE: 2, SMALL: 1, "tart-small": 1})
+            e2e_since=[LARGE, LARGE, SMALL, OLD], pr_since=3)), now=NOW)
+        self.assertEqual(dict(load.e2e_since), {LARGE: 2, SMALL: 1, OLD: 1})
         self.assertEqual(load.pull_requests_since, 3)
         # Finished runs hold no pool, and the deciding run is not its own demand.
         state = queue(e2e_since=[LARGE, LARGE])
@@ -1262,7 +1262,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertIn("could not read the runner queue", stderr)
         self.assertEqual(self.run_pool_step(overflow="0")[0], SMALL)
         self.assertEqual(self.run_pool_step(order=OLD)[0], SMALL)
-        self.assertEqual(self.run_pool_step(requested="tart-small")[0], "tart-small")
+        self.assertEqual(self.run_pool_step(requested=OLD)[0], OLD)
         self.assertEqual(self.run_pool_step(requested=LARGE)[0], LARGE)
         self.assertEqual(self.run_pool_step(requested=MINI)[0], MINI)
         self.assertEqual(self.run_pool_step(variable="blacksmith-6vcpu-macos-15")[0],
@@ -1306,7 +1306,6 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertNotIn("reserved first for release", comment)
 
     def test_macos_jobs_run_on_the_resolved_pool(self):
-        label = "${{ needs.runner.outputs.label }}"
         # A re-run attempt takes retry_label, which moves an owned Mac to Blacksmith.
         runs_on = ("${{ github.run_attempt > 1 && needs.runner.outputs.retry_label"
                    " || needs.runner.outputs.label }}")
@@ -1315,10 +1314,6 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                 job = self.jobs[name]
                 self.assertIn("runner", job["needs"])
                 self.assertEqual(job["runs-on"], runs_on)
-                tart = next(step for step in job["steps"]
-                            if step.get("name") == "Validate Tart canary identity")
-                self.assertEqual(tart["if"], "${{ startsWith(needs.runner.outputs.label, 'tart-') }}")
-                self.assertEqual(tart["env"]["REQUESTED_RUNNER"], label)
                 # Nothing in a macOS job may resolve the pool a second way.
                 text = yaml.safe_dump(job)
                 self.assertNotIn("inputs.runner", text)
@@ -1371,7 +1366,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
 
     def test_a_re_run_never_takes_an_owned_mac(self):
         self.assertEqual(self.pool.retry_runner(MINI), SMALL)
-        for label in (SMALL, LARGE, OLD, "tart-small"):
+        for label in (SMALL, LARGE, OLD):
             self.assertEqual(self.pool.retry_runner(label), label)
         self.assertEqual(self.owned(requested=MINI, owned="0"), MINI)  # explicit is explicit
 

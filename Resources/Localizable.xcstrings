@@ -43952,7 +43952,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK"
+            "value": "Bestätigen"
           }
         },
         "en": {
@@ -43982,7 +43982,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK"
+            "value": "完了"
           }
         },
         "ko": {
@@ -286898,6 +286898,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "오른쪽 사이드바 토글"
+          }
+        }
+      }
+    },
+    "rightSidebar.presence.anonymous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonymous collaborator"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متعاون مجهول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonymer Mitwirkender"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colaborador anónimo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collaborateur anonyme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の共同作業者"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "익명 협업자"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名协作者"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名協作者"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonimni saradnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonym samarbejdspartner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collaboratore anonimo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកសហការអនាមិក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonym samarbeidspartner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonimowy współpracownik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colaborador anônimo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анонимный соавтор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ทำงานร่วมกันที่ไม่ระบุชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonim işbirlikçi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анонімний співробітник"
+          }
+        }
+      }
+    },
+    "rightSidebar.presence.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewing this workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشاهدون مساحة العمل هذه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Arbeitsbereich ansehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Están viendo este espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consultation de cet espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースを表示中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업 공간을 보고 있음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查看此工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查看此工作區"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledava ovaj radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ser dette arbejdsområde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sta visualizzando questo spazio di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងមើល workspace នេះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ser på dette arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogląda ten obszar roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizando este espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просматривает это рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังดูพื้นที่ทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanını görüntülüyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переглядає цей робочий простір"
           }
         }
       }
@@ -554759,55 +555009,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A different Mac answered at this address. Pair it again from Settings › Computers."
+            "value": "A different Mac answered at this address. Pair it again from Settings › Mobile › Computers."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجاب جهاز Mac آخر على هذا العنوان. أعد إقرانه من الإعدادات › أجهزة الكمبيوتر."
+            "value": "استجاب جهاز Mac مختلف على هذا العنوان. أعد إقرانه من الإعدادات › المحمول › أجهزة الكمبيوتر."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unter dieser Adresse hat ein anderer Mac geantwortet. Kopple ihn erneut unter Einstellungen › Computer."
+            "value": "Ein anderer Mac hat unter dieser Adresse geantwortet. Kopple ihn erneut unter Einstellungen › Mobil › Computer."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otro Mac respondió en esta dirección. Vuelve a emparejarlo desde Ajustes › Ordenadores."
+            "value": "Otro Mac ha respondido en esta dirección. Vuelve a enlazarlo desde Ajustes › Móvil › Ordenadores."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un autre Mac a répondu à cette adresse. Jumelez-le à nouveau depuis Réglages › Ordinateurs."
+            "value": "Un autre Mac a répondu à cette adresse. Associez-le à nouveau dans Réglages › Mobile › Ordinateurs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアドレスでは別の Mac が応答しました。設定 › コンピュータから再度ペアリングしてください。"
+            "value": "このアドレスでは別のMacが応答しました。設定 › モバイル › コンピュータから再度ペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 주소에서 다른 Mac이 응답했습니다. 설정 › 컴퓨터에서 다시 페어링하세요."
+            "value": "이 주소에서 다른 Mac이 응답했습니다. 설정 › 모바일 › 컴퓨터에서 다시 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此地址由另一台 Mac 响应。请在“设置 › 电脑”中重新配对。"
+            "value": "另一台 Mac 响应了此地址。请前往设置 › 移动端 › 电脑重新配对。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此位址由另一台 Mac 回應。請在「設定 › 電腦」中重新配對。"
+            "value": "另一部 Mac 回應了此位址。請前往設定 › 行動裝置 › 電腦重新配對。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drugi Mac je odgovorio na ovoj adresi. Ponovo ga uparite u Postavke › Mobile › Računari."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En anden Mac svarede på denne adresse. Dan par med den igen under Indstillinger › Mobile › Computere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un altro Mac ha risposto a questo indirizzo. Abbinalo di nuovo da Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ផ្សេងបានឆ្លើយតបនៅអាសយដ្ឋាននេះ។ សូមផ្គូផ្គងវាម្តងទៀតពី Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En annen Mac svarte på denne adressen. Koble den sammen på nytt under Innstillinger › Mobile › Datamaskiner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inny Mac odpowiedział pod tym adresem. Sparuj go ponownie w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro Mac respondeu neste endereço. Emparelhe-o novamente em Ajustes › Mobile › Computadores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По этому адресу ответил другой Mac. Повторно создайте пару с ним в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องอื่นตอบกลับที่ที่อยู่นี้ ให้จับคู่เครื่องนั้นอีกครั้งใน การตั้งค่า › Mobile › คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu adreste farklı bir Mac yanıt verdi. Ayarlar › Mobile › Bilgisayarlar bölümünden yeniden eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За цією адресою відповів інший Mac. Знову створіть із ним пару в розділі Налаштування › Mobile › Комп’ютери."
           }
         }
       }
@@ -554877,55 +555193,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair this Mac in Settings › Computers to connect."
+            "value": "Pair this Mac in Settings › Mobile › Computers to connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقرن هذا الجهاز Mac من الإعدادات › أجهزة الكمبيوتر للاتصال."
+            "value": "أقرن جهاز Mac هذا في الإعدادات › المحمول › أجهزة الكمبيوتر للاتصال."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopple diesen Mac unter Einstellungen › Computer, um eine Verbindung herzustellen."
+            "value": "Kopple diesen Mac unter Einstellungen › Mobil › Computer, um eine Verbindung herzustellen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Empareja este Mac en Ajustes › Ordenadores para conectarte."
+            "value": "Enlaza este Mac en Ajustes › Móvil › Ordenadores para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelez ce Mac dans Réglages › Ordinateurs pour vous connecter."
+            "value": "Associez ce Mac dans Réglages › Mobile › Ordinateurs pour vous connecter."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続するには、設定 › コンピュータでこの Mac をペアリングしてください。"
+            "value": "接続するには、設定 › モバイル › コンピュータでこのMacをペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하려면 설정 › 컴퓨터에서 이 Mac을 페어링하세요."
+            "value": "연결하려면 설정 › 모바일 › 컴퓨터에서 이 Mac을 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在“设置 › 电脑”中配对此 Mac 以进行连接。"
+            "value": "请在设置 › 移动端 › 电脑中配对这台 Mac 以连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在「設定 › 電腦」中配對此 Mac 以進行連線。"
+            "value": "請在設定 › 行動裝置 › 電腦中配對此 Mac 以連線。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparite ovaj Mac u Postavke › Mobile › Računari da biste se povezali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dan par med denne Mac under Indstillinger › Mobile › Computere for at oprette forbindelse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per connetterti, abbina questo Mac in Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble denne Macen sammen under Innstillinger › Mobile › Datamaskiner for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparelhe este Mac em Ajustes › Mobile › Computadores para se conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › Mobile › คอมพิวเตอร์ เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlanmak için bu Mac’i Ayarlar › Mobile › Bilgisayarlar bölümünde eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Mobile › Комп’ютери."
           }
         }
       }
@@ -554995,55 +555377,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair this Mac in Settings › Computers to connect."
+            "value": "Pair this Mac in Settings › Mobile › Computers to connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقرن هذا الجهاز Mac من الإعدادات › أجهزة الكمبيوتر للاتصال."
+            "value": "أقرن جهاز Mac هذا في الإعدادات › المحمول › أجهزة الكمبيوتر للاتصال."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopple diesen Mac unter Einstellungen › Computer, um eine Verbindung herzustellen."
+            "value": "Kopple diesen Mac unter Einstellungen › Mobil › Computer, um eine Verbindung herzustellen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Empareja este Mac en Ajustes › Ordenadores para conectarte."
+            "value": "Enlaza este Mac en Ajustes › Móvil › Ordenadores para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelez ce Mac dans Réglages › Ordinateurs pour vous connecter."
+            "value": "Associez ce Mac dans Réglages › Mobile › Ordinateurs pour vous connecter."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続するには、設定 › コンピュータでこの Mac をペアリングしてください。"
+            "value": "接続するには、設定 › モバイル › コンピュータでこのMacをペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하려면 설정 › 컴퓨터에서 이 Mac을 페어링하세요."
+            "value": "연결하려면 설정 › 모바일 › 컴퓨터에서 이 Mac을 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在“设置 › 电脑”中配对此 Mac 以进行连接。"
+            "value": "请在设置 › 移动端 › 电脑中配对这台 Mac 以连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在「設定 › 電腦」中配對此 Mac 以進行連線。"
+            "value": "請在設定 › 行動裝置 › 電腦中配對此 Mac 以連線。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparite ovaj Mac u Postavke › Mobile › Računari da biste se povezali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dan par med denne Mac under Indstillinger › Mobile › Computere for at oprette forbindelse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per connetterti, abbina questo Mac in Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble denne Macen sammen under Innstillinger › Mobile › Datamaskiner for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparelhe este Mac em Ajustes › Mobile › Computadores para se conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › Mobile › คอมพิวเตอร์ เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlanmak için bu Mac’i Ayarlar › Mobile › Bilgisayarlar bölümünde eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Mobile › Комп’ютери."
           }
         }
       }
@@ -555165,6 +555613,1049 @@
           }
         }
       }
+    },
+    "fileExplorer.error.cloudPreviewTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud file previews are limited to 1 MB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイルのプレビューは 1 MB に制限されています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 文件预览限制为 1 MB。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Dateivorschauen sind auf 1 MB begrenzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les aperçus de fichiers Cloud sont limités à 1 Mo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقتصر معاينات ملفات Cloud على 1 ميجابايت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las vistas previas de archivos de Cloud están limitadas a 1 MB."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 檔案預覽限制為 1 MB。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 파일 미리보기는 1MB로 제한됩니다."
+          }
+        }
+      }
+    },
+    "fileExplorer.error.remoteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote command failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートコマンドに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程命令失败"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Befehl fehlgeschlagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La commande distante a échoué"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل الأمر البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El comando remoto falló"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端指令失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 명령에 실패했습니다"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteUnavailableWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote files unavailable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルを利用できません: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件不可用：%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Dateien nicht verfügbar: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichiers distants indisponibles : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملفات البعيدة غير متوفرة: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos remotos no disponibles: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用遠端檔案：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 사용할 수 없음: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote files unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルを利用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件不可用"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Dateien nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichiers distants indisponibles"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملفات البعيدة غير متوفرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos remotos no disponibles"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用遠端檔案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 사용할 수 없음"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteResolvingHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolving remote home..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームを解決中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在解析远程主目录..."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Home-Verzeichnis wird aufgelöst..."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résolution du répertoire personnel distant..."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جاري تحديد المجلد الرئيسي البعيد..."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolviendo el directorio de inicio remoto..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在解析遠端家目錄..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 홈 확인 중..."
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteHomeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to resolve remote home: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームを解決できません: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解析远程主目录：%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Home-Verzeichnis konnte nicht aufgelöst werden: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de résoudre le répertoire personnel distant : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحديد المجلد الرئيسي البعيد: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo resolver el directorio de inicio remoto: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法解析遠端家目錄：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 홈을 확인할 수 없음: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.cloudDisconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine is not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンに接続されていません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 机器未连接"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Maschine ist nicht verbunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine Cloud n’est pas connectée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلة Cloud غير متصلة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina de Cloud no está conectada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器未連線"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신이 연결되지 않았습니다"
+          }
+        }
+      }
+    },
+    "command.workspaceColor.named": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Color: %@"
+          }
+        },
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+      }
+    },
+    "fileExplorer.preview.failedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to open remote file"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Datei konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le fichier distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر فتح الملف البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el archivo remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟遠端檔案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开远程文件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルを開けません"
+          }
+        }
+      }
+    },
+    "fileExplorer.preview.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestätigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valider"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موافق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aceptar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "fileExplorer.preview.genericFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote file could not be downloaded. Reconnect and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Remote-Datei konnte nicht heruntergeladen werden. Verbinden Sie sich erneut und versuchen Sie es wieder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier distant n’a pas pu être téléchargé. Reconnectez-vous et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تنزيل الملف البعيد. أعد الاتصال وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descargar el archivo remoto. Vuelve a conectar e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法下載遠端檔案。請重新連線後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载远程文件。请重新连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 다운로드할 수 없습니다. 다시 연결한 후 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルをダウンロードできませんでした。再接続してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "fileExplorer.preview.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close a Cloud file preview and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen Sie eine Cloud-Dateivorschau und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermez un aperçu de fichier Cloud et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أغلق معاينة ملف سحابي وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra una vista previa de archivo de Cloud e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請關閉一個雲端檔案預覽後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请关闭一个云端文件预览后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 파일 미리보기를 닫고 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイルのプレビューを閉じてもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.section.computers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة الكمبيوتر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinateurs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računari"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computere"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំព្យូទ័រ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datamaskiner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komputery"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютеры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilgisayarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютери"
+          }
+        }
+      }
+    },
+    "devices.empty.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux على جهاز Mac آخر واجعله قابلاً للاكتشاف في الإعدادات › المحمول › أجهزة الكمبيوتر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich auf einem anderen Mac bei cmux an und mache ihn unter Einstellungen › Mobil › Computer auffindbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en cmux en otro Mac y haz que sea detectable en Ajustes › Móvil › Ordenadores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à cmux sur un autre Mac et rendez-le détectable dans Réglages › Mobile › Ordinateurs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のMacでcmuxにサインインし、設定 › モバイル › コンピュータで検出可能にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에서 cmux에 로그인한 후 설정 › 모바일 › 컴퓨터에서 다른 기기가 검색할 수 있도록 설정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一台 Mac 上登录 cmux，并在设置 › 移动端 › 电脑中将其设为可被发现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一部 Mac 登入 cmux，並在設定 › 行動裝置 › 電腦中將其設為可被發現。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavite se u cmux na drugom Macu i omogućite njegovo otkrivanje u Postavke › Mobile › Računari."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på cmux på en anden Mac, og gør den synlig under Indstillinger › Mobile › Computere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a cmux su un altro Mac e rendilo individuabile in Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលគណនី cmux នៅលើ Mac មួយទៀត ហើយអនុញ្ញាតឱ្យឧបករណ៍ផ្សេងរកឃើញវានៅ Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på cmux på en annen Mac, og gjør den synlig under Innstillinger › Mobile › Datamaskiner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do cmux na innym Macu i włącz jego wykrywanie w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no cmux em outro Mac e torne-o detectável em Ajustes › Mobile › Computadores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите в cmux на другом Mac и включите его обнаружение в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ cmux บน Mac อีกเครื่อง แล้วเปิดให้ค้นพบเครื่องนั้นได้ใน การตั้งค่า › Mobile › คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir Mac’te cmux’a giriş yapın ve Ayarlar › Mobile › Bilgisayarlar bölümünden o Mac’i keşfedilebilir hâle getirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть у cmux на іншому Mac і зробіть його доступним для виявлення в розділі Налаштування › Mobile › Комп’ютери."
+          }
+        }
+      }
+    },
+    "devices.options.hint": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Change these options in the ⋯ menu next to My Devices."
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+                }
+            },
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
+                }
+            }
+        }
     }
   },
   "version": "1.0"

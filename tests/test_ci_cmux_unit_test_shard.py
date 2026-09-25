@@ -500,8 +500,14 @@ def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
         body = "\n".join(line for line in step.splitlines() if not line.strip().startswith("#"))
         for selector in re.finditer(r'-only-testing:"?cmuxTests/([A-Za-z0-9_]+)(/[A-Za-z0-9_]+)?', body):
             (partial if selector.group(2) else whole).add(selector.group(1))
-        for loop in re.finditer(r"(?s)for suite in(.*?)(?:;|\n\s*do\b)", body):
-            whole |= {word for word in re.findall(r"[A-Za-z0-9_]+", loop.group(1)) if word[0].isupper()}
+        for loop in re.finditer(r"(?s)for (?:suite|selector) in(.*?)(?:;|\n\s*do\b)", body):
+            for token in re.findall(r"[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)?", loop.group(1)):
+                if not token or not token[0].isupper():
+                    continue
+                if "/" in token:
+                    partial.add(token.split("/", 1)[0])
+                else:
+                    whole.add(token)
     env = dict(re.findall(r'(?m)^      (CMUX_APP_HOST_[A-Z_]+): "([^"]*)"$', job))
     return whole, partial, env
 

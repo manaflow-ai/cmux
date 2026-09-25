@@ -293,7 +293,7 @@ export async function ackPhoneReplies(
   for (const replyId of replyIds) {
     const bounded = boundedId(replyId, MAX_PHONE_REPLY_ID_CHARS);
     const reply = bounded ? byId.get(bounded) : undefined;
-    if (reply && sameTarget(targetForReply(reply), target)
+    if (bounded && reply && sameTarget(targetForReply(reply), target)
       && await storage.delete(replyKey(bounded))) {
       removed += 1;
     }
