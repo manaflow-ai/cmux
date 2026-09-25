@@ -75,4 +75,34 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         self.coordinator = coordinator
         self.surfaceSerial = surfaceSerial
     }
+
+    /// Compatibility initializer for callers that construct a request and
+    /// immediately use the coordinator's current generation. Production
+    /// lifecycle paths pass the token explicitly at capture time.
+    public init(
+        lifetimeID: RuntimeSurfaceLifetimeID,
+        surface: ghostty_surface_t,
+        requestGeneration: UInt64,
+        cell: ExternalHoverGridCell,
+        viewportRowCount: UInt32,
+        gridColumns: Int,
+        cwd: String,
+        mirror: HoverCallbackMirror,
+        coordinator: ExternalHoverOwnerCoordinator,
+        surfaceSerial: UInt64
+    ) {
+        self.init(
+            lifetimeID: lifetimeID,
+            lifetimeToken: coordinator.currentLifetimeToken,
+            surface: surface,
+            requestGeneration: requestGeneration,
+            cell: cell,
+            viewportRowCount: viewportRowCount,
+            gridColumns: gridColumns,
+            cwd: cwd,
+            mirror: mirror,
+            coordinator: coordinator,
+            surfaceSerial: surfaceSerial
+        )
+    }
 }
