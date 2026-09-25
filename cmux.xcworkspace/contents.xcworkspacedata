@@ -46,6 +46,12 @@
       <FileRef
          location = "group:CmuxSyntaxHighlighting">
       </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalPrediction">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxWorkspacePresence">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
@@ -137,6 +143,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCanvasUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloud">
       </FileRef>
       <FileRef
          location = "group:CmuxCloudBannerCore">

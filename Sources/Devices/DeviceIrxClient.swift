@@ -38,6 +38,7 @@ actor DeviceIrxClient {
         let permissionExpiresAt: Int
         let relayURLs: [String]
         let revoked: Bool
+        let rules: [String]
 
         init?(cache: V2CachedState?) {
             guard let cache, let directory = cache.directory else { return nil }
@@ -48,6 +49,7 @@ actor DeviceIrxClient {
             }.sorted { $0.deviceRecordID < $1.deviceRecordID }
             permissionExpiresAt = directory.permissionExpiresAt
             relayURLs = directory.relayURLs
+            rules = (directory.rules ?? []).sorted()
             revoked = cache.authorityRevoked
         }
     }
@@ -70,6 +72,14 @@ actor DeviceIrxClient {
         guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
         let cache = await borrowed.control.snapshot().cache
         return Self.displayBindings(cache: cache, now: permissionNow())
+    }
+
+    /// The stamp of the complete directory that authorizes outgoing control,
+    /// or nil before one is loaded.
+    func directoryStamp() async -> DeviceDirectoryStamp? {
+        guard !stopped, let borrowed = try? await context(), await borrowed.isCurrent(),
+              let directory = await borrowed.control.snapshot().cache.directory else { return nil }
+        return DeviceDirectoryStamp(revision: directory.revision, issuedAt: directory.issuedAt)
     }
 
     /// A pushed account-directory revision triggers a discovery refresh without polling.

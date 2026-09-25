@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxComputerUse
 import AppKit
 import CmuxAppKitSupportUI
@@ -17,21 +18,17 @@ import UniformTypeIdentifiers
 import CmuxTerminal
 
 struct cmuxApp: App {
-    /// Dependency container for the new settings packages. Constructed
-    /// once at app launch and injected into the SwiftUI environment via
-    /// `.settingsRuntime(_:)`; descendant views resolve their settings
-    /// through it via the `@LiveSetting` property wrapper.
+    /// App-owned settings graph, injected into each SwiftUI hosting root.
     private let settingsRuntime: SettingsRuntime
 
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
 
-    /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
-    /// hosted-browser sign-in flow). Constructed once at app launch and
-    /// injected into AppDelegate and the auth-consuming services.
+    /// App-owned auth graph injected into the delegate and auth consumers.
     private let authComposition: MacAuthComposition
     /// Composition-root owner for the config-backed automation bridge.
     private let automationEngine: AutomationEngine
+    private let browserDataImportCoordinator: BrowserDataImportCoordinator
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore: ClosedItemHistoryStore
@@ -45,6 +42,7 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var aboutWindowController: AboutWindowController?
     @State private var browserFocusModeMenuRevision = 0
+    @State private var browserAvailabilityMenuRevision = 0
     @State var historyMenuCoordinator: HistoryMenuCoordinator
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private var browserToolbarAccessorySpacing: Int {
@@ -100,10 +98,12 @@ struct cmuxApp: App {
             backupTimestamp: secretMigrationTimestamp
         )
         let authComposition = MacAuthComposition()
+        let browserDataImportCoordinator = BrowserDataImportCoordinator()
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared
         let sidebarState = SidebarState()
         self.authComposition = authComposition
+        self.browserDataImportCoordinator = browserDataImportCoordinator
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -198,6 +198,7 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
+                browserDataImportCoordinator: browserDataImportCoordinator,
                 computersActions: devices.settingsActions,
                 runComputerUseOnboardingAction: { startingPoint in
                     AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
@@ -316,6 +317,7 @@ struct cmuxApp: App {
             cloudWorkspaceOperationController: cloudWorkspaceOperationController,
             newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
+            browserDataImportCoordinator: browserDataImportCoordinator,
             computerUseRuntimeService: computerUseRuntimeService,
             devicesRegistry: devicesRegistry,
             computersService: computersService
@@ -508,6 +510,13 @@ struct cmuxApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
                     browserFocusModeMenuRevision &+= 1
                 }
+                // `BrowserAvailabilityMonitor` owns watching the gate's
+                // entrypoints, so the menus follow that one signal and
+                // re-evaluate on a real change instead of on every defaults
+                // write.
+                .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilityMonitor.didChangeNotification)) { _ in
+                    browserAvailabilityMenuRevision &+= 1
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -549,7 +558,7 @@ struct cmuxApp: App {
 
             CommandGroup(replacing: .appTermination) {
                 splitCommandButton(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), shortcut: menuShortcut(for: .quit)) {
-                    NSApp.terminate(nil)
+                    AppDelegate.requestApplicationTermination()
                 }
             }
 
@@ -879,17 +888,19 @@ struct cmuxApp: App {
                     }
                 }
 
-                splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
-                    if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewBrowserWorkspaceAction(
-                            tabManager: activeTabManager,
-                            debugSource: "menu.newBrowserWorkspace"
-                        )
-                    } else if BrowserAvailabilitySettings.isEnabled() {
-                        // Last-resort fallback for a missing AppDelegate; keep
-                        // the browser-availability gate identical to the
-                        // shared action path.
-                        activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                if offersBrowserMenuItems {
+                    splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
+                        if let appDelegate = AppDelegate.shared {
+                            appDelegate.performNewBrowserWorkspaceAction(
+                                tabManager: activeTabManager,
+                                debugSource: "menu.newBrowserWorkspace"
+                            )
+                        } else if BrowserAvailabilitySettings.isEnabled() {
+                            // Last-resort fallback for a missing AppDelegate; keep
+                            // the browser-availability gate identical to the
+                            // shared action path.
+                            activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                        }
                     }
                 }
 
@@ -1171,7 +1182,7 @@ struct cmuxApp: App {
             Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
                 // Defer modal presentation until after AppKit finishes menu tracking.
                 DispatchQueue.main.async {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    browserDataImportCoordinator.presentImportDialog()
                 }
             }
 
@@ -1211,12 +1222,14 @@ struct cmuxApp: App {
                 performSplitFromMenu(direction: .down)
             }
 
-            splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
-                performBrowserSplitFromMenu(direction: .right)
-            }
+            if offersBrowserMenuItems {
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
+                    performBrowserSplitFromMenu(direction: .right)
+                }
 
-            splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
-                performBrowserSplitFromMenu(direction: .down)
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
+                    performBrowserSplitFromMenu(direction: .down)
+                }
             }
 
             paneSizingCommandButtons()
@@ -1325,6 +1338,21 @@ struct cmuxApp: App {
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         notificationStore.notificationMenuSnapshot
+    }
+
+    /// Whether the menus offer their browser-*creating* entries. Reads the
+    /// revision so they re-evaluate when the availability gate changes.
+    ///
+    /// Guards creation only: New Browser Workspace and the browser splits.
+    /// Commands that drive an already-open panel (Back, Reload, developer
+    /// tools) stay visible because the user-level toggle leaves live panels
+    /// open, and so do the zoom commands, which fall back to zooming a focused
+    /// text file preview when no browser is focused (#10866).
+    private var offersBrowserMenuItems: Bool {
+        let _ = browserAvailabilityMenuRevision
+        return BrowserAvailabilitySettings.offersBrowserAffordance(
+            isEnabled: BrowserAvailabilitySettings.isEnabled()
+        )
     }
 
     private var browserFocusModeMenuSnapshot: (title: String, canToggle: Bool) {
@@ -2357,7 +2385,7 @@ private struct BrowserImportHintDebugView: View {
                             }
                             Button("Open Import Dialog") {
                                 DispatchQueue.main.async {
-                                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                                    AppDelegate.shared?.browserDataImportCoordinator?.presentImportDialog()
                                 }
                             }
                         }
@@ -5099,58 +5127,6 @@ final class AppIconAppearanceObserver: NSObject {
               let icon = environment.imageForName(imageName) else { return }
         environment.setApplicationIconImage(icon)
         lastAppliedImageName = imageName
-    }
-}
-
-enum BuildFlavor: String, Sendable {
-    case dev
-    case nightly
-    case rc
-    case stable
-
-    static var current: BuildFlavor {
-        let bundle = Bundle.main
-        return detect(
-            bundleNames: [
-                bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
-                bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
-                ProcessInfo.processInfo.processName,
-            ].compactMap { $0 },
-            bundleIdentifier: bundle.bundleIdentifier
-        )
-    }
-
-    static func detect(bundleName: String?, bundleIdentifier: String?) -> BuildFlavor {
-        detect(bundleNames: [bundleName].compactMap { $0 }, bundleIdentifier: bundleIdentifier)
-    }
-
-    static func detect(bundleNames: [String], bundleIdentifier: String?) -> BuildFlavor {
-        if bundleNames.contains(where: containsDevToken) {
-            return .dev
-        }
-
-        let normalizedBundleIdentifier = bundleIdentifier?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        if SocketControlSettings.isDebugLikeBundleIdentifier(normalizedBundleIdentifier) {
-            return .dev
-        }
-        if let channel = releaseChannel(normalizedBundleIdentifier: normalizedBundleIdentifier, bundleNames: bundleNames) {
-            return channel
-        }
-        return .stable
-    }
-
-    private static func containsDevToken(_ name: String) -> Bool {
-        containsToken("DEV", in: name)
-    }
-
-    static func containsToken(_ token: String, in name: String) -> Bool {
-        name
-            .uppercased()
-            .split { !$0.isLetter && !$0.isNumber }
-            .contains { String($0) == token }
     }
 }
 

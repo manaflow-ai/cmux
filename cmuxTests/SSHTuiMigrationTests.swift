@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCore
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
@@ -160,7 +161,7 @@ struct SSHTuiMigrationTests {
     }
 
     @MainActor
-    @Test("Native SSH projections remain remote before and after provider restore")
+    @Test("Pending native SSH projections remain remote until removed")
     func nativeSSHProjectionOwnsAgentAndPathClassification() throws {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
@@ -188,6 +189,44 @@ struct SSHTuiMigrationTests {
         #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
     }
 
+    @Test("Loopback links in SSH terminals retain remote routing")
+    func sshLoopbackLinkUsesItsMachineCarrier() throws {
+        let resource = SurfaceResource(
+            id: .init(machine: .ssh("fixture"), kind: .terminal, key: "term_remote"),
+            title: "shell", detail: "/home/alice", lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        )
+        let url = try #require(URL(string: "http://localhost:3000/project?view=source"))
+        let target = try #require(CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(
+            url: url, resource: resource, privateAddress: "127.0.0.1"
+        ))
+        #expect(target.url.port == 3000)
+        #expect(target.url.path == "/project")
+        #expect(target.url.query == "view=source")
+    }
+
+    @Test("SSH port previews admit remote loopback without widening Cloud routes")
+    func sshPortPreviewRetainsCarrierOwnership() {
+        let resource = CmuxTuiSnapshotParser.portBrowser(machine: .ssh("fixture"), port: 3000)
+        #expect(CloudPortRoutePlan.plan(resource: resource, privateAddress: "127.0.0.1")
+            == .privateDirect(remoteURL: "http://127.0.0.1:3000"))
+        let cloud = CmuxTuiSnapshotParser.portBrowser(machine: .cloud("fixture"), port: 3000)
+        guard case .unsupported = CloudPortRoutePlan.plan(resource: cloud, privateAddress: "127.0.0.1") else {
+            Issue.record("Cloud must not acquire an SSH loopback route")
+            return
+        }
+    }
+
+    @Test("An unconfirmed SSH graph cannot publish its saved remote working directory")
+    @MainActor
+    func unconfirmedSSHDirectoryRemainsUntrusted() {
+        let resource = SurfaceResource(
+            id: .init(machine: .ssh("fixture"), kind: .terminal, key: "term_remote"),
+            title: "shell", detail: "/home/alice", lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        )
+        #expect(SurfaceCatalog().resourceForPresentation(resource).detail == nil)
+    }
     @Test("Native SSH forks never fall back to local creation without a provider")
     @MainActor
     func disconnectedNativeSSHForkFailsClosed() throws {
@@ -209,6 +248,8 @@ struct SSHTuiMigrationTests {
         let snapshot = SessionRestorableAgentSnapshot(kind: .claude,
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951", workingDirectory: "/home/alice/project")
         let originalPanels = Set(workspace.panels.keys)
+        #expect(workspace.remotePTYRespawnRouting(panelId: panelID) == .unsupportedRemote)
+        #expect(workspace.respawnTerminalSurface(panelId: panelID, command: "printf remote-only") == nil)
         #expect(workspace.forkAgentConversation(fromPanelId: panelID, snapshot: snapshot, direction: .right) == nil)
         #expect(workspace.forkAgentConversationToNewTab(fromPanelId: panelID, snapshot: snapshot,
                                                        anchorTabId: tabID, paneId: paneID) == nil)
@@ -275,6 +316,19 @@ struct SSHTuiMigrationTests {
     func allSessionsWithoutNativeWorkspacesFallsBack() async {
         let result = await TerminalController.shared.tuiSSHSessions(params: ["all_workspaces": true])
         #expect(result == nil)
+    }
+
+    @Test("Reconnect for an unrelated pane cannot restart a native SSH workspace")
+    @MainActor
+    func unrelatedSurfaceReconnectDoesNotRestartSSHWorkspace() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.remoteConfiguration = configuration()
+        let localPanelID = try #require(workspace.focusedPanelId)
+        #expect(workspace.usesSSHTui)
+        #expect(workspace.reconnectRemoteConnection(surfaceId: localPanelID) == false)
+        #expect(workspace.reconnectRemoteConnection(surfaceId: UUID()) == false)
+        #expect(workspace.sshTuiConnectionAttemptID == nil)
     }
 
     @Test("All sessions includes both owners and preserves partial listing errors")

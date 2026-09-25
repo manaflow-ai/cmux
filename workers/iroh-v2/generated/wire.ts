@@ -261,6 +261,7 @@ export interface V2Directory {
     permissionExpiresAt: number;
     relayURLs:           string[];
     revision:            number;
+    rules?:              string[];
     teamId:              string;
 }
 
@@ -325,6 +326,7 @@ export type V2RelayResponseSchemaID = "relay.result.v1";
 export interface V2RevokedResponse {
     deliveryReceipt?: V2DeliveryReceipt;
     deviceRecordId:   string;
+    recoverable?:     boolean;
     revision:         number;
     schemaId:         V2RevokedResponseSchemaID;
     teamId:           string;

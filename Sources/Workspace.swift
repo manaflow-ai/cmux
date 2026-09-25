@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxAppKitSupportUI
 import CMUXMobileCore
 import CmuxFoundation
@@ -638,11 +639,6 @@ extension Workspace {
                     )
                 }
                 guard let effectiveRestorableAgent else { return nil }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
@@ -654,6 +650,14 @@ extension Workspace {
                 ) {
                     return true
                 }
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
+                // Unknown liveness stays nil so the shell state and the caller's
+                // default (`agentWasRunning ?? true`) decide. The Computer Use
+                // merge (#13055) had turned it into false.
                 return (matchingObservation?.processLiveness ?? .unknown)
                     .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
@@ -786,7 +790,7 @@ extension Workspace {
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .filePreview:
-            guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
+            guard let filePreviewPanel = panel as? FilePreviewPanel, filePreviewPanel.cloudPreviewLease == nil, filePreviewPanel.cloudPreviewRemotePath == nil else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1639,15 +1643,8 @@ extension Workspace {
             let restoredResumeSnapshotWorkspaceID = snapshotWorkspaceId
                 ?? restoredRemotePTYSessionID.flatMap { Self.parsedDefaultSSHPTYSessionID($0)?.workspaceId }
                 ?? id
-            let locatedResumeBinding = migratingLegacyPersistentSSHResumeBinding(
-                persistedResumeBinding,
-                snapshotWorkspaceID: restoredResumeSnapshotWorkspaceID,
-                snapshotSurfaceID: snapshot.id,
-                persistentPTYSessionID: restoredRemotePTYSessionID,
-                restoresRemoteTerminal: restoresRemoteWorkspaceTerminalSnapshot
-            )
             let resumeBinding = Self.resumeBindingForSessionRestore(
-                locatedResumeBinding,
+                persistedResumeBinding,
                 restorableAgent: restorableAgent
             )
             // A persisted agent snapshot can coexist with a non-agent surface
@@ -1718,40 +1715,6 @@ extension Workspace {
                 promptForApproval: true,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
-            let restoredPersistentSSHResumeCommand: String? = if let restoredRemotePTYSessionID {
-                persistentSSHResumeCommand(
-                    for: effectiveResumeBindingForStartup,
-                    expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
-                    expectedSurfaceID: snapshot.id,
-                    persistentPTYSessionID: restoredRemotePTYSessionID
-                )
-            } else {
-                nil
-            }
-            let deferredPersistentSSHResumeCommand: String? = if restoreIndexUnavailable,
-                restoresRemoteWorkspaceTerminalSnapshot,
-                restorableAgent == nil,
-                let restoredRemotePTYSessionID {
-                sessionRestorePolicy
-                    .approvedSurfaceResumeBinding(
-                        resumeBinding,
-                        autoResumeAgentSessions: shouldAutoResumeAgent,
-                        promptForApproval: true,
-                        approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-                    )
-                    .flatMap { deferredBinding in
-                        persistentSSHResumeCommand(
-                            for: deferredBinding,
-                            expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
-                            expectedSurfaceID: snapshot.id,
-                            persistentPTYSessionID: restoredRemotePTYSessionID
-                        )
-                    }
-            } else {
-                nil
-            }
-            let effectivePersistentSSHResumeCommand =
-                restoredPersistentSSHResumeCommand ?? deferredPersistentSSHResumeCommand
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
                 !restoresRemoteWorkspaceTerminalSnapshot
@@ -1767,9 +1730,7 @@ extension Workspace {
                 } else {
                     nil
                 }
-            let effectiveResumeBinding = unresolvedBindingLaunch != nil || restoredPersistentSSHResumeCommand != nil
-                ? resumeBinding
-                : nil
+            let effectiveResumeBinding = unresolvedBindingLaunch != nil ? resumeBinding : nil
             let savedWorkingDirectory = effectiveResumeBinding?.cwd
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
                 ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
@@ -1937,10 +1898,7 @@ extension Workspace {
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
-                remotePTYAttachStartupCommand(
-                    sessionID: $0,
-                    remoteCommand: effectivePersistentSSHResumeCommand
-                )
+                remotePTYAttachStartupCommand(sessionID: $0, remoteCommand: nil)
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
@@ -1983,13 +1941,10 @@ extension Workspace {
             }()
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory
-            let restoredAgentWillRunStartupCommand =
-                effectivePersistentSSHResumeCommand != nil &&
-                resumeBinding?.isAgentHookBinding == true
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
-                (deferredAgentResumeStartupInput != nil && deferredPersistentSSHResumeCommand == nil)
+                deferredAgentResumeStartupInput != nil
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -2042,7 +1997,6 @@ extension Workspace {
                 startupEnvironment: replayEnvironment,
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .pacedSessionRestore,
-                    willRunStartupCommand: restoredAgentWillRunStartupCommand,
                     willRunStartupInput: restoredAgentWillRunStartupInput,
                     awaitsDeferredAgentResume: deferredAgentResumeAdmission
                 ),
@@ -2078,22 +2032,6 @@ extension Workspace {
                 }
                 return nil
             }
-            let deferredAdmissionFallbackCommand = deferredAgentResumeAdmission
-                ? restoredRemotePTYSessionID.flatMap { sessionID in
-                    effectivePersistentSSHResumeCommand.map { _ in
-                        // Keep a deferred persistent-SSH restore attached to its
-                        // PTY after cancellation, but leave its agent-resume
-                        // payload out of the first runtime command.
-                        remotePTYAttachStartupCommand(
-                            sessionID: sessionID,
-                            remoteCommand: nil
-                        )
-                    }
-                }
-                : nil
-            terminalPanel.surface.setStartupRestoreAdmissionFallbackCommand(
-                deferredAdmissionFallbackCommand
-            )
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
@@ -2167,7 +2105,6 @@ extension Workspace {
                 snapshot: restorableAgent,
                 resumeBinding: resumeBinding,
                 manualResumeAvailable: restorableAgent != nil,
-                willRunStartupCommand: restoredAgentWillRunStartupCommand,
                 willRunStartupInput: restoredAgentWillRunStartupInput,
                 resumeWorkingDirectory: restoredDirectoryIsLocalPath
                     ? resumeSessionWorkingDirectory
@@ -2199,7 +2136,6 @@ extension Workspace {
                         resumeBinding: resumeBinding,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
-                        remoteResumeCommandEmbedded: deferredPersistentSSHResumeCommand != nil,
                         workingDirectory: workingDirectory,
                         resumeWorkingDirectory: resumeSessionWorkingDirectory
                     )
@@ -2820,6 +2756,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
     private var featureFlagsObserver: NSObjectProtocol?
+    private var browserAvailabilityObserver: NSObjectProtocol?
 
     /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
     /// surface-id mapping, and the pane-layout bookkeeping. The legacy
@@ -3677,6 +3614,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return false
     }
 
+    private nonisolated static func resolvedPaneBorderHex(
+        configuredHex: String?,
+        splitDividerColor: NSColor?,
+        defaultBorderHex: String
+    ) -> String {
+        let splitDividerHex = splitDividerColor.map { color in
+            color.hexString(includeAlpha: color.alphaComponent < 0.999)
+        }
+        return PaneChromeSettings.resolvedPaneBorderHex(
+            configuredHex: configuredHex,
+            fallback: splitDividerHex ?? defaultBorderHex
+        )
+    }
+
     /// Resolves Bonsplit colors while keeping terminal backdrop ownership explicit.
     nonisolated static func bonsplitChromeColors(
         backgroundColor: NSColor,
@@ -3684,6 +3635,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
         paneBorderColorHex: String? = nil,
+        splitDividerColor: NSColor? = nil,
         chromeBackgroundColor: NSColor? = nil,
         chromeHost: BonsplitChromeHost = .workspace
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
@@ -3702,9 +3654,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     )
             )
             .hexString(includeAlpha: true)
-        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
+        let borderHex = resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            fallback: defaultBorderHex
+            splitDividerColor: splitDividerColor,
+            defaultBorderHex: defaultBorderHex
         )
 
         // Keep this decision on the same owner plan used by terminal surfaces.
@@ -3757,7 +3710,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
-        paneBorderColorHex: String? = nil
+        paneBorderColorHex: String? = nil,
+        splitDividerColor: NSColor? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
@@ -3765,9 +3719,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
-        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
+        let borderHex = resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            fallback: defaultBorderHex
+            splitDividerColor: splitDividerColor,
+            defaultBorderHex: defaultBorderHex
         )
 
         if sharesWindowBackdrop {
@@ -3819,6 +3774,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
+        splitDividerColor: NSColor? = nil,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
@@ -3831,6 +3787,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
             paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            splitDividerColor: splitDividerColor,
             chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
                 backgroundColor: backgroundColor,
                 backgroundOpacity: backgroundOpacity
@@ -3859,6 +3816,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
             paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            splitDividerColor: config.splitDividerColor,
             chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
                 backgroundColor: config.backgroundColor,
                 backgroundOpacity: config.backgroundOpacity
@@ -4040,11 +3998,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.surfaceTabBarDirectory = initialDirectory
 
         // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
+        let initialGhosttyConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            reason: "workspace.init"
+        )
         let appearance = Self.bonsplitAppearance(
-            from: GhosttyApp.shared.defaultBackgroundColor,
-            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
-            tabTitleFontSize: initialSurfaceTabBarFontSize
+            from: initialGhosttyConfig.backgroundColor,
+            backgroundOpacity: initialGhosttyConfig.backgroundOpacity,
+            splitDividerColor: initialGhosttyConfig.splitDividerColor,
+            tabTitleFontSize: initialGhosttyConfig.surfaceTabBarFontSize
         )
         let config = BonsplitConfiguration(
             allowSplits: true,
@@ -4169,7 +4130,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ),
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .immediate,
-                    willRunStartupCommand: false,
                     willRunStartupInput:
                         initialTerminalStartupRestoreAgent != nil && initialTerminalInput != nil
                 )
@@ -4197,7 +4157,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         panel: terminalPanel,
                         snapshot: initialTerminalStartupRestoreAgent,
                         manualResumeAvailable: true,
-                        willRunStartupCommand: false,
                         willRunStartupInput: initialTerminalInput != nil,
                         resumeWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
                     )
@@ -4325,6 +4284,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 self.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
+        // `BrowserAvailabilityMonitor` owns watching the gate's several
+        // entrypoints and broadcasts only a real transition, so the tab bar
+        // rebuilds on an actual availability change rather than on every
+        // unrelated defaults write.
+        browserAvailabilityObserver = NotificationCenter.default.addObserver(
+            forName: BrowserAvailabilityMonitor.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isRetiredFromOwningTabManager else { return }
+                self.reapplySurfaceTabBarButtonsForFeatureFlags()
+            }
+        }
     }
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
@@ -4342,6 +4315,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
+        }
+        if let browserAvailabilityObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityObserver)
         }
         deferredAgentResumeIndexTask?.cancel()
         activeRemoteSessionControllerID = nil
@@ -4373,6 +4349,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.configuration = configuration
     }
 
+    /// Whether a built-in tab bar button should be drawn at all.
+    ///
+    /// The globe button creates a browser surface, so it resolves against the
+    /// same availability gate its action already consults: a disabled browser
+    /// left the button drawn and only beeping (#10866). Named and static so
+    /// the gate is testable without standing up a workspace.
+    static func surfaceTabBarBuiltInActionIsAvailable(
+        _ action: CmuxSurfaceTabBarBuiltInAction
+    ) -> Bool {
+        switch action {
+        case .mobileConnect: return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
+        case .newAgentChat: return CmuxFeatureFlags.shared.isAgentChatUIEnabled
+        case .newSimulator: return CmuxFeatureFlags.shared.isSimulatorEnabled
+        case .newBrowser:
+            return BrowserAvailabilitySettings.offersBrowserAffordance(
+                isEnabled: BrowserAvailabilitySettings.isEnabled()
+            )
+        default: return true
+        }
+    }
+
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
@@ -4389,10 +4386,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         let buttons = buttons.filter { button in
             guard case .builtIn(let builtInAction) = button.action else { return true }
-            if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
-            if builtInAction == .newAgentChat { return CmuxFeatureFlags.shared.isAgentChatUIEnabled }
-            if builtInAction == .newSimulator { return CmuxFeatureFlags.shared.isSimulatorEnabled }
-            return true
+            return Self.surfaceTabBarBuiltInActionIsAvailable(builtInAction)
         }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
@@ -9288,7 +9282,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: runtimeSpawnPolicy,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -9331,7 +9324,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 panel: newPanel,
                 snapshot: startupRestoreAgent,
                 manualResumeAvailable: true,
-                willRunStartupCommand: false,
                 willRunStartupInput: initialInput != nil,
                 resumeWorkingDirectory: startupRestoreAgent.workingDirectory
             )
@@ -10613,6 +10605,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             NotificationCenter.default.removeObserver(featureFlagsObserver)
             self.featureFlagsObserver = nil
         }
+        if let browserAvailabilityObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityObserver)
+            self.browserAvailabilityObserver = nil
+        }
         teardownAllPanels(retireDock: true)
         teardownRemoteConnection()
         owningTabManager = nil
@@ -10684,11 +10680,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return requestCloseTab(tabId, force: force)
         }
 
-        // Mapping can transiently drift during split-tree mutations. If the target panel is
-        // currently focused (or is the active terminal first responder), close whichever tab
-        // bonsplit marks selected in that focused pane.
         let firstResponderPanelId = (NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder)
             .cmuxStrictOwningGhosttyView()?.terminalSurface?.id
+        return closeUnmappedPanelViaSelectedTab(
+            panelId,
+            firstResponderPanelId: firstResponderPanelId,
+            force: force
+        )
+    }
+
+    /// Fallback for ``closePanel(_:force:)`` when the panel has no bonsplit tab mapping.
+    ///
+    /// Mapping can transiently drift during split-tree mutations. If the target panel is
+    /// currently focused (or is the active terminal first responder), close the tab bonsplit
+    /// marks selected in the focused pane, but only when that tab maps to the target panel or
+    /// has no panel mapping at all. A selected tab owned by another panel is never closed:
+    /// the caller gets a failure instead of losing an unrelated surface (#12524).
+    func closeUnmappedPanelViaSelectedTab(
+        _ panelId: UUID,
+        firstResponderPanelId: UUID?,
+        force: Bool
+    ) -> Bool {
         let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
         guard targetIsActive,
               let focusedPane = bonsplitController.focusedPaneId,
@@ -10699,6 +10711,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 "focusedPanel=\(focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
                 "firstResponderPanel=\(firstResponderPanelId?.uuidString.prefix(5) ?? "nil") " +
                 "focusedPane=\(bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil")"
+            )
+#endif
+            return false
+        }
+
+        if let selectedOwner = panelIdFromSurfaceId(selected.id), selectedOwner != panelId {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.close.fallback.refuse panel=\(panelId.uuidString.prefix(5)) " +
+                "selectedTab=\(String(describing: selected.id).prefix(5)) " +
+                "selectedOwner=\(selectedOwner.uuidString.prefix(5))"
             )
 #endif
             return false
@@ -12965,7 +12988,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -13001,7 +13023,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 panel: newPanel,
                 snapshot: startupRestoreAgent,
                 manualResumeAvailable: true,
-                willRunStartupCommand: false,
                 willRunStartupInput: initialInput != nil,
                 resumeWorkingDirectory: startupRestoreAgent.workingDirectory
             )
@@ -13783,14 +13804,19 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         func recordPostCloseState() {
+            let tabs = controller.tabs(inPane: pane)
+            // Only a close that takes the zoomed pane with it ends the zoom. While
+            // other tabs remain the pane outlives the close and keeps filling the
+            // window, so the layout must not snap back to the split
+            // (https://github.com/manaflow-ai/cmux/issues/8363).
             if controller.zoomedPaneId == pane,
-               controller.selectedTab(inPane: pane)?.id == tab.id {
+               controller.selectedTab(inPane: pane)?.id == tab.id,
+               tabs.count <= 1 {
                 postCloseClearSplitZoomTabIds.insert(tab.id)
             } else {
                 postCloseClearSplitZoomTabIds.remove(tab.id)
             }
 
-            let tabs = controller.tabs(inPane: pane)
             guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {
                 postCloseSelectTabId.removeValue(forKey: tab.id)
                 return
@@ -14524,6 +14550,7 @@ extension Workspace: BonsplitDelegate {
         bindSurface(newTabId, toPanelId: newPanel.id)
         rememberTerminalConfigInheritanceSource(newPanel)
         normalizePinnedTabs(in: newPane)
+        equalizeSplitsAfterCreatingSplitIfEnabled(newPaneId: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG
         cmuxDebugLog(

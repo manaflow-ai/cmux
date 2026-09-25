@@ -9,7 +9,10 @@ import {
   devboxIdentityCheckCommand,
   devboxIdentityInstallCommand,
   devboxProviderResidueCommand,
+  devboxParkDaemonCommand,
+  devboxPrepareTemplateTerminalCommand,
   devboxSshHostKeyRegenerateCommand,
+  devboxWipeDaemonStateKeepingTemplateCommand,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
 import { devboxNetworkAnnounceCommand } from "../services/vms/images/network";
@@ -278,3 +281,108 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     expect(verify).toContain("command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok");
   });
 });
+
+// Warm template terminal (devboxPrepareTemplateTerminalCommand and
+// devboxParkDaemonCommand): the snapshot keeps the first terminal's host and
+// shell, never the daemon's per-machine state. The wipe runs with a scratch
+// working directory so a regression can never touch the checkout.
+describe("devbox warm template terminal", () => {
+  function wipe(root: string, stateRoot: string) {
+    return spawnSync("sh", ["-c", `${devboxWipeDaemonStateKeepingTemplateCommand(stateRoot)} && echo "$cmux_keep"`], {
+      encoding: "utf8",
+      cwd: root,
+      timeout: 5_000,
+    });
+  }
+
+  test("the park wipe keeps only the terminal host records and removes every identity file", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-template-wipe-"));
+    try {
+      const state = path.join(root, "cmux-tui");
+      const sessions = path.join(state, "sessions");
+      const hosts = path.join(sessions, "terminal-hosts-abc");
+      const session = path.join(sessions, "cloud");
+      mkdirSync(hosts, { recursive: true });
+      mkdirSync(session, { recursive: true });
+      writeFileSync(path.join(hosts, "0123.json"), "{}");
+      writeFileSync(path.join(sessions, "machine-id"), "machine_builder\n");
+      writeFileSync(path.join(sessions, "resource-effect-pepper"), "secret");
+      writeFileSync(path.join(session, "workspace-registry.sqlite3"), "db");
+      writeFileSync(path.join(session, "workspace-registry.sqlite3-wal"), "wal");
+      writeFileSync(path.join(state, "stray.lock"), "");
+      writeFileSync(path.join(root, "sentinel"), "");
+      const result = wipe(root, `'${state}'`);
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toBe(hosts);
+      expect(existsSync(path.join(hosts, "0123.json"))).toBe(true);
+      for (const gone of ["machine-id", "resource-effect-pepper", "cloud"]) {
+        expect(existsSync(path.join(sessions, gone))).toBe(false);
+      }
+      expect(existsSync(path.join(state, "stray.lock"))).toBe(false);
+      expect(existsSync(path.join(root, "sentinel"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the park wipe fails without deleting anything when there is no template host", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-template-wipe-"));
+    try {
+      const state = path.join(root, "state");
+      mkdirSync(path.join(state, "sessions"), { recursive: true });
+      writeFileSync(path.join(state, "sessions", "machine-id"), "m");
+      writeFileSync(path.join(root, "sentinel"), "");
+      for (const stateRoot of [`'${state}'`, "''", "relative"]) {
+        const result = wipe(root, stateRoot);
+        expect(result.status).not.toBe(0);
+      }
+      expect(existsSync(path.join(state, "sessions", "machine-id"))).toBe(true);
+      expect(existsSync(path.join(root, "sentinel"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a clone reseeds the kernel RNG and starts the shell's bounded wait before its daemon starts", () => {
+    expect(devboxBoot).toContain("export CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=1");
+    expect(devboxBoot).toContain('export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"');
+    const cloneBranch = devboxBoot.indexOf('if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then');
+    const announce = devboxBoot.indexOf("( announce_network & )", cloneBranch);
+    const cloneStarted = devboxBoot.indexOf('"$TEMPLATE_RUN_DIR/clone-started"', cloneBranch);
+    const reseed = devboxBoot.indexOf('reseed_kernel_rng "$id"', cloneBranch);
+    const daemon = devboxBoot.indexOf("start_daemon", reseed);
+    const rekey = devboxBoot.indexOf("( rekey_ssh_host & )", cloneBranch);
+    expect(announce).toBeGreaterThan(cloneBranch);
+    expect(cloneStarted).toBeGreaterThan(announce);
+    expect(reseed).toBeGreaterThan(cloneStarted);
+    expect(daemon).toBeGreaterThan(reseed);
+    expect(rekey).toBeGreaterThan(reseed);
+  });
+
+  test("the RNG reseed runs cleanly as a shell function", () => {
+    const start = devboxBoot.indexOf("reseed_kernel_rng() {");
+    const fn = devboxBoot.slice(start, devboxBoot.indexOf("\n}\n", start) + 3);
+    const result = spawnSync("sh", ["-c", `${fn}\nreseed_kernel_rng vm-test && echo ok`], { encoding: "utf8", timeout: 5_000 });
+    expect(result.stdout.trim()).toBe("ok");
+  });
+
+  test("the bake and every derived size prepare a fresh template terminal before parking", () => {
+    const build = readFileSync(path.join(import.meta.dirname, "../scripts/build-devbox-freestyle.ts"), "utf8");
+    const derive = readFileSync(path.join(import.meta.dirname, "../scripts/derive-devbox-sizes.ts"), "utf8");
+    for (const script of [build, derive]) {
+      const prepare = script.indexOf("devboxPrepareTemplateTerminalCommand()");
+      const park = script.indexOf("devboxParkDaemonCommand()", prepare);
+      expect(prepare).toBeGreaterThan(-1);
+      expect(park).toBeGreaterThan(prepare);
+    }
+    const prepare = devboxPrepareTemplateTerminalCommand();
+    expect(prepare.indexOf("template-arm")).toBeLessThan(prepare.indexOf("workspace create --name Cloud"));
+    expect(prepare).toContain("test -e /run/cmux/template-shell-ready");
+    expect(prepare).toContain("test ! -e /run/cmux/template-arm");
+    const park = devboxParkDaemonCommand();
+    expect(park).toContain("pgrep -f '[_]_terminal-host'");
+    expect(park).toContain("rm -f /run/cmux/bound /run/cmux/clone-started /run/cmux/first-prompt-named");
+  });
+});
+

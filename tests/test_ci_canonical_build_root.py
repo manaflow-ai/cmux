@@ -7,6 +7,7 @@ import os
 import json
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,6 +87,18 @@ class CanonicalFingerprintTests(unittest.TestCase):
         ):
             with self.subTest(workspace=workspace, derived=derived):
                 self.assertNotEqual(self._fp(workspace, derived, root=root), canonical)
+
+    def test_a_second_compile_slot_gets_keys_of_its_own(self):
+        # An owned Mac's second compile slot builds at /private/tmp/cmux-ci-2:
+        # different absolute paths in every entry, so it must never adopt a
+        # seed or compilation cache keyed for the first slot's root.
+        first, second = "/private/tmp/cmux-ci", "/private/tmp/cmux-ci-2"
+        self.assertNotEqual(
+            self._fp(f"{first}/src", f"{first}/derived-data-compile-admission", root=first),
+            self._fp(f"{second}/src", f"{second}/derived-data-compile-admission", root=second))
+        # The default root adds no line, so every existing key is unchanged.
+        text = SCRIPT.read_text()
+        self.assertIn('if [ "$CANONICAL_BUILD_ROOT" != /private/tmp/cmux-ci ]; then', text)
 
     def test_purposes_stay_separate_under_the_canonical_root(self):
         # Two purposes are two directories, so their entries cannot hit each
@@ -260,6 +273,10 @@ class CanonicalRecipeTests(unittest.TestCase):
             (root / "src").symlink_to(workspace)
             env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
                        CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
+                       # The guard runs in a shared CI environment. Keep this
+                       # recipe test independent of a cache-hit hint exported
+                       # by a caller, which can add a fallback resolve call.
+                       CMUX_CI_SWIFTPM_CACHE_EXACT_HIT="",
                        CMUX_CI_CANONICAL_ROOT=str(root))
             derived = str(root / "derived-data-compile-admission")
             packages = str(workspace / ".ci-source-packages")
@@ -270,17 +287,23 @@ class CanonicalRecipeTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in calls.read_text().splitlines()]
-            # Derive the expected calls from the recipe rather than pinning a
-            # count: one version probe, one resolve, then one build per scheme.
+            # Derive the expected builds from the recipe rather than pinning a
+            # count: version probes, one resolve, then one build per scheme.
             # A hardcoded total silently breaks whenever a scheme is added --
-            # cmux-cli-tests did exactly that.
-            schemes = re.findall(
-                r"for scheme in ([^;]+); do",
-                SCRIPT.read_text(encoding="utf-8"),
-            )
-            self.assertEqual(len(schemes), 1, "expected one scheme loop in the recipe")
-            expected_schemes = schemes[0].split()
-            self.assertEqual(len(records), 2 + len(expected_schemes))
+            # cmux-cli-tests did exactly that. The recipe now takes its scheme
+            # list from PRODUCT_PROFILES, so read the same source it does.
+            sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+            import product_input_identity as identity
+
+            expected_schemes = list(identity.profile_schemes("app-host"))
+            # Version probes are not pinned either: the build step reads the
+            # Xcode version too, to decide the compilation cache (#14359).
+            # Every other call is the one resolve or a scheme build.
+            probes = [args for _cwd, args in records if args == ["-version"]]
+            resolves = [args for _cwd, args in records if "-resolvePackageDependencies" in args]
+            self.assertGreaterEqual(len(probes), 1)
+            self.assertEqual(len(resolves), 1)
+            self.assertEqual(len(records), len(probes) + len(resolves) + len(expected_schemes))
             # resolve() also passes -scheme (cmux-unit) alongside
             # -resolvePackageDependencies; only the build invocations count.
             built = [
@@ -289,8 +312,13 @@ class CanonicalRecipeTests(unittest.TestCase):
                 if "-scheme" in args and "-resolvePackageDependencies" not in args
             ]
             self.assertEqual(built, expected_schemes)
+            # cmux-numeric-locale reuses the cmux-unit product instead of being
+            # built again; tests/test_app_host_test_products.py holds the two
+            # schemes equivalent.
+            self.assertNotIn("cmux-numeric-locale", built)
+            canonical_src = str((root / "src").resolve())
             for cwd, args in records:
-                self.assertEqual(cwd, str(root / "src"))
+                self.assertEqual(cwd, canonical_src)
                 if '-clonedSourcePackagesDirPath' in args:
                     self.assertEqual(args[args.index('-clonedSourcePackagesDirPath')+1],
                                      str(root / 'src' / '.ci-source-packages'))
@@ -322,6 +350,7 @@ class CanonicalRecipeTests(unittest.TestCase):
             (root / "src").symlink_to(workspace)
             env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
                        CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
+                       CMUX_CI_SWIFTPM_CACHE_EXACT_HIT="",
                        CMUX_CI_CANONICAL_ROOT=str(root))
             derived = str(root / "derived-data-compile-admission")
             result = subprocess.run(
@@ -332,8 +361,9 @@ class CanonicalRecipeTests(unittest.TestCase):
             self.assertFalse((root / "src").is_symlink())
             records = [json.loads(line) for line in calls.read_text().splitlines()]
             self.assertTrue(records)
+            canonical_src = str((root / "src").resolve())
             for cwd, _args in records:
-                self.assertEqual(cwd, str(root / "src"))
+                self.assertEqual(cwd, canonical_src)
 
 class SeededBuildFileSystemModeTests(unittest.TestCase):
     """A seeded build must compare inputs by content, not by stat.
@@ -354,19 +384,30 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
             "#!/usr/bin/env python3\n"
             "import os,sys,json\n"
             "with open(os.environ['CALLS'], 'a') as f:\n"
-            " f.write(json.dumps({'args': sys.argv[1:], 'mode': os.environ.get('FileSystemMode')})+'\\n')\n"
-            "if '-version' in sys.argv: print('Xcode 26.3')\n")
+            " f.write(json.dumps({'args': sys.argv[1:], 'mode': os.environ.get('FileSystemMode'), 'env': dict(os.environ)})+'\\n')\n"
+            "if '-version' in sys.argv: print('Xcode 26.3')\n"
+            "if '-resolvePackageDependencies' in sys.argv:\n"
+            " import pathlib\n"
+            " p=pathlib.Path(sys.argv[sys.argv.index('-clonedSourcePackagesDirPath')+1])\n"
+            " for a in ['sparkle/Sparkle/Sparkle.xcframework','sentry-cocoa/Sentry/Sentry.xcframework']: (p/'artifacts'/a).mkdir(parents=True,exist_ok=True)\n")
         (bin_dir / "xcodebuild").chmod(0o755)
         workspace = base / "checkout"
         (workspace / ".git").mkdir(parents=True)
         root = base / "canonical"
         root.mkdir()
         env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ["PATH"], CALLS=str(calls),
-                   CMUX_CI_CANONICAL_ROOT=str(root))
+                   CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
+                   CMUX_CI_CANONICAL_ROOT=str(root),
+                   # A caller's per-step noise, its tools and its settings.
+                   GITHUB_RUN_ID="12345", HOME=str(base / "home"), CI="true",
+                   CMUX_SKIP_ZIG_BUILD="1", CARGO_HOME=str(base / "cargo"),
+                   CARGO_REGISTRIES_X_TOKEN="secret")
         env.pop("FileSystemMode", None)
+        self.caller_env = env
         derived = str(root / "derived-data-compile-admission")
         fingerprints = []
         for args in [("canonical-fingerprint", derived),
+                     ("canonical-resolve", derived, str(workspace / ".ci-source-packages")),
                      ("canonical-build", derived, str(workspace / ".ci-source-packages"), str(root / "cas"))]:
             result = subprocess.run([str(SCRIPT), *args], cwd=workspace, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -377,7 +418,10 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
         builds = [r for r in records if "build-for-testing" in r["args"]]
-        self.assertEqual(len(builds), 4)
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import product_input_identity as identity
+
+        self.assertEqual(len(builds), len(identity.profile_schemes("app-host")))
         for record in builds:
             self.assertEqual(record["mode"], "checksum-only", record["args"])
 
@@ -391,6 +435,74 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
             capture_output=True, text=True, check=True,
         ).stdout[:32]
         self.assertNotEqual(fingerprint, old)
+
+
+class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
+    """Every scheme build reuses the manifests the resolve evaluated.
+
+    SwiftPM keys each evaluated Package.swift on xcodebuild's whole
+    environment, so a build under the caller's environment re-evaluated all
+    of them: 18 to 44 s on the first scheme of every admission. The script
+    phases still get the caller's PATH, HOME and settings, as build settings.
+    """
+
+    def test_builds_share_the_resolves_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            records, _ = self.run_recipe(Path(tmp))
+        resolves = [r for r in records if "-resolvePackageDependencies" in r["args"]]
+        builds = [r for r in records if "build-for-testing" in r["args"]]
+        self.assertEqual(len(resolves), 1)
+        self.assertTrue(builds)
+        resolve_env = resolves[0]["env"]
+        self.assertNotIn("GITHUB_RUN_ID", resolve_env)
+        self.assertEqual(resolve_env.get("FileSystemMode"), "checksum-only")
+        for record in builds:
+            self.assertEqual(record["env"], resolve_env, record["args"])
+
+    def test_script_phases_get_the_callers_path_home_and_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            records, _ = self.run_recipe(Path(tmp))
+            caller = self.caller_env
+        builds = [r for r in records if "build-for-testing" in r["args"]]
+        self.assertTrue(builds)
+        for record in builds:
+            args = record["args"]
+            for name in ("HOME", "CI", "CMUX_SKIP_ZIG_BUILD", "CARGO_HOME"):
+                self.assertIn(f"{name}={caller[name]}", args)
+            self.assertIn(f"CMUX_CALLER_PATH={caller['PATH']}", args)
+            self.assertFalse(any(a.startswith("GITHUB_RUN_ID=") for a in args))
+            self.assertFalse(any(a.startswith("CARGO_REGISTRIES_X_TOKEN=") for a in args))
+
+
+class BuildPhaseCallerPathTests(unittest.TestCase):
+    HELPER = ROOT / "scripts" / "build-phase-caller-path.sh"
+
+    def path_after(self, path: str, caller: str | None) -> str:
+        env = {"PATH": path}
+        if caller is not None:
+            env["CMUX_CALLER_PATH"] = caller
+        return subprocess.run(
+            ["/bin/bash", "-c", f'. "{self.HELPER}"; printf %s "$PATH"'],
+            env=env, capture_output=True, text=True, check=True,
+        ).stdout
+
+    def test_the_callers_path_follows_xcodes_tool_directories(self):
+        xcode = "/X/Toolchains/usr/bin:/X/usr/bin"
+        self.assertEqual(
+            self.path_after(f"{xcode}:/usr/bin:/bin:/usr/sbin:/sbin", "/home/.cargo/bin:/usr/bin:/bin"),
+            f"{xcode}:/home/.cargo/bin:/usr/bin:/bin",
+        )
+
+    def test_without_a_caller_path_nothing_changes(self):
+        path = "/X/usr/bin:/opt/homebrew/bin:/usr/bin:/bin"
+        self.assertEqual(self.path_after(path, None), path)
+
+    def test_every_tool_building_script_phase_sources_it(self):
+        for script in ("build-command-palette-nucleo-ffi.sh", "build-diff-sidecar.sh",
+                       "build-wireguard-go.sh", "build-app-bundled-resources.sh"):
+            with self.subTest(script=script):
+                text = (ROOT / "scripts" / script).read_text()
+                self.assertIn("/build-phase-caller-path.sh\"", text)
 
 
 if __name__ == "__main__":

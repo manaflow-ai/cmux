@@ -19,6 +19,7 @@ CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+E2E_TEST_ACTION_FILE="$ROOT_DIR/.github/actions/e2e-run-tests/action.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
@@ -44,9 +45,13 @@ check_macos_runner() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     # A product consumer inherits the compile admission pool, which this
-    # check covers on its own, or on a re-run the Blacksmith pool the pull
-    # request picker named for a run on an owned pool (pr_retry_runner).
-    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt > 1 && inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    # check covers on its own, or, on a re-run or when the picker did not
+    # place this shard on the owned pool, the Blacksmith pool the pull
+    # request picker named for a run on an owned pool (pr_retry_runner), or
+    # on attempt 2 of a refused owned shard, the owned pool once more.
+    # On attempt 1 it may first take the root label late-placement chose (an owned
+    # root runner found idle once admission finished; late_placement.py).
+    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 1 && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(github\.run_attempt == 2 && github\.triggering_actor == .github-actions\[bot\]. && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && \(inputs\.pr_root_runner \|\| inputs\.pr_refused_retry_runner\) \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -134,7 +139,7 @@ check_e2e_runner_fallbacks() {
     in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
     END { exit !(saw_dispatch && !saw_other_trigger) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only"
     exit 1
   fi
 
@@ -157,49 +162,19 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-canary$/ { canary_options++ }
-    in_options && /^          - tart-dual$/ { dual_options++ }
-    in_options && /^          - tart-small$/ { small_options++ }
-    END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
-    exit 1
-  fi
-
-  if ! awk '
-    /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
-    in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(needs\.runner\.outputs\.label, '\''tart-'\''\)/ { saw_effective_runner=1 }
-    in_tart_step && /REQUESTED_RUNNER: \$\{\{ needs\.runner\.outputs\.label \}\}/ { saw_requested_runner=1 }
-    in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
-    in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
-    in_tart_step && /^[[:space:]]*\*\)$/ { in_runner_reject=1 }
-    in_runner_reject && /::error::\$REQUESTED_RUNNER resolved to unexpected runner/ { saw_runner_reject=1 }
-    in_runner_reject && /^[[:space:]]*exit 1$/ { saw_runner_exit=1 }
-    in_runner_reject && /^[[:space:]]*;;$/ { in_runner_reject=0 }
-    in_tart_step && /test -f \/etc\/cmux-tart-ci \|\| \{/ { saw_vm_marker=1; in_marker_reject=1 }
-    in_marker_reject && /::error::\$REQUESTED_RUNNER runner is missing the immutable VM identity marker/ { saw_marker_reject=1 }
-    in_marker_reject && /^[[:space:]]*exit 1$/ { saw_marker_exit=1 }
-    in_marker_reject && /^[[:space:]]*}$/ { in_marker_reject=0 }
-    END { exit !(saw_effective_runner && saw_requested_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_runner_exit && saw_vm_marker && saw_marker_reject && saw_marker_exit) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must validate the effective Tart runner name and immutable VM marker, failing closed for either mismatch"
-    exit 1
-  fi
-
   # Compilation caching is an optional optimization. Its failure must not
   # suppress setup/test failures or make successful tests depend on the cache
   # service. Keep the exception confined to these cache operations.
-  python3 - "$E2E_FILE" <<'PYTHON'
+  python3 - "$E2E_FILE" "${E2E_TEST_ACTION_FILE:-}" <<'PYTHON'
 import sys
 import yaml
 
 document = yaml.safe_load(open(sys.argv[1]))
+# The tests run in this composite action, from the build job or the fallback
+# test job, so its steps answer to the same rule. None may mask a failure.
+if len(sys.argv) > 2 and sys.argv[2]:
+    action = yaml.safe_load(open(sys.argv[2]))
+    document["jobs"]["e2e-run-tests action"] = {"steps": action["runs"]["steps"]}
 # Compilation caching, adopted DerivedData and the fast artifact transport are optimizations with
 # canonical fallbacks. Everything else must fail the job it runs in.
 allowed = {
@@ -211,7 +186,23 @@ allowed = {
     ("build", None, "Start the DerivedData seed download", ""),
     ("build", "seed", "Adopt the DerivedData seed", ""),
     ("build", None, "Forget the adopted-build inode override", ""),
+    # An owned Mac's kept build state, read only: any failure leaves the
+    # cache and seed downloads to run as they would anywhere else.
+    ("build", "owned-state", "Reuse this owned Mac's build state", ""),
+    ("build", "prefer-seed", "Prefer a near seed over this owned Mac's DerivedData", ""),
+    ("build", "owned-adopt", "Adopt this owned Mac's DerivedData", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # The git object seed: a miss leaves checkout to fetch everything, and a
+    # checkout the seed breaks is retried without it by the next steps.
+    ("build", None, "Restore git object seed", ""),
+    ("build", "checkout", "Checkout", "actions/checkout"),
+    ("test", None, "Restore git object seed", ""),
+    ("test", "checkout", "Checkout", "actions/checkout"),
+    # The owned-pool rescue marker: without it the run is only not watched.
+    ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
+    ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
+    # The sweeper's fixed-name marker: without it the run is only not watched.
+    ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
@@ -224,10 +215,9 @@ for job_id, job in document["jobs"].items():
             raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
 PYTHON
 
-  # The Tart identity gate, the run name and the SwiftPM cache key all decide
-  # things about "the runner this job uses". If any of them reads a different
-  # repository variable than runs-on, the gate can be skipped on a Tart VM, or
-  # demanded on a runner that is not one.
+  # The run name and the SwiftPM cache key both decide things about "the
+  # runner this job uses". If either reads a different repository variable
+  # than runs-on, it describes a runner the job does not use.
   runner_vars="$(grep -oE "vars\.MACOS_RUNNER_[A-Z0-9_]+" "$E2E_FILE" | sort -u)"
   if [ "$(printf '%s\n' "$runner_vars" | grep -c .)" -ne 1 ]; then
     echo "FAIL: test-e2e.yml must select its runner from one variable, found:"
@@ -235,28 +225,25 @@ PYTHON
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes supported Tart runner choices and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml is dispatch-only, cancels duplicate queued runs, and reads one runner variable"
 }
 
-check_ios_tart_canary() {
-  if ! grep -Eq '^[[:space:]]+- tart-ios$' "$IOS_FILE"; then
-    echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
+check_ios_runner_routing() {
+  # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
+  # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
+  # every macOS job reads its answer, and a re-run attempt its retry answer.
+  # mobile-core-package needs no simulator, so it reads package_runs_on.
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 2 ]] ||
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
+    echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
-  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 3 ]] ||
-     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
+  if ! grep -Fq 'RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}' "$IOS_FILE" ||
+     ! grep -Fq 'REQUESTED_RUNNER: ${{ inputs.runner }}' "$IOS_FILE"; then
+    echo "FAIL: test-ios.yml's runner job must read the runner input, MACOS_RUNNER_TESTS and MACOS_RUNNER_IOS"
     exit 1
   fi
-  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}" "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
-    exit 1
-  fi
-  if [[ "$(grep -Fc "startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
-    exit 1
-  fi
-  echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
+  echo "PASS: test-ios.yml routes every macOS job through the runner job"
 }
 
 check_xcode_selection() {
@@ -304,13 +291,16 @@ check_release_build_disk_cleanup() {
 }
 
 check_release_helper_artifact_from_package_lane() {
-  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  # The one arm besides the dual-Xcode pool: the side label, else the owned
+  # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
+  # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
     in_job && index($0, dual_runner) { saw_dual_runner=1 }
     in_job && /vars\.MACOS_RUNNER_PR/ { saw_pr_lane=1 }
-    in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
+    in_job && /timeout-minutes:[[:space:]]*60/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
     in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
     in_job && /CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15/ { saw_helper_sdk_pin=1 }
@@ -1166,8 +1156,9 @@ check_no_bare_github_hosted_runners() {
 
 check_no_self_hosted_fleet_runners() {
   # Required jobs route through repository variables. Forbid hardcoded fleet
-  # labels so Tart cutover and paid-provider fallback remain configuration
-  # changes and a physical host label cannot bypass the isolated VM pool.
+  # labels so paid-provider fallback remains a configuration change and a
+  # physical host label cannot bypass the routing rules. tart-* labels (the
+  # retired Tart VM fleet) are refused everywhere, dispatch dropdowns included.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-{6,12}vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
@@ -1178,7 +1169,10 @@ check_no_self_hosted_fleet_runners() {
   # a job only as scripts/ci/pr_runner_pool.py's output for a same-repository
   # pull request run, and only once CI_PR_POOL_OWNED is 1; `owned` is that
   # label shape, which runner_label_policy.py accepts in CI_PR_POOL_ORDER.
-  # check_owned_pools_route_through_picker holds the other half.
+  # check_owned_pools_route_through_picker holds the other half. The one
+  # exception is test-e2e.yml's dispatch-only runner dropdown, which may offer
+  # an owned label exactly: E2E is never a required
+  # check, and its runner job hands the label on (e2e_runner_pool.py).
   local owned='glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
   local fleet='glaeda-|macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|cmux-persistent-macos-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
@@ -1253,35 +1247,14 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line e2e_tart_tahoe_option_line ios_tart_option_line
-  e2e_tart_option_line="$(awk '
+  local e2e_owned_option_lines
+  e2e_owned_option_lines="$(awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
     in_runner && /^        options:$/ { in_options=1; next }
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-canary$/ { print FNR }
+    in_options && /^          - glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*$/ { print FNR }
   ' "$E2E_FILE")"
-  e2e_tart_dual_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-dual$/ { print FNR }
-  ' "$E2E_FILE")"
-  e2e_tart_small_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-small$/ { print FNR }
-  ' "$E2E_FILE")"
-  ios_tart_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-ios$/ { print FNR }
-  ' "$IOS_FILE")"
 
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -1298,18 +1271,11 @@ check_no_self_hosted_fleet_runners() {
     # (see selfhosted above).
     { printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" ||
       printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; } || continue
-    if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$e2e_tart_dual_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_dual_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
-      continue
-    fi
+    local owned_line owned_option=0
+    for owned_line in $e2e_owned_option_lines; do
+      [[ "$line" == "$E2E_FILE:$owned_line:"* ]] && owned_option=1
+    done
+    [[ "$owned_option" == 1 ]] && continue
     hits+="$line"$'\n'
   done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
@@ -1325,9 +1291,12 @@ check_no_self_hosted_fleet_runners() {
 check_owned_pools_route_through_picker() {
   # An owned pool label never appears in workflow text (the fleet pattern
   # refuses it), so the only way one reaches runs-on is the value
-  # pr_runner_pool.py writes for a pull request run: it hands owned labels
-  # only to same-repository heads on a first attempt, and only once
-  # CI_PR_POOL_OWNED is 1. This check keeps that the only way. The picker's
+  # pr_runner_pool.py writes for a pull request run or main's full-suite
+  # dispatch: it hands owned labels only to same-repository heads (and to a
+  # workflow_dispatch on refs/heads/main, which runs main's own code) on a
+  # first attempt, and only once CI_PR_POOL_OWNED is 1. ci-macos.yml reads
+  # the pick for both through the inputs below. This check keeps that the
+  # only way. The picker's
   # runner output feeds exactly the macos_pr_runner output and the rescue
   # marker; macos_pr_runner reaches a job only as a `pr_runner` input written
   # exactly one way, or inside a runs-on branch that a pull_request condition
@@ -1344,9 +1313,24 @@ PICKED = "steps.macos-pool.outputs.runner"
 RETRY_PICKED = "steps.macos-pool.outputs.retry_runner"
 OUTPUT = "needs.changes.outputs.macos_pr_runner"
 RETRY_OUTPUT = "needs.changes.outputs.macos_pr_retry_runner"
+REFUSED_PICKED = "steps.macos-pool.outputs.refused_retry_runner"
+REFUSED_OUTPUT = "needs.changes.outputs.macos_pr_refused_retry_runner"
+SHARD_PICKED = "steps.macos-pool.outputs.shard_runner"
+SHARD_OUTPUT = "needs.changes.outputs.macos_pr_shard_runner"
+ROOT_PICKED = "steps.macos-pool.outputs.root_runner"
+ROOT_OUTPUT = "needs.changes.outputs.macos_pr_root_runner"
+ADMISSION_PICKED = "steps.macos-pool.outputs.admission_runner"
+ADMISSION_OUTPUT = "needs.changes.outputs.macos_pr_admission_runner"
+SIDE_PICKED = "steps.macos-pool.outputs.side_runner"
+SIDE_OUTPUT = "needs.changes.outputs.macos_pr_side_runner"
 PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
 # Each input the picked pools reach a reusable workflow through, and its value.
-INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}"}
+INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
+          "pr_refused_retry_runner": "${{ " + REFUSED_OUTPUT + " }}",
+          "pr_shard_runner": "${{ " + SHARD_OUTPUT + " }}",
+          "pr_root_runner": "${{ " + ROOT_OUTPUT + " }}",
+          "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}",
+          "pr_side_runner": "${{ " + SIDE_OUTPUT + " }}"}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
           "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
 # The runs-on branches that may read the picked pool, each behind its
@@ -1357,9 +1341,17 @@ GUARDED = (
     " || 'blacksmith-6vcpu-macos-15')",
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
     " || 'blacksmith-6vcpu-macos-15')",
-    # A re-run of failed jobs on an owned-pool run: the Blacksmith pool the
-    # picker named for it.
-    "github.event_name == 'pull_request' && github.run_attempt > 1 && needs.changes.outputs.macos_pr_retry_runner",
+    # A side lane: the side label of the pool first, when the picker named one.
+    "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner"
+    " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
+    # Attempt 2 of a refused owned job: the owned pool once more.
+    "github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    " ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
+    " || needs.changes.outputs.macos_pr_refused_retry_runner)",
+    # A re-run of failed jobs on an owned-pool run, or a job the picker did not
+    # place on the owned pool: the Blacksmith pool the picker named for it.
+    "github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    " ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner",
 )
 
 
@@ -1391,17 +1383,41 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_retry_runner")
                 and value == "${{ " + RETRY_PICKED + " }}"):
             violations.append(f"{where}: reads the picker's retry runner outside macos_pr_retry_runner")
+        if SHARD_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_shard_runner")
+                and value == "${{ " + SHARD_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's shard runner outside macos_pr_shard_runner")
+        if REFUSED_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_refused_retry_runner")
+                and value == "${{ " + REFUSED_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's refused retry runner outside macos_pr_refused_retry_runner")
+        if ROOT_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_root_runner")
+                and value == "${{ " + ROOT_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's root runner outside macos_pr_root_runner")
+        if ADMISSION_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_admission_runner")
+                and value == "${{ " + ADMISSION_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's admission runner outside macos_pr_admission_runner")
+        if SIDE_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_side_runner")
+                and value == "${{ " + SIDE_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's side runner outside macos_pr_side_runner")
         if len(path) >= 3 and path[-2] == "with" and path[-1] in INPUTS:
             if value != INPUTS[path[-1]] or file.name != "ci.yml":
                 violations.append(f"{where}: {path[-1]} must be exactly {INPUTS[path[-1]]}")
             continue
-        if OUTPUT not in value and RETRY_OUTPUT not in value:
+        if OUTPUT not in value and RETRY_OUTPUT not in value and REFUSED_OUTPUT not in value \
+                and SHARD_OUTPUT not in value and ROOT_OUTPUT not in value and ADMISSION_OUTPUT not in value \
+                and SIDE_OUTPUT not in value:
             continue
         if path[-1:] == ("runs-on",):
             rest = value
             for branch in GUARDED:
                 rest = rest.replace(branch, "")
-            if OUTPUT not in rest and RETRY_OUTPUT not in rest:
+            if OUTPUT not in rest and RETRY_OUTPUT not in rest and REFUSED_OUTPUT not in rest \
+                    and SHARD_OUTPUT not in rest and ROOT_OUTPUT not in rest and ADMISSION_OUTPUT not in rest \
+                    and SIDE_OUTPUT not in rest:
                 continue
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
@@ -1437,7 +1453,7 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
-check_ios_tart_canary
+check_ios_runner_routing
 
 check_xcode_selection
 check_release_build_signal
@@ -1636,12 +1652,12 @@ import yaml
 EXEMPT = {
     ("iroh-release-gate.yml", "tailscale-version-skew", "CMUX_CI_XCODE_APP"):
         "uses the macOS 15 Xcode configuration; runs on MACOS_RUNNER_15 for paid overflow or blacksmith-6vcpu-macos-15 otherwise",
-    ("ci-macos.yml", "swift-package-tests", "CMUX_CI_XCODE_APP"):
-        "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
         "same job's SDK 15 release-helper pin",
     ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
         "a Linux job; pr_runner_pool.py hands this pin on only to a run it routes to the macOS 15 pool",
+    ("seed-derived-data.yml", "decide", "XCODE_APP_MACOS_15"):
+        "a Linux job; seed_decide.py fingerprints the macOS 15 pool's seed under the Xcode that pool seeds with",
     ("seed-swiftpm-manifests.yml", "seed", "CMUX_CI_XCODE_APP"):
         "seeds the manifest cache for the Xcode pr_runner_pool.py hands to runs it routes to the macOS 15 pool",
 }
@@ -1710,6 +1726,15 @@ from pathlib import Path
 import yaml
 
 
+# Attempt 1 of compile admission may take the warm labels in
+# pr_admission_runner, a JSON array; the env restates the first, the root label.
+WARM_RUNS_ON = "fromJSON(inputs.pr_admission_runner)"
+
+
+def restated(value):
+    return value.replace(WARM_RUNS_ON + "[0]", WARM_RUNS_ON)
+
+
 def mismatched_identities(document):
     for job_id, job in document.get("jobs", {}).items():
         runs_on = job.get("runs-on")
@@ -1717,7 +1742,7 @@ def mismatched_identities(document):
         scopes.extend((f"step {index}", step) for index, step in enumerate(job.get("steps", [])))
         for scope, owner in scopes:
             for key, value in (owner.get("env") or {}).items():
-                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and value != runs_on:
+                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and restated(value) != runs_on:
                     yield f"{job_id}/{scope}: {key}\n  env value {value}\n  runs-on   {runs_on}"
 
 

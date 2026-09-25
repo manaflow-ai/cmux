@@ -109,6 +109,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "OLLAMA_EDITOR",
         "OLLAMA_HOST",
         "OLLAMA_NOHISTORY",
+        "OMP_AGENT_DIR",
         "PI_CACHE_RETENTION",
         "PI_CONFIG_DIR",
         "PI_CODING_AGENT_DIR",

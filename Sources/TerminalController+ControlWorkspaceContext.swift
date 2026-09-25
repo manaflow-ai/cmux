@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
@@ -579,6 +580,9 @@ extension TerminalController: ControlWorkspaceContext {
                 data: nil
             )
         }
+        // Deprecated: `cmux ssh` no longer sends this shape (TTY SSH moved to
+        // cmux-tui in #13866). A hand-written call still gets a persistent PTY
+        // slot, but agent resume bindings are not registered or replayed for it.
         if preserveAfterTerminalExit,
            transport == .ssh,
            !skipDaemonBootstrap,

@@ -25,8 +25,10 @@ record = {
     "r2_result": os.environ.get("CMUX_ARTIFACT_R2_RESULT") or "disabled",
     "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
     "repository": os.environ["GITHUB_REPOSITORY"],
-    "artifact_id": int(os.environ["ARTIFACT_ID"]),
-    "provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"],
+    # test-e2e.yml's build job on an owned Mac restores its own archive
+    # before it uploads it, so there is no artifact yet.
+    "artifact_id": int(os.environ["ARTIFACT_ID"]) if os.environ.get("ARTIFACT_ID") else None,
+    "provider_digest": os.environ.get("ARTIFACT_PROVIDER_DIGEST") or None,
     "archive_sha256": os.environ["EXPECTED_SHA256"],
     "product_contract": os.environ["CMUX_PRODUCT_CONTRACT"],
     "source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"],
@@ -94,4 +96,28 @@ test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackagePr
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 # Tests also read fixtures via compiled #filePath; manifest relocation alone
 # cannot repair those strings when the product was built at the canonical root.
+# The receipt's `derived` is the DerivedData the product was compiled into,
+# <root>/derived-data-compile-admission, at /private/tmp/cmux-ci or, for an
+# owned Mac's second compile slot, /private/tmp/cmux-ci-<n>. Packaging
+# re-stamps the receipt from the job's workspace, so its `checkout` never
+# names the root, but `derived` is the same path at both stamps. The
+# product's #filePath strings point at that root, so alias this checkout
+# there rather than at this runner's own.
+producer_derived="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("derived", ""))' \
+  "$CMUX_DERIVED_DATA_PATH/Build/Products/cmux-test-products.json")"
+case "$producer_derived" in
+  /private/tmp/cmux-ci/derived-data-compile-admission \
+  | /private/tmp/cmux-ci-[0-9]/derived-data-compile-admission \
+  | /private/tmp/cmux-ci-[0-9][0-9]/derived-data-compile-admission)
+    export CMUX_CI_CANONICAL_ROOT="${producer_derived%/derived-data-compile-admission}"
+    ;;
+esac
+# On an owned Mac several jobs share the canonical roots, and the alias below
+# replaces <root>/src. glaeda's helper holds that root's lock for the rest of
+# this job (released when it ends), so a consumer never swaps the tree of a
+# compile running there. Ephemeral runners have no helper and no neighbours.
+root_lock=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+if [ -x "$root_lock" ]; then
+  "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 1800 >/dev/null
+fi
 scripts/ci/canonical-build-root.sh --runtime-source "$PWD"

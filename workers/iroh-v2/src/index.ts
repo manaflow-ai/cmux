@@ -1,4 +1,5 @@
 import { errorResponse, httpFailure } from "./boundary";
+import { failureDiagnostics } from "./errors";
 import { runtime, type Environment } from "./environment";
 import { routeControl, objectName } from "./routing";
 import { unwrap } from "./user-usage-object";
@@ -23,13 +24,14 @@ export default {
         charge: async (userId, operation) => { unwrap(await env.USER_USAGE.getByName(objectName(services.environment, services.projectId, userId)).consume(userId, operation)); },
       }) : await routeControl(request, {
         ...services, ticketKeys: services.keys, now: () => Math.floor(Date.now() / 1000),
+        sourceRevision: env.CMUX_SOURCE_REVISION,
         observe: event => observe(ctx, env, { environment: env.ENVIRONMENT, ...event }),
         chargeOpen: async userId => { unwrap(await env.USER_USAGE.getByName(objectName(services.environment, services.projectId, userId)).consume(userId, "control.socket")); },
         dispatchTeam: (teamId, forwarded) => env.TEAM_CONTROL.getByName(objectName(services.environment, services.projectId, teamId)).fetch(forwarded),
       });
     } catch (error) {
       const failure = errorResponse(error, "unidentified").failure;
-      observe(ctx, env, { event: "iroh.http.failure", environment: env.ENVIRONMENT, path: new URL(request.url).pathname, code: failure.code, status: failure.status, retryable: failure.retryable });
+      observe(ctx, env, { event: "iroh.http.failure", environment: env.ENVIRONMENT, path: new URL(request.url).pathname, code: failure.code, status: failure.status, retryable: failure.retryable, ...failureDiagnostics(error) });
       response = httpFailure(error);
     }
     observe(ctx, env, { event: "iroh.http.response", environment: env.ENVIRONMENT, path: new URL(request.url).pathname, status: response.status, durationMs: Date.now() - started });
