@@ -19,6 +19,7 @@ public enum EventStreamSocketFailureKind: Equatable, Sendable {
 /// markers stay best-effort over the message text. Localization and
 /// `CLIError` mapping remain the CLI's responsibility, mirroring how
 /// wire-level classification stays in this package.
+/// lint:allow namespace-type — pure policy namespace with no dependencies to inject; keeping the static API makes call sites explicit.
 public enum EventStreamReconnectPolicy {
     /// - Parameters:
     ///   - socketFailureKind: The typed transport failure, when the producer
