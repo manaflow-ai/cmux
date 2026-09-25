@@ -375,4 +375,3 @@ print(json.dumps(calls))
     expect(existsSync(path.join(run, "template-shell-ready"))).toBe(false);
   });
 });
-

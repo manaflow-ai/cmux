@@ -391,7 +391,7 @@ struct MachinesPanelView: View {
             .foregroundColor(.primary.opacity(0.85))
         Text(String(
             localized: "machines.unavailable.subtitle",
-            defaultValue: "Your machines are still there. cmux couldn\u{2019}t reach the Cloud service just now; it retries on its own."
+            defaultValue: "Your machines are still there. cmux couldn’t reach the Cloud service just now; it retries on its own."
         ))
         .cmuxFont(size: 12)
         .foregroundColor(.secondary)
@@ -418,7 +418,7 @@ struct MachinesPanelView: View {
             .foregroundColor(.primary.opacity(0.85))
         Text(String(
             localized: "machines.sessionRejected.subtitle",
-            defaultValue: "The Cloud service no longer accepts this Mac\u{2019}s saved session. Sign out and sign back in to reconnect."
+            defaultValue: "The Cloud service no longer accepts this Mac’s saved session. Sign out and sign back in to reconnect."
         ))
         .cmuxFont(size: 12)
         .foregroundColor(.secondary)
@@ -448,7 +448,7 @@ struct MachinesPanelView: View {
             .foregroundColor(.primary.opacity(0.85))
         Text(String(
             localized: "machines.requiresPro.subtitle",
-            defaultValue: "This account\u{2019}s plan doesn\u{2019}t include Cloud machine access. Upgrade to create and reconnect machines."
+            defaultValue: "This account’s plan doesn’t include Cloud machine access. Upgrade to create and reconnect machines."
         ))
         .cmuxFont(size: 12)
         .foregroundColor(.secondary)
@@ -513,7 +513,7 @@ struct MachinesPanelView: View {
 
     private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
         viewModel.beginOperation(String(
-            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@\u{2026}"),
+            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@…"),
             agent.displayName
         ))
         Task { @MainActor [weak viewModel] in
@@ -620,7 +620,7 @@ struct MachinesPanelView: View {
                     .foregroundStyle(.secondary)
                 Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
                     .font(.callout.weight(.medium))
-                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and turn on Allow access to this Mac in Computers settings."))
+                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
