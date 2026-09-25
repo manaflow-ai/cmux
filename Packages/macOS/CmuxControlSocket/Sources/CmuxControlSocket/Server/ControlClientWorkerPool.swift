@@ -12,6 +12,25 @@
 /// A caller supplies synchronous cleanup for rejected/dropped jobs. An
 /// admitted operation owns its descriptor until the operation returns.
 public actor ControlClientWorkerPool {
+    /// A lease held by one admitted connection operation.
+    ///
+    /// A long-lived connection such as an event stream can release its
+    /// command admission slot after its initial request has been classified.
+    /// The operation still owns its descriptor and remains cancellable through
+    /// the pool; only the bounded command capacity is returned.
+    public struct JobLease: Sendable {
+        private let releaseCapacityAction: @Sendable () async -> Void
+
+        fileprivate init(releaseCapacityAction: @escaping @Sendable () async -> Void) {
+            self.releaseCapacityAction = releaseCapacityAction
+        }
+
+        /// Returns this operation's command admission slot to the pool.
+        public func releaseCapacity() async {
+            await releaseCapacityAction()
+        }
+    }
+
     /// The result of attempting to admit one connection job.
     public enum Submission: Sendable, Equatable {
         /// The operation started immediately.
@@ -53,13 +72,13 @@ public actor ControlClientWorkerPool {
 
     private struct Job {
         let id: UInt64
-        let operation: @Sendable () async -> Void
+        let operation: @Sendable (JobLease) async -> Void
         let onDrop: @Sendable () -> Void
     }
 
     private let maximumConcurrentJobs: Int
     private let maximumPendingJobs: Int
-    private var activeJobs = 0
+    private var activeJobIDs: Set<UInt64> = []
     private var peakActiveJobs = 0
     private var rejectedJobs = 0
     private var nextJobID: UInt64 = 1
@@ -95,6 +114,20 @@ public actor ControlClientWorkerPool {
         _ operation: @escaping @Sendable () async -> Void,
         onDrop: @escaping @Sendable () -> Void = {}
     ) -> Submission {
+        submit({ _ in await operation() }, onDrop: onDrop)
+    }
+
+    /// Attempts to submit one operation that may release its command slot
+    /// while remaining alive for a long-lived stream.
+    ///
+    /// - Parameter operation: The operation and its admission lease.
+    /// - Parameter onDrop: Synchronous cleanup for a rejected or stopped
+    ///   pending operation.
+    /// - Returns: Whether the operation started, queued, or was rejected.
+    public func submit(
+        _ operation: @escaping @Sendable (JobLease) async -> Void,
+        onDrop: @escaping @Sendable () -> Void = {}
+    ) -> Submission {
         guard !stopped else {
             rejectedJobs += 1
             onDrop()
@@ -103,7 +136,7 @@ public actor ControlClientWorkerPool {
 
         let job = Job(id: nextJobID, operation: operation, onDrop: onDrop)
         nextJobID &+= 1
-        if activeJobs < maximumConcurrentJobs {
+        if activeJobIDs.count < maximumConcurrentJobs {
             start(job)
             return .started
         }
@@ -138,7 +171,7 @@ public actor ControlClientWorkerPool {
     /// Returns current admission counters.
     public func metrics() -> Metrics {
         Metrics(
-            activeJobs: activeJobs,
+            activeJobs: activeJobIDs.count,
             pendingJobs: pendingJobs.count,
             peakActiveJobs: peakActiveJobs,
             rejectedJobs: rejectedJobs,
@@ -147,8 +180,12 @@ public actor ControlClientWorkerPool {
     }
 
     private func start(_ job: Job) {
-        activeJobs += 1
-        peakActiveJobs = max(peakActiveJobs, activeJobs)
+        activeJobIDs.insert(job.id)
+        peakActiveJobs = max(peakActiveJobs, activeJobIDs.count)
+
+        let lease = JobLease { [weak self] in
+            await self?.releaseCapacity(jobID: job.id)
+        }
 
         // This detached task is an intentional executor boundary: the pool
         // actor owns admission state, while connection setup and every
@@ -156,16 +193,21 @@ public actor ControlClientWorkerPool {
         // The operation is async/non-blocking, so this creates a bounded task
         // count rather than a thread per connection.
         let task = Task.detached(priority: .userInitiated) { [weak self] in
-            await job.operation()
+            await job.operation(lease)
             await self?.finish(jobID: job.id)
         }
         runningTasks[job.id] = task
     }
 
+    private func releaseCapacity(jobID: UInt64) {
+        guard !stopped, activeJobIDs.remove(jobID) != nil else { return }
+        // The follow-up scheduling is added with the capacity accounting fix.
+    }
+
     private func finish(jobID: UInt64) {
         runningTasks.removeValue(forKey: jobID)
-        activeJobs = max(0, activeJobs - 1)
-        guard !stopped, activeJobs < maximumConcurrentJobs else { return }
+        guard activeJobIDs.remove(jobID) != nil else { return }
+        guard !stopped, activeJobIDs.count < maximumConcurrentJobs else { return }
         guard !pendingJobs.isEmpty else { return }
         let next = pendingJobs.removeFirst()
         start(next)
