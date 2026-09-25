@@ -1133,6 +1133,10 @@ class MainDispatch(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("pull", api.calls)
         self.assertIn("refused", summary)
+        # Cancelled at once, not held: a failed main run opens the red-CI issue.
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("waiting for the rest of the run", summary)
+        self.assertLess(clock.seconds, 600)
         # Even once main moved: a fleet refusal must not leave main's run red.
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, head="b" * 40)

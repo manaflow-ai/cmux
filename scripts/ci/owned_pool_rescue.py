@@ -40,8 +40,9 @@ its runner setup step failed or no workflow step succeeded, counts as refused
 (compile admission's `always()` metrics steps still succeed after a refusal): the watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
-re-runs its failed jobs. Only a run still going at the watch's end is
-cancelled first.
+re-runs its failed jobs. Only a run still going at the watch's end, or main's
+full-suite run (whose failure would open main's red-CI issue), is cancelled
+first.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
 (compile admission, say) is kept. A run on an owned pool is split across pools
@@ -679,13 +680,16 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds)
-            if look.action == "refused" and not finished and seen_at < deadline:
+            if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
                 # the run to re-run it killed every healthy sibling (run
                 # 36198335113: two refused app-host shards cost five running
                 # shards and the CLI product tests, all re-run on Blacksmith).
                 # Let the siblings finish; at the deadline, cancel as before.
+                # Main's run still cancels at once: a run that ends in failure
+                # makes ci-main-full-suite.yml open the red-CI issue before
+                # the re-run starts, and a cancelled one does not.
                 log(f"look {looks}: {look.reason}; waiting for the rest of the run to finish")
                 sleep(IDLE_POLL_SECONDS)
                 continue
