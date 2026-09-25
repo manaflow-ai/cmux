@@ -15,6 +15,8 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # from main: a pull request cannot change it. Only attempt 1 is watched, in the
 # job condition below and again in the script, so the re-run this workflow
 # starts is never watched, whether or not GitHub delivers `requested` for it.
+# test-e2e.yml dispatches are watched the same way: e2e_runner_pool.py may put
+# an E2E run on an owned pool too, and its runner job uploads the same marker.
 # It runs whenever owned pools are on (CI_PR_POOL_OWNED is 1), because a run on
 # an owned pool has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off.
 # The switch gets its default before the comparison: an unset variable is
@@ -22,7 +24,7 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # GitHub-hosted runner rather than holding a slot in CI's Linux pool.
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, E2E test with video recording]
     types: [requested]
 
 permissions: {}
@@ -31,7 +33,7 @@ env:
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
   # this path. The script confirms the run's own `path` again before acting.
-  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml .github/workflows/test-e2e.yml
 
 concurrency:
   group: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
@@ -40,11 +42,11 @@ concurrency:
 jobs:
   rescue:
     name: Rescue a run stuck on a persistent pool
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.path == '.github/workflows/test-e2e.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
-    # The watch limit is 60 minutes, reads may retry, and a rescue waits up to
-    # 3 more for the cancel to settle.
-    timeout-minutes: 70
+    # The watch limit is 60 minutes (150 for an E2E run), reads may retry, and
+    # a rescue waits up to 3 more for the cancel to settle.
+    timeout-minutes: 160
     permissions:
       actions: write
       contents: read

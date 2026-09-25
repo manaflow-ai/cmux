@@ -25,6 +25,7 @@ LARGE = "blacksmith-12vcpu-macos-26"
 
 
 OLD = "blacksmith-6vcpu-macos-15"
+MINI = "glaeda-std-xcode-26.6"
 
 
 def e2e_run(runner, run_id, *, status="in_progress"):
@@ -1239,6 +1240,11 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}": overflow,
             "${{ vars.CI_PR_POOL_ORDER }}": order,
             "${{ vars.CI_PR_POOL_MAX_QUEUED }}": max_queued,
+            "${{ vars.CI_PR_POOL_OWNED }}": "1",
+            "${{ vars.CI_OWNED_POOL_SLOTS }}": json.dumps({MINI: 8}),
+            "${{ vars.CMUX_CI_XCODE_APP_PR }}": "/Applications/Xcode_26.6.app",
+            "${{ inputs.test_filter }}": "cmuxTests/ExampleTests",
+            "${{ vars.CI_E2E_OWNED_UI }}": "",
         }
         for name, expression in step["env"].items():
             self.assertIn(expression, values, f"unexpected input {name}: {expression}")
@@ -1250,6 +1256,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=ROOT, env=env, check=True,
                                     capture_output=True, text=True)
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        self.assertEqual(lines["retry_label"], self.pool.retry_runner(lines["label"]))
         return lines["label"], result.stderr
 
     def test_the_workflow_step_resolves_through_the_rule(self):
@@ -1260,6 +1267,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertEqual(self.run_pool_step(order=OLD)[0], SMALL)
         self.assertEqual(self.run_pool_step(requested="tart-small")[0], "tart-small")
         self.assertEqual(self.run_pool_step(requested=LARGE)[0], LARGE)
+        self.assertEqual(self.run_pool_step(requested=MINI)[0], MINI)
         self.assertEqual(self.run_pool_step(variable="blacksmith-6vcpu-macos-15")[0],
                          "blacksmith-6vcpu-macos-15")
 
@@ -1297,11 +1305,14 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
 
     def test_macos_jobs_run_on_the_resolved_pool(self):
         label = "${{ needs.runner.outputs.label }}"
+        # A re-run attempt takes retry_label, which moves an owned Mac to Blacksmith.
+        runs_on = ("${{ github.run_attempt > 1 && needs.runner.outputs.retry_label"
+                   " || needs.runner.outputs.label }}")
         for name in ("build", "test"):
             with self.subTest(job=name):
                 job = self.jobs[name]
                 self.assertIn("runner", job["needs"])
-                self.assertEqual(job["runs-on"], label)
+                self.assertEqual(job["runs-on"], runs_on)
                 tart = next(step for step in job["steps"]
                             if step.get("name") == "Validate Tart canary identity")
                 self.assertEqual(tart["if"], "${{ startsWith(needs.runner.outputs.label, 'tart-') }}")
@@ -1310,7 +1321,74 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                 text = yaml.safe_dump(job)
                 self.assertNotIn("inputs.runner", text)
                 self.assertNotIn("vars.MACOS_RUNNER_TESTS", text)
-        self.assertEqual(self.jobs["build"]["env"]["CMUX_PRODUCT_RUNNER"], label)
+        self.assertEqual(self.jobs["build"]["env"]["CMUX_PRODUCT_RUNNER"], runs_on)
+
+    # Owned Macs -----------------------------------------------------------
+
+    def owned(self, *, running=0, queued=0, committed=0, age=5, owned="1", slots=None,
+              pin="/Applications/Xcode_26.6.app", requested="auto",
+              test_filter="cmuxTests/ExampleTests", owned_ui=""):
+        state = queue(age=age)
+        state["pools"][MINI] = {"queued": queued, "running": running, "committed": committed}
+        client = FakeActions(state)
+        return self.pool.resolve(
+            requested, "", overflow="", order="", max_queued="",
+            owned=owned, owned_slots=json.dumps({MINI: 8} if slots is None else slots), pr_xcode_app=pin,
+            test_filter=test_filter, owned_ui=owned_ui,
+            measure=lambda: self.pool.measure_load(client, now=NOW), now=NOW,
+        )
+
+    def test_an_owned_mac_with_a_free_slot_comes_first(self):
+        self.assertEqual(self.owned(), MINI)
+        self.assertEqual(self.owned(running=7), MINI)
+        self.assertEqual(self.owned(running=5, committed=7), MINI)
+
+    def test_anything_uncertain_about_the_owned_pool_takes_blacksmith(self):
+        cases = {
+            "all slots taken": dict(running=8),
+            "committed to runs": dict(committed=8),
+            "a job queued": dict(running=7, queued=1),
+            "owned pools off": dict(owned="0"),
+            "owned variable unset": dict(owned=""),
+            "no slot count": dict(slots={}),
+            "malformed slots": dict(slots={MINI: "8"}),
+            "another Xcode pin": dict(pin="/Applications/Xcode_26.5.app"),
+            "no Xcode pin": dict(pin=""),
+            "snapshot too old for an owned pool": dict(age=30),
+            "a UI run": dict(test_filter="ExampleUITests"),
+            "a mixed filter": dict(test_filter="cmuxTests/A, cmuxUITests/B"),
+        }
+        for why, kwargs in cases.items():
+            with self.subTest(why=why):
+                self.assertIn(self.owned(**kwargs), self.pool.E2E_POOLS)
+
+    def test_ui_runs_take_an_owned_mac_only_once_enabled(self):
+        self.assertEqual(self.owned(test_filter="ExampleUITests", owned_ui="1"), MINI)
+        self.assertEqual(self.owned(test_filter="cmuxTests/A, cmuxTests/B"), MINI)
+        self.assertEqual(self.owned(requested=MINI, test_filter="ExampleUITests"), MINI)
+
+    def test_a_re_run_never_takes_an_owned_mac(self):
+        self.assertEqual(self.pool.retry_runner(MINI), SMALL)
+        for label in (SMALL, LARGE, OLD, "tart-small"):
+            self.assertEqual(self.pool.retry_runner(label), label)
+        self.assertEqual(self.owned(requested=MINI, owned="0"), MINI)  # explicit is explicit
+
+    def test_owned_macs_record_no_video(self):
+        step = next(step for step in self.jobs["filter"]["steps"] if step.get("id") == "filter")
+        self.assertIn("runner", self.jobs["filter"]["needs"])
+        self.assertEqual(step["env"]["RUNNER_LABEL"], "${{ needs.runner.outputs.label }}")
+        self.assertIn('glaeda-*)', step["run"])
+        self.assertIn('record_video_effective="false"', step["run"].split("glaeda-*)", 1)[1])
+
+    def test_the_runner_job_marks_an_owned_run_for_the_rescue(self):
+        steps = {step.get("name"): step for step in self.jobs["runner"]["steps"]}
+        mark = steps["Mark a run on a persistent macOS pool"]
+        self.assertEqual(mark["if"], "${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}")
+        upload = steps["Upload the persistent pool marker"]
+        self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
+                                                 "-1-${{ steps.pool.outputs.label }}")
+        for step in (mark, upload):
+            self.assertIs(step["continue-on-error"], True)
 
 
 class SuiteWorkflowForwardsFocusedRuns(unittest.TestCase):
