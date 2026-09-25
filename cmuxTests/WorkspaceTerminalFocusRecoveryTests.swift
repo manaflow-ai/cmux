@@ -78,7 +78,11 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
                 "Hidden/tiny first-responder handoff should defer Ghostty focus until geometry is usable"
             )
 
-            await AppKitTestEventPump().drain()
+            // Run the deferred apply's body in this turn, against the same 0x0 surface. A drain
+            // here let the window's layout pass restore the surface first on macOS 26 CI, and
+            // the apply then correctly focused usable geometry.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
             #expect(
                 !panel.surface.debugDesiredFocusState(),
                 "The first deferred apply can fire while geometry is still unusable"
