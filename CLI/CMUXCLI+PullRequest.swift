@@ -84,10 +84,14 @@ extension CMUXCLI {
         }
         let root = try await pullRequestRepositoryRoot()
         let windows = try client.sendV2(method: "window.list")["windows"] as? [[String: Any]] ?? []
+        // Git's registered worktrees are the repository identity boundary. Read
+        // them once so a linked worktree beside the current checkout remains a
+        // valid target without probing every workspace with Git.
+        let worktreeRoots = await pullRequestWorktreeRoots(root: root)
         // One invocation-local identity cache is shared by all workspace rows.
         // Repeated directories and common ancestors are resolved once.
         var normalizedPaths: [String: String] = [:]
-        var pathMembership: [String: Bool] = [root: true]
+        var pathMembership = Dictionary(uniqueKeysWithValues: worktreeRoots.map { ($0, true) })
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         var candidates: [String: String] = [:]
         for window in windows {
@@ -107,9 +111,9 @@ extension CMUXCLI {
                         .standardizedFileURL.resolvingSymlinksInPath().path
                     normalizedPaths[directory] = path
                 }
-                guard path == root || path.hasPrefix(root + "/") else { continue }
+                guard worktreeRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { continue }
                 guard try await pullRequestWorkspacePathIsCandidate(
-                    path, root: root, membership: &pathMembership, deadline: deadline
+                    path, worktreeRoots: worktreeRoots, membership: &pathMembership, deadline: deadline
                 ) else { continue }
                 candidates[workspaceID] = path
             }
@@ -127,12 +131,37 @@ extension CMUXCLI {
         ))
     }
 
+    /// Reads the registered worktree roots once for the fallback scan. The
+    /// current root remains a safe fallback when Git cannot enumerate them.
+    private func pullRequestWorktreeRoots(root: String) async -> [String] {
+        let result = await CommandRunner().run(
+            directory: root,
+            executable: "git",
+            arguments: ["worktree", "list", "--porcelain"],
+            timeout: 2
+        )
+        guard !result.timedOut, result.executionError == nil, result.exitStatus == 0 else {
+            return [root]
+        }
+        let roots = result.stdout?.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+            guard line.hasPrefix("worktree ") else { return nil }
+            return URL(fileURLWithPath: String(line.dropFirst("worktree ".count)))
+                .standardizedFileURL.resolvingSymlinksInPath().path
+        } ?? []
+        var uniqueRoots: [String] = []
+        var seen = Set<String>()
+        for worktreeRoot in roots where seen.insert(worktreeRoot).inserted {
+            uniqueRoots.append(worktreeRoot)
+        }
+        return uniqueRoots.isEmpty ? [root] : uniqueRoots
+    }
+
     /// Memoizes membership by directory, including shared ancestors. A marker
     /// only triggers a Git identity probe; filenames never decide membership.
     /// The request-wide deadline bounds uncommon nested-repository probes.
     private func pullRequestWorkspacePathIsCandidate(
         _ path: String,
-        root: String,
+        worktreeRoots: [String],
         membership: inout [String: Bool],
         deadline: ContinuousClock.Instant
     ) async throws -> Bool {
@@ -145,10 +174,22 @@ extension CMUXCLI {
             membership[path] = false
             return false
         }
+        guard let worktreeRoot = worktreeRoots
+            .filter({ path == $0 || path.hasPrefix($0 + "/") })
+            .max(by: { $0.count < $1.count }) else {
+            membership[path] = false
+            return false
+        }
+        // A registered worktree root is already proven to belong to this
+        // repository, including its .git file marker.
+        if path == worktreeRoot {
+            membership[path] = true
+            return true
+        }
         var cursor = path
         var visited: [String] = []
-        var belongs = false
-        while cursor == root || cursor.hasPrefix(root + "/") {
+        var belongs = true
+        while cursor == worktreeRoot || cursor.hasPrefix(worktreeRoot + "/") {
             if let cached = membership[cursor] {
                 belongs = cached
                 break
@@ -174,9 +215,11 @@ extension CMUXCLI {
                    let output = result.stdout?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !output.isEmpty {
                     let resolved = URL(fileURLWithPath: output).standardizedFileURL.resolvingSymlinksInPath().path
-                    belongs = resolved == root
+                    belongs = worktreeRoots.contains(resolved)
+                    break
                 }
-                break
+                // A malformed marker is not enough to establish a nested
+                // repository boundary. Continue toward the registered root.
             }
             cursor = directory.deletingLastPathComponent().path
         }
