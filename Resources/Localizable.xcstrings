@@ -55307,7 +55307,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ bruger almindelig HTTP, så trafikken kan læses eller ændres på netværket.\n\nÅbn denne URL i din ekstern browser, eller fortsæt i cmux."
+            "value": "%@ bruger almindelig HTTP, så trafikken kan læses eller ændres på netværket.\n\nÅbn denne URL i din eksterne browser, eller fortsæt i cmux."
           }
         },
         "de": {
@@ -55344,6 +55344,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ は HTTP 接続を使用しているため、通信内容がネットワーク上で読み取られたり改ざんされる可能性があります。\n\n外部ブラウザで開くか、cmux で続行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ប្រើ HTTP ធម្មតា ដូច្នេះចរាចរណ៍អាចត្រូវបានអាន ឬកែប្រែនៅលើបណ្តាញ។\n\nបើក URL នេះនៅក្នុងកម្មវិធីរុករកខាងក្រៅរបស់អ្នក ឬបន្តក្នុង cmux។"
           }
         },
         "ko": {
@@ -64128,6 +64134,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "外部ブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកក្នុងកម្មវិធីរុករកខាងក្រៅ"
           }
         },
         "ko": {
