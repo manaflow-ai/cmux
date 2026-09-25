@@ -86,9 +86,13 @@ struct CLICallerWorkspaceDefaultTests {
     /// `close-surface` with an explicit but blank `--workspace` or `--window` (for example
     /// an unset `--workspace "$VAR"`) must fail closed instead of closing the focused
     /// workspace's focused surface. Only an omitted flag may use the caller's context.
-    @Test(arguments: ["--workspace", "--window"])
-    func closeSurfaceBlankRoutingFlagFailsClosed(flag: String) throws {
-        let (requests, result) = try runCloseSurface(arguments: [flag, " "])
+    @Test(arguments: [
+        ["close-surface", "--workspace", " "],
+        ["close-surface", "--window", " "],
+        ["--window", " ", "close-surface"],
+    ])
+    func closeSurfaceBlankRoutingFlagFailsClosed(arguments: [String]) throws {
+        let (requests, result) = try runCloseSurface(arguments: arguments)
 
         #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
         let methods = requests.compactMap { $0["method"] as? String }
@@ -182,7 +186,7 @@ struct CLICallerWorkspaceDefaultTests {
         return (try state.requestObjects(), result)
     }
 
-    /// Drives `close-surface <arguments>` against a mock socket that accepts any
+    /// Drives the CLI with `arguments` (a `close-surface` invocation) against a mock socket that accepts any
     /// request, so a wrong-target close would show up as a recorded `surface.close`.
     private func runCloseSurface(arguments: [String]) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("close-sf")
@@ -207,7 +211,7 @@ struct CLICallerWorkspaceDefaultTests {
 
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
-            arguments: ["close-surface"] + arguments,
+            arguments: arguments,
             environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: Self.callerWorkspaceId),
             timeout: 5
         )

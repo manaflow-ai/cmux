@@ -7122,14 +7122,13 @@ struct CMUXCLI {
                     defaultValue: "Workspace handle is blank"
                 ))
             }
-            if let csWindowFlag = optionValue(commandArgs, name: "--window"),
-               csWindowFlag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
+            if let windowRaw, windowRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw CLIError(message: String(
                     localized: "cli.window.error.handleBlank",
                     defaultValue: "Window handle is blank"
                 ))
             }
-            let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let workspaceArg = csWsFlag ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let explicitSurfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
             let surfaceRaw = explicitSurfaceRaw ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
