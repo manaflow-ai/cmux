@@ -21,22 +21,20 @@ struct MacComputerListSection: Equatable, Identifiable {
     static func sections(from snapshots: [MacComputerSnapshot]) -> [MacComputerListSection] {
         var byMethod: [MobileConnectionMethod: [MacComputerSnapshot]] = [:]
         for snapshot in snapshots {
-            byMethod[snapshot.connectionMethod ?? .automatic, default: []].append(snapshot)
+            byMethod[snapshot.connectionMethod ?? .iroh, default: []].append(snapshot)
         }
-        return [MobileConnectionMethod.automatic, .tailscale, .direct].compactMap { method in
+        return [MobileConnectionMethod.iroh, .direct].compactMap { method in
             byMethod[method].map { MacComputerListSection(method: method, computers: $0) }
         }
     }
 }
 
 extension MobileConnectionMethod {
-    /// User-facing name of the connection method ("Iroh"/"Tailscale"/"Direct").
+    /// User-facing name of the connection method ("Iroh"/"Direct").
     var mobileConnectionMethodName: String {
         switch self {
-        case .automatic:
+        case .iroh:
             L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
-        case .tailscale:
-            L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
         case .direct:
             L10n.string("mobile.connections.method.direct", defaultValue: "Direct")
         }
@@ -46,8 +44,7 @@ extension MobileConnectionMethod {
     /// instead of an advertised route kind.
     var routeKind: CmxAttachTransportKind? {
         switch self {
-        case .automatic: .iroh
-        case .tailscale: .tailscale
+        case .iroh: .iroh
         case .direct: nil
         }
     }

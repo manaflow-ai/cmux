@@ -45,7 +45,7 @@ import Testing
         )
     }
 
-    @Test(arguments: [MobileConnectionMethod.automatic.rawValue, nil] as [String?])
+    @Test(arguments: [MobileConnectionMethod.iroh.rawValue, nil] as [String?])
     func coldStartUsesStoredComputerMethodDespiteLegacyTailscaleDefault(
         storedMethod: String?
     ) async throws {
@@ -67,8 +67,8 @@ import Testing
             stackUserID: "user-1", teamID: nil
         )
         let defaults = UserDefaults(suiteName: "cold-start-method-\(UUID().uuidString)")!
-        defaults.set(MobileConnectionMethod.tailscale.rawValue,
-                     forKey: MobileConnectionMethodStore.methodKey)
+        // A Tailscale Only default stored by an older build.
+        defaults.set("tailscale", forKey: MobileConnectionMethodStore.methodKey)
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory, now: { clock.now }, supportedRouteKinds: [.iroh]
@@ -644,203 +644,9 @@ import Testing
         return store
     }
 
-    /// A pairing that knows the Mac's device key dials Direct QUIC on its
-    /// identity route; the grant becomes the pinned address, never raw TCP.
-    @Test func tailscaleMethodDialsDirectQuicOnTheIdentityRoute() throws {
-        let tailscale = try tailscale()
-        let routes = MobileShellComposite.storedReconnectRoutes(
-            [tailscale, try iroh()],
-            supportedKinds: [.iroh, .tailscale],
-            preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
-                macDeviceID: "test-mac",
-                grantRoutes: [tailscale]
-            )
-        )
-
-        #expect(routes.map(\.kind) == [.iroh])
-        #expect(MobileShellComposite.tailscaleDirectQuicCandidates(from: [tailscale]) == [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)])
-    }
-
-    /// A pre-Iroh pairing has no device key to verify, so it keeps the exact
-    /// granted raw Tailscale route.
-    @Test func tailscaleMethodWithoutDeviceKeyUsesOnlyGrantedTailscaleRoute() throws {
-        let tailscale = try tailscale()
-        let routes = MobileShellComposite.storedReconnectRoutes(
-            [tailscale],
-            supportedKinds: [.iroh, .tailscale],
-            preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
-                macDeviceID: "test-mac",
-                grantRoutes: [tailscale]
-            )
-        )
-
-        #expect(routes.map(\.kind) == [.tailscale])
-    }
-
-    /// Only numeric Tailscale endpoints become Direct QUIC pins.
-    @Test func tailscalePinsRejectNonTailscaleAddresses() throws {
-        let lan = try CmxAttachRoute(
-            id: "tailscale-lan", kind: .tailscale,
-            endpoint: .hostPort(host: "192.168.1.20", port: 58465), priority: 10)
-        #expect(MobileShellComposite.tailscaleDirectQuicCandidates(from: [lan]).isEmpty)
-    }
-
-    @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
-        let routes = MobileShellComposite.storedReconnectRoutes(
-            [try tailscale(), try iroh()],
-            supportedKinds: [.iroh, .tailscale],
-            preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
-                macDeviceID: "test-mac",
-                grantRoutes: []
-            )
-        )
-
-        #expect(routes.isEmpty)
-    }
-
-    @Test func tailscaleMethodRejectsMismatchedGrantWithoutIrohFallback() throws {
-        let otherDestination = try tailscale(50907)
-        let routes = MobileShellComposite.storedReconnectRoutes(
-            [try tailscale()],
-            supportedKinds: [.iroh, .tailscale],
-            preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
-                macDeviceID: "test-mac",
-                grantRoutes: [otherDestination]
-            )
-        )
-
-        #expect(routes.isEmpty)
-    }
-
-    @Test func usableTailscaleAuthorizationRequiresACurrentExactRouteMatch() throws {
-        let current = try tailscale()
-        let stale = try tailscale(50_907)
-        let base = MobilePairedMac(
-            macDeviceID: "test-mac",
-            displayName: "Test Mac",
-            routes: [current],
-            createdAt: .distantPast,
-            lastSeenAt: .now,
-            isActive: true,
-            stackUserID: "user-1"
-        )
-
-        let authorized = MobilePairedMac(
-            macDeviceID: base.macDeviceID,
-            displayName: base.displayName,
-            routes: base.routes,
-            createdAt: base.createdAt,
-            lastSeenAt: base.lastSeenAt,
-            isActive: base.isActive,
-            stackUserID: base.stackUserID,
-            legacyTailscaleRoutes: [current]
-        )
-        let staleAuthorization = MobilePairedMac(
-            macDeviceID: base.macDeviceID,
-            displayName: base.displayName,
-            routes: base.routes,
-            createdAt: base.createdAt,
-            lastSeenAt: base.lastSeenAt,
-            isActive: base.isActive,
-            stackUserID: base.stackUserID,
-            legacyTailscaleRoutes: [stale]
-        )
-        let irohBacked = MobilePairedMac(
-            macDeviceID: base.macDeviceID,
-            displayName: base.displayName,
-            routes: [current, try iroh()],
-            createdAt: base.createdAt,
-            lastSeenAt: base.lastSeenAt,
-            isActive: base.isActive,
-            stackUserID: base.stackUserID
-        )
-
-        #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: [authorized]))
-        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [base]))
-        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(
-            in: [staleAuthorization]
-        ))
-        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [irohBacked]))
-    }
-
-    @Test func usableTailscaleAuthorizationFindsLastMacInLargeSnapshot() throws {
-        let current = try tailscale()
-        let macs = (0 ..< 1_000).map { index in
-            MobilePairedMac(
-                macDeviceID: "test-mac-\(index)",
-                displayName: "Test Mac \(index)",
-                routes: [current],
-                createdAt: .distantPast,
-                lastSeenAt: .distantPast,
-                isActive: index == 999,
-                stackUserID: "user-1",
-                legacyTailscaleRoutes: index == 999 ? [current] : nil
-            )
-        }
-
-        #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: macs))
-    }
-
-    @Test func tailscaleSetupIsRequiredImmediatelyWhenNoMacIsKnown() {
-        let pairingDefaults = UserDefaults(
-            suiteName: "tailscale-setup-pairing-\(UUID().uuidString)"
-        )!
-        let store = MobileShellComposite(
-            isSignedIn: true,
-            pairingHintDefaults: pairingDefaults
-        )
-
-        #expect(store.pairedMacLoadState == .notLoaded)
-        #expect(!store.hasKnownPairedMac)
-        #expect(store.tailscaleSetupStatus == .notSelected)
-        #expect(!store.tailscalePairingRequired)
-    }
-
-    @Test func knownMacWaitsForRouteLoadBeforeRequiringTailscaleSetup() {
-        let pairingDefaults = UserDefaults(
-            suiteName: "tailscale-load-pairing-\(UUID().uuidString)"
-        )!
-        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
-        let store = MobileShellComposite(
-            isSignedIn: true,
-            pairingHintDefaults: pairingDefaults
-        )
-
-        #expect(store.tailscaleSetupStatus == .notSelected)
-        #expect(!store.tailscalePairingRequired)
-        store.pairedMacLoadState = .failed
-        #expect(store.tailscaleSetupStatus == .notSelected)
-        #expect(!store.tailscalePairingRequired)
-    }
-
-    @Test func projectedTailscaleSetupStatusEvaluatesBeforeMethodSelection() {
-        let pairingDefaults = UserDefaults(
-            suiteName: "tailscale-projected-pairing-\(UUID().uuidString)"
-        )!
-        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
-        let store = MobileShellComposite(
-            isSignedIn: true,
-            pairingHintDefaults: pairingDefaults
-        )
-
-        #expect(store.tailscaleSetupStatus == .notSelected)
-        #expect(
-            store.tailscaleSetupStatusWhenSelected == .loadingAuthorization
-        )
-        store.pairedMacLoadState = .failed
-        #expect(
-            store.tailscaleSetupStatusWhenSelected == .pairingRequired
-        )
-    }
-
-    /// Switching an Iroh-identified pairing to Tailscale Only replaces the
-    /// live session with a Direct QUIC dial pinned to the authorized
-    /// Tailscale endpoint.
-    @Test func changingToTailscaleReplacesLiveIrohWithTailscaleDial() async throws {
+    /// Switching an Iroh-identified pairing to Direct replaces the live
+    /// session with a Direct QUIC dial pinned to the Computer's address.
+    @Test func changingToDirectReplacesLiveIrohWithPinnedDial() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         // The factory boxes the live Iroh transport it hands out, so the test
@@ -865,12 +671,14 @@ import Testing
             teamID: nil,
             now: clock.now
         )
-        try await pairedStore.authorizeUserTailscaleRoutes(
+        // `teamID` is omitted so this resolves to the store's own setter.
+        try await pairedStore.setDirectAddresses(
             macDeviceID: "test-mac",
             instanceTag: "default",
-            stackUserID: "user-1",
-            teamID: nil,
-            routes: [tailscale]
+            rawJSON: MobilePairedMac.encodeDirectAddresses([
+                MobilePairedMacDirectAddress(address: "100.82.214.112", port: 50906),
+            ]),
+            stackUserID: "user-1"
         )
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
@@ -898,7 +706,7 @@ import Testing
         let originalTransport = await liveTransportBox.get()
 
         await store.setConnectionMethod(
-            .tailscale,
+            .direct,
             macDeviceID: "test-mac",
             instanceTag: "default"
         )
@@ -919,10 +727,9 @@ import Testing
         #expect(factory.attemptedPins() == [nil, [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 
-    /// A selected Tailscale route is strict. If its pinned dial fails, the
-    /// old Iroh session stays closed and no unpinned Iroh retry is allowed to
-    /// mask the failure.
-    @Test func failingTailscaleAfterMethodChangeDoesNotFallbackToIroh() async throws {
+    /// Direct is strict. If its pinned dial fails, the old Iroh session stays
+    /// closed and no unpinned Iroh retry is allowed to mask the failure.
+    @Test func failingDirectAfterMethodChangeDoesNotFallbackToIroh() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         let liveTransportBox = TransportBox()
@@ -945,12 +752,14 @@ import Testing
             teamID: nil,
             now: clock.now
         )
-        try await pairedStore.authorizeUserTailscaleRoutes(
+        // `teamID` is omitted so this resolves to the store's own setter.
+        try await pairedStore.setDirectAddresses(
             macDeviceID: "test-mac",
             instanceTag: "default",
-            stackUserID: "user-1",
-            teamID: nil,
-            routes: [tailscale]
+            rawJSON: MobilePairedMac.encodeDirectAddresses([
+                MobilePairedMacDirectAddress(address: "100.82.214.112", port: 50906),
+            ]),
+            stackUserID: "user-1"
         )
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
@@ -974,7 +783,7 @@ import Testing
         let originalTransport = await liveTransportBox.get()
 
         await store.setConnectionMethod(
-            .tailscale,
+            .direct,
             macDeviceID: "test-mac",
             instanceTag: "default"
         )
@@ -992,10 +801,10 @@ import Testing
         #expect(factory.attemptedPins() == [nil, [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 
-    /// A strict Tailscale foreground selection must not be hidden by reconnect
+    /// A strict Direct foreground selection must not be hidden by reconnect
     /// promoting a different saved computer over Iroh after the selected Mac
     /// fails.
-    @Test func failingSelectedTailscaleDoesNotPromoteAnotherSavedIrohMac()
+    @Test func failingSelectedDirectDoesNotPromoteAnotherSavedIrohMac()
         async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -1030,12 +839,14 @@ import Testing
             teamID: nil,
             now: clock.now
         )
-        try await pairedStore.authorizeUserTailscaleRoutes(
+        // `teamID` is omitted so this resolves to the store's own setter.
+        try await pairedStore.setDirectAddresses(
             macDeviceID: "selected-mac",
             instanceTag: "default",
-            stackUserID: "user-1",
-            teamID: nil,
-            routes: [tailscale]
+            rawJSON: MobilePairedMac.encodeDirectAddresses([
+                MobilePairedMacDirectAddress(address: "100.82.214.112", port: 50906),
+            ]),
+            stackUserID: "user-1"
         )
         try await pairedStore.upsert(
             macDeviceID: "other-mac",
@@ -1075,7 +886,7 @@ import Testing
         await store.loadPairedMacs()
 
         await store.setConnectionMethod(
-            .tailscale,
+            .direct,
             macDeviceID: "selected-mac",
             instanceTag: "default"
         )
@@ -1090,7 +901,7 @@ import Testing
             store.connectionMethod(
                 forMacDeviceID: "selected-mac",
                 instanceTag: "default"
-            ) == .tailscale
+            ) == .direct
         )
         #expect(store.foregroundMacDeviceID == nil)
         #expect(factory.attemptedPins() == [[CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])

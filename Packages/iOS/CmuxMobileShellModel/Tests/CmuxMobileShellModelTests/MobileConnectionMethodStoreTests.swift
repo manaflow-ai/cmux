@@ -12,21 +12,21 @@ import Testing
         return defaults
     }
 
-    @Test func defaultsToAutomatic() {
+    @Test func defaultsToIroh() {
         let store = MobileConnectionMethodStore(defaults: makeDefaults())
-        #expect(store.method == .automatic)
+        #expect(store.method == .iroh)
     }
 
     @Test func persistsSelectionAcrossInstances() {
         let defaults = makeDefaults()
         let store = MobileConnectionMethodStore(defaults: defaults)
-        store.method = .tailscale
+        store.method = .direct
 
         let reloaded = MobileConnectionMethodStore(defaults: defaults)
-        #expect(reloaded.method == .tailscale)
+        #expect(reloaded.method == .direct)
 
-        reloaded.method = .automatic
-        #expect(MobileConnectionMethodStore(defaults: defaults).method == .automatic)
+        reloaded.method = .iroh
+        #expect(MobileConnectionMethodStore(defaults: defaults).method == .iroh)
     }
 
     @Test func ignoresUnknownPersistedValue() {
@@ -34,7 +34,16 @@ import Testing
         defaults.set("carrier-pigeon", forKey: MobileConnectionMethodStore.methodKey)
 
         let store = MobileConnectionMethodStore(defaults: defaults)
-        #expect(store.method == .automatic)
+        #expect(store.method == .iroh)
+    }
+
+    /// Tailscale Only folded into Direct; an old stored choice is unknown now.
+    @Test func legacyTailscaleOnlyValueFallsBackToIroh() {
+        let defaults = makeDefaults()
+        defaults.set("tailscale", forKey: MobileConnectionMethodStore.methodKey)
+
+        #expect(MobileConnectionMethodStore(defaults: defaults).method == .iroh)
+        #expect(MobileConnectionMethod.iroh.rawValue == "automatic")
     }
 
     @Test func recordsPreferenceChangesAtThePersistenceOwner() async {
@@ -44,7 +53,7 @@ import Testing
             diagnosticLog: log
         )
 
-        store.method = .tailscale
+        store.method = .direct
 
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
@@ -59,7 +68,7 @@ import Testing
         let change = events.last
         #expect(change?.a
             == DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue)
-        #expect(change?.c == 1)
+        #expect(change?.c == DiagnosticConnectionMethod.direct.rawValue)
     }
 
     /// A shared report window must state the configured method even when the
@@ -68,7 +77,7 @@ import Testing
     @Test func recordsConfiguredMethodAtInitAndOnDemand() async {
         let defaults = makeDefaults()
         defaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
+            MobileConnectionMethod.direct.rawValue,
             forKey: MobileConnectionMethodStore.methodKey
         )
         let log = DiagnosticLog(capacity: 4)
@@ -89,7 +98,7 @@ import Testing
         for event in events {
             #expect(event.a
                 == DiagnosticAppEventKind.connectionMethodConfigured.rawValue)
-            #expect(event.c == 1)
+            #expect(event.c == DiagnosticConnectionMethod.direct.rawValue)
         }
     }
 }

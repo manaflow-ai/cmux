@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 12
+    public static let currentSchemaVersion: Int32 = 13
 
     /// Keep route-removal suppression bounded. Once a scope churns beyond this
     /// limit, it parks a conservative kind-wide marker until explicit pairing.
@@ -227,7 +227,7 @@ public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
                 try migrateToV11()
                 try setUserVersion(11)
             }
-        case 11:
+        case 11, 12, 13:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -250,6 +250,12 @@ public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
             try transaction {
                 try migrateToV12()
                 try setUserVersion(12)
+            }
+        }
+        if version < 13 {
+            try transaction {
+                try migrateToV13()
+                try setUserVersion(13)
             }
         }
     }

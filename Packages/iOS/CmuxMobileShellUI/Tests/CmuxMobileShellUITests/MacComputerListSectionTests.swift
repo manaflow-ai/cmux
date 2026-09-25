@@ -6,23 +6,23 @@ import Testing
 
 @Suite struct MacComputerListSectionTests {
     @Test func computersGroupUnderTheirOwnConnectionMethod() {
-        let irohMac = snapshot(deviceId: "mac-iroh", method: .automatic)
-        let tailscaleMac = snapshot(deviceId: "mac-ts", method: .tailscale)
+        let irohMac = snapshot(deviceId: "mac-iroh", method: .iroh)
+        let directMac = snapshot(deviceId: "mac-direct", method: .direct)
 
-        let sections = MacComputerListSection.sections(from: [tailscaleMac, irohMac])
+        let sections = MacComputerListSection.sections(from: [directMac, irohMac])
 
-        #expect(sections.map(\.method) == [.automatic, .tailscale])
+        #expect(sections.map(\.method) == [.iroh, .direct])
         #expect(sections[0].computers.map(\.deviceId) == ["mac-iroh"])
-        #expect(sections[1].computers.map(\.deviceId) == ["mac-ts"])
+        #expect(sections[1].computers.map(\.deviceId) == ["mac-direct"])
     }
 
     @Test func emptyMethodSectionsAreOmitted() {
         let sections = MacComputerListSection.sections(from: [
-            snapshot(deviceId: "mac-1", method: .automatic),
-            snapshot(deviceId: "mac-2", method: .automatic),
+            snapshot(deviceId: "mac-1", method: .iroh),
+            snapshot(deviceId: "mac-2", method: .iroh),
         ])
 
-        #expect(sections.map(\.method) == [.automatic])
+        #expect(sections.map(\.method) == [.iroh])
         #expect(sections[0].computers.count == 2)
     }
 
@@ -31,7 +31,7 @@ import Testing
             snapshot(deviceId: "mac-1", method: nil)
         ])
 
-        #expect(sections.map(\.method) == [.automatic])
+        #expect(sections.map(\.method) == [.iroh])
     }
 
     private func snapshot(

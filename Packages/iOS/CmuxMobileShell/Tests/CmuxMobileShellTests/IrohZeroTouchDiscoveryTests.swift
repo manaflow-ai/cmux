@@ -734,7 +734,7 @@ struct IrohZeroTouchDiscoveryTests {
         let fixture = try await makeFixture(
             discovery: discovery,
             reportedDeviceID: "mac-a",
-            legacyGlobalMethod: .tailscale
+            legacyGlobalMethod: .direct
         )
         defer { fixture.cleanup() }
         let legacyRoute = try CmxAttachRoute(
@@ -758,7 +758,8 @@ struct IrohZeroTouchDiscoveryTests {
         try await fixture.store.setConnectionMethod(
             macDeviceID: "mac-b",
             instanceTag: "stable",
-            rawValue: MobileConnectionMethod.tailscale.rawValue,
+            // A Tailscale Only choice stored by an older build.
+            rawValue: "tailscale",
             stackUserID: "user-1"
         )
         let scope = try #require(

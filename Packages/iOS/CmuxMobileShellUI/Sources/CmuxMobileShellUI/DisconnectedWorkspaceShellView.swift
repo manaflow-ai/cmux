@@ -29,9 +29,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
-    /// Whether Tailscale still needs its one-time Mac authorization. The
-    /// requirement is rendered in the empty state instead of a top banner.
-    var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     /// Present the Computers management sheet. Essential while disconnected:
     /// the per-Computer connection method lives in the Computer detail, and a
@@ -241,17 +238,7 @@ struct DisconnectedWorkspaceShellView: View {
             Text(emptyDescription)
                 .accessibilityIdentifier("MobileDisconnectedEmptyDescription")
         } actions: {
-            if tailscalePairingRequired, let showPairingScanner {
-                Button(action: showPairingScanner) {
-                    Text(L10n.string(
-                        "mobile.tailscalePairingRequired.scan",
-                        defaultValue: "Scan Pairing Code"
-                    ))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-                .accessibilityIdentifier("MobileDisconnectedScanPairingCode")
-            } else if let showAddDevice {
+            if let showAddDevice {
                 Button(action: showAddDevice) {
                     Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                 }
@@ -270,11 +257,6 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     private var emptyDescription: String {
-        #if os(iOS)
-        if tailscalePairingRequired {
-            return MobilePairingScannerSheet.emptyStateGuidanceText
-        }
-        #endif
         return L10n.string(
             "mobile.v2.devices.emptyDescription",
             defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
@@ -289,10 +271,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// in that case the newer attempt is still in flight or has already
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to computer: MacComputerSnapshot) {
-        if tailscalePairingRequired {
-            showPairingScanner?()
-            return
-        }
         guard connectingMacID == nil, let store else { return }
         connectingMacID = computer.id
         Task {

@@ -20,7 +20,6 @@ struct WorkspaceShellHost: View {
     let signOut: @MainActor @Sendable () -> Void
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
-    var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
@@ -40,7 +39,6 @@ struct WorkspaceShellHost: View {
             retryInitialConnection: retry,
             showAddDevice: showAddDevice,
             showPairingScanner: showPairingScanner,
-            tailscalePairingRequired: tailscalePairingRequired,
             showSettings: showSettings,
             showComputers: showComputers,
             taskComposerPresentation: taskComposerPresentation

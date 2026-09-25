@@ -9,41 +9,6 @@ private let reconnectRouteLog = Logger(
     category: "MobileReconnectRoutes"
 )
 
-/// Readiness of the selected Tailscale connection method.
-///
-/// Keeping the load phase explicit prevents presentation code from treating a
-/// not-yet-loaded authorization as either confirmed or missing.
-public enum MobileTailscaleSetupStatus: Equatable, Sendable {
-    case notSelected
-    case loadingAuthorization
-    case pairingRequired
-    case authorized
-}
-
-/// Canonical identity for one locally authorized legacy Tailscale endpoint.
-private struct MobileTailscaleAuthorizationEndpoint:
-    Hashable, Sendable
-{
-    let macDeviceID: String
-    let host: String
-    let port: Int
-
-    init?(macDeviceID: String, route: CmxAttachRoute) {
-        guard route.kind == .tailscale,
-              case let .hostPort(host, port) = route.endpoint,
-              let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
-                  macDeviceID: macDeviceID,
-                  host: host,
-                  port: port
-              ) else {
-            return nil
-        }
-        self.macDeviceID = evidence.macDeviceID
-        self.host = evidence.host
-        self.port = evidence.port
-    }
-}
-
 enum ReconnectRouteRefreshOutcome: Sendable {
     case refreshedRoutes([CmxAttachRoute])
     case confirmedMissingIroh
@@ -145,77 +110,8 @@ extension MobileShellComposite {
         return nil
     }
 
-    /// Whether any paired Mac retains a current route matching an exact local
-    /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
-    /// changes address, so both route sets must still agree.
-    public nonisolated static func hasUsableTailscaleAuthorization(
-        in macs: [MobilePairedMac]
-    ) -> Bool {
-        var authorizedEndpoints: Set<MobileTailscaleAuthorizationEndpoint> = []
-        for mac in macs {
-            for route in mac.legacyTailscaleRoutes ?? [] {
-                if let endpoint = MobileTailscaleAuthorizationEndpoint(
-                    macDeviceID: mac.macDeviceID,
-                    route: route
-                ) {
-                    authorizedEndpoints.insert(endpoint)
-                }
-            }
-        }
-        guard !authorizedEndpoints.isEmpty else { return false }
-
-        for mac in macs {
-            for route in mac.routes {
-                guard let endpoint = MobileTailscaleAuthorizationEndpoint(
-                    macDeviceID: mac.macDeviceID,
-                    route: route
-                ) else {
-                    continue
-                }
-                if authorizedEndpoints.contains(endpoint) {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    /// Whether Tailscale Only can dial an endpoint the user authorized locally.
-    public var hasUsableTailscaleAuthorization: Bool {
-        if connectionState == .connected,
-           remoteClient?.usesLocallyAuthorizedTailscaleRoute == true {
-            return true
-        }
-        return hasStoredUsableTailscaleAuthorization
-    }
-
-    /// Readiness if the user selects Tailscale, before that preference is saved.
-    public var tailscaleSetupStatusWhenSelected: MobileTailscaleSetupStatus {
-        if hasUsableTailscaleAuthorization {
-            return .authorized
-        }
-        if pairedMacLoadState == .notLoaded, hasKnownPairedMac {
-            return .loadingAuthorization
-        }
-        return .pairingRequired
-    }
-
-    /// Readiness of Tailscale when selected by a stored Computer.
-    public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
-        guard pairedMacs.contains(where: { connectionMethod(for: $0) == .tailscale })
-        else {
-            return .notSelected
-        }
-        return tailscaleSetupStatusWhenSelected
-    }
-
-    /// Whether the selected Tailscale method still needs its one-time pairing grant.
-    public var tailscalePairingRequired: Bool {
-        tailscaleSetupStatus == .pairingRequired
-    }
-
-    /// The strict Tailscale policy for one paired Mac: only exact grant routes
-    /// remain dialable while the user has selected Tailscale.
+    /// One paired Mac's device-local raw Tailscale grants, honored only by
+    /// the Iroh method's pre-Iroh compatibility below.
     struct TailscaleRouteRequirement {
         let macDeviceID: String
         let grantRoutes: [CmxAttachRoute]
@@ -224,16 +120,10 @@ extension MobileShellComposite {
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes for
-    /// the Automatic and Direct methods. An explicit Tailscale requirement
-    /// filters the result to exact locally authorized Tailscale endpoints.
-    ///
-    /// `tailscaleRequirement` represents the user's explicit Tailscale-only
-    /// connection method. Only stored Tailscale routes carrying a device-local
-    /// grant remain; Iroh is not retained as a fallback, and a method change
-    /// alone grants nothing.
+    /// the Iroh and Direct methods.
     ///
     /// `legacyTailscaleCompatibility` carries the pairing's device-local
-    /// migration grant for the automatic method. It applies only when the
+    /// migration grant for the Iroh method. It applies only when the
     /// pairing advertises no authenticated route at all, so a pre-Iroh
     /// pairing keeps the exact endpoint it used before Iroh shipped instead
     /// of losing every route the moment Automatic became strict (#10437,
@@ -243,7 +133,6 @@ extension MobileShellComposite {
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false,
-        tailscaleRequirement: TailscaleRouteRequirement? = nil,
         legacyTailscaleCompatibility: TailscaleRouteRequirement? = nil
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
@@ -256,28 +145,9 @@ extension MobileShellComposite {
         if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
-        if let tailscaleRequirement {
-            // A pairing that knows the Mac's device key dials Direct QUIC on
-            // the Iroh route, pinned to the authorized Tailscale endpoints
-            // (see `irohMethodPinnedDialCandidates`). Without a grant there is
-            // nothing to dial until the user enters a pairing code.
-            let identityRoutes = ordered.filter { $0.kind == .iroh }
-            if !identityRoutes.isEmpty {
-                return tailscaleDirectQuicCandidates(from: tailscaleRequirement.grantRoutes).isEmpty
-                    ? [] : identityRoutes
-            }
-            let authorizedTailscale = ordered.filter { route in
-                legacyTailscaleAuthorizationEvidence(
-                    for: route,
-                    macDeviceID: tailscaleRequirement.macDeviceID,
-                    persistedRoutes: tailscaleRequirement.grantRoutes
-                ) != nil
-            }
-            return authorizedTailscale
-        }
         // The Iroh method never falls back to raw host/port routes: a pairing
-        // without an Iroh identity stays disconnected until the user either
-        // upgrades the Mac or selects Tailscale for it. Debug loopback rides
+        // without an Iroh identity stays disconnected until the user upgrades
+        // the Mac, unless it keeps a pre-Iroh grant (below). Debug loopback rides
         // alongside Iroh as the dev-build convenience — same-machine lane,
         // not a cross-method fallback — so an Iroh endpoint that advertises
         // no relays and no direct addresses cannot starve it.
@@ -295,9 +165,9 @@ extension MobileShellComposite {
     }
 
     /// The dial order for one stored Mac, honoring the user's connection-method
-    /// choice. With the default automatic method this is exactly
-    /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:tailscaleRequirement:)``
-    /// without a preference. A pre-Iroh automatic pairing may retain a
+    /// choice. With the default Iroh method this is exactly
+    /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:legacyTailscaleCompatibility:)``
+    /// without a preference. A pre-Iroh pairing may retain a
     /// migration grant and no Iroh identity; that exact legacy route remains
     /// available until the Mac publishes an Iroh route or the user selects a
     /// different method.
@@ -310,13 +180,7 @@ extension MobileShellComposite {
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: method == .tailscale
-                ? TailscaleRouteRequirement(
-                    macDeviceID: mac.macDeviceID,
-                    grantRoutes: mac.legacyTailscaleRoutes ?? []
-                )
-                : nil,
-            legacyTailscaleCompatibility: method == .automatic
+            legacyTailscaleCompatibility: method == .iroh
                 ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
@@ -325,8 +189,7 @@ extension MobileShellComposite {
         )
         // Direct rides the identity route EXCLUSIVELY: Direct QUIC dials only
         // the method's allowlisted addresses, and no dev-loopback or host/port
-        // lane may substitute when they are unreachable. Tailscale is already
-        // reduced to its identity route or legacy grant routes above.
+        // lane may substitute when they are unreachable.
         return method == .direct
             ? routes.filter { $0.kind == .iroh }
             : routes

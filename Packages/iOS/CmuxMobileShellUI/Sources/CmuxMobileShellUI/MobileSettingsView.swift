@@ -23,10 +23,6 @@ struct MobileSettingsView: View {
     @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    /// Optional so previews and hosts without the app root still render; the
-    /// Connection Method section is hidden when absent.
-    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
-        MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
     /// Optional like the other app-root stores; without it the row falls
     /// back to the channel-gated binary catalog (never-fetched policy).
@@ -35,11 +31,6 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
-    /// Re-evaluates the scanner entrypoint after the replay picker changes the
-    /// connection method. Unlike ``startPairingScanner``, this callback is
-    /// intentionally not capability-gated at construction time, because the
-    /// selected method can make pairing available while the replay is open.
-    var startTailscalePairing: (() -> Void)? = nil
     /// Opens the Computers screen (the host dismisses or swaps this sheet
     /// first). `nil` hides the Connection section's All Computers row.
     var showComputers: (() -> Void)? = nil
@@ -639,19 +630,13 @@ struct MobileSettingsView: View {
                         isSearching: store?.isReconnectingStoredMac == true,
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
-                    connectionMethod: connectionMethodStore?.method ?? .automatic,
                     keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
-                    onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
                     },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
-                    onStartTailscalePairing: {
-                        showingOnboarding = false
-                        (startTailscalePairing ?? startPairingScanner)?()
-                    },
                     onSetKeepAwake: { [store] enabled in
                         await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
                     },

@@ -4,16 +4,14 @@ import Observation
 
 /// How the phone should reach a paired Mac.
 public enum MobileConnectionMethod: String, CaseIterable, Sendable {
-    /// Dial the built-in encrypted peer-to-peer transport (direct paths with
-    /// managed relays as fallback). The default; no setup required.
-    case automatic
-    /// Require the user's Tailscale network. Requires entering the Tailscale
-    /// pairing code shown on the Mac once, which authorizes that exact peer;
-    /// Iroh is never used as a fallback while this method is selected.
-    case tailscale
-    /// Dial only the user-enabled direct addresses configured on the
-    /// Computer (LAN, WireGuard, or any other reachable network). No other
-    /// method is ever used as a fallback while this method is selected.
+    /// Iroh: discovery, direct paths, and managed relays as fallback. The
+    /// default; no setup required. Stored as `"automatic"` for compatibility.
+    case iroh = "automatic"
+    /// Dial only the user-enabled addresses configured on the Computer (LAN,
+    /// Tailscale, WireGuard, or any other reachable network) over Direct QUIC,
+    /// authenticated by the Mac's device key. Nothing else is ever tried while
+    /// this method is selected. Replaces the former Tailscale Only method: a
+    /// Tailscale address is one Direct address.
     case direct
 }
 
@@ -22,8 +20,7 @@ extension MobileConnectionMethod {
     /// method becomes a compile error here instead of silently misreporting.
     var diagnosticMethod: DiagnosticConnectionMethod {
         switch self {
-        case .automatic: .automatic
-        case .tailscale: .tailscale
+        case .iroh: .iroh
         case .direct: .direct
         }
     }
@@ -31,10 +28,8 @@ extension MobileConnectionMethod {
 
 /// Persists the user's connection-method choice.
 ///
-/// The choice is exclusive: `automatic` uses the built-in encrypted transport,
-/// while `tailscale` dials only an authorized Tailscale route. It never
-/// manufactures Tailscale authorization by itself; a pairing code entry remains
-/// the authorization event for each Mac.
+/// The choice is exclusive: `iroh` uses Iroh's discovery and relays, while
+/// `direct` dials only the Computer's configured addresses.
 ///
 /// The backing `UserDefaults` is injected so the store is testable without
 /// touching `.standard`; the app constructs it at the composition root.
@@ -73,7 +68,7 @@ public final class MobileConnectionMethodStore {
            let method = MobileConnectionMethod(rawValue: rawValue) {
             self.method = method
         } else {
-            self.method = .automatic
+            self.method = .iroh
         }
         recordConfiguredMethodDiagnostic()
     }
