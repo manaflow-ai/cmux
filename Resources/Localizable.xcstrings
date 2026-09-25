@@ -440918,6 +440918,72 @@
             "state": "translated",
             "value": "effects가 없거나 잘못되었습니다"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedostaje ili je nevažeći effects"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manglende eller ugyldig effects"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects mancante o non valido"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects បាត់ ឬមិនត្រឹមត្រូវ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manglende eller ugyldig effects"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak lub nieprawidłowa wartość effects"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects ausente ou inválido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отсутствует или недопустимое значение effects"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects หายไปหรือไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects eksik veya geçersiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відсутнє або недійсне значення effects"
+          }
         }
       }
     },
@@ -557275,6 +557341,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh-tmux：--name 需要工作區標題"
+          }
+        }
+      }
+    },
+    "cli.error.notifyDesktopValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop must be true|false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون --desktop إما true|false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop muss true|false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop debe ser true|false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop doit être true|false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop には true|false を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop는 true|false여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop 必须是 true|false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop 必須是 true|false"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop mora biti true|false"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop skal være true|false"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop deve essere true|false"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop ត្រូវតែជា true|false"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop må være true|false"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop musi mieć wartość true|false"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop deve ser true|false"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop должен быть true|false"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop ต้องเป็น true|false"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop true|false olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop має бути true|false"
           }
         }
       }

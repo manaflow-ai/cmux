@@ -22,118 +22,10 @@ struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
     var soundContext: NotificationSoundOverrideContext? = nil
 }
 
-struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
-    var record: Bool = true
-    var markUnread: Bool = true
-    var reorderWorkspace: Bool = true
-    var desktop: Bool = true
-    var sound: Bool = true
-    var command: Bool = true
-    var paneFlash: Bool = true
-
-    private enum CodingKeys: String, CodingKey {
-        case record
-        case markUnread
-        case reorderWorkspace
-        case desktop
-        case sound
-        case command
-        case paneFlash
-    }
-
-    init() {}
-
-    /// Every delivery effect disabled. Workspace mute is an admission gate;
-    /// keeping this constructor exhaustive prevents a newly added effect from
-    /// accidentally leaking through a muted workspace.
-    static var allSuppressed: Self {
-        var effects = Self()
-        effects.record = false
-        effects.markUnread = false
-        effects.reorderWorkspace = false
-        effects.desktop = false
-        effects.sound = false
-        effects.command = false
-        effects.paneFlash = false
-        return effects
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        record = try container.decodeIfPresent(Bool.self, forKey: .record) ?? true
-        markUnread = try container.decodeIfPresent(Bool.self, forKey: .markUnread) ?? true
-        reorderWorkspace = try container.decodeIfPresent(Bool.self, forKey: .reorderWorkspace) ?? true
-        desktop = try container.decodeIfPresent(Bool.self, forKey: .desktop) ?? true
-        sound = try container.decodeIfPresent(Bool.self, forKey: .sound) ?? true
-        command = try container.decodeIfPresent(Bool.self, forKey: .command) ?? true
-        paneFlash = try container.decodeIfPresent(Bool.self, forKey: .paneFlash) ?? true
-    }
-}
-
-/// A partial effects override: what a hook emits under `effects`, and what a
-/// `cmux notify --desktop false` request carries in before hooks run.
-struct TerminalNotificationPolicyEffectsPatch: Codable, Sendable, Equatable {
-    /// Overrides `record`, the history and Notifications panel entry.
-    var record: Bool?
-    /// Overrides `markUnread`, the workspace and surface unread state.
-    var markUnread: Bool?
-    /// Overrides `reorderWorkspace`, the sidebar reorder.
-    var reorderWorkspace: Bool?
-    /// Overrides `desktop`, the native macOS banner.
-    var desktop: Bool?
-    /// Overrides `sound`.
-    var sound: Bool?
-    /// Overrides `command`, the user's `notifications.command`.
-    var command: Bool?
-    /// Overrides `paneFlash`, the pane ring.
-    var paneFlash: Bool?
-
-    /// Creates a patch from the given field overrides; every field defaults to absent.
-    init(
-        record: Bool? = nil,
-        markUnread: Bool? = nil,
-        reorderWorkspace: Bool? = nil,
-        desktop: Bool? = nil,
-        sound: Bool? = nil,
-        command: Bool? = nil,
-        paneFlash: Bool? = nil
-    ) {
-        self.record = record
-        self.markUnread = markUnread
-        self.reorderWorkspace = reorderWorkspace
-        self.desktop = desktop
-        self.sound = sound
-        self.command = command
-        self.paneFlash = paneFlash
-    }
-
-    /// Returns `effects` with every present field of this patch applied.
-    func merged(into effects: TerminalNotificationPolicyEffects) -> TerminalNotificationPolicyEffects {
-        var merged = effects
-        if let record {
-            merged.record = record
-        }
-        if let markUnread {
-            merged.markUnread = markUnread
-        }
-        if let reorderWorkspace {
-            merged.reorderWorkspace = reorderWorkspace
-        }
-        if let desktop {
-            merged.desktop = desktop
-        }
-        if let sound {
-            merged.sound = sound
-        }
-        if let command {
-            merged.command = command
-        }
-        if let paneFlash {
-            merged.paneFlash = paneFlash
-        }
-        return merged
-    }
-}
+/// The delivery effects model lives in `CmuxNotifications`; these names keep
+/// the app's call sites and hook envelope encoding unchanged.
+typealias TerminalNotificationPolicyEffects = NotificationPolicyEffects
+typealias TerminalNotificationPolicyEffectsPatch = NotificationPolicyEffectsPatch
 
 private struct TerminalNotificationPolicyPayloadPatch: Decodable {
     var workspaceId: String?
@@ -335,7 +227,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
     /// The effects a delivery starts from before any hook runs: the defaults
     /// with the caller's override merged in.
     var baseEffects: TerminalNotificationPolicyEffects {
-        effects?.merged(into: TerminalNotificationPolicyEffects()) ?? TerminalNotificationPolicyEffects()
+        TerminalNotificationPolicyEffects(applying: effects)
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {

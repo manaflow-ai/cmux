@@ -7520,7 +7520,10 @@ struct CMUXCLI {
             var notifyEffectParams: [String: Any] = [:]
             if let desktopRaw = optionValue(commandArgs, name: "--desktop") {
                 guard let desktop = parseBoolString(desktopRaw) else {
-                    throw CLIError(message: "--desktop must be true|false")
+                    throw CLIError(message: String(
+                        localized: "cli.error.notifyDesktopValue",
+                        defaultValue: "--desktop must be true|false"
+                    ))
                 }
                 notifyEffectParams["effects"] = ["desktop": desktop]
             }
