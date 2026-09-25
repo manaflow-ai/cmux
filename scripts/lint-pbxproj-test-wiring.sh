@@ -147,7 +147,7 @@ fi
 # target's Sources phase reference. The block begins with the UUID/Sources
 # header and ends at the next standalone "};" line.
 tests_sources_block="$(awk -v uuid="$tests_sources_uuid" '
-  $0 ~ uuid " /\\* Sources \\*/ = \\{" { capture = 1 }
+  $0 ~ "(^|[^A-Za-z0-9])" uuid " /\\* Sources \\*/ = \\{" { capture = 1 }
   capture { print }
   capture && /^[[:space:]]*\};[[:space:]]*$/ { exit }
 ' "$PBXPROJ")"
@@ -186,18 +186,39 @@ if [ "$RECURSIVE" = true ]; then
 fi
 
 # Names compiled by this target, one per line, from each
-# `/* <base> in Sources */` entry in its Sources phase. Comparing whole names
-# (not a substring grep) keeps `SearchIndexTests.swift` from matching the
-# wired `SettingsSearchIndexTests.swift`. Basenames are exact for one target:
-# Swift rejects two files with the same name in a module, so a recursive walk
-# cannot alias two files. One awk pass instead of a grep per file keeps the
-# ~2,400-file Sources/ check to about a second.
-# grep -o, not a per-line sed: merges have left two entries on one line.
+# `/* <base> in Sources */` entry in its Sources phase. grep -o, not a
+# per-line sed: merges have left two entries on one line. Comparing whole
+# names (not a substring grep) keeps `SearchIndexTests.swift` from matching
+# the wired `SettingsSearchIndexTests.swift`.
 wired_names="$(grep -oE '/\* [^*]+ in Sources \*/' <<<"$tests_sources_block" \
   | sed -e 's#^/\* ##' -e 's# in Sources \*/$##' || true)"
 
-missing=()
+# Repo-relative paths of the Swift files to check. Plain command substitutions
+# so set -e and pipefail stop the lint if find or awk fails, instead of an
+# empty list reading as "all wired".
+all_files="$(find "$TESTS_DIR" ${find_depth[@]+"${find_depth[@]}"} -type f -name '*.swift' \
+  | ROOT_PREFIX="$REPO_ROOT/" awk '{ print substr($0, length(ENVIRON["ROOT_PREFIX"]) + 1) }' \
+  | LC_ALL=C sort)"
 checked=0
+[ -n "$all_files" ] && checked="$(printf '%s\n' "$all_files" | wc -l | tr -d ' ')"
+
+# Membership is by file name, which is exact only while names are unique: an
+# unwired Sources/B/Foo.swift would otherwise pass on a wired Sources/A/Foo.swift.
+duplicates="$(printf '%s\n' "$all_files" | awk -F/ 'NF { print $NF }' | LC_ALL=C sort | uniq -d)"
+if [ -n "$duplicates" ]; then
+  echo "lint-pbxproj-test-wiring: Swift file names under $TESTS_REL/ must be unique; target membership is checked by name:"
+  printf '%s\n' "$duplicates" | while IFS= read -r name; do
+    printf '%s\n' "$all_files" | awk -F/ -v n="$name" '$NF == n { print "  - " $0 }'
+  done
+  exit 1
+fi
+
+unwired="$(printf '%s\n' "$all_files" | awk '
+  NR == FNR { if ($0 != "") wired[$0] = 1; next }
+  $0 != "" { base = $0; sub(/.*\//, "", base); if (!(base in wired)) print }
+' <(printf '%s\n' "$wired_names") -)"
+
+missing=()
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue
   if is_allowed "$rel"; then
@@ -208,15 +229,7 @@ while IFS= read -r rel; do
   else
     missing+=("${rel##*/}")
   fi
-done < <(
-  find "$TESTS_DIR" ${find_depth[@]+"${find_depth[@]}"} -type f -name '*.swift' \
-    | sed "s#^$REPO_ROOT/##" | LC_ALL=C sort \
-    | WIRED_NAMES="$wired_names" awk '
-        BEGIN { n = split(ENVIRON["WIRED_NAMES"], names, "\n"); for (i = 1; i <= n; i++) w[names[i]] = 1 }
-        { base = $0; sub(/.*\//, "", base); if (!(base in w)) print }
-      '
-)
-checked="$(find "$TESTS_DIR" ${find_depth[@]+"${find_depth[@]}"} -type f -name '*.swift' | wc -l | tr -d ' ')"
+done <<<"$unwired"
 
 is_wired() {
   grep -qxF -- "$1" <<<"$wired_names"

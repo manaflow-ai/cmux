@@ -12,6 +12,9 @@
 #   (c) The same file passes when allowlisted.
 #   (d) An allowlist entry for a file that is now wired fails as stale.
 #   (e) An allowlist entry for a deleted file fails as stale.
+#   (f) An unwired file named like a wired one elsewhere fails: membership is
+#       checked by name, so names must be unique.
+#   (g) A repo path with `#` in it still reports the missing file.
 #   Also.swift shares a Sources-phase line with Wired.swift, as merges leave
 #   in the real pbxproj; both must count as wired.
 
@@ -101,5 +104,26 @@ if lint_sandbox --allowlist "$SANDBOX/allow.txt"; then
 fi
 grep -q 'Sources/Gone.swift (file does not exist)' "$SANDBOX/out" \
   || fail "(e) output does not report the stale missing entry" "$SANDBOX/out"
+
+# (f)
+mkdir -p "$SANDBOX/Sources/Copy"
+echo 'struct Wired2 {}' > "$SANDBOX/Sources/Copy/Wired.swift"
+if lint_sandbox --allowlist "$SANDBOX/allow.txt"; then
+  fail "(f) lint accepted a second Wired.swift that is not in the target" "$SANDBOX/out"
+fi
+grep -q '  - Sources/Copy/Wired.swift' "$SANDBOX/out" \
+  || fail "(f) output does not name the duplicate" "$SANDBOX/out"
+rm -r "$SANDBOX/Sources/Copy"
+
+# (g)
+HASHED="$SANDBOX/repo#1"
+mkdir -p "$HASHED"
+cp -R "$SANDBOX/cmux.xcodeproj" "$SANDBOX/Sources" "$HASHED/"
+if "$LINT" --repo-root "$HASHED" --target cmux --tests-dir Sources --recursive \
+  >"$SANDBOX/out" 2>&1; then
+  fail "(g) lint passed under a repo path containing #" "$SANDBOX/out"
+fi
+grep -q '  - Sources/Feature/Dropped.swift' "$SANDBOX/out" \
+  || fail "(g) output does not name Sources/Feature/Dropped.swift" "$SANDBOX/out"
 
 echo "test_ci_pbxproj_app_sources_wiring: ok"
