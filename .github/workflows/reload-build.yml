@@ -51,6 +51,11 @@ on:
         required: false
         default: ""
         type: string
+      edit_benchmark:
+        description: "macOS only: after the build, time reload.sh after a series of typical edits (scripts/ci/app-edit-loop-benchmark.py)"
+        required: false
+        default: false
+        type: boolean
       backend_mode:
         description: "Backend for macOS: remote requires backend_url; local requires your own local dev server"
         required: false
@@ -82,7 +87,7 @@ jobs:
     needs: resolve-ref
     # Depot is retired for cmux builds. Legacy Depot requests use Blacksmith.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.edit_benchmark && 150 || 60 }}
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -591,6 +596,31 @@ jobs:
           fi
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
+
+      - name: Time the dev loop after typical edits
+        if: ${{ inputs.platform == 'macos' && inputs.edit_benchmark }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+          CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+          CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
+          CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/edit-loop"
+          python3 scripts/ci/app-edit-loop-benchmark.py \
+            --tag "$BUILD_TAG" \
+            --derived-data "$GITHUB_WORKSPACE/.ci-reload-derived-data" \
+            --out "$RUNNER_TEMP/edit-loop/results.json"
+          # The edits must not reach the DerivedData cache save or the artifact.
+          git checkout -- Sources Packages
+
+      - name: Upload edit-loop results
+        if: ${{ always() && inputs.platform == 'macos' && inputs.edit_benchmark }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: edit-loop-${{ inputs.tag }}
+          path: ${{ runner.temp }}/edit-loop
+          if-no-files-found: warn
 
       # iOS links the CmuxIrohFFI xcframework (gitignored, built from the Rust
       # crate under Native/cmux-iroh). The macOS path builds it via
