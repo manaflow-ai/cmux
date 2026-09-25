@@ -10,12 +10,12 @@ const GIT_SELECTION_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "
 const cleanEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !GIT_SELECTION_VARIABLES.includes(key)));
 const MOCK_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
-async function probe(scenario: string, options: { missingCurl?: boolean; dirtyTree?: boolean } = {}) {
+async function probe(scenario: string, options: { missingCurl?: boolean; dirtyTree?: boolean; environment?: "production" | "staging" } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "iroh-deploy-test-"));
   const state = join(directory, "state.json");
   const calls = join(directory, "calls.log");
   try {
-    await writeFile(join(directory, "bun"), "#!/bin/sh\nprintf 'bun %s\\n' \"$*\" >> \"$MOCK_CALLS\"\nexit 0\n", { mode: 0o700 });
+    await writeFile(join(directory, "bun"), "#!/bin/sh\nprintf 'bun %s\\n' \"$*\" >> \"$MOCK_CALLS\"\ncase \"$1\" in scripts/*) exec \"$REAL_BUN\" \"$@\" ;; esac\nexit 0\n", { mode: 0o700 });
     await writeFile(join(directory, "python3"), "#!/bin/sh\nexec /usr/bin/python3 \"$@\"\n", { mode: 0o700 });
     const helperCommands: Array<[string, string]> = [
       ["mktemp", "/usr/bin/mktemp"], ["rm", "/bin/rm"], ["cat", "/bin/cat"],
@@ -30,6 +30,7 @@ async function probe(scenario: string, options: { missingCurl?: boolean; dirtyTr
     await writeFile(join(directory, "git"), `#!/bin/sh
 case "$*" in
   "rev-parse --verify HEAD") exit 0 ;;
+  "merge-base --is-ancestor ${MOCK_HEAD} origin/main") [ "$PROBE_SCENARIO" != "unmerged" ] ;;
   "rev-parse HEAD") printf '%s\\n' "${MOCK_HEAD}" ;;
   "status --porcelain -- .") ${options.dirtyTree ? "printf ' M src/index.ts\\n'" : "exit 0"} ;;
   *) exit 1 ;;
@@ -51,10 +52,13 @@ if args[:2] == ['deployments', 'status']:
     print(state_path.read_text())
 elif args[:2] == ['versions', 'view']:
     migration_tag = 'older-tag' if os.environ['PROBE_SCENARIO'] == 'pending-migration' else 'iroh-v2-fresh-storage-1'
+    bindings = [{'name':'TEAM_CONTROL','type':'durable_object_namespace','class_name':'TeamControl','namespace_id':'team-ns'},
+                {'name':'USER_USAGE','type':'durable_object_namespace','class_name':'UserUsage','namespace_id':'user-ns'},
+                {'name':'CMUX_SOURCE_REVISION','type':'plain_text','text':'${MOCK_HEAD}'}]
     if os.environ['PROBE_SCENARIO'] == 'script-migration-resource':
-        print(json.dumps({'id': 'old-version', 'resources': {'script': {'migration_tag': migration_tag}}}))
+        print(json.dumps({'id': 'old-version', 'resources': {'bindings': bindings, 'script': {'migration_tag': migration_tag}}}))
     else:
-        print(json.dumps({'id': 'old-version', 'resources': {'script_runtime': {'migration_tag': migration_tag}}}))
+        print(json.dumps({'id': 'old-version', 'resources': {'bindings': bindings, 'script_runtime': {'migration_tag': migration_tag}}}))
 elif args and args[0] == 'deploy':
     marker = args[args.index('--message') + 1]
     annotations = {'workers/message': marker, 'workers/tag': marker}
@@ -73,14 +77,30 @@ for flag, expected in [('--connect-timeout', '10'), ('--max-time', '30'), ('--ma
         if args[args.index(flag) + 1] != expected: sys.exit(28)
     except (ValueError, IndexError):
         sys.exit(28)
-if os.environ['PROBE_SCENARIO'] == 'canonical-target' and args[-1] != 'https://cmux-v2.debussy.workers.dev/v2/control/session': sys.exit(97)
+url = next(value for value in args if value.startswith('https://'))
+if os.environ['PROBE_SCENARIO'] == 'canonical-target' and not any(url.startswith(origin) for origin in ('https://cmux-v2.debussy.workers.dev/v2/', 'https://cmux-v2-staging.debussy.workers.dev/v2/')): sys.exit(97)
+if args[-1].endswith('/v2/health'):
+    deployment=json.loads(pathlib.Path(os.environ['MOCK_STATE']).read_text())
+    deployed=deployment.get('annotations',{}).get('workers/message','') != 'old'
+    health={'schemaId':'health.v1','environment':('staging' if 'cmux-v2-staging' in url else 'production'),'sourceRevision':'${MOCK_HEAD}','rules':['cmux.mac-peer-inbound.v1'],'storage':{'maxSchemaVersion':7,'writeSchemaVersion':6}}
+    scenario=os.environ['PROBE_SCENARIO']
+    status='200'
+    if scenario=='unknown-storage' and not deployed: health.pop('storage')
+    if scenario=='staging-mismatch' and 'cmux-v2-staging' in url: health['sourceRevision']='f'*40
+    if scenario=='post-health-failure' and deployed: health['rules']=[]
+    if scenario in ('late-pre-change','late-post-change') and 'cmux-v2-staging' not in url and deployed == (scenario=='late-post-change'):
+        deployment['created_on']='2026-09-15T04:00:00.000Z'
+        deployment['annotations']={'workers/message':'someone-else'}
+        pathlib.Path(os.environ['MOCK_STATE']).write_text(json.dumps(deployment))
+    pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(health))
+    print(status,end=''); sys.exit(0)
 payload_path = args[args.index('--data-binary') + 1][1:]
 payload = json.loads(pathlib.Path(payload_path).read_text())
 name = pathlib.Path(args[args.index('-o') + 1]).name.split('.')[0]
 identity = payload['device']['identity']
 expected = {
-    'production': ('production', '9790718f-14cd-4f7e-824d-eaf527a82b82'),
-    'development': ('development', '454ecd03-1db2-4050-845e-4ce5b0cd9895'),
+    'production': ('production', '9790718f-14cd-4f7e-824d-eaf527a82b82') if os.environ['PROBE_ENVIRONMENT']=='production' else ('staging', '454ecd03-1db2-4050-845e-4ce5b0cd9895'),
+    'development': ('development', '454ecd03-1db2-4050-845e-4ce5b0cd9895') if os.environ['PROBE_ENVIRONMENT']=='production' else ('production', '9790718f-14cd-4f7e-824d-eaf527a82b82'),
 }[name]
 if (identity['environment'], identity['projectId']) != expected: sys.exit(97)
 calls = pathlib.Path(os.environ['MOCK_CURL_CALLS'])
@@ -106,13 +126,15 @@ print(status, end='')
       versions: [{ version_id: "old-version", percentage: 100 }],
     }));
     await writeFile(join(directory, "curl-calls"), "0");
-    const result = Bun.spawnSync(["/bin/bash", join(import.meta.dir, "../scripts/deploy-production.sh")], {
+    const result = Bun.spawnSync(["/bin/bash", join(import.meta.dir, "../scripts/deploy-production.sh"), options.environment ?? "production"], {
       cwd: join(import.meta.dir, ".."),
       env: {
         ...cleanEnvironment,
         PATH: directory,
+        REAL_BUN: process.execPath,
         CLOUDFLARE_ACCOUNT_ID: "0c1675e0def6de1ab3a50a4e17dc5656",
         PROBE_SCENARIO: scenario,
+        PROBE_ENVIRONMENT: options.environment ?? "production",
         MOCK_STATE: state,
         MOCK_CALLS: calls,
         MOCK_CURL_CALLS: join(directory, "curl-calls"),
@@ -135,10 +157,10 @@ test("expected scope failures pass the production configuration check", async ()
   expect(result.calls).toContain(`--var CMUX_SOURCE_REVISION:${MOCK_HEAD}`);
 });
 
-test("a dirty tree publishes an unknown revision instead of a SHA the tree does not match", async () => {
+test("a dirty tree is refused before any upload", async () => {
   const result = await probe("valid", { dirtyTree: true });
-  expect(result.exit).toBe(0);
-  expect(result.calls).toContain("--var CMUX_SOURCE_REVISION:unknown");
+  expect(result.exit).not.toBe(0);
+  expect(result.calls).not.toContain("wrangler deploy ");
   expect(result.output).toContain("publishing CMUX_SOURCE_REVISION=unknown");
 });
 
@@ -207,4 +229,31 @@ test("deployment scope checks reach the canonical Worker, never its forwarding a
   expect(result.exit).toBe(0);
   expect(result.calls).toContain("--name cmux-v2");
   expect(result.calls).not.toContain("--name cmux-iroh-v2");
+});
+
+
+test("staging uses the same guards with its own environment and project", async () => {
+  const result = await probe("valid", {environment: "staging"});
+  expect(result.exit).toBe(0);
+  expect(result.calls).toContain("--name cmux-v2-staging");
+  expect(result.calls).toContain("wrangler deploy --env staging --keep-vars --strict");
+});
+
+test.each(["unknown-storage", "staging-mismatch", "late-pre-change", "unmerged"])("%s refuses before uploading", async scenario => {
+  const result = await probe(scenario);
+  expect(result.exit).not.toBe(0);
+  expect(result.calls).not.toContain("wrangler deploy ");
+  expect(result.calls).not.toContain("wrangler rollback ");
+});
+
+test("post-deploy missing Mac rule rolls back only to the verified compatible reader", async () => {
+  const result = await probe("post-health-failure");
+  expect(result.exit).not.toBe(0);
+  expect(result.calls).toContain("wrangler rollback old-version");
+});
+
+test("a concurrent replacement during health verification is never rolled back", async () => {
+  const result = await probe("late-post-change");
+  expect(result.exit).not.toBe(0);
+  expect(result.calls).not.toContain("wrangler rollback ");
 });

@@ -10,9 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// The directory proves the admission rules the Devices service applied.
-/// Current Workers name the rule; the previous v2 Worker proves the same
-/// admission query with its `inboundPeers` field.
+/// The issuing Worker must explicitly advertise the Mac admission rule.
 @Suite("Devices: control-plane rules")
 struct DeviceLinkControlPlaneRulesTests {
     private let selfID = "11111111-1111-1111-1111-111111111111"
@@ -31,7 +29,7 @@ struct DeviceLinkControlPlaneRulesTests {
         #expect(DeviceLinkControlPlaneRules.current.isSatisfied(by: named))
     }
 
-    @Test("A directory names or proves the admission rule it applied", arguments: [true, false])
+    @Test("Only a named admission rule enables Mac links", arguments: [true, false])
     func controlPlaneRules(advertised: Bool) throws {
         func record(deviceID: String, endpoint: String) -> V2DeviceRecord {
             let identity = V2Identity(appNamespace: "com.cmuxterm.app.nightly", buildTag: "nightly",
