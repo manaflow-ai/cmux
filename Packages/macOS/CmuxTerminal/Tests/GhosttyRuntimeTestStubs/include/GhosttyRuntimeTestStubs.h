@@ -24,6 +24,15 @@ typedef struct {
   uintptr_t text_len;
 } ghostty_text_s;
 
+typedef struct {
+  uint16_t columns;
+  uint16_t rows;
+  uint32_t width_px;
+  uint32_t height_px;
+  uint32_t cell_width_px;
+  uint32_t cell_height_px;
+} ghostty_runtime_test_surface_size_s;
+
 typedef void (*ghostty_font_size_action_cb)(
     void* userdata,
     int32_t action,
@@ -80,7 +89,7 @@ void ghostty_surface_process_output(void *surface, const char *data, uintptr_t l
 void ghostty_surface_quicklook_font(void);
 void ghostty_surface_read_screen_tail_vt(void);
 void ghostty_surface_read_text(void);
-void ghostty_surface_refresh(void);
+void ghostty_surface_refresh(void *surface);
 bool ghostty_surface_set_render_presented_callback(
     void *surface,
     void (*callback)(void *, uint64_t),
@@ -106,8 +115,8 @@ void ghostty_surface_set_focus(void);
 void ghostty_surface_set_occlusion(void *surface, bool visible);
 bool ghostty_surface_set_renderer_realized(void *surface, bool realized);
 bool ghostty_surface_rebuild_renderer(void *surface);
-void ghostty_surface_set_size(void);
-void ghostty_surface_size(void);
+void ghostty_surface_set_size(void *surface, uint32_t width, uint32_t height);
+ghostty_runtime_test_surface_size_s ghostty_surface_size(void *surface);
 void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
 void ghostty_surface_update_config(void *surface, void *config);
@@ -145,5 +154,7 @@ void cmux_test_ghostty_font_state_begin(
     float configured_runtime_points);
 void cmux_test_ghostty_font_state_end(void);
 void cmux_test_ghostty_font_binding_result(bool result);
+void cmux_test_ghostty_surface_refresh_reset(void);
+uint32_t cmux_test_ghostty_surface_refresh_call_count(void);
 
 #endif
