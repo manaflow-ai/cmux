@@ -298,6 +298,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("title") == .string("editor"))
         #expect(value.member("focused") == .bool(true))
         #expect(value.member("pinned") == .bool(true))
+        #expect(value.member("status") == .string("idle"))
         #expect(value.member("directory") == .string("/src"))
         #expect(value.member("branch") == .string("feat"))
         #expect(value.member("dirty") == .bool(false))
@@ -307,6 +308,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(bare.member("directory") == nil)
         #expect(bare.member("branch") == nil)
         #expect(bare.member("ports") == nil)
+        #expect(bare.member("status") == .string("idle"))
     }
 
     @Test("Agents are omitted when empty and project all fields when present")
