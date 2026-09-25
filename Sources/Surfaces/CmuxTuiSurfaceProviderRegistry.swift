@@ -38,7 +38,6 @@ final class CmuxTuiSurfaceProviderRegistry {
     let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
-    private let prepareCloudCarrier: @MainActor () async -> Void
     /// Whether an account is signed in. Activation prepares the carrier before
     /// the fleet read only for a signed-in account; a signed-out Mac must not
     /// enroll or start a hub from a config a previous account left on disk.
@@ -80,9 +79,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var machineTeardowns: [String: Task<Void, Never>] = [:]
     private var featureResumeTask: Task<Void, Never>?
     private var featureSuspensionTask: Task<Void, Never>?
-    /// The account-level carrier preparation belongs to this registry activation.
-    /// Keeping its handle prevents a late task from enrolling a retired account.
-    private var activationPreparationTask: Task<Void, Never>?
+    /// Keeps the shared carrier preparation task cancellable for this activation.
+    var activationPreparationTask: Task<Void, Never>?
     private var isFeatureSuspended = false
     init(
         links: CloudMachineLinkManager,
@@ -90,7 +88,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
         listPage: @escaping @MainActor () async -> VMListPage? = { nil },
-        prepareCloudCarrier: (@MainActor () async -> Void)? = nil,
         hasCloudSession: @escaping @MainActor () -> Bool = { true },
         refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool = { provider, force in
             await provider.refreshCurrentGraph(force: force)
@@ -103,7 +100,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         self.isCloudEnabled = isCloudEnabled
         self.allowsBackgroundWork = allowsBackgroundWork
         self.listPage = listPage
-        self.prepareCloudCarrier = prepareCloudCarrier ?? { await wireGuardHub?.prepareForCloudUse() }
         self.hasCloudSession = hasCloudSession
         self.refreshProvider = refreshProvider
         self.notificationCenter = notificationCenter
@@ -479,8 +475,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Starts one account-level carrier preparation and retains it for this activation.
     private func prepareCarrierForActivation() {
         guard activationPreparationTask == nil else { return }
-        let prepareCloudCarrier = self.prepareCloudCarrier
-        activationPreparationTask = Task { await prepareCloudCarrier() }
+        activationPreparationTask = Task { [wireGuardHub] in
+            _ = try? await wireGuardHub?.prewarm()
+        }
     }
 
     /// Cancels a carrier preparation that has not completed before access ended.
@@ -578,11 +575,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         for id in retiredIDs { catalog?.unregister(machine: .cloud(id)) }
     }
 
+    /// Retires Cloud access and waits for the shared carrier and providers to stop.
     func accessDidEnd() async {
         invalidateAccess()
-        // Stop the shared carrier before deferred provider and link teardown can
-        // yield to a late preparation task.
-        await wireGuardHub?.stop()
         let suspension = featureSuspensionTask
         featureSuspensionTask = nil
         isFeatureSuspended = false
@@ -591,8 +586,12 @@ final class CmuxTuiSurfaceProviderRegistry {
         let teardowns = Array(machineTeardowns.values)
         machineTeardowns.removeAll()
         let previous = teardownInFlight
-        let teardown = Task { [closeTransports] in
+        let wireGuardHub = self.wireGuardHub
+        let teardown = Task { [closeTransports, wireGuardHub] in
             await previous?.value
+            // Stop the shared carrier before deferred provider and link teardown
+            // can yield to a late preparation task.
+            await wireGuardHub?.stop()
             await suspension?.value
             await Self.stopRetiringProviders(Array(retiringProviders.values))
             for task in teardowns { await task.value }

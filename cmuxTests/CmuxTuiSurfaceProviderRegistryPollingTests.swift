@@ -357,34 +357,31 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(h.spawner.count == 0)
     }
 
+    /// Verifies that sign-out and Cloud disablement cancel the activation preparation task.
     @Test("Ending Cloud access cancels activation preparation before it can finish", arguments: [false, true])
     @MainActor
     func endingAccessCancelsActivationPreparation(signOut: Bool) async {
         let started = CloudLinkFirstValue<Bool>()
         let release = CloudLinkFirstValue<Bool>()
-        let preparedAfterAccessEnded = CloudLinkFirstValue<Bool>()
         var enabled = true
         let h = makeHub {
-            .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
+            started.resolve(true)
+            _ = await release.result
+            try Task.checkCancellation()
+            return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
         }
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: h.hub, hostThemeColors: { nil }),
             wireGuardHub: h.hub,
             isCloudEnabled: { enabled },
             allowsBackgroundWork: { true },
-            prepareCloudCarrier: {
-                started.resolve(true)
-                _ = await release.result
-                guard !Task.isCancelled else { return }
-                await h.hub.prepareForCloudUse()
-                preparedAfterAccessEnded.resolve(true)
-            },
             listPage: { nil },
             notificationCenter: NotificationCenter()
         )
 
         registry.start(catalog: SurfaceCatalog())
         #expect(await received(started))
+        #expect(registry.activationPreparationTask != nil)
         if signOut {
             await registry.accessDidEnd()
         } else {
@@ -393,8 +390,8 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         }
         release.resolve(true)
 
-        #expect(await received(preparedAfterAccessEnded, timeout: .seconds(1)) == false)
-        #expect(await h.hub.status().running == false)
+        #expect(registry.activationPreparationTask == nil)
+        #expect(await waitUntilAsync { !(await h.hub.status().running) })
         await registry.accessDidEnd()
     }
 
@@ -417,14 +414,11 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
     }
 
     /// A failure deadline, not a delay used to let production work settle.
-    private func received(
-        _ signal: CloudLinkFirstValue<Bool>,
-        timeout: Duration = .seconds(5)
-    ) async -> Bool {
+    private func received(_ signal: CloudLinkFirstValue<Bool>) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask { await signal.result == true }
             group.addTask {
-                try? await ContinuousClock().sleep(for: timeout)
+                try? await ContinuousClock().sleep(for: .seconds(5))
                 return false
             }
             let result = await group.next() ?? false
