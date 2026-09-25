@@ -79,7 +79,7 @@ extension WorkspaceDetailView {
             unavailable: target == nil ? [.streamed: streamedUnavailableReason] : [:],
             select: { mode in
                 guard mode == .streamed, let panelID = target?.panelID else { return }
-                browserStore.rememberOnDevice(false, panelID: panelID)
+                browserStore.forgetOnDevice(panelID: panelID)
                 browserStore.closeBrowser(for: workspace.id.rawValue)
                 selectBrowserStreamFromToolbar(panelID)
             }
@@ -112,7 +112,6 @@ extension WorkspaceDetailView {
         }
         return MobileBrowserModePicker(current: .streamed, unavailable: unavailable) { mode in
             guard mode == .onDevice, browserServerRoute != nil else { return }
-            browserStore.rememberOnDevice(true, panelID: stream.id)
             openStreamPanelOnDevice(stream.id, url: stream.url)
         }
     }
@@ -127,16 +126,14 @@ extension WorkspaceDetailView {
         return true
     }
 
-    /// Shows the page of streamed tab `panelID` in the native browser,
-    /// linked to the tab so switching back returns to it.
+    /// Shows streamed tab `panelID` in the native browser, linked to the tab
+    /// so switching back returns to it. The tab's phone-side page, once it
+    /// has one, wins over the Mac tab's `url`.
     private func openStreamPanelOnDevice(_ panelID: String, url: String?) {
         dismissTerminalKeyboardForChrome()
         stopActiveBrowserStream()
-        openLocalBrowserFallback()
-        let browser = browserStore.openBrowser(for: workspace.id.rawValue)
-        browser.linkedStreamPanelID = panelID
-        if let url, let parsed = URL(string: url), ["http", "https"].contains(parsed.scheme?.lowercased() ?? "") {
-            browser.load(parsed)
+        showLocalBrowser {
+            browserStore.openOnDevice(for: $0, panelID: panelID, url: url.flatMap(URL.init(string:)))
         }
     }
 }
