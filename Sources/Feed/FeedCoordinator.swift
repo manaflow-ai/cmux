@@ -134,9 +134,7 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     @MainActor
-    private func acceptOnMainActor(
-        _ event: WorkstreamEvent
-    ) -> FeedEventAcceptance {
+    private func validateOnMainActor(_ event: WorkstreamEvent) -> FeedEventAcceptance {
         switch resolveDeliveryTarget(for: [event]) {
         case .accepted(let events):
             guard let revalidatedEvent = events.first else {
@@ -150,25 +148,40 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
-    /// Resolves UI ownership on main, then ingests through the actor from the
-    /// ordered worker so decoding and mutation never occupy the UI thread.
-    private func acceptOnIngress(_ event: WorkstreamEvent) -> FeedEventAcceptance {
-        let validation = DispatchQueue.main.sync {
-            MainActor.assumeIsolated { acceptOnMainActor(event) }
+    private func validateOnIngress(_ event: WorkstreamEvent) -> FeedEventAcceptance {
+        DispatchQueue.main.sync {
+            MainActor.assumeIsolated { validateOnMainActor(event) }
         }
-        guard case .validated(let validatedEvent) = validation else { return validation }
+    }
+
+    private func ingestValidatedOnIngress(
+        _ event: WorkstreamEvent,
+        shouldProceed: @Sendable () -> Bool = { true }
+    ) -> FeedEventAcceptance {
+        guard shouldProceed() else { return .unavailable }
         let store = DispatchQueue.main.sync {
             MainActor.assumeIsolated { self.store }
         }
-        guard let store, let item = store.ingestFromIngress(validatedEvent) else {
+        guard shouldProceed(), let store, let item = store.ingestFromIngress(event) else {
             return .unavailable
         }
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
-                noteAcceptedIngress(validatedEvent)
+                noteAcceptedIngress(event)
             }
         }
-        return .accepted(event: validatedEvent, item: item)
+        return .accepted(event: event, item: item)
+    }
+
+    /// Resolves UI ownership on main, then ingests through the actor from the
+    /// ordered worker so decoding and mutation never occupy the UI thread.
+    private func acceptOnIngress(
+        _ event: WorkstreamEvent,
+        shouldProceed: @Sendable () -> Bool = { true }
+    ) -> FeedEventAcceptance {
+        let validation = validateOnIngress(event)
+        guard case .validated(let validatedEvent) = validation else { return validation }
+        return ingestValidatedOnIngress(validatedEvent, shouldProceed: shouldProceed)
     }
 
     /// Returns the authoritative item from the actor-owned core.
@@ -265,7 +278,10 @@ final class FeedCoordinator: @unchecked Sendable {
                         guard ContinuousClock.now < deliveryDeadline else {
                             return FeedEventAcceptance.unavailable
                         }
-                        return FeedCoordinator.shared.acceptOnIngress(event)
+                        return FeedCoordinator.shared.acceptOnIngress(
+                            event,
+                            shouldProceed: result.isActive
+                        )
                     }) else { return nil }
                     guard case .accepted(let acceptedEvent, _) = acceptance else { return nil }
                     DispatchQueue.main.sync {
@@ -313,11 +329,14 @@ final class FeedCoordinator: @unchecked Sendable {
             timeout: remainingDeliveryTimeout
         ) { result in
             let acceptedEvent: WorkstreamEvent? = {
-                guard let acceptance = result.commit({
-                    guard ContinuousClock.now < deliveryDeadline else {
-                        return FeedEventAcceptance.unavailable
-                    }
-                    return FeedCoordinator.shared.acceptOnIngress(event)
+                    guard let acceptance = result.commit({
+                        guard ContinuousClock.now < deliveryDeadline else {
+                            return FeedEventAcceptance.unavailable
+                        }
+                    return FeedCoordinator.shared.acceptOnIngress(
+                        event,
+                        shouldProceed: result.isActive
+                    )
                 }) else { return nil }
                 guard case .accepted(let acceptedEvent, let item) = acceptance else { return nil }
                 FeedCoordinator.shared.waiterRegistry.accepted(registration, event: acceptedEvent, item: item)
@@ -419,27 +438,26 @@ final class FeedCoordinator: @unchecked Sendable {
             )
         ) { result in
             let acceptedEvent: WorkstreamEvent? = {
-                let accept: () -> WorkstreamEvent? = {
-                    guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnIngress(event) else {
+                guard let result else {
+                    guard case .accepted(let accepted, _) = FeedCoordinator.shared.acceptOnIngress(event) else {
                         return nil
                     }
-                    return event
-                }
-                guard let result else {
-                    let acceptedEvent = accept()
-                    if let acceptedEvent {
-                        DispatchQueue.main.sync {
-                            MainActor.assumeIsolated { onAcceptedOnMainActor(acceptedEvent) }
-                        }
-                    }
-                    return acceptedEvent
-                }
-                var committedEvent: WorkstreamEvent?
-                guard result.commit({ committedEvent = accept() }) != nil else { return nil }
-                if let committedEvent {
                     DispatchQueue.main.sync {
-                        MainActor.assumeIsolated { onAcceptedOnMainActor(committedEvent) }
+                        MainActor.assumeIsolated { onAcceptedOnMainActor(accepted) }
                     }
+                    return accepted
+                }
+                guard let committedValue = result.commit({
+                    guard case .accepted(let accepted, _) = FeedCoordinator.shared.acceptOnIngress(
+                        event,
+                        shouldProceed: result.isActive
+                    ) else {
+                        return nil
+                    }
+                    return accepted
+                }), let committedEvent = committedValue else { return nil }
+                DispatchQueue.main.sync {
+                    MainActor.assumeIsolated { onAcceptedOnMainActor(committedEvent) }
                 }
                 return committedEvent
             }()

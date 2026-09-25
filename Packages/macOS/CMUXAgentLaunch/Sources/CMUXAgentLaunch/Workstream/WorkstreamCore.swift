@@ -121,7 +121,7 @@ public actor WorkstreamCore {
     /// Emits the current projection and coalesced changes for the UI layer.
     public func snapshots() -> AsyncStream<WorkstreamStoreSnapshot> {
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             snapshotContinuations[id] = continuation
             continuation.yield(snapshot())
             continuation.onTermination = { [weak self] _ in

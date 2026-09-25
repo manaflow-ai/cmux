@@ -72,6 +72,16 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
         semaphore.signal()
     }
 
+    /// Returns whether the delivery may still perform its authoritative
+    /// mutation. The check is intentionally short so callers can place it
+    /// immediately before an actor-backed insert after any queue hops.
+    func isActive() -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if case .committing = state { return true }
+        return false
+    }
+
     func wait(timeout: TimeInterval) -> Value? {
         precondition(timeout > 0, "Synchronous Feed ingress requires a positive timeout")
         let waitResult = semaphore.wait(timeout: .now() + timeout)
@@ -89,6 +99,7 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
             return value
         }
         if case .committing = state {
+            state = .timedOut
             stateLock.unlock()
             return nil
         }
