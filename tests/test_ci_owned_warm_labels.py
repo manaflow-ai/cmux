@@ -54,15 +54,24 @@ class Response(io.BytesIO):
 class FakeHTTP:
     """Answers urllib.request.urlopen for the jobs, runners and label endpoints."""
 
-    def __init__(self, jobs, runners):
+    def __init__(self, jobs, runners, org_runners=(), groups=None):
         self.jobs, self.runners, self.calls = jobs, runners, []
+        self.org_runners = list(org_runners)
+        self.groups = [{"id": 23, "name": "glaeda-minis"}] if groups is None else groups
 
     def __call__(self, request, timeout=None):
         method, url = request.get_method(), request.full_url
         body = json.loads(request.data) if request.data else None
-        self.calls.append((method, url.removeprefix("https://api.github.com/repos/manaflow-ai/cmux"), body))
+        self.calls.append((method, url.removeprefix("https://api.github.com").removeprefix("/repos/manaflow-ai/cmux"),
+                           body))
         if "/jobs?" in url:
             return Response(json.dumps({"jobs": self.jobs}).encode())
+        if "/orgs/manaflow-ai/actions/runner-groups?" in url:
+            if isinstance(self.groups, int):
+                raise urllib.error.HTTPError(url, self.groups, "forbidden", {}, None)
+            return Response(json.dumps({"runner_groups": self.groups}).encode())
+        if "/runner-groups/23/runners?" in url:
+            return Response(json.dumps({"runners": self.org_runners}).encode())
         if url.split("?")[0].endswith("/actions/runners"):
             return Response(json.dumps({"runners": self.runners}).encode())
         if method == "DELETE" and "glaeda-warm-dddddddddddd" in url:
@@ -110,12 +119,13 @@ class Plan(unittest.TestCase):
 
 
 class Run(unittest.TestCase):
-    def run_script(self, document, *, jobs=None, runners=None, path=".github/workflows/ci.yml"):
+    def run_script(self, document, *, jobs=None, runners=None, path=".github/workflows/ci.yml",
+                   org_runners=(), groups=None):
         jobs = jobs if jobs is not None else [
             {"name": "macOS / macOS compile admission", "runner_id": 1, "runner_name": "cmux1"}]
         runners = runners if runners is not None else [
             runner(1, MINI, ROOT_STD, warm("dddddddddddd")), runner(2, MINI, ROOT_STD, warm(A))]
-        http = FakeHTTP(jobs, runners)
+        http = FakeHTTP(jobs, runners, org_runners, groups)
         with tempfile.TemporaryDirectory() as tmp, \
                 unittest.mock.patch.object(labels.urllib.request, "urlopen", side_effect=http), \
                 unittest.mock.patch("sys.stdout", io.StringIO()) as stdout:
@@ -155,8 +165,34 @@ class Run(unittest.TestCase):
             labels.main({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "actions-token",
                          "ROUTE_TOKEN": "app-token", "RUN_ID": "42", "RUN_PATH": ".github/workflows/ci.yml",
                          "KEYS_FILE": str(keys_file)})
-        self.assertEqual(seen, [("GET", "jobs", "Bearer actions-token"), ("GET", "runners", "Bearer app-token"),
+        self.assertEqual(seen, [("GET", "jobs", "Bearer actions-token"), ("GET", "runner-groups", "Bearer app-token"),
+                                ("GET", "runners", "Bearer app-token"), ("GET", "runners", "Bearer app-token"),
                                 ("POST", "labels", "Bearer app-token")])
+
+    def test_org_runners_in_glaeda_minis_are_labeled_through_the_org(self):
+        # glaeda#1222 made the minis org runners, which the repository runners
+        # endpoint neither lists nor labels.
+        org = [runner(1, MINI, ROOT_STD, warm("dddddddddddd")), runner(2, MINI, ROOT_STD, warm(A))]
+        http, output = self.run_script({"runner": "cmux1", "pool": ROOT_STD, "keys": [A, B]},
+                                       runners=[runner(7, "glaeda-trusted")], org_runners=org)
+        self.assertIn(("GET", "/orgs/manaflow-ai/actions/runner-groups?per_page=100&visible_to_repository=cmux",
+                       None), http.calls)
+        self.assertEqual(http.writes(), [
+            ("DELETE", f"/orgs/manaflow-ai/actions/runners/2/labels/{warm(A)}", None),
+            ("DELETE", "/orgs/manaflow-ai/actions/runners/1/labels/glaeda-warm-dddddddddddd", None),
+            ("POST", "/orgs/manaflow-ai/actions/runners/1/labels", {"labels": [warm(A), warm(B)]}),
+        ])
+        self.assertIn("2 runner(s) changed", output)
+
+    def test_an_unreadable_org_group_warns_and_labels_repository_runners(self):
+        for groups, why in ((403, "unreadable (HTTP 403)"), ([{"id": 4, "name": "Blacksmith"}], "no runner group"),
+                            ([{"name": "glaeda-minis"}], "no runner group")):
+            http, output = self.run_script({"runner": "cmux1", "pool": ROOT_STD, "keys": [A]}, groups=groups)
+            self.assertIn(why, output)
+            self.assertNotIn("runner-groups/None", "".join(path for _, path, _ in http.calls))
+            self.assertIn(("POST", "/actions/runners/1/labels", {"labels": [warm(A)]}), http.writes())
+        self.assertIn("Self-hosted runners: read and write", self.run_script(
+            {"runner": "cmux1", "pool": ROOT_STD, "keys": [A]}, groups=403)[1])
 
     def test_an_artifact_naming_another_runner_or_pool_changes_nothing(self):
         for document in ({"runner": "cmux2", "pool": ROOT_STD, "keys": [A]},

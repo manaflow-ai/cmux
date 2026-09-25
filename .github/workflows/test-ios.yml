@@ -109,11 +109,13 @@ jobs:
     # The macOS pool mobile-core-package, ios-simulator-build and ios-simulator
     # run on. `auto` follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS. With
     # CI_PR_POOL_OWNED=1 and CI_IOS_OWNED=1 an auto run on the 6vcpu macOS 26
-    # default takes an owned Mac when the pool picker E2E uses
-    # (e2e_runner_pool.py, pull request CI's rule, with CI_PR_POOL_QUEUE_ROUNDS)
-    # places its two jobs on the owned pool within the queue rounds and
-    # CI_OWNED_POOL_SLOTS' glaeda-ios-sim entry leaves one simulator mini free
-    # per requested device family. The build and simulator jobs then ask for
+    # default takes an owned Mac when enough simulator minis are idle now
+    # (read live from the runners API with the route token), or, without the
+    # token, when the pool picker E2E uses (e2e_runner_pool.py, pull request
+    # CI's rule, with CI_PR_POOL_QUEUE_ROUNDS) places its two jobs on the
+    # owned pool within the queue rounds and CI_OWNED_POOL_SLOTS'
+    # glaeda-ios-sim entry leaves one simulator mini free per requested
+    # device family. The build and simulator jobs then ask for
     # the pool label with glaeda-ios-sim, the label glaeda puts on minis with
     # an iOS 26.x simulator runtime; mobile-core-package needs no simulator and
     # takes the pool label alone. Otherwise, and for an ios_version run, the
@@ -151,11 +153,29 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # The org's manaflow-glaeda-route App, read-only on runners, so the
+        # choice below sees which simulator minis are idle now (as in ci.yml).
+        # Same-repository runs only, on this ephemeral Linux runner: a fork
+        # run never sees the key, and no Mac ever holds it. Any failure leaves
+        # the token empty, and the choice falls back to the janitor snapshot.
+        if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
       - name: Pick the macOS pool
         id: pool
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          # Empty unless the step above minted it: idle owned runners, live.
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
