@@ -330,6 +330,9 @@ export default async function DeeplinkPage({
               The small logo gains nothing from /_next/image, and the optimizer
               indirection broke the logo in Safari (WebKit `Vary: Accept` cache
               mishandling). Matches the plain <img> the site header uses. */}
+          {/* Raw PNG is intentional here: the small first-paint logo must avoid
+              Safari's optimizer cache issue (see the download confirmation). */}
+          {/* oxlint-disable-next-line react-doctor/nextjs-no-img-element */}
           <img
             src="/logo.png"
             alt=""

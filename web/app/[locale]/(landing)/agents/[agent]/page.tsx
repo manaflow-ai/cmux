@@ -13,10 +13,11 @@ import {
 import { locales } from "@/i18n/routing";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
-  JsonLd,
   breadcrumbList,
   faqPage,
-} from "@/app/[locale]/components/json-ld";
+} from "@/app/[locale]/components/json-ld-data";
+import { JsonLd } from "@/app/[locale]/components/json-ld";
+
 import { LandingCTA } from "../../landing-ui";
 
 type Params = Promise<{ locale: string; agent: string }>;

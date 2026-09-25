@@ -1,7 +1,7 @@
 import type { AbstractIntlMessages } from "next-intl";
 import { routing, type Locale } from "./routing";
 
-export function deepMergeMessages(
+function deepMergeMessages(
   base: AbstractIntlMessages,
   override: AbstractIntlMessages,
 ): AbstractIntlMessages {

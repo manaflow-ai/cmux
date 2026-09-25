@@ -86,7 +86,7 @@ type SearchStatus = "idle" | "loading" | "ready" | "error";
 export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   const t = useTranslations("docs.search");
   const locale = useLocale();
-  const router = useRouter();
+  const {push} = useRouter();
   const channel = useDocsChannel();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SearchStatus>("idle");
@@ -196,7 +196,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
       event.preventDefault();
       const result = results[activeIndex];
       if (!result) return;
-      router.push(docsChannelUrl(channel, result.href));
+      push(docsChannelUrl(channel, result.href));
       clearAndNavigate();
     }
   }
@@ -256,7 +256,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           aria-live="polite"
         >
           {statusMessage ? (
-            <div className="rounded-md bg-code-bg/35 px-2 py-2 text-[12px] text-muted/60">
+            <div className="rounded-md bg-code-bg/35 p-2 text-[12px] text-muted/60">
               {statusMessage}
             </div>
           ) : (
@@ -273,7 +273,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                   aria-selected={index === activeIndex}
                   onClick={clearAndNavigate}
                   onMouseEnter={() => setActiveIndex(index)}
-                  className={`block rounded-md px-2 py-2 transition-colors ${
+                  className={`block rounded-md p-2 transition-colors ${
                     index === activeIndex
                       ? "bg-background/80 text-foreground"
                       : "text-muted hover:bg-background/60 hover:text-foreground"

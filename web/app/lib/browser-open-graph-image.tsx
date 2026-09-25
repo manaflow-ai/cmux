@@ -15,6 +15,9 @@ export async function browserOpenGraphImageResponse(): Promise<Response> {
   const scale = renderScale;
 
   return new ImageResponse(
+    /* ImageResponse only accepts inline styles; CSS classes are unavailable
+       in the generated social-card document. */
+    /* react-doctor-disable-next-line react-doctor/no-inline-exhaustive-style -- ImageResponse requires inline styles */
     <div
       style={{
         width: "100%",
@@ -31,6 +34,7 @@ export async function browserOpenGraphImageResponse(): Promise<Response> {
         fontFamily: "sans-serif",
       }}
     >
+      {/* react-doctor-disable-next-line react-doctor/no-inline-exhaustive-style -- ImageResponse requires inline styles */}
       <div
         style={{
           position: "absolute",
@@ -51,7 +55,7 @@ export async function browserOpenGraphImageResponse(): Promise<Response> {
         }}
       >
         {/* ImageResponse needs a data-URL image rather than next/image. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {/* oxlint-disable-next-line react-doctor/nextjs-no-img-element */}
         <img
           src={logoSrc}
           width={128 * scale}

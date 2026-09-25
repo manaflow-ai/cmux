@@ -14,7 +14,8 @@ import {
   comparePath,
 } from "../../../../lib/compare-pages";
 import type { ComparePageKey } from "../../../../lib/compare-pages";
-import { articleSchema, breadcrumbList, faqPage, JsonLd } from "../../../components/json-ld";
+import { articleSchema, breadcrumbList, faqPage } from "../../../components/json-ld-data";
+import { JsonLd } from "../../../components/json-ld";
 import { CompareTable, LandingCTA } from "../../landing-ui";
 import { TrackedLink } from "../../tracked-link";
 

@@ -124,7 +124,7 @@ export function TuiInstallTabs({
         role="tabpanel"
         aria-labelledby={`install-tab-${platform}`}
       >
-        <div className="flex items-center gap-3 border border-border bg-code-bg px-3 py-3">
+        <div className="flex items-center gap-3 border border-border bg-code-bg p-3">
           <span aria-hidden className="font-mono text-muted">
             $
           </span>

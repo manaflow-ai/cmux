@@ -1,5 +1,6 @@
 import { useTranslations, useLocale } from "next-intl";
-import { JsonLd, breadcrumbList } from "@/app/[locale]/components/json-ld";
+import { breadcrumbList } from "@/app/[locale]/components/json-ld-data";
+import { JsonLd } from "@/app/[locale]/components/json-ld";
 
 /**
  * BreadcrumbList JSON-LD for a docs page: Home > Docs > <page>. The page name

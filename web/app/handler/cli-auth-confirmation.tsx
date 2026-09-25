@@ -37,6 +37,9 @@ export function CliAuthConfirmation({ fullPage = true, identityMessages }: {
   );
 }
 
+// The URL builder is the action used by the confirmation component and its
+// route test; it stays colocated with the UI that owns the flow.
+// react-doctor-disable-next-line react-doctor/only-export-components -- colocated flow helper
 export function cliAuthSwitchAccountHref(loginCode: string): string {
   const confirmation = new URL("/handler/cli-auth-confirm", "https://cmux.com");
   confirmation.searchParams.set("login_code", loginCode);

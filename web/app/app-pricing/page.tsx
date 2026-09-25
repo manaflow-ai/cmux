@@ -1,4 +1,5 @@
 import { cache, Suspense } from "react";
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { connection } from "next/server";
 import { redirect, unstable_rethrow } from "next/navigation";
@@ -13,9 +14,15 @@ import { isGoPlanEnabled } from "../../services/billing/goPlanFlag";
 import { PricingView } from "../components/pricing-checkout";
 import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
 import { AppPricingFallback, unknownPlan } from "./pricing-fallback";
+import { getTranslations } from "next-intl/server";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type PricingQuery = Record<string, string | string[] | undefined>;
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("pricing");
+  return { title: t("metaTitle"), description: t("metaDescription") };
+}
 
 export default function AppPricingPage({
   searchParams,

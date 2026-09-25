@@ -115,6 +115,6 @@ function nonNegativeInteger(value: unknown): number | null {
   return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
 
-export const __test = {
+const __test = {
   apiKeyUsageSql,
 };

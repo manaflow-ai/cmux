@@ -4,7 +4,11 @@ import { cloudOrganizations, cloudVmPublicationVmGuards, cloudVmPublications, cl
 import { assertAccountDeletionUserMutationAllowed } from "../account/deletionLock";
 import { allocateVmSlug } from "../vms/vmNaming";
 import { managedPublicationHostname, organizationSlugCandidate, validOrganizationSlug } from "./managedHostnames";
-import { PublicationConflictError, PublicationNotFoundError, type CloudVmPublicationTarget } from "./repository";
+import {
+  PublicationConflictError,
+  PublicationNotFoundError,
+  type CloudVmPublicationTarget,
+} from "./model";
 
 type Tx = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 

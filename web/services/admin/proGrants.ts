@@ -773,7 +773,7 @@ async function supersedeOpenGrantsForEmail(
 }
 
 /** A claim older than this is treated as abandoned and may be re-claimed. */
-export const ADMIN_GRANT_CLAIM_TTL_MS = 10 * 60 * 1000;
+const ADMIN_GRANT_CLAIM_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Revokes an open grant. If a sign-in had claimed the row but never finalized

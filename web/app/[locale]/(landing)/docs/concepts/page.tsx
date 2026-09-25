@@ -160,7 +160,7 @@ export default function ConceptsPage() {
             <td>
               <code>⌘⇧N</code>
             </td>
-            <td>—</td>
+            <td>-</td>
           </tr>
           <tr>
             <td>{t("workspaceTitle")}</td>

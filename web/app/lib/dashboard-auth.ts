@@ -65,23 +65,26 @@ export async function loadDashboardSection(
   returnPath: string = "/dashboard",
 ): Promise<DashboardSection> {
   if (!isStackConfigured()) redirect("/");
+  let missingSession = false;
   try {
     return { kind: "user", user: await readDashboardSessionUser() };
   } catch (error) {
     // A framework redirect from inside the cached scope must propagate.
     unstable_rethrow(error);
     if (error instanceof DashboardSessionMissingError) {
-      redirect(dashboardAuthorizationSignInHref(locale, returnPath));
+      missingSession = true;
+    } else {
+      // Anything else crossed the cache boundary, where prototypes are not
+      // preserved, or is a Stack outage; both render recovery UI in place.
+      if (!(error instanceof DashboardSessionUnavailableError)) {
+        console.error("Dashboard session read failed", {
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+      }
     }
-    // Anything else crossed the cache boundary, where prototypes are not
-    // preserved, or is a Stack outage; both render recovery UI in place.
-    if (!(error instanceof DashboardSessionUnavailableError)) {
-      console.error("Dashboard session read failed", {
-        errorType: error instanceof Error ? error.name : typeof error,
-      });
-    }
-    return { kind: "unavailable" };
   }
+  if (missingSession) redirect(dashboardAuthorizationSignInHref(locale, returnPath));
+  return { kind: "unavailable" };
 }
 
 /** The signed-in user for chrome that must render for signed-out visitors too. */

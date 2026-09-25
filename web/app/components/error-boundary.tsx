@@ -15,6 +15,9 @@ const reportedErrors = new WeakSet<object>();
  * Records a caught render error. The browser bundle has no Sentry client, so
  * PostHog's exception event is the only client-side error sink.
  */
+// Error reporting, isolated fallback, and route fallback form one boundary
+// contract and intentionally share this client module.
+// react-doctor-disable-next-line react-doctor/only-export-components -- boundary contract helper
 export function reportBoundaryError(boundary: string, error: unknown) {
   // A boundary can see the same failure again when its view reattaches.
   if (typeof error === "object" && error !== null) {
@@ -98,6 +101,7 @@ export class IsolatedErrorBoundary extends Component<IsolatedBoundaryProps, Isol
 }
 
 /** Inline notice for a failed section inside an otherwise working page. */
+// react-doctor-disable-next-line react-doctor/no-multi-comp -- reusable fallback in the same boundary contract
 export function SectionUnavailable() {
   const copy = useErrorBoundaryCopy();
   return (
@@ -118,6 +122,7 @@ export function SectionUnavailable() {
  * Body for a route `error.tsx`. It renders inside the parent layout, so the
  * page chrome (navigation, dashboard shell) stays usable around it.
  */
+// react-doctor-disable-next-line react-doctor/no-multi-comp -- reusable fallback in the same boundary contract
 export function RouteErrorView({
   boundary,
   error,

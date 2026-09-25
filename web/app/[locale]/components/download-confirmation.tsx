@@ -59,6 +59,7 @@ export function DownloadConfirmation() {
             plain <img> and renders fine in Safari — this matches it.
             fetchPriority="high" preserves the above-the-fold load hint that
             `priority` provided. */}
+        {/* oxlint-disable-next-line react-doctor/nextjs-no-img-element */}
         <img
           // Decorative: the heading below already names the product, so an
           // empty alt avoids an untranslated string for screen readers.

@@ -77,7 +77,7 @@ export const LEGACY_PRICE_LOOKUP_KEYS = [
   "cmux-team-yearly-576", // $576/user/yr; existing subscriptions only
 ] as const;
 
-export function billingInterval(value: string | null | undefined): BillingInterval {
+function billingInterval(value: string | null | undefined): BillingInterval {
   return value === "year" ? "year" : "month";
 }
 

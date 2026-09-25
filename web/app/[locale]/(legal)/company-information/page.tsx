@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JsonLd } from "../../components/json-ld";
+
 import { legalMetadata } from "../legal-metadata";
 
 const legalName = "Manaflow, Inc.";

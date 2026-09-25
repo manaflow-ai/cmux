@@ -1,4 +1,5 @@
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { RevealImage } from "@/app/[locale]/components/reveal-image";
@@ -69,7 +70,7 @@ export default function IosLanding() {
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="ios-header">
           <BrandLogoLink className="shrink-0">
-            <img
+            <Image
               src="/logo.png"
               alt="cmux icon"
               width={48}

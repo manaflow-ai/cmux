@@ -12,7 +12,7 @@ import { posthog } from "../lib/posthog-client";
 import {
   pricingActionClassName,
   type PricingActionSize,
-} from "./pricing-shared";
+} from "./pricing-helpers";
 
 const CHECKOUT_PATH = "/api/billing/checkout";
 

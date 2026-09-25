@@ -26,7 +26,7 @@ import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } f
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
-export const repoRoot = path.resolve(webRoot, "..");
+const repoRoot = path.resolve(webRoot, "..");
 export const devboxDir = path.join(webRoot, "services/vms/images/devbox");
 export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
 
