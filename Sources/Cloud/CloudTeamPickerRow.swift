@@ -29,10 +29,6 @@ struct CloudTeamPickerRow: View {
             }
             .padding(.horizontal, 7)
             .frame(height: 22)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.primary.opacity(0.06))
-            )
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
