@@ -441,7 +441,12 @@ def evaluate(expression, context):
         while peek() in ("==", "!=", ">", "<", ">=", "<="):
             operator, right = take(), primary()
             if operator in ("==", "!="):
-                equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
+                # Actions compares a number with a string numerically
+                # (github.run_attempt == 2), and strings as strings.
+                if any(isinstance(side, (int, float)) and not isinstance(side, bool) for side in (left, right)):
+                    equal = number(left) == number(right)
+                else:
+                    equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
                 left = equal if operator == "==" else not equal
             else:
                 a, b = number(left), number(right)
@@ -825,6 +830,24 @@ class Wiring(unittest.TestCase):
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry,
                                      pr_owned_jobs=owned_jobs)
             with self.subTest(attempt=attempt, retry=retry, owned_jobs=owned_jobs):
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+
+    def test_only_the_rescue_retries_a_refused_owned_job_on_the_fleet(self):
+        # owned_pool_rescue.py re-runs a refused job's failed jobs with
+        # github.token, so attempt 2 is triggered by github-actions[bot] and
+        # takes the owned label once more. A person's "Re-run failed jobs" is
+        # also attempt 2 with the same outputs, but nothing watches it, so it
+        # takes the Blacksmith retry runner.
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        for actor, runner in (("github-actions[bot]", "glaeda-std-xcode-26.6"),
+                              ("someone", "blacksmith-12vcpu-macos-26")):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt="2", triggering_actor=actor,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner="blacksmith-12vcpu-macos-26",
+                                     pr_refused_retry_runner="glaeda-std-xcode-26.6", pr_owned_jobs=" admission ")
+            with self.subTest(actor=actor):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
