@@ -102,7 +102,9 @@ extension CMUXCLIErrorOutputRegressionTests {
     @Test(arguments: [["ping"], ["capabilities"], ["ssh", "--no-focus", "example.invalid"]])
     func testSocketAccessDeniedExplainsExternalSSHWorkflow(arguments: [String]) throws {
         let cliPath = try bundledCLIPath()
-        let home = try makeTemporaryHome()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-access-denied-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let socketPath = "/tmp/cmux-v2-access-denied-\(UUID().uuidString).sock"
         let responder = try UnixSocketResponder(
