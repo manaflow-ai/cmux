@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import e2e_warm_derived_data as warm
 
 BUILD_TIME_NS = 1_700_000_000_000_000_000
+PRODUCER = "a" * 40
+TESTED = "b" * 40
 
 
 class ReplayTimes(unittest.TestCase):
@@ -61,7 +63,55 @@ class ReplayTimes(unittest.TestCase):
 
     def test_build_outputs_and_git_metadata_are_not_inputs(self):
         recorded = warm.record(self.producer)
-        self.assertEqual(sorted(recorded), ["Sources/App.swift", "cmuxTests/AppTests.swift"])
+        self.assertEqual(
+            sorted(recorded),
+            ["./", "Sources/", "Sources/App.swift", "cmuxTests/", "cmuxTests/AppTests.swift"],
+        )
+
+    def test_a_directory_takes_the_producer_time_only_while_its_entries_match(self):
+        # Xcode signs a folder input (Assets.xcassets) by its directories'
+        # times too, so a checkout-time directory reruns the asset catalog.
+        for relative in ("Sources", "cmuxTests"):
+            os.utime(self.producer / relative, ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        recorded = warm.record(self.producer)
+        (self.consumer / "cmuxTests/NewTests.swift").write_text("let added = 1\n")
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertEqual(self.mtime("Sources"), BUILD_TIME_NS)
+        self.assertGreater(self.mtime("cmuxTests"), BUILD_TIME_NS)
+
+    def test_a_rename_that_keeps_the_entry_count_keeps_the_directory_new(self):
+        os.utime(self.producer / "cmuxTests", ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        recorded = warm.record(self.producer)
+        (self.consumer / "cmuxTests/AppTests.swift").rename(self.consumer / "cmuxTests/RenamedTests.swift")
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertGreater(self.mtime("cmuxTests"), BUILD_TIME_NS)
+
+    def test_a_manifest_without_directories_leaves_them_at_checkout_time(self):
+        os.utime(self.producer / "Sources", ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        recorded = {key: entry for key, entry in warm.record(self.producer).items() if not key.endswith("/")}
+        before = self.mtime("Sources")
+
+        self.assertEqual(warm.replay(self.consumer, recorded), (2, 0))
+
+        self.assertEqual(self.mtime("Sources"), before)
+
+    def test_a_linked_directory_is_neither_recorded_nor_touched(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        os.utime(outside, ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        (self.consumer / "Linked").symlink_to(outside)
+        (self.producer / "Linked").symlink_to(outside)
+        recorded = warm.record(self.producer)
+        recorded["Linked/"] = [warm.listing(outside), 1]
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertNotIn("Linked/", warm.record(self.producer))
+        self.assertEqual(outside.stat().st_mtime_ns, BUILD_TIME_NS)
 
 
 class TrustedProducers(unittest.TestCase):
@@ -76,6 +126,91 @@ class TrustedProducers(unittest.TestCase):
             self.assertFalse(warm.trusted(self.artifact(expired=True), "o/r"))
         with mock.patch.object(warm, "api", return_value={**run, "path": ".github/workflows/other.yml"}):
             self.assertFalse(warm.trusted(self.artifact(), "o/r"))
+
+
+class ProviderDigest(unittest.TestCase):
+    def test_an_archive_that_does_not_match_its_digest_is_never_unpacked(self):
+        derived = Path(tempfile.mkdtemp())
+        artifact = {"id": 3, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 7}}
+
+        def download(repository, artifact_id, target, size):
+            Path(target).write_bytes(b"zip!")
+
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                mock.patch.object(warm, "candidates", return_value=iter([artifact])), \
+                mock.patch.object(warm, "api", return_value={"display_title": "t on r @ " + PRODUCER}), \
+                mock.patch.object(warm, "tested_revision", return_value=PRODUCER), \
+                mock.patch.object(warm.transport, "download_zip", side_effect=download), \
+                mock.patch.object(warm, "extract") as extract:
+            with self.assertRaises(ValueError):
+                warm.restore(derived, derived, "key")
+        extract.assert_not_called()
+
+
+class ProducerDistance(unittest.TestCase):
+    """A producer whose app sources differ recompiles the whole app anyway."""
+
+    def restore_with(self, title, files, older=None):
+        """`older` is (title, files) for a second, older candidate."""
+        runs = {7: (title, files)}
+        artifacts = [{"id": 3, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 7}}]
+        if older is not None:
+            runs[8] = older
+            artifacts.append({"id": 4, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 8}})
+        producers = {7: PRODUCER, 8: "c" * 40}
+
+        def api(path):
+            if "/compare/" in path:
+                run_id = next(r for r, sha in producers.items() if sha in path)
+                return {"files": [{"filename": name} for name in runs[run_id][1]]}
+            run_id = int(path.rsplit("/", 1)[1])
+            return {"display_title": runs[run_id][0].replace("PRODUCER", producers[run_id]), "head_sha": producers[run_id]}
+
+        derived = Path(tempfile.mkdtemp())
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                mock.patch.object(warm, "candidates", return_value=iter(artifacts)), \
+                mock.patch.object(warm, "api", side_effect=api), \
+                mock.patch.object(warm, "tested_revision", return_value=TESTED), \
+                mock.patch.object(warm.transport, "download_zip") as download:
+            try:
+                result = warm.restore(derived, derived, "key")
+            except Exception:  # the download mock leaves nothing to verify
+                result = {"hit": "attempted"}
+        self.downloaded_ids = [call.args[1] for call in download.call_args_list]
+        return result, download.called
+
+    def test_an_app_source_change_since_the_producer_skips_the_download(self):
+        result, downloaded = self.restore_with(
+            "t on r @ PRODUCER", ["cmuxTests/AppTests.swift", "Packages/macOS/CmuxFoundation/Sources/A.swift"],
+        )
+        self.assertFalse(downloaded)
+        self.assertEqual(result["hit"], "false")
+        self.assertIn("app-build-changed-since-producer", result["reason"])
+
+    def test_a_test_only_difference_adopts(self):
+        _, downloaded = self.restore_with("t on r @ PRODUCER", ["cmuxTests/AppTests.swift", "docs/x.md"])
+        self.assertTrue(downloaded)
+
+    def test_a_producer_built_from_main_uses_the_run_head(self):
+        _, downloaded = self.restore_with("t on r @ main [seed]", ["cmuxTests/AppTests.swift"])
+        self.assertTrue(downloaded)
+
+    def test_an_older_matching_seed_is_adopted_past_a_newer_distant_one(self):
+        _, downloaded = self.restore_with(
+            "t on r @ PRODUCER", ["Sources/App.swift"], older=("t on r @ PRODUCER", ["cmuxTests/A.swift"]),
+        )
+        self.assertTrue(downloaded)
+        self.assertEqual(self.downloaded_ids, [4])
+
+    def test_a_truncated_title_starts_cold(self):
+        result, downloaded = self.restore_with("t on r @ 8994e2989013a19c5bb1614ddcfc...", [])
+        self.assertEqual((result["reason"], downloaded), ("producer-revision-unknown", False))
+
+    def test_an_unknown_producer_revision_or_huge_diff_starts_cold(self):
+        result, downloaded = self.restore_with("t on r @ some-branch", [])
+        self.assertEqual((result["reason"], downloaded), ("producer-revision-unknown", False))
+        result, downloaded = self.restore_with("t on r @ PRODUCER", [f"cmuxTests/T{i}.swift" for i in range(300)])
+        self.assertEqual((result["reason"], downloaded), ("producer-too-far", False))
 
 
 class ArchiveBounds(unittest.TestCase):
@@ -108,6 +243,7 @@ class ArchiveBounds(unittest.TestCase):
         destination = Path(tempfile.mkdtemp())
         warm.extract(self.archive("Build/Intermediates.noindex/a.o"), destination)
         self.assertTrue((destination / "Build/Intermediates.noindex/a.o").is_file())
+
 
 
 if __name__ == "__main__":

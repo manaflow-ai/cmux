@@ -45,6 +45,8 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/ClaudeBackgroundWorkNotifyTests",
     "cmuxTests/CloudMachineDragSourceTests",
     "cmuxTests/CloudMachineOrderingTests",
+    "cmuxTests/CloudOperationRecorderTests",
+    "cmuxTests/CloudReadRequestCoordinatorTests",
     "cmuxTests/DeviceDirectoryLifecycleTests",
     "cmuxTests/DeviceDirectoryMergeTests",
     "cmuxTests/DeviceLinkReconnectPolicyTests",
@@ -73,6 +75,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/SidebarIssue8373StressTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
     "cmuxTests/SocketACLReloadRegressionTests",
+    "cmuxTests/VMClientReadCoalescingTests",
     "cmuxTests/SurfaceMachineIDDeviceEncodingTests",
 
 }

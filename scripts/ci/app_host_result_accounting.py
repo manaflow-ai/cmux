@@ -322,8 +322,15 @@ def check_run(
     known: dict[str, dict[str, Any]],
     log_text: str,
     xcode_status: int,
+    changed_suites: bool = False,
 ) -> tuple[bool, list[str]]:
-    """Return the fail-closed verdict and diagnostics for one app-host run."""
+    """Return the fail-closed verdict and diagnostics for one app-host run.
+
+    ``changed_suites`` marks a PR run of the suites the PR edited. There a
+    catalog entry that passes must leave the catalog in the same PR: while it
+    stays listed, the run is green whether or not the fix works, which is how
+    a fix PR can merge with its target test still failing.
+    """
     messages: list[str] = []
 
     expected_tests, missing_inventory = selected_inventory(inventory, selectors)
@@ -396,9 +403,21 @@ def check_run(
         return False, messages
 
     known_failures = sorted(failures & set(known))
+    for identifier in known_failures:
+        messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
+    now_passing = sorted(
+        identifier for identifier in known if results.get(identifier) == "Passed"
+    )
+    for identifier in now_passing:
+        messages.append(f"RATCHET_KNOWN_NOW_PASSING {identifier}")
+    if changed_suites and now_passing:
+        messages.append(
+            "this PR's selected suites pass tolerated known-main failures; remove them "
+            "from scripts/ci/app-host-known-failures.json so the run has to prove the fix"
+        )
+        return False, messages
+
     if known_failures:
-        for identifier in known_failures:
-            messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
         messages.append(
             f"known-main failures tolerated: {len(known_failures)}; "
             f"typed test cases: {len(results)}"
@@ -443,6 +462,7 @@ def command_check_run(args: argparse.Namespace) -> int:
         known=known,
         log_text=log_text,
         xcode_status=args.xcode_status,
+        changed_suites=args.changed_suites,
     )
     for message in messages:
         print(message, file=sys.stdout if passed else sys.stderr)
@@ -466,6 +486,14 @@ def command_catalog_diff(args: argparse.Namespace) -> int:
         return 1
 
     additions = sorted(set(new) - set(old))
+    if old_bootstrap is None and not old and new_bootstrap is not None:
+        # The one permitted growth: an empty, never-bootstrapped catalog takes
+        # its census from the main commit validate_catalog just pinned. From
+        # then on the SHA is immutable and the set may only shrink.
+        print(
+            f"known-failure catalog bootstrapped at {new_bootstrap}: {len(new)} tests"
+        )
+        return 0
     if additions:
         for identifier in additions:
             print(f"known-failure catalog may only shrink: added {identifier}", file=sys.stderr)
@@ -497,6 +525,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--log", type=Path, required=True)
     check.add_argument("--xcode-status", type=int, required=True)
     check.add_argument("--tests-json", nargs="+", required=True)
+    check.add_argument(
+        "--changed-suites",
+        action="store_true",
+        help="fail when a known-failure catalog entry passes (PR changed-suites runs)",
+    )
 
     catalog_diff = subparsers.add_parser("catalog-diff")
     catalog_diff.add_argument("--base", type=Path, required=True)

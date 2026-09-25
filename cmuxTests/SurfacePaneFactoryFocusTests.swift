@@ -2,7 +2,9 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
+import CmuxCloudTui
 import CmuxPanes
+import CmuxSurfaceCatalogModel
 import Testing
 import SwiftUI
 
@@ -262,7 +264,18 @@ import SwiftUI
             overlay.layoutSubtreeIfNeeded()
             await Task.yield()
         }
-        #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
+        #expect(
+            overlay.frame.width > 100 && overlay.frame.height > 50,
+            """
+            card=\(overlay.frame) inContainer=\(overlay.superview === target.container) \
+            source=\(target.container.convert(source.hostedView.bounds, from: source.hostedView)) \
+            sourceVisible=\(source.hostedView.visibleRect) sourceHidden=\(source.hostedView.isHiddenOrHasHiddenAncestor) \
+            sourceWindowMatches=\(source.hostedView.window === window) \
+            reference=\(target.container.convert(target.reference.bounds, from: target.reference)) \
+            window=\(window.frame) visible=\(window.isVisible) key=\(window.isKeyWindow) \
+            mainWindows=\(NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("cmux.main.") == true }.map { "\($0.frame)" })
+            """
+        )
         let terminalFrame = target.container.convert(source.hostedView.bounds, from: source.hostedView)
         #expect(abs(overlay.frame.midX - terminalFrame.midX) < 2)
         #expect(abs(overlay.frame.midY - terminalFrame.midY) < 2)

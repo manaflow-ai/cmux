@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Retains one UI intent's daemon identity across explicit retries.
@@ -8,17 +10,22 @@ import Foundation
 @MainActor
 final class CloudTerminalCreationRequest {
     let id: UUID
+    let commandOverride: [String]?
     private(set) var remoteWorkspaceID: String?
     let correlationKey: String
     private(set) var attemptKey: String
     private var submitted = false
+    private var adoptsDurableAttempt = false
 
-    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil) {
+    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false) {
         self.id = id
+        self.commandOverride = commandOverride
         self.remoteWorkspaceID = remoteWorkspaceID
         let key = "cmux-cloud-create-\(id.uuidString.lowercased())"
         correlationKey = key
         attemptKey = key
+        submitted = restoring
+        adoptsDurableAttempt = restoring
     }
 
     /// Binds the immutable Cloud workspace before the first daemon mutation.
@@ -55,6 +62,18 @@ final class CloudTerminalCreationRequest {
             throw error
         }
         try Task.checkCancellation()
+        if adoptsDurableAttempt {
+            // After app restart the daemon's correlation receipt is the only
+            // authoritative record of which attempt committed this user intent.
+            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let envelope = (object?["result"] as? [String: Any]) ?? (object?["data"] as? [String: Any]) ?? object
+            let value = (envelope?["value"] as? [String: Any]) ?? envelope
+            if value?["correlation_key"] as? String == correlationKey,
+               let recorded = value?["idempotency_key"] as? String, !recorded.isEmpty {
+                attemptKey = recorded
+            }
+            adoptsDurableAttempt = false
+        }
         guard let resolution = CloudTerminalCreationRetryResolution(
             data: data, correlationKey: correlationKey, attemptKey: attemptKey
         ) else { throw CloudDiagnosticFailure.response }

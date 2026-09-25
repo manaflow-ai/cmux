@@ -6,6 +6,10 @@ on:
       macos:
         required: true
         type: string
+      cli:
+        required: false
+        default: "false"
+        type: string
       full_suite:
         required: true
         type: string
@@ -28,6 +32,30 @@ on:
         required: false
         default: ""
         type: string
+      # Space-separated cmuxTests/ suites when `unit_suite` came from a diff
+      # that only edits those suites. `app-host unit tests` then runs just
+      # them on one worker instead of every suite on seven. Empty runs all.
+      unit_selectors:
+        required: false
+        default: ""
+        type: string
+      # `|`-delimited names of the strict steps below that own a suite in
+      # unit_selectors. A changed-suites run runs those steps as they are,
+      # since each gives its suites an app host and settings of their own.
+      unit_strict_steps:
+        required: false
+        default: ""
+        type: string
+      # "true" when compile admission runs the unit_selectors suites itself,
+      # on the runner that just built the product, instead of handing them to
+      # a separate `app-host unit tests` worker. choose_ci_suite.py sets it
+      # only when no strict step owns a selected suite and the diff leaves the
+      # consumer path alone, which the separate worker still has to prove.
+      # Empty (a caller that predates it) keeps the separate worker.
+      unit_in_admission:
+        required: false
+        default: ""
+        type: string
       product_artifacts:
         required: false
         default: "layered"
@@ -36,12 +64,6 @@ on:
         required: true
         type: string
       release_build:
-        required: true
-        type: string
-      source_identity_valid:
-        required: true
-        type: string
-      source_tree:
         required: true
         type: string
       source_parent1:
@@ -55,6 +77,50 @@ on:
         required: false
         default: ""
         type: string
+      # The pool (and, when it differs from the pull-request lane's, the
+      # Xcode) ci.yml's `changes` job chose for this pull request run with
+      # scripts/ci/pr_runner_pool.py. Empty, which is every other event and
+      # every caller that predates it, keeps the MACOS_RUNNER_PR route.
+      pr_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent (an owned Mac pool): the
+      # Blacksmith pool on the same Xcode that a re-run of failed jobs takes,
+      # because such a re-run reuses attempt 1's pick (pr_runner_pool.py).
+      pr_retry_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only for a full suite on a Blacksmith pool (pr_runner_pool.py
+      # spread_shards): another pool on the same Xcode, with more room than
+      # compile admission's for the app-host shards. The product runs on any
+      # pool on its Xcode, since every one reproduces the canonical root.
+      pr_shard_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent: the owned label again, for
+      # attempt 2 of a job in pr_owned_jobs. ci-owned-pool-rescue.yml re-runs
+      # the failed jobs of a run whose owned job was refused, and that re-run
+      # reuses attempt 1's outputs, so it tries the fleet once more before
+      # Blacksmith. A full re-run (a stuck job) picks again and gets none.
+      pr_refused_retry_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent: the jobs of attempt 1 that take
+      # it, as " <key> <key> ". Every other job takes pr_retry_runner, so a
+      # run can use the owned machines that are free and overflow the rest
+      # (pr_runner_pool.py, CI_PR_POOL_OWNED_SPLIT).
+      pr_owned_jobs:
+        required: false
+        default: ""
+        type: string
+      pr_xcode_app:
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -63,6 +129,19 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Which schemes the producer builds, and the profile the product's identity
+  # records. A purely CLI-routed change only feeds cli-product-tests, which
+  # needs the cmux-cli product and its test bundle -- not the app, and not the
+  # app-host or numeric-locale bundles.
+  #
+  # macOS routing keeps the full product while anything needs it: the app-host
+  # shards consume it, and admission is also the check that proves the app
+  # itself still compiles. Once an earlier run has admitted these inputs and
+  # no app-host shard is routed, a CLI route only needs the cli product.
+  # Producer and consumer must agree here, so it is declared once for every job
+  # -- a consumer recomputing a different profile's identity simply declines
+  # the artifact, which would silently cost a compile instead of reusing one.
+  CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
 
 jobs:
   macos-compile-admission:
@@ -72,14 +151,27 @@ jobs:
     # build products and run test-without-building, so a compiler failure
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
-    if: ${{ inputs.macos == 'true' && inputs.compile_admitted != 'true' }}
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 75
+    if: ${{ (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
+    # The cli clause above still compiles when an earlier run already admitted
+    # these inputs. CMUX_PRODUCT_PROFILE then selects the cli product, one
+    # scheme, so it no longer buys a full app build.
+    # Pull requests and main's full-suite dispatch (ci-main-full-suite.yml)
+    # compile on the pool and Xcode seed-derived-data.yml builds with, so both
+    # can adopt its DerivedData seed below. Merge groups and dispatches on
+    # other branches keep the macos-15 lane.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' admission ')) && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # A changed-suites run adds its tests after the compile: the same
+    # 30-minute batch ceiling the separate worker had.
+    timeout-minutes: ${{ inputs.unit_in_admission == 'true' && 105 || 75 }}
     permissions:
       contents: read
       actions: read
       pull-requests: read
     outputs:
+      # The outcome of the changed suites this job ran after compiling, so
+      # macOS status can tell a test failure from a compile failure. Empty
+      # when the job ran none.
+      changed_suites: ${{ steps.run-changed-suites.outcome }}
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-products.outputs.artifact-digest }}
       layer_index_artifact_id: ${{ steps.upload-layer-index.outputs.artifact-id }}
@@ -89,19 +181,43 @@ jobs:
       source_revision: ${{ github.sha }}
       producer_run_id: ${{ github.run_id }}
       producer_run_attempt: ${{ github.run_attempt }}
+      # The pool and Xcode this product was built with. Every job that runs
+      # the product takes both from here, so a routing change to this job
+      # (MACOS_RUNNER_PR, a new event on the pull-request route) moves its
+      # consumers with it.
+      runner: ${{ env.CMUX_PRODUCT_RUNNER }}
+      xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
       CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
       CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
       CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_xcode_app || (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      # Where an owned Mac keeps this job's build state (owned_build_state.py).
+      CMUX_OWNED_STATE_ROOT: /Users/Shared/cmux-build-fleet/ci
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Part of the compiled product contract, so it has to name the pool this
-      # job actually ran on: two pools lay the workspace out differently, and a
-      # product built under one cannot be relocated into the other.
-      CMUX_PRODUCT_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+      # Names the pool this job actually ran on. The app-host product contract
+      # keys on the toolchain and the build path instead, so a product built
+      # here at the canonical root matches on any pool with the same Xcode.
+      # The macOS runner guard still requires it to track runs-on.
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' admission ')) && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+      # What the changed-suites steps at the end of this job read, with the
+      # values `app-host unit tests` gives its changed-suites worker, shard 8.
+      # The compile reads none of them: it runs plain xcodebuild and bakes the
+      # isolation condition in itself, and SWIFT_BACKTRACE only changes how a
+      # crashing Swift process reports. product_input_identity.py keeps them
+      # out of the product recipe.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: "8"
+      CMUX_APP_HOST_UNIT_SELECTORS: ${{ inputs.unit_selectors }}
+      CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "1200"
+      CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET: "2"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
@@ -129,6 +245,21 @@ jobs:
             echo "CMUX_HOSTED_SOURCE_PREP_STARTED=$now"
           } >> "$GITHUB_ENV"
 
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -146,6 +277,12 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
 
       # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
       # checkout once only after that action fails; healthy jobs still perform
@@ -229,6 +366,32 @@ jobs:
           print(f"hosted admission queue-to-start: {seconds:.3f}s")
           PY
 
+      - name: Choose this job's canonical build root
+        id: build-slot
+        run: |
+          set -euo pipefail
+          # /private/tmp/cmux-ci everywhere but the second compile slot of an
+          # owned Mac, where glaeda exports CMUX_CI_CANONICAL_ROOT as
+          # /private/tmp/cmux-ci-<n> for the compile token it granted, so two
+          # compiles on one Mac never share a tree. Such a root is part of the
+          # canonical build fingerprint, so it never adopts a seed or
+          # compilation cache made at another root. Consumers read the root
+          # from the product's receipt (restore-app-host-test-product.sh). Its
+          # kept build state sits in its own directory beside the first slot's.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          case "$root" in
+            /private/tmp/cmux-ci) ;;
+            /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9])
+              case "$CMUX_PRODUCT_RUNNER" in
+                glaeda-*) ;;
+                *) echo "::error::$root is only for an owned Mac's second compile slot"; exit 1 ;;
+              esac
+              echo "CMUX_OWNED_STATE_ROOT=$CMUX_OWNED_STATE_ROOT/${root##*/}" >> "$GITHUB_ENV"
+              ;;
+            *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
+          esac
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
       - name: Prepare isolated admission DerivedData
         run: |
           set -euo pipefail
@@ -286,170 +449,31 @@ jobs:
             echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Observe persistent Mac compile candidate
-        id: persistent-route
-        if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && inputs.source_identity_valid == 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_PERSISTENT_MAC_COMPILE: ${{ vars.CI_PERSISTENT_MAC_COMPILE }}
-          CI_PERSISTENT_MAC_COMPILE_COHORT: ${{ vars.CI_PERSISTENT_MAC_COMPILE_COHORT }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_REF: ${{ github.head_ref }}
-          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SOURCE_TREE: ${{ inputs.source_tree }}
-          SOURCE_PARENT1: ${{ inputs.source_parent1 }}
-        run: |
-          set -euo pipefail
-          route_started="$(python3 -c 'import time; print(time.monotonic())')"
-          python3 scripts/ci/persistent_mac_route.py \
-            --observe-only \
-            --ready-only \
-            --event-name "$GITHUB_EVENT_NAME" \
-            --selector "$CI_PERSISTENT_MAC_COMPILE" \
-            --cohort "$CI_PERSISTENT_MAC_COMPILE_COHORT" \
-            --repository "$GITHUB_REPOSITORY" \
-            --pr-number "$PR_NUMBER" \
-            --head-repository "$HEAD_REPOSITORY" \
-            --head-ref "$HEAD_REF" \
-            --author-association "$AUTHOR_ASSOCIATION" \
-            --head-sha "$HEAD_SHA" \
-            --source-sha "$GITHUB_SHA" \
-            --source-tree "$SOURCE_TREE" \
-            --source-parent1 "$SOURCE_PARENT1" \
-            --run-id "$GITHUB_RUN_ID" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --github-output "$GITHUB_OUTPUT"
-          route_finished="$(python3 -c 'import time; print(time.monotonic())')"
-          route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
-          echo "route_wall_seconds=$route_wall" >> "$GITHUB_OUTPUT"
-
-      - name: Download persistent Mac compile product
-        id: persistent-download
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-route.outputs.use_persistent == 'true'
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          artifact-ids: ${{ steps.persistent-route.outputs.artifact_id }}
-          path: ${{ runner.temp }}/persistent-mac-compile
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.persistent-route.outputs.producer_run_id }}
-
-      - name: Revalidate persistent Mac compile product
-        id: persistent-restore
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-download.outcome == 'success'
-        continue-on-error: true
-        env:
-          EXPECTED_SOURCE_SHA: ${{ github.sha }}
-          EXPECTED_SOURCE_TREE: ${{ inputs.source_tree }}
-        run: |
-          set -euo pipefail
-          [ -z "$(git status --porcelain --untracked-files=all)" ] || {
-            echo "hosted validation checkout is dirty" >&2
-            exit 1
-          }
-          [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE" ]
-
-          # Every identity check below runs after the archive is expanded here, and
-          # the fallback compile runs in this same DerivedData. A refused product
-          # must not become that compile's input, so arm the cleanup before the
-          # first byte is written and keep it until this step's own success.
-          revalidated=false
-          cleanup() {
-            [ "$revalidated" = true ] && return 0
-            rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          }
-          trap cleanup EXIT
-
-          archive="$(find "$RUNNER_TEMP/persistent-mac-compile" -type f -name 'persistent-mac-compile.tar.gz' -print -quit)"
-          [ -n "$archive" ] && [ -f "$archive" ]
-          mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          tar -xzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          metrics="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/persistent-mac-metrics.json"
-          test -f "$metrics"
-
-          python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-
-          METRICS="$metrics" EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA" EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE" python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          import platform
-          import subprocess
-          from pathlib import Path
-
-          metrics = json.load(open(os.environ["METRICS"]))
-          expected_sha = os.environ["EXPECTED_SOURCE_SHA"]
-          expected_tree = os.environ["EXPECTED_SOURCE_TREE"]
-
-          def output(*argv):
-              return subprocess.check_output(argv, text=True).strip()
-
-          def digest(path):
-              value = hashlib.sha256()
-              with Path(path).open("rb") as stream:
-                  for block in iter(lambda: stream.read(1024 * 1024), b""):
-                      value.update(block)
-              return value.hexdigest()
-
-          source = metrics.get("source", {})
-          if source != {"commit": expected_sha, "tree": expected_tree}:
-              raise SystemExit("persistent producer source identity mismatch")
-          if output("git", "rev-parse", "HEAD") != expected_sha:
-              raise SystemExit("hosted checkout revision mismatch")
-          if output("git", "rev-parse", "HEAD^{tree}") != expected_tree:
-              raise SystemExit("hosted checkout tree mismatch")
-          if output("git", "status", "--porcelain", "--untracked-files=all"):
-              raise SystemExit("hosted checkout became dirty during validation")
-
-          lockfile = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-          if digest(lockfile) != metrics.get("package_resolved_sha256"):
-              raise SystemExit("Package.resolved identity mismatch")
-          submodules = output("git", "submodule", "status", "--recursive").encode()
-          if hashlib.sha256(submodules).hexdigest() != metrics.get("submodule_identity_sha256"):
-              raise SystemExit("submodule identity mismatch")
-
-          toolchain = metrics.get("toolchain", {})
-          if toolchain.get("xcode") != output("xcodebuild", "-version"):
-              raise SystemExit("Xcode identity mismatch")
-          if toolchain.get("sdk_version") != output("xcrun", "--sdk", "macosx", "--show-sdk-version"):
-              raise SystemExit("macOS SDK version mismatch")
-          if toolchain.get("sdk_build") != output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"):
-              raise SystemExit("macOS SDK build mismatch")
-          if platform.machine() != "arm64":
-              raise SystemExit("persistent product validation requires Apple Silicon")
-
-          classification = metrics.get("classification")
-          if classification not in {"hot", "partially-warm", "cold-reset"}:
-              raise SystemExit("invalid persistent cache classification")
-          glaeda = metrics.get("glaeda", {})
-          for key in ("cache_key", "invocation_identity", "generation"):
-              if not isinstance(glaeda.get(key), str) or not glaeda[key]:
-                  raise SystemExit(f"Glaeda receipt omitted {key}")
-          if not isinstance(glaeda.get("reset_reasons"), list):
-              raise SystemExit("Glaeda reset lineage is invalid")
-          print(
-              f"validated persistent product class={classification} "
-              f"cache_key={glaeda['cache_key']} invocation={glaeda['invocation_identity']}"
-          )
-          PY
-
-          revalidated=true
-          {
-            echo "hit=true"
-            echo "classification=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["classification"])' "$metrics")"
-            echo "metrics=$metrics"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Capture Ghostty revision
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         id: ghostty-revision
         run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Reuse this owned Mac's build state
+        # An owned Mac (glaeda-*, pr_runner_pool.py) outlives the job, so it keeps
+        # this admission's DerivedData and resolved packages between
+        # jobs instead of restoring caches and a seed every time. A kept
+        # DerivedData whose fingerprint (Xcode build, canonical paths) matches is
+        # `warm`: the SwiftPM cache restore and the seed are skipped, and the
+        # compile rebuilds only what changed since the last job on this Mac. Any
+        # mismatch, miss or failure falls back to the ephemeral flow below.
+        # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
+        id: owned-state
+        if: steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          python3 scripts/ci/owned_build_state.py check "$CMUX_OWNED_STATE_ROOT" "$fingerprint" "$PWD"
+
       - name: Cache GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         id: cache-ghosttykit-admission
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -457,25 +481,88 @@ jobs:
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        id: swift-package-cache
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.packages != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
+      # Evaluating the 91 Package.swift files was about 45 s of the resolve
+      # below even on an exact `spm-` hit. seed-derived-data.yml saves the
+      # evaluated manifests from main; see scripts/ci/swiftpm-manifest-cache.sh
+      # for why the resolve runs under a fixed environment to hit them.
+      - name: Compute SwiftPM manifest cache key
+        id: swiftpm-manifest-key
+        if: steps.reuse-products.outputs.hit != 'true'
+        run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM manifest cache
+        if: steps.reuse-products.outputs.hit != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+          restore-keys: ${{ steps.swiftpm-manifest-key.outputs.prefix }}
+
+      - name: Install SwiftPM manifest cache
+        if: steps.reuse-products.outputs.hit != 'true'
+        continue-on-error: true
+        run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
+
+      # The key names only the Xcode version and the canonical paths, so it is
+      # known before the source tree is copied there.
+      - name: Compute test compilation cache key
+        if: steps.reuse-products.outputs.hit != 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # The seed download (~40 s) needs only that key, so it runs while
+      # packages resolve instead of after them. "Adopt the nightly DerivedData
+      # seed" below reuses the seed this step picked and waits for it; if this
+      # step fails, adopt picks and downloads itself.
+      - name: Start the DerivedData seed download
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        # Picking the seed probes the bucket before the download detaches; a
+        # hung CDN must not hold up the resolve. adopt then picks for itself.
+        timeout-minutes: 3
+        env:
+          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+          # A pull request builds on the merge commit's first parent, which
+          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
+          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
+          # itself, whose own seed may already exist, else its parent's.
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py start \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
+
+      # Nothing here reads the workspace package cache after resolve, so it
+      # moves into the canonical root instead of a second copy, and an exact
+      # cache hit resolves without fetching every package remote. See
+      # scripts/ci/canonical-build-root.sh and compile-app-host-test-product.sh.
       - name: Resolve Swift packages
         id: hosted-package-readiness
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
+        env:
+          CMUX_CI_MOVE_SOURCE_PACKAGES: "1"
+          CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -486,29 +573,71 @@ jobs:
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
-      - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+      # No test compilation cache restore. Swift keys each compile job on its
+      # whole module, so `cmux` and cmuxUITests missed on every file even with
+      # the key, paths and Xcode matching the nightly seed (581/581 and 566/566
+      # in sampled admission logs, 2026-09-24). Only modules unchanged since the
+      # six-hourly seed hit, and the DerivedData seed below already leaves those
+      # built. The restore spent 13-43 s pulling 932 MB for that.
+      # tests/test_ci_test_compilation_cache_seed.sh pins its absence.
 
-      # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
-      # only writer. A cache saved here would be scoped to this pull request and
-      # would spend the cache budget that keeps the main seed alive.
-      - name: Restore test compilation cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
-          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
-          restore-keys: |
-            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+      # The compilation cache cannot help the app target: Swift keys each job on
+      # its whole module, and `cmux` is one module. Xcode's incremental build
+      # tracks dependencies per file, but only against an existing DerivedData,
+      # and a fresh checkout makes every file look new. Adopt the DerivedData
+      # seed-derived-data.yml built for the main commit this build sits on
+      # (every main push that changes the build), or for its nearest ancestor
+      # with one, built on this runner, Xcode and path. Restore the recorded
+      # time onto every byte-identical input, and Xcode rebuilds only what
+      # differs. Pull requests adopt the seed of the main commit they merge
+      # onto. Main's full-suite dispatch adopts the seed of the commit it
+      # tests: the seeder starts on the same push, so that seed is often still
+      # building, and the nearest ancestor's (usually the parent's) leaves only
+      # one merge's diff to compile. Seeds are written only by main-branch jobs
+      # in the ci-cache-writer environment and read here without credentials.
+      # Merge-group and other-branch dispatch builds stay clean. Any miss or
+      # failure is today's cold build. CI_ADMISSION_SEED_DERIVED_DATA=0 turns
+      # it off.
+      #
+      # The merge commit's first parent, not github.event.pull_request.base.sha:
+      # the event's base can be commits older than the main this job compiles
+      # (9567d6e against 2f0592d in job 107537609232), and each commit between
+      # them costs compile time.
+      - name: Adopt the nightly DerivedData seed
+        id: seed-derived-data
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+          # A pull request builds on the merge commit's first parent, which
+          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
+          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
+          # itself, whose own seed may already exist, else its parent's.
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py adopt \
+            "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+            "$SEED_PREFIX" "$MERGED_ONTO"
+
+      - name: Adopt this owned Mac's DerivedData
+        id: owned-adopt
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm == 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/owned_build_state.py adopt "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_CI_CANONICAL_SRC"
+
+      # What the next owned job's adopt replays, after either adopt above has
+      # set the times this compile sees. About 4 s (seed-derived-data.yml's
+      # record of the same tree).
+      - name: Record this owned Mac's build inputs
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.fingerprint != ''
+        continue-on-error: true
+        run: python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Compile app-host test product
         id: hosted-compile
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -522,6 +651,23 @@ jobs:
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
           exit "$status"
+
+      # Adoption sets a per-user Xcode default. Only a build whose inputs were
+      # just replayed should ignore inode changes, so a reused runner does not
+      # carry it into an unrelated job.
+      - name: Forget the adopted-build inode override
+        if: always() && (steps.seed-derived-data.outcome != 'skipped' || steps.owned-adopt.outcome != 'skipped')
+        continue-on-error: true
+        run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+
+      - name: Keep this owned Mac's DerivedData
+        # Before the steps below stage frameworks into Build/Products and
+        # rewrite the xctestruns: the kept DerivedData is the one Xcode left.
+        if: steps.hosted-compile.outcome == 'success' && steps.owned-state.outputs.fingerprint != ''
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
+        run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT"
 
       - name: Generate Xcode build metrics receipt
         id: build-metrics
@@ -560,7 +706,13 @@ jobs:
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          python3 scripts/swift_warning_budget.py --log "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log"
+          # The build writes one log per scheme, and the profile's first scheme
+          # is the one whose warnings the budget covers (cmux for app-host,
+          # cmux-cli-tests for a CLI-only product).
+          first_scheme="$(python3 scripts/ci/product_input_identity.py schemes | awk '{print $1}')"
+          log="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/$first_scheme-build.log"
+          test -s "$log" || { echo "::error::missing Swift warning log $log" >&2; exit 1; }
+          python3 scripts/swift_warning_budget.py --log "$log"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
@@ -584,6 +736,11 @@ jobs:
 
       # These no-socket probes take seconds and need only the compiled CLI.
       # Fail admission before allocating app-host shards or the runtime job.
+      # They run after a compile and after a product reuse alike: both leave
+      # the Debug CLI at the same path, and both product profiles build it.
+      # This is the CLI lane's only Debug CLI build; the closed-consumer,
+      # config and Glaeda contract tests used to build it again on their own
+      # Mac (cli-pipe-regressions.yml).
       - name: Run early CLI binary smoke checks
         run: |
           set -euo pipefail
@@ -595,8 +752,10 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_broken_pipe_writes.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_glaeda_execution.py
 
-      # Compile-only forks have no artifact consumers and cannot seed reuse:
+      # Compile-only forks without targeted CLI tests have no artifact consumers and cannot seed reuse:
       # both the reuse selector and broker require an in-repository producer.
       # Keep unknown metadata, every full suite, and in-org reuse producers.
       - name: Start product publication timer
@@ -606,6 +765,7 @@ jobs:
         id: publish-products
         env:
           PRODUCT_FULL_SUITE: ${{ inputs.full_suite }}
+          PRODUCT_CLI: ${{ inputs.cli }}
           PRODUCT_UNIT_SUITE: ${{ inputs.unit_suite }}
           PRODUCT_EVENT: ${{ github.event_name }}
           PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
@@ -620,6 +780,7 @@ jobs:
           # unused and must still be packaged and uploaded.
           unused_fork_product = (
               os.environ.get("PRODUCT_FULL_SUITE") == "false"
+              and os.environ.get("PRODUCT_CLI") == "false"
               and os.environ.get("PRODUCT_UNIT_SUITE") != "true"
               and os.environ.get("PRODUCT_EVENT") == "pull_request"
               and bool(head) and bool(repository)
@@ -639,14 +800,17 @@ jobs:
           set -euo pipefail
           # Fresh manifests embed the canonical checkout. Stamp that producer
           # before relocating into this job's workspace for reuse and consumers.
-          if [ "${{ steps.reuse-products.outputs.hit }}" != true ] && [ "${{ steps.persistent-restore.outputs.hit }}" != true ]; then
+          if [ "${{ steps.reuse-products.outputs.hit }}" != true ]; then
             (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
             python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           fi
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
-          tar -chzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products
+          # COPYFILE_DISABLE: see the matching note in test-e2e.yml. gzip -1
+          # takes about a third of the default level's time on this product
+          # for an archive about 11% larger.
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload compiled app-host test product
@@ -774,19 +938,18 @@ jobs:
         id: admission-metrics
         if: always() && !cancelled()
         env:
-          ROUTE_USE_PERSISTENT: ${{ steps.persistent-route.outputs.use_persistent }}
-          ROUTE_REASON: ${{ steps.persistent-route.outputs.fallback_reason }}
-          QUEUE_TO_START_SECONDS: ${{ steps.persistent-route.outputs.queue_to_start_seconds }}
-          PRODUCER_ALLOCATED_SECONDS: ${{ steps.persistent-route.outputs.producer_allocated_seconds }}
-          ROUTE_WALL_SECONDS: ${{ steps.persistent-route.outputs.route_wall_seconds }}
-          PERSISTENT_HIT: ${{ steps.persistent-restore.outputs.hit }}
-          PERSISTENT_CLASS: ${{ steps.persistent-restore.outputs.classification }}
-          PERSISTENT_METRICS: ${{ steps.persistent-restore.outputs.metrics }}
           HOSTED_QUEUE_SECONDS: ${{ steps.hosted-queue.outputs.seconds }}
           HOSTED_SOURCE_PREP_SECONDS: ${{ steps.hosted-source-prep.outputs.seconds }}
           HOSTED_PACKAGE_SECONDS: ${{ steps.hosted-package-readiness.outputs.seconds }}
           HOSTED_COMPILE_SECONDS: ${{ steps.hosted-compile.outputs.seconds }}
           WARNING_SECONDS: ${{ steps.warning-validation.outputs.seconds }}
+          SEED_OUTCOME: ${{ steps.seed-derived-data.outcome }}
+          SEED_HIT: ${{ steps.seed-derived-data.outputs.hit }}
+          SEED_KEY: ${{ steps.seed-derived-data.outputs.key }}
+          SEED_REASON: ${{ steps.seed-derived-data.outputs.reason }}
+          SEED_CHANGED_INPUTS: ${{ steps.seed-derived-data.outputs.changed_inputs }}
+          SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance }}
+          SEED_SECONDS: ${{ steps.seed-derived-data.outputs.seconds }}
           PRODUCT_PUBLISHED: ${{ steps.publish-products.outputs.publish }}
           PRODUCT_UPLOAD_OUTCOME: ${{ steps.upload-products.outcome }}
         run: |
@@ -804,58 +967,28 @@ jobs:
               raw = os.environ.get(name, "").strip()
               return float(raw) if raw else None
 
-          persistent = {}
-          persistent_path = os.environ.get("PERSISTENT_METRICS", "").strip()
-          if persistent_path:
-              try:
-                  persistent = json.load(open(persistent_path))
-              except (OSError, ValueError):
-                  persistent = {}
-
-          persistent_hit = os.environ.get("PERSISTENT_HIT") == "true"
-          classification = os.environ.get("PERSISTENT_CLASS") if persistent_hit else "hosted fallback"
-          fallback_reason = ""
-          if not persistent_hit:
-              if os.environ.get("ROUTE_USE_PERSISTENT") == "true":
-                  fallback_reason = "persistent_artifact_validation_failed"
-              else:
-                  fallback_reason = os.environ.get("ROUTE_REASON") or "persistent_route_unused"
-
-          source_preparation = (
-              persistent.get("source_preparation_seconds")
-              if persistent_hit else number("HOSTED_SOURCE_PREP_SECONDS")
-          )
-          package_readiness = (
-              persistent.get("package_readiness_seconds")
-              if persistent_hit else number("HOSTED_PACKAGE_SECONDS")
-          )
-          compile_duration = (
-              persistent.get("compile_duration_seconds")
-              if persistent_hit else number("HOSTED_COMPILE_SECONDS")
-          )
-
           result = {
-              "schema_version": 1,
-              "classification": classification,
-              "fallback_reason": fallback_reason,
-              "queue_to_start_seconds": (
-                  number("QUEUE_TO_START_SECONDS") if persistent_hit else number("HOSTED_QUEUE_SECONDS")
-              ),
-              "source_preparation_seconds": source_preparation,
-              "package_readiness_seconds": package_readiness,
-              "compile_duration_seconds": compile_duration,
+              "schema_version": 2,
+              "queue_to_start_seconds": number("HOSTED_QUEUE_SECONDS"),
+              "source_preparation_seconds": number("HOSTED_SOURCE_PREP_SECONDS"),
+              "package_readiness_seconds": number("HOSTED_PACKAGE_SECONDS"),
+              "compile_duration_seconds": number("HOSTED_COMPILE_SECONDS"),
               "warning_validation_seconds": number("WARNING_SECONDS"),
               "artifact_publication_seconds": number("PUBLICATION_SECONDS"),
-              "route_wall_seconds": number("ROUTE_WALL_SECONDS"),
               "required_admission_runner_seconds": number("ADMISSION_SECONDS"),
-              # Route observation runs inside the already-allocated hosted
-              # admission job, so ADMISSION_SECONDS already contains it.
               "total_macos_compile_admission_seconds": number("ADMISSION_SECONDS"),
-              "persistent_runner_allocated_seconds": number("PRODUCER_ALLOCATED_SECONDS"),
               "hosted_admission_runner_allocated_seconds": number("ADMISSION_SECONDS"),
               "product_published": os.environ.get("PRODUCT_PUBLISHED") == "true",
               "product_upload_outcome": os.environ.get("PRODUCT_UPLOAD_OUTCOME", ""),
-              "persistent": persistent,
+              "seed_derived_data": {
+                  "outcome": os.environ.get("SEED_OUTCOME", ""),
+                  "hit": os.environ.get("SEED_HIT") == "true",
+                  "key": os.environ.get("SEED_KEY", ""),
+                  "reason": os.environ.get("SEED_REASON", ""),
+                  "changed_inputs": number("SEED_CHANGED_INPUTS"),
+                  "commits_behind": number("SEED_DISTANCE"),
+                  "adoption_seconds": number("SEED_SECONDS"),
+              },
           }
           with open(os.environ["METRICS"], "w") as stream:
               json.dump(result, stream, sort_keys=True, indent=2)
@@ -872,20 +1005,23 @@ jobs:
           print("### macOS compile admission timing")
           print()
           for label, key in (
-              ("class", "classification"),
-              ("fallback reason", "fallback_reason"),
-              ("queue to owned runner", "queue_to_start_seconds"),
+              ("queue to runner", "queue_to_start_seconds"),
               ("source preparation", "source_preparation_seconds"),
               ("package readiness", "package_readiness_seconds"),
               ("compile", "compile_duration_seconds"),
               ("warning validation", "warning_validation_seconds"),
               ("artifact publication", "artifact_publication_seconds"),
-              ("route/controller wall", "route_wall_seconds"),
               ("required admission runner", "required_admission_runner_seconds"),
               ("total admission wall", "total_macos_compile_admission_seconds"),
-              ("persistent runner allocated", "persistent_runner_allocated_seconds"),
           ):
               print(f"- {label}: `{data.get(key)}`")
+          seed = data.get("seed_derived_data") or {}
+          if seed.get("hit"):
+              behind = seed.get("commits_behind")
+              distance = "newest pointer" if behind is None else f"{int(behind)} commits behind"
+              print(f"- seed DerivedData: `{seed.get('key')}`, {distance}, {seed.get('changed_inputs')} inputs changed, adopted in {seed.get('adoption_seconds')}s")
+          elif seed.get("outcome") not in (None, "", "skipped"):
+              print(f"- seed DerivedData: miss (`{seed.get('reason')}`)")
           PY
 
       - name: Upload compile admission metrics
@@ -900,12 +1036,188 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      - name: Seed node-local compiled product cache
+        if: steps.publish-products.outputs.publish == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-products.outputs.artifact-id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ steps.upload-products.outputs.artifact-digest }}
+          EXPECTED_SHA256: ${{ steps.package-products.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ steps.product-key.outputs.key }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ github.sha }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: python3 scripts/ci/node_product_cache.py seed "$RUNNER_TEMP/app-host-products.tar.gz"
+
+      # A changed-suites run (inputs.unit_in_admission) tests here, on the
+      # runner that just built the product, rather than queueing a separate
+      # `app-host unit tests` worker to download it again. Everything above has
+      # already packaged and uploaded the product, so a test failure below
+      # still leaves it for reruns (app-host-test-rerun.yml) and reuse. These
+      # steps run the same scripts, in the same order, as that worker's
+      # changed-suites run; only the product's source differs. The restore
+      # unpacks the uploaded archive into a DerivedData of its own, so the
+      # tests run the exact bytes the other consumers download.
+      - name: Keep this owned Mac's build state
+        # The DerivedData was kept right after the compile; this keeps the
+        # resolved packages, whatever happened in between.
+        if: always() && steps.owned-state.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/owned_build_state.py save "$CMUX_OWNED_STATE_ROOT" \
+            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD"
+
+      - name: Prepare isolated DerivedData
+        id: test-derived-data
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${CMUX_APP_HOST_SHARD}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Restore compiled app-host test product
+        id: restore-test-products
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        env:
+          ARTIFACT_ID: ${{ steps.upload-products.outputs.artifact-id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ steps.upload-products.outputs.artifact-digest }}
+          EXPECTED_SHA256: ${{ steps.package-products.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ steps.product-key.outputs.key }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ github.sha }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CMUX_PRODUCT_FROM_PRODUCER: "true"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/app-host-products"
+          ln -f "$RUNNER_TEMP/app-host-products.tar.gz" "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+          scripts/ci/restore-app-host-test-product.sh
+
+      - name: Prepare isolated app-host home
+        id: prepare-app-host-home
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/prepare-app-host-home.sh
+
+      - name: Enumerate built app-host tests
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/enumerate-app-host-tests.sh
+
+      - name: Upload built app-host test inventory
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.json
+            ${{ runner.temp }}/cmux-app-host-test-inventory.json
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enable XCTest automation mode
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/enable-xctest-automation-mode.sh
+
+      - name: Run changed app-host suites
+        id: run-changed-suites
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/run-app-host-unit-batches.sh
+
+      # Compile admission no longer waits for the caller's `macOS admission
+      # gate` (ci.yml), which judges the fast Linux jobs; that gate finishes a
+      # median 99 s after the static stage, long before a compile does. So a
+      # single read of its result, with no wait, decides whether the product's
+      # consumers start: a first-attempt decline fails this job, which skips
+      # every job that needs it, after the product is already published and
+      # after a changed-suites run has tested it, so a declined job still
+      # proves everything a passed one does.
+      # reuse_app_host_products.py and find_admitted_build.py accept a job that
+      # failed at this step, so a rerun or a later push reuses that product
+      # instead of compiling again. A gate that is still running, skipped, or
+      # absent admits, and ci-status still fails the run on the failed Linux
+      # job.
+      - name: Hold consumers behind the fast Linux gate
+        id: consumer-gate
+        if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
+        env:
+          API_URL: ${{ github.api_url }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          GATE_JOB: "macOS admission gate"
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          gate = os.environ["GATE_JOB"]
+          url = (
+              f"{os.environ['API_URL'].rstrip('/')}/repos/{os.environ['REPOSITORY']}"
+              f"/actions/runs/{os.environ['RUN_ID']}/jobs?filter=latest&per_page=100"
+          )
+          request = urllib.request.Request(url, headers={
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "cmux-ci-compile-admission",
+              "X-GitHub-Api-Version": "2022-11-28",
+          })
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  jobs = json.load(response).get("jobs", [])
+          except Exception as exc:  # An unreadable gate admits.
+              print(f"::warning::Could not read {gate} ({exc}); admitting macOS consumers.")
+              sys.exit(0)
+          found = [job for job in jobs if job.get("name") == gate]
+          if not found:
+              print(f"{gate} is not in this run; admitting macOS consumers.")
+              sys.exit(0)
+          status, conclusion = found[0].get("status"), found[0].get("conclusion")
+          if status == "completed" and conclusion == "failure":
+              print(
+                  f"::error title=Not admitting macOS consumers::{gate} declined: a fast Linux job "
+                  "failed. The product compiled and was uploaded; re-run failed jobs to collect "
+                  "macOS results anyway."
+              )
+              sys.exit(1)
+          print(f"{gate}: status={status} conclusion={conclusion}; admitting macOS consumers.")
+          PY
+
+      - name: Report a changed-suites failure apart from the compile
+        if: ${{ failure() && steps.run-changed-suites.outcome == 'failure' }}
+        run: |
+          echo "::error title=Changed suites failed::The app-host product compiled and was uploaded; the changed suites failed in 'Run changed app-host suites'. app-host-test-rerun.yml can rerun them against this run's product."
+
+      - name: Collect app-host failure diagnostics
+        id: collect-app-host-diagnostics
+        if: ${{ (failure() || cancelled()) && steps.test-derived-data.outcome == 'success' && steps.consumer-gate.outcome != 'failure' }}
+        continue-on-error: true
+        shell: bash
+        run: scripts/ci/collect-app-host-diagnostics.sh
+
+      - name: Upload app-host failure diagnostics
+        id: upload-app-host-diagnostics
+        if: ${{ (failure() || cancelled()) && steps.test-derived-data.outcome == 'success' && steps.consumer-gate.outcome != 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Report evidence collection outcomes
         if: ${{ always() }}
         env:
           EVIDENCE_OUTCOMES: >-
             upload-admission-metrics=${{ steps.upload-admission-metrics.outcome }}
             upload-build-metrics=${{ steps.upload-build-metrics.outcome }}
+            collect-app-host-diagnostics=${{ steps.collect-app-host-diagnostics.outcome }}
+            upload-app-host-diagnostics=${{ steps.upload-app-host-diagnostics.outcome }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -939,19 +1251,25 @@ jobs:
                   )
           PY
 
-      - name: Seed node-local compiled product cache
-        if: steps.publish-products.outputs.publish == 'true'
-        continue-on-error: true
+      - name: Clean up isolated app-host home
+        if: ${{ always() && inputs.unit_in_admission == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.upload-products.outputs.artifact-id }}
-          ARTIFACT_PROVIDER_DIGEST: ${{ steps.upload-products.outputs.artifact-digest }}
-          EXPECTED_SHA256: ${{ steps.package-products.outputs.sha256 }}
-          CMUX_PRODUCT_CONTRACT: ${{ steps.product-key.outputs.key }}
-          CMUX_PRODUCT_SOURCE_REVISION: ${{ github.sha }}
-          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
-          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: python3 scripts/ci/node_product_cache.py seed "$RUNNER_TEMP/app-host-products.tar.gz"
+          CMUX_APP_HOST_PREPARATION_OUTCOME: ${{ steps.prepare-app-host-home.outcome }}
+        run: |
+          # The same contract as the cleanup in `app-host unit tests`: once
+          # setup starts, even partial or cancelled preparation needs cleanup.
+          case "$CMUX_APP_HOST_PREPARATION_OUTCOME" in
+            skipped|"")
+              echo "App-host preparation did not start; no isolated home to clean."
+              ;;
+            success|failure|cancelled)
+              scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+              ;;
+            *)
+              echo "::error::Unexpected app-host preparation outcome: $CMUX_APP_HOST_PREPARATION_OUTCOME"
+              exit 1
+              ;;
+          esac
 
   app-host-unit-tests:
     permissions:
@@ -965,21 +1283,51 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') }}
-    name: app-host unit tests (${{ matrix.shard }}/7)
-    # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions, so route through the shared MACOS_RUNNER_15 var like the other
-    # macOS jobs. The fallback is what fork pull requests get, because
-    # repository variables are not exposed to them, so it names the same
-    # Blacksmith pool main uses and never the paid overflow provider.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    # A changed-suites run that compile admission ran itself
+    # (inputs.unit_in_admission) needs no worker here.
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') && inputs.unit_in_admission != 'true' }}
+    name: ${{ inputs.unit_selectors != '' && 'app-host unit tests (changed suites)' || format('app-host unit tests ({0}/7)', matrix.shard) }}
+    # Every consumer runs on compile admission's pool and pins its Xcode,
+    # both read from the admission's outputs. The shards run test-without-building
+    # against the admission's cmuxTests bundle, which only loads under the
+    # Xcode that linked it: a bundle linked by Xcode 26.6 (macos-26) imports
+    # Testing.framework symbols Xcode 26.3 (macos-15) does not ship, and dies
+    # in dlopen before running a test. Striping the shards over pools with
+    # different Xcodes (#14097) did exactly that once MACOS_RUNNER_PR moved
+    # compile admission to macOS 26. To spread shards over providers again,
+    # every pool involved must carry the admission's exact Xcode; the
+    # restore step refuses an older one with both versions named.
+    # When compile admission ran on an owned pool, a shard the picker did not
+    # place there (no machine left, or CI_PR_POOL_OWNED_GUI=0), and a re-run
+    # of failed shards, take pr_retry_runner: Blacksmith on the lane's Xcode,
+    # which is the Xcode the owned label names. Otherwise a full suite's shards
+    # take pr_shard_runner when the picker found another pool on admission's
+    # Xcode with more room, and admission's own pool when it is empty.
+    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
       # only needs a verdict, and the first failure already is one.
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        # Each row is a consumer. The rows are JSON because a static include
+        # row always becomes a job, and a changed-suites run
+        # (inputs.unit_selectors) must drop the seven numbered consumers for
+        # one worker. That worker is shard 8, which matches none of the
+        # numbered shards below that own a strict step, so it executes only
+        # its own batch. No row names a pool: see runs-on above.
+        include: >-
+          ${{ fromJSON(inputs.unit_selectors != '' && '[
+          {"shard": 8}
+          ]' || '[
+          {"shard": 1},
+          {"shard": 2},
+          {"shard": 3},
+          {"shard": 4},
+          {"shard": 5},
+          {"shard": 6},
+          {"shard": 7}
+          ]') }}
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -990,8 +1338,11 @@ jobs:
       # closed if a setup step or environment handoff loses either redirect.
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
+      CMUX_APP_HOST_UNIT_SELECTORS: ${{ inputs.unit_selectors }}
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # The admission's own pin, so the shards select the Xcode that linked
+      # the product they run.
+      CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       # Global search owns a seventh consumer because its serialized container
@@ -1028,6 +1379,40 @@ jobs:
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
     steps:
+      # Runs before checkout so a misrouted shard never checks out the PR.
+      # The self-hosted fleet also carries a macos-26 label, so a macos-*
+      # request must prove it landed on GitHub-hosted capacity.
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -1046,6 +1431,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
 
       # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
       # checkout once only after that action fails; healthy jobs still perform
@@ -1218,29 +1609,10 @@ jobs:
         run: scripts/ci/prepare-app-host-home.sh
 
       - name: Enumerate built app-host tests
-        run: |
-          set -euo pipefail
-          enumeration_json="$RUNNER_TEMP/cmux-app-host-test-enumeration.json"
-          inventory_json="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
-          enumeration_log="$RUNNER_TEMP/cmux-app-host-test-enumeration.log"
-          rm -f -- "$enumeration_json" "$inventory_json" "$enumeration_log"
-          bash scripts/ci/run-and-capture.sh "$enumeration_log" \
-            scripts/ci/run-in-console-session.sh \
-            xcodebuild test-without-building \
-            -enumerate-tests \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            -test-enumeration-style hierarchical \
-            -test-enumeration-format json \
-            -test-enumeration-output-path "$enumeration_json"
-          test -s "$enumeration_json"
-          python3 scripts/ci/app_host_result_accounting.py inventory \
-            "$enumeration_json" --output "$inventory_json"
-          test -s "$inventory_json"
-          echo "CMUX_APP_HOST_TEST_INVENTORY=$inventory_json" >> "$GITHUB_ENV"
+        run: scripts/ci/enumerate-app-host-tests.sh
 
       - name: Upload built app-host test inventory
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == 1 || inputs.unit_selectors != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
@@ -1252,20 +1624,10 @@ jobs:
           retention-days: 14
 
       - name: Enable XCTest automation mode
-        run: |
-          set -euo pipefail
-          if ! command -v automationmodetool >/dev/null 2>&1; then
-            echo "::warning::automationmodetool is unavailable; XCTest will use its default automation-mode setup"
-            exit 0
-          fi
-          if sudo -n true 2>/dev/null; then
-            sudo -n automationmodetool enable-automationmode-without-authentication
-          else
-            echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
-          fi
+        run: scripts/ci/enable-xctest-automation-mode.sh
 
       - name: Run My Devices regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run My Devices regressions|')) }}
         env:
           CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
         run: |
@@ -1333,7 +1695,7 @@ jobs:
             test-without-building
 
       - name: Run Pi Feed ownership regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run Pi Feed ownership regressions|')) }}
         run: |
           # Swift Testing assertion failures are tolerated in the full sharded
           # app-host suite. Keep Feed ingestion and ownership on a non-tolerant
@@ -1357,7 +1719,7 @@ jobs:
 
       - name: Run remote tmux mirror detach and placement regressions
         id: remote-tmux-mirror
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run remote tmux mirror detach and placement regressions|')) }}
         run: |
           # Closing a mirrored workspace must never kill the remote tmux session,
           # and --new-window must consolidate mirrors moved across source windows.
@@ -1462,7 +1824,7 @@ jobs:
           retention-days: 7
 
       - name: Run focused browser regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run focused browser regressions|')) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7380 and #8054.
           # The tolerant full-suite step can crash-skip late suites (see #5888
@@ -1485,7 +1847,7 @@ jobs:
           done
 
       - name: Run remote tmux mirror active-pane regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run remote tmux mirror active-pane regression|')) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7372.
           # The tolerant full-suite step can crash-skip late suites (see #5888
@@ -1501,7 +1863,7 @@ jobs:
             test-without-building
 
       - name: Run remote tmux mirror layout identity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run remote tmux mirror layout identity regression|')) }}
         run: |
           # The tolerant full-suite step may accept expected failures or stop
           # after an app-host crash. Keep #7833's identity suite non-tolerant
@@ -1516,7 +1878,7 @@ jobs:
             test-without-building
 
       - name: Run socket ACL reload regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run socket ACL reload regression|')) }}
         run: |
           # The tolerant full-suite step can accept assertion failures or
           # crash-skip late suites. Keep #7984's live reload and denial tests
@@ -1549,7 +1911,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_creation_initial_command.py
 
       - name: Run settings file-store no-op persistence regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run settings file-store no-op persistence regression|')) }}
         run: |
           # The broad app-host suite tolerates expected failures and can stop
           # after an app-host crash. Keep the settings persistence regression
@@ -1564,7 +1926,7 @@ jobs:
             test-without-building
 
       - name: Run issue 8373 sidebar convergence regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run issue 8373 sidebar convergence regression|')) }}
         timeout-minutes: 5
         run: |
           # The broad app-host suite tolerates Swift Testing assertion failures.
@@ -1590,7 +1952,7 @@ jobs:
           grep -F "ISSUE_8373_STRESS " "$test_log"
 
       - name: Run sidebar workspace-switch layout regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run sidebar workspace-switch layout regression|')) }}
         run: |
           # The tolerant full-suite step can accept Swift Testing assertion
           # failures when XCTest reports "0 unexpected". Keep #9612's real
@@ -1606,7 +1968,7 @@ jobs:
             test-without-building
 
       - name: Run terminal portal visibility regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run terminal portal visibility regressions|')) }}
         run: |
           # These tests mutate the process-wide terminal portal registry and
           # include Swift Testing assertions that the tolerant broad shard can
@@ -1648,7 +2010,7 @@ jobs:
           node-version: "20"
 
       - name: Run Ghostty numeric locale tests
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run Ghostty numeric locale tests|')) }}
         run: |
           # LC_NUMERIC is process-global. Keep these tests in their own app-host
           # invocation and disable Xcode's parallel test execution for it.
@@ -1663,7 +2025,7 @@ jobs:
             test-without-building
 
       - name: Run global search shortcut regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) || contains(inputs.unit_strict_steps, '|Run global search shortcut regressions|')) }}
         timeout-minutes: 40
         run: |
           # This serialized container owns global shortcut settings. Keep its
@@ -1691,13 +2053,15 @@ jobs:
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
       - name: Run Cloud machine ordering acceptance
-        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run Cloud machine ordering acceptance|')) }}
         timeout-minutes: 10
         run: |
           # Separate invocations prove each selector executed tests; a healthy
           # suite cannot mask a miswired or accidentally empty selector.
           set -euo pipefail
-          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests; do
+          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests \
+            CloudOperationRecorderTests CloudReadRequestCoordinatorTests \
+            VMClientReadCoalescingTests; do
             test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
             bash scripts/ci/run-and-capture.sh "$test_log" \
               scripts/ci/run-in-console-session.sh \
@@ -1716,230 +2080,7 @@ jobs:
 
       - name: Run unit tests
         if: ${{ matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
-        run: |
-          set -euo pipefail
-          PHYSICAL_SHARD="${{ matrix.shard }}"
-          PHYSICAL_SHARD_TOTAL=6
-          LOGICAL_BATCHES_PER_WORKER=2
-          LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
-          LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
-
-          # Each worker runs two balanced batches sequentially. Every invocation
-          # writes to a regular file, and this script mirrors that file into the
-          # Actions log itself. Detached test descendants therefore cannot retain
-          # the CI capture pipe after xcodebuild exits.
-          #
-          # Mirroring in-process rather than from a background `tail -f` is what
-          # makes the last write observable. A tail had to be given some margin
-          # to deliver it before being killed, and a loaded runner could miss
-          # that margin and drop the final lines -- the ones saying why a batch
-          # died. Tracking the byte offset here has no margin to miss.
-          stream_offset=0
-          emit_batch_output() {
-            local file="$1" size
-            size="$(wc -c <"$file" 2>/dev/null || echo 0)"
-            size="${size//[[:space:]]/}"
-            if [ "${size:-0}" -gt "$stream_offset" ]; then
-              # Read exactly the byte range included in the size snapshot.
-              # Reading to EOF here would race a concurrent writer: bytes
-              # appended after wc(1) could be emitted now while stream_offset
-              # advances only to the old size, duplicating them next poll.
-              python3 -c '
-          import sys
-          path, start, end = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-          with open(path, "rb") as stream:
-              stream.seek(start)
-              sys.stdout.buffer.write(stream.read(end - start))
-          ' "$file" "$stream_offset" "$size"
-              stream_offset="$size"
-            fi
-          }
-          run_unit_test_batch() {
-            local logical_shard="$1"
-            local execution_attempt="$2"
-            local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
-            local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}-run-${execution_attempt}.txt"
-            local batch_tag="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}"
-            local result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
-            local reserve_args=()
-            local reservation
-            for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
-              reserve_args+=(--reserve "$reservation")
-            done
-            python3 scripts/ci/cmux_unit_test_shard.py \
-              --shard-index "$logical_shard" \
-              --shard-total "$LOGICAL_SHARD_TOTAL" \
-              --physical-shard-total "$PHYSICAL_SHARD_TOTAL" \
-              ${reserve_args[@]+"${reserve_args[@]}"} \
-              --output "$shard_args" || {
-                local shard_status=$?
-                echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
-                return "$shard_status"
-              }
-            if [ ! -r "$shard_args" ]; then
-              echo "Missing selector file for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
-              return 1
-            fi
-            local only_testing_args=()
-            while IFS= read -r arg; do
-              [ -n "$arg" ] && only_testing_args+=("$arg")
-            done < "$shard_args"
-            if [ "${#only_testing_args[@]}" -eq 0 ]; then
-              echo "No selectors generated for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
-              return 1
-            fi
-
-            # CmuxBundledBinPathIntegrationTests includes fish-specific coverage
-            # that is enabled only when fish exists. Install it only on the
-            # worker/batch that actually owns that selector.
-            if grep -Fq 'CmuxBundledBinPathIntegrationTests' "$shard_args"; then
-              if ! command -v fish >/dev/null 2>&1; then
-                HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
-              fi
-              command -v fish >/dev/null 2>&1 || {
-                echo "fish is required for CmuxBundledBinPathIntegrationTests" >&2
-                return 1
-              }
-            fi
-
-            echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
-            : >"$batch_output"
-            stream_offset=0
-            CMUX_TAG="$batch_tag" \
-              scripts/ci/run-in-console-session.sh \
-              scripts/ci/run-app-host-xcodebuild.sh \
-              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-              -destination "platform=macOS" \
-              "${only_testing_args[@]}" \
-              -test-timeouts-enabled YES \
-              -default-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
-              -maximum-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test-without-building >"$batch_output" 2>&1 &
-            local xcodebuild_pid=$!
-
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            local timed_out=0
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                local unfinished="$RUNNER_TEMP/cmux-unit-unfinished-${logical_shard}-run-${execution_attempt}.txt"
-                grep -E "Test Case .* started|[◇◆] Test .* started\." "$batch_output" \
-                  | tail -40 >"$unfinished" || true
-                {
-                  echo "xcodebuild unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} timeout after ${timeout_seconds}s; terminating"
-                  echo "Last observed test starts:"
-                  cat "$unfinished" 2>/dev/null || true
-                  # shellcheck disable=SC2009 # include parent/group/elapsed diagnostics
-                  ps -axo pid,ppid,pgid,etime,command 2>/dev/null \
-                    | grep -E 'xcodebuild|xctest|run-app-host-xcodebuild|app_host_test_lock|Contents/MacOS/cmux' \
-                    | grep -v grep || true
-                } >>"$batch_output" 2>&1
-                for hang_pid in $(pgrep -f 'Contents/MacOS/cmux DEV( |$)' 2>/dev/null | head -2); do
-                  hang_sample="$RUNNER_TEMP/app-host-hang-sample-${logical_shard}-run-${execution_attempt}-${hang_pid}.txt"
-                  if sample "$hang_pid" 3 -mayDie -file "$hang_sample" >/dev/null 2>&1; then
-                    {
-                      echo "app-host hang sample: $hang_sample"
-                      awk '/^Call graph:/{p=1} p' "$hang_sample" | head -900
-                    } >>"$batch_output" 2>&1
-                  fi
-                done
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                pkill -TERM -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                pkill -KILL -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
-                timed_out=1
-                break
-              fi
-              emit_batch_output "$batch_output"
-              sleep 5
-            done
-
-            local batch_status
-            set +e
-            wait "$xcodebuild_pid"
-            batch_status=$?
-            set -e
-            if [ "$timed_out" -eq 1 ]; then
-              batch_status=124
-            fi
-
-            emit_batch_output "$batch_output"
-
-            shopt -s nullglob
-            local typed_results=("$result_bundle_root"/cmux-app-host-xcodebuild-"$batch_tag"-pid-*.tests.json)
-            shopt -u nullglob
-            if [ "${#typed_results[@]}" -eq 0 ]; then
-              echo "No typed xcresult test JSON found for $batch_tag" >&2
-              if [ "$batch_status" -ne 0 ]; then
-                return "$batch_status"
-              fi
-              return 1
-            fi
-
-            local accounting_status
-            set +e
-            python3 scripts/ci/app_host_result_accounting.py check-run \
-              --inventory "$CMUX_APP_HOST_TEST_INVENTORY" \
-              --selectors "$shard_args" \
-              --known scripts/ci/app-host-known-failures.json \
-              --log "$batch_output" \
-              --xcode-status "$batch_status" \
-              --tests-json "${typed_results[@]}"
-            accounting_status=$?
-            set -e
-            if [ "$accounting_status" -eq 0 ]; then
-              return 0
-            fi
-            if [ "$batch_status" -ne 0 ]; then
-              return "$batch_status"
-            fi
-            return "$accounting_status"
-          }
-
-          run_unit_tests() {
-            local execution_attempt="$1"
-            local logical_shard combined_status=0
-            for logical_shard in "${LOGICAL_SHARDS[@]}"; do
-              run_unit_test_batch "$logical_shard" "$execution_attempt" || {
-                local batch_status=$?
-                if [ "$combined_status" -eq 0 ]; then
-                  combined_status="$batch_status"
-                fi
-              }
-            done
-            return "$combined_status"
-          }
-
-          TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
-          collect_unit_test_output() {
-            : >"$TEST_OUTPUT"
-            local output_path
-            shopt -s nullglob
-            # The unquoted expansion is the glob this line exists to perform.
-            # shellcheck disable=SC2206
-            local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
-            shopt -u nullglob
-            for output_path in "${output_paths[@]}"; do
-              {
-                echo "===== $(basename "$output_path") ====="
-                cat "$output_path"
-                echo
-              } >>"$TEST_OUTPUT"
-            done
-          }
-
-          set +e
-          run_unit_tests 1
-          EXIT_CODE=$?
-          set -e
-          collect_unit_test_output
-
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
-            exit "$EXIT_CODE"
-          fi
+        run: scripts/ci/run-app-host-unit-batches.sh
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
@@ -1947,14 +2088,16 @@ jobs:
           set -euo pipefail
           ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      # The notification semantics step below resolves `bun` too, and it runs
+      # on the focused regression shard, so Bun must be set up there as well.
       - name: Set up Bun for Pi extension dispatch regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) || matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|') }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
 
       - name: Run agent notification semantics
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
         run: |
           set -euo pipefail
           # Reuse compile admission's product instead of rebuilding the app in
@@ -2022,6 +2165,13 @@ jobs:
           "$NU_DIR/nu" --version
           echo "$NU_DIR" >> "$GITHUB_PATH"
 
+      # The app-host checkout skips submodules (#13427). The bash prompt and
+      # CLI no-socket regressions read Ghostty's shell integration from
+      # ghostty/src, so fetch only that submodule on the CLI regression shard.
+      - name: Check out the ghostty submodule for shell regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
+        run: git submodule update --init --depth 1 ghostty
+
       - name: Validate bash prompt bootstrap export compatibility
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
@@ -2075,75 +2225,7 @@ jobs:
         if: ${{ failure() || cancelled() }}
         continue-on-error: true
         shell: bash
-        run: |
-          set -u
-          diagnostics="$RUNNER_TEMP/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}"
-          rm -rf -- "$diagnostics"
-          mkdir -p "$diagnostics/captures"
-
-          {
-            echo "run_id=${{ github.run_id }}"
-            echo "run_attempt=${{ github.run_attempt }}"
-            echo "sha=${{ github.sha }}"
-            echo "physical_shard=${{ matrix.shard }}"
-            echo "derived_data=${CMUX_DERIVED_DATA_PATH:-}"
-            echo "result_bundle_root=${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
-          } >"$diagnostics/manifest.txt"
-
-          shopt -s nullglob
-          capture_files=(
-            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.log
-            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.meta
-            "$RUNNER_TEMP"/cmux-unit-output-*.txt
-            "$RUNNER_TEMP"/cmux-unit-unfinished-*.txt
-            "$RUNNER_TEMP"/cmux-unit-shard-*.args
-            "$RUNNER_TEMP"/app-host-hang-sample-*.txt
-            "$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt
-            "$RUNNER_TEMP"/cmux-main-window-zoom-placement.txt
-            "$RUNNER_TEMP"/cmux-global-search-shortcuts.txt
-            "$RUNNER_TEMP"/cmux-cloud-ordering-*.txt
-            "$RUNNER_TEMP"/cmux-notification-*.txt
-          )
-          if [ "${#capture_files[@]}" -gt 0 ]; then
-            cp "${capture_files[@]}" "$diagnostics/captures/" || true
-          fi
-
-          result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
-          if [ -d "$result_bundle_root" ]; then
-            cp -R "$result_bundle_root" "$diagnostics/xcresults" || true
-          fi
-
-          # Preserve reports from the isolated XCTest HOME before the always-
-          # running cleanup removes that run scope.
-          if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
-            ci_script_dir="${GITHUB_WORKSPACE:-$PWD}/scripts/ci"
-            # shellcheck source=scripts/ci/app-host-isolation.sh
-            source "$ci_script_dir/app-host-isolation.sh"
-            if cmux_validate_published_app_host_identity_values; then
-              for crash_relative in ".local/state/cmux/crash" "Library/Logs/DiagnosticReports"; do
-                crash_source="$CMUX_RESOLVED_APP_HOST_HOME/$crash_relative"
-                case "$crash_relative" in
-                  .local/*) crash_destination="$diagnostics/ghostty-crash-reports" ;;
-                  *) crash_destination="$diagnostics/macos-diagnostic-reports" ;;
-                esac
-                if [ -d "$crash_source" ] \
-                  || sudo -n test -d "$crash_source" 2>/dev/null; then
-                  rm -rf -- "$crash_destination"
-                  if cp -R "$crash_source" "$crash_destination" 2>/dev/null; then
-                    :
-                  elif sudo -n true 2>/dev/null; then
-                    if sudo -n cp -R "$crash_source" "$crash_destination"; then
-                      sudo -n chown -R "$(id -u):$(id -g)" "$crash_destination" || true
-                    fi
-                  fi
-                fi
-              done
-            else
-              echo "::warning::app-host identity validation failed; crash reports were not collected" >&2
-            fi
-          fi
-
-          find "$diagnostics" -type f -print | sort || true
+        run: scripts/ci/collect-app-host-diagnostics.sh
 
       - name: Upload app-host failure diagnostics
         id: upload-app-host-diagnostics
@@ -2151,8 +2233,8 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
+          name: cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 7
 
@@ -2217,6 +2299,261 @@ jobs:
               ;;
           esac
 
+  cli-product-tests:
+    permissions:
+      contents: read
+      actions: read
+      # The R2 artifact transport mints an OIDC token for its broker.
+      id-token: write
+    needs:
+      - macos-compile-admission
+    # Targeted CLI routing consumes the shared compiled product even when prior
+    # compile admission exists; it does not enable the app-host/full-suite lanes.
+    # Same !cancelled() reasoning as app-host-unit-tests: the implicit success()
+    # gate would count a legitimately skipped linux job in the transitive needs
+    # chain as a reason to skip every macOS job.
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && (inputs.cli == 'true' || (inputs.macos == 'true' && inputs.full_suite == 'true')) }}
+    name: CLI product tests
+    # cmuxCLITests has no app host, so it needs no testmanagerd control session
+    # and no GUI console session. It still needs the compiled product, so it
+    # reuses macos-compile-admission's artifact like the app-host shards do,
+    # on the pool and Xcode that built it: the test bundle only loads under
+    # the Xcode that linked it. On an owned-pool run it may take
+    # pr_retry_runner instead, as the shards do.
+    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' cli-product ') && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+    timeout-minutes: 40
+    env:
+      CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
+      CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
+      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
+      CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' cli-product ') && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      # No submodules: this lane never compiles Ghostty or the app, it only
+      # loads an already-built bundle and spawns the already-built CLI.
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-cli-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Try node-local compiled product cache
+        id: node-products
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CMUX_ARTIFACT_PEER_URLS != '' && 'peer' || (vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github') }}
+        run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
+
+      - name: Try trusted fleet peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+        run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
+
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
+      # Same exact-ID GitHub artifact over parallel range requests; the
+      # single-stream download below stays as the fallback.
+      - name: Try parallel GitHub artifact transport
+        id: parallel-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      - name: Download compiled test product
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Restore compiled test product
+        id: restore-products
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
+          CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
+          CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+          CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-products.outputs.transfer_seconds }}
+          CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
+        run: scripts/ci/restore-app-host-test-product.sh
+
+      - name: Finalize node-local compiled product cache
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
+          CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
+        run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+
+      - name: Resolve the CLI under test
+        run: |
+          set -euo pipefail
+          products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+          cli="$products/cmux"
+          if [ ! -x "$cli" ]; then
+            cli="$(find "$products" -path "*.app/Contents/Resources/bin/cmux" -perm -111 -print -quit)"
+          fi
+          if [ -z "${cli:-}" ] || [ ! -x "$cli" ]; then
+            echo "::error::no cmux CLI in the restored product" >&2
+            exit 1
+          fi
+          echo "CMUX_CLI_PATH=$cli" >> "$GITHUB_ENV"
+          echo "Testing $cli"
+
+      - name: Isolate HOME
+        run: |
+          set -euo pipefail
+          cli_home="$RUNNER_TEMP/cmux-cli-tests-home"
+          rm -rf "$cli_home"
+          mkdir -p "$cli_home/.config"
+          echo "CMUX_CLI_TESTS_HOME=$cli_home" >> "$GITHUB_ENV"
+
+      - name: Run CLI product tests
+        run: |
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-cli-product-tests.log"
+          # xcodebuild forwards only TEST_RUNNER_-prefixed variables into the
+          # test process, so a bare HOME in the job environment reaches
+          # xcodebuild and stops there. CFFIXED_USER_HOME has to travel with
+          # it: Foundation resolves NSHomeDirectory() through getpwuid unless
+          # that is set, so HOME alone still leaves every fixture reading the
+          # runner's real home between reused self-hosted runs. CMUX_CLI_PATH
+          # needs the prefix too, or the tests fall back to searching the
+          # products directory and may run a different binary than the one
+          # resolved above.
+          env \
+            "TEST_RUNNER_HOME=$CMUX_CLI_TESTS_HOME" \
+            "TEST_RUNNER_CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
+            "TEST_RUNNER_XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
+            "TEST_RUNNER_SSH_AUTH_SOCK=" \
+            "TEST_RUNNER_CMUX_CLI_PATH=$CMUX_CLI_PATH" \
+            bash scripts/ci/run-and-capture.sh "$test_log" \
+            xcodebuild test-without-building \
+            -xctestrun "$CMUX_CLI_TESTS_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 300 \
+            -only-testing:cmuxCLITests
+          scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxCLITests"
+
+      - name: Upload CLI product test log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-product-tests-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-cli-product-tests.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   swift-package-tests:
     # Stays on the macos-15 pool on every event, including pull requests. The
     # "Select helper Xcode" step below pins CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15
@@ -2251,13 +2588,28 @@ jobs:
       ghostty_helper_toolchain_sha256: ${{ steps.ghostty-helper-identity.outputs.toolchain_sha256 }}
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2271,11 +2623,26 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           # Depth 2 reaches the parent this commit was built on, which is what
           # "Select package tests" diffs against.
+          fetch-depth: 2
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout without the git object seed
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
           fetch-depth: 2
 
       - name: Select package tests
@@ -2290,6 +2657,7 @@ jobs:
             CmuxBrowser
             CmuxCanvasUI
             CmuxCloudMachines
+            CmuxCloudTui
             CmuxComputerUse
             CmuxCore
             CmuxRemoteDaemon
@@ -2310,6 +2678,7 @@ jobs:
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
+            CmuxSurfaceCatalogModel
             CmuxSudoBroker
             CmuxSudoBrokerUI
             CmuxTerminal
@@ -2351,7 +2720,7 @@ jobs:
           echo "selected_packages=$selected" >> "$GITHUB_OUTPUT"
           echo "selected_count=$count" >> "$GITHUB_OUTPUT"
 
-          if grep -qxE 'CmuxTerminal|CmuxTerminalCore' "$selected"; then
+          if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui' "$selected"; then
             echo "needs_ghosttykit=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_ghosttykit=false" >> "$GITHUB_OUTPUT"
@@ -2382,8 +2751,11 @@ jobs:
         if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: |
           set -euo pipefail
+          # The helper is a Zig build that needs an SDK 15 Xcode, below the
+          # .xcode-version floor, so it opts out of the pool pin and the floor.
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
             CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 \
+            CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1 \
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
@@ -2595,7 +2967,7 @@ jobs:
             CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
-            CmuxTerminal|CmuxTerminalCore)
+            CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
               test_status=0
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
@@ -2708,8 +3080,14 @@ jobs:
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     # Reuse compile admission's app and UI test products; this runner only
-    # performs display and runtime verification.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    # performs display and runtime verification. Its route and Xcode pin
+    # restate compile admission's (the test bundles only load under the Xcode
+    # that linked them), except that paid overflow may move non-PR display
+    # work to MACOS_RUNNER_DISPLAY under the same macOS 15 pin. Main's
+    # full-suite dispatch follows admission onto the pull-request pool and
+    # Xcode. The product consumer guard in the CI change-area tests fails when
+    # the two drift.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' lag ') && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -2717,12 +3095,12 @@ jobs:
       CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
       CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
       CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_xcode_app || (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' lag ') && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -2744,6 +3122,21 @@ jobs:
               echo "Display runner is not Depot; skipping Depot identity guard"
               ;;
           esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -3065,7 +3458,7 @@ jobs:
       - swift-package-tests
       - macos-compile-admission
     if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     steps:
       - name: Wait for routed Linux preflight
@@ -3147,7 +3540,7 @@ jobs:
     # Release builds need enough disk for a universal Release build plus the
     # restored SwiftPM cache, which the macOS 26 image already carries. The
     # variable names that image, not this lane.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 60
     permissions:
       actions: read
@@ -3157,7 +3550,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -3311,7 +3704,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -3333,6 +3726,7 @@ jobs:
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
             ARCHS="$RELEASE_ARCHS" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
@@ -3531,12 +3925,13 @@ jobs:
     needs:
       - macos-compile-admission
       - app-host-unit-tests
+      - cli-product-tests
       - swift-package-tests
       - tests-build-and-lag
       - release-admission
       - release-build
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check routed macOS jobs
@@ -3556,17 +3951,19 @@ jobs:
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
+          inputs.setdefault("cli", "false")
           # A caller that predates the swift_packages input leaves it unset or
           # empty, which reads as "the package lane was not separately routed".
           if inputs.get("swift_packages", "") == "":
               inputs["swift_packages"] = "false"
-          for route in ("macos", "full_suite", "compile_admitted", "release_build", "swift_packages"):
+          for route in ("macos", "cli", "full_suite", "compile_admitted", "release_build", "swift_packages"):
               if inputs.get(route) not in {"true", "false"}:
                   print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
                   sys.exit(1)
 
           macos = inputs["macos"] == "true"
           full_suite = inputs["full_suite"] == "true"
+          cli = inputs["cli"] == "true"
           # The package lane is routed from changed paths, so it is required
           # whenever the router selected it even under the compile-only suite.
           swift_packages = inputs["swift_packages"] == "true"
@@ -3575,9 +3972,13 @@ jobs:
           # fail rather than read as a job nobody routed. Empty or missing
           # means a caller that predates the input.
           unit_suite = inputs.get("unit_suite", "") == "true"
+          # A changed-suites run compile admission runs itself replaces the
+          # separate worker, so admission's success is what proves the tests.
+          in_admission = inputs.get("unit_in_admission", "") == "true"
           required = {
-              "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
-              "app-host-unit-tests": macos and (full_suite or unit_suite),
+              "macos-compile-admission": (macos or cli) and (inputs["compile_admitted"] != "true" or full_suite or cli or in_admission),
+              "app-host-unit-tests": macos and (full_suite or unit_suite) and not in_admission,
+              "cli-product-tests": cli or (macos and full_suite),
               "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
@@ -3592,7 +3993,15 @@ jobs:
                   bad[job] = result
           if bad:
               for job, result in bad.items():
-                  print(f"{job}: {result}", file=sys.stderr)
+                  detail = ""
+                  if job == "macos-compile-admission":
+                      # Only set when admission ran the changed suites.
+                      suites = needs[job].get("outputs", {}).get("changed_suites", "")
+                      if suites == "failure":
+                          detail = " (the product compiled and uploaded; the changed suites failed)"
+                      elif suites in {"", "skipped"} and in_admission:
+                          detail = " (before the changed suites ran)"
+                  print(f"{job}: {result}{detail}", file=sys.stderr)
               sys.exit(1)
           for job, wanted in sorted(required.items()):
               print(f"{job}: required={str(wanted).lower()} result={needs[job]['result']}")

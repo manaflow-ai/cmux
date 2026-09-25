@@ -1,3 +1,4 @@
+import CmuxMobileHost
 import CmuxSettingsUI
 import AppKit
 import CmuxRemoteSession
@@ -10,6 +11,7 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxSettings
 import CmuxSwiftRenderUI
@@ -28,7 +30,6 @@ import CmuxSimulator
 private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
-    // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
@@ -39,8 +40,9 @@ private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
 }
-// Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
-// AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
+// Agent notification gating types (AgentTurnCompleteMode / AgentNotificationMeta /
+// agentNotificationShouldDeliver) live in AgentNotificationGate.swift;
+// AgentNotifyCategory lives in the CmuxSettings package.
 #if DEBUG
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
 /// currently executing on a worker thread. Confined to one thread: it lives in
@@ -240,8 +242,6 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
@@ -378,6 +378,7 @@ class TerminalController {
     /// composition owner and ``ControlCommandContext`` conformer. Constructed in
     /// `init`; its `context` is wired to `self` once `self` is available.
     let controlCommandCoordinator = ControlCommandCoordinator()
+    nonisolated let codexRestoreHookEvidence = CodexRestoreHookEvidence(storeURL: RestorableAgentKind.codex.hookStoreFileURL())
 
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
@@ -1778,14 +1779,35 @@ class TerminalController {
             }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "workspace.ssh.open":
+            return v2VmCall(id: request.id, timeoutSeconds: 190) {
+                try await self.openSSHTuiWorkspace(params: request.params)
+            }
         case "surface.ssh_session_attach.resolve":
-            return v2Result(id: request.id, v2SSHSessionAttachResolve(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 180) {
+                if let result = await self.tuiSSHSessionAttachResolve(params: request.params) { return result }
+                return self.v2SSHSessionAttachResolve(params: request.params)
+            }
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
-            return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 180) {
+                if let result = await self.tuiSSHSessions(params: request.params) {
+                    guard request.params["all_workspaces"] as? Bool == true else { return result }
+                    // The legacy transport's blocking reads stay on this worker,
+                    // outside the native graph's main-actor projection path.
+                    return self.mergeRemotePTYSessionLists(
+                        tui: result,
+                        legacy: self.v2WorkspaceRemotePTYSessions(params: request.params)
+                    )
+                }
+                return self.v2WorkspaceRemotePTYSessions(params: request.params)
+            }
         case "workspace.remote.pty_close":
-            return v2Result(id: request.id, v2WorkspaceRemotePTYClose(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 180) {
+                if let result = await self.closeTuiSSHSession(params: request.params) { return result }
+                return self.v2WorkspaceRemotePTYClose(params: request.params)
+            }
         case "workspace.remote.pty_detach":
             return v2Result(id: request.id, v2WorkspaceRemotePTYDetach(params: request.params))
         case "workspace.remote.pty_bridge":
@@ -4244,26 +4266,6 @@ class TerminalController {
         v2MainSync { AppDelegate.shared?.tabManagerFor(tabId: workspaceId) }
     }
 
-    nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
-        workspaceId: UUID?,
-        error: V2CallResult?
-    ) {
-        var workspaceId: UUID?
-        var invalidWorkspaceID = false
-        v2MainSync {
-            v2RefreshKnownRefs()
-            workspaceId = v2UUID(params, "workspace_id")
-            invalidWorkspaceID = v2HasNonNullParam(params, "workspace_id") && workspaceId == nil
-        }
-        if invalidWorkspaceID {
-            return (
-                nil,
-                .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-            )
-        }
-        return (workspaceId, nil)
-    }
-
     private nonisolated func v2RequestedRemotePTYSurfaceID(params: [String: Any]) -> (
         surfaceId: UUID?,
         error: V2CallResult?
@@ -4543,7 +4545,7 @@ class TerminalController {
                 guard let app = AppDelegate.shared else { return }
                 for summary in app.listMainWindowSummaries() {
                     guard let owner = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                    for workspace in owner.tabs where workspace.isRemoteWorkspace {
+                    for workspace in owner.tabs where workspace.isRemoteWorkspace && !workspace.usesSSHTui {
                         targets.append(
                             RemotePTYSocketTarget(
                                 controller: workspace.remotePTYSessionControllerForSocketCommand(),
@@ -9780,13 +9782,16 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
+        // Shared with the CLI client, which sizes its socket response timeout
+        // from the same window and clamp.
+        let downloadWait = BrowserDownloadWaitTimeout.standard
         let requestedTimeoutMs = max(
             1,
             Self.v2WorkerInt(params, "timeout_ms") ??
                 Self.v2WorkerInt(params, "timeout") ??
-                Self.v2BrowserDownloadWaitDefaultTimeoutMs
+                downloadWait.defaultTimeoutMilliseconds
         )
-        let timeoutMs = min(requestedTimeoutMs, Self.v2BrowserDownloadWaitMaxTimeoutMs)
+        let timeoutMs = downloadWait.handlerTimeoutMilliseconds(requestedMilliseconds: requestedTimeoutMs)
         let timeout = Double(timeoutMs) / 1000.0
         let path = Self.v2WorkerString(params, "path")
 
@@ -15405,8 +15410,12 @@ class TerminalController {
 
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
+        // A client-backed clear can drop the final report and restore the
+        // uncapped surface size while returning no grid.
+        var clearedClientReport = false
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
+                clearedClientReport = true
                 reportedGrid = clearMobileViewportReport(
                     surfaceID: terminalTarget.surfaceID,
                     clientID: clientID, generation: v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }, requireGeneration: true,
@@ -15424,6 +15433,15 @@ class TerminalController {
                 reason: "mobile.terminal.viewport"
             )
             allowLiveSurfaceFallback = true
+        }
+        if reportedGrid != nil || clearedClientReport {
+            // The viewport resize is a geometry change without PTY bytes. The
+            // render-grid observer must discard its old emission baseline now,
+            // before the resize-triggered render notification is flushed, so
+            // the phone receives a full frame at the settled row count.
+            MobileTerminalRenderObserver.shared.noteTerminalViewportChanged(
+                surfaceID: surfaceId
+            )
         }
 
         var payload: [String: Any] = [
