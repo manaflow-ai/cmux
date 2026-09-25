@@ -37,7 +37,7 @@ extension Workspace {
                 in: bonsplitController.treeSnapshot()
               ),
               let transactionID = UUID(uuidString: split.id) else { return }
-        let rootSplitInfo: (newPaneIsFirst: Bool, existingTree: ExternalTreeNode)? = ({
+        let rootSplitInfo: (newPaneIsFirst: Bool, existingTree: ExternalTreeNode)? = {
             switch split.first {
             case .pane(let pane) where pane.id == newPane.id.uuidString:
                 return (true, split.second)
@@ -46,7 +46,7 @@ extension Workspace {
                       pane.id == newPane.id.uuidString else { return nil }
                 return (false, split.first)
             }
-        })()
+        }()
         if let rootSplitInfo, case .split = rootSplitInfo.existingTree {
             applyProvisionalRootSplitGeometry(
                 split: split,
@@ -132,7 +132,7 @@ extension Workspace {
                 ?? Self.frameInWindow(of: hostedView)
             return frame.map { (hostedView, $0) }
         }
-        guard let treeFrame = baseFrames.map { $0.1 }.reduce(nil, { partial, frame in
+        guard let treeFrame = baseFrames.map({ $0.1 }).reduce(nil, { partial, frame in
             partial.map { $0.union(frame) } ?? frame
         }) else { return }
 
