@@ -287,7 +287,7 @@ class FailSafe(unittest.TestCase):
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
-                                              f"refused_retry_runner=\nroot_runner=\nowned_jobs=\n")
+                                              f"refused_retry_runner=\nroot_runner=\nadmission_runner=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -454,6 +454,18 @@ def root_lane(key: str) -> str:
             "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+
+
+def warm_lane(index: str = "") -> str:
+    """root_lane() for compile admission: attempt 1 may take the warm labels first.
+
+    runs-on reads the JSON array itself; CMUX_PRODUCT_RUNNER (index "[0]")
+    names its first label, the root label.
+    """
+    return root_lane("' admission '").replace(
+        "&& inputs.pr_retry_runner || inputs.pr_root_runner",
+        "&& inputs.pr_retry_runner || github.run_attempt == 1 && inputs.pr_admission_runner "
+        f"&& fromJSON(inputs.pr_admission_runner){index} || inputs.pr_root_runner")
 
 
 PR_XCODE = "/Applications/Xcode_26.6.app"
@@ -800,6 +812,8 @@ class OwnedPools(unittest.TestCase):
         self.assertTrue(any(LIGHT in p and "'3'" in p for p in problems))
         self.assertEqual(pool.slot_problems(""), [])
         self.assertEqual(pool.slot_problems('{"%s": 11}' % MINI), [])
+        for side in ("side-std", "glaeda-side-std-xcode-26.6"):
+            self.assertIn("names side runners", pool.slot_problems('{"%s": 11, "%s": 4}' % (MINI, side))[0])
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
 
@@ -1157,6 +1171,83 @@ class RootRunners(unittest.TestCase):
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
 
 
+WARM = "glaeda-warm-0123456789ab"
+MERGE_BASE = "0123456789ab" + "c" * 28
+
+
+def live_runner(runner_id, *labels, busy=False, status="online"):
+    return {"id": runner_id, "name": f"cmux{runner_id}", "status": status, "busy": busy,
+            "labels": [{"name": name} for name in labels]}
+
+
+class WarmAffinity(unittest.TestCase):
+    """Compile admission goes to the idle root runner that kept a build of its merge base."""
+
+    def test_warm_label_takes_twelve_hex_digits(self):
+        self.assertEqual(pool.warm_label(MERGE_BASE), WARM)
+        self.assertEqual(pool.warm_label(MERGE_BASE.upper()), WARM)
+        for commit in ("", None, "0123456789a", "not-a-commit-sha", "../../etc/passwd"):
+            self.assertEqual(pool.warm_label(commit), "", commit)
+
+    def test_only_an_idle_root_runner_carrying_the_label_is_picked(self):
+        expected = json.dumps([ROOT_MINI, WARM], separators=(",", ":"))
+        idle = live_runner(1, MINI, ROOT_MINI, WARM)
+        self.assertEqual(pool.warm_admission_runner([idle], ROOT_MINI, MERGE_BASE), expected)
+        self.assertEqual(json.loads(expected), [ROOT_MINI, WARM])
+        for runners in ([live_runner(1, MINI, ROOT_MINI, WARM, busy=True)],
+                        [live_runner(1, MINI, ROOT_MINI, WARM, status="offline")],
+                        # The label on a runner of another root pool, or on no root runner.
+                        [live_runner(1, LIGHT, "glaeda-root-light-xcode-26.6", WARM)],
+                        [live_runner(1, MINI, WARM)],
+                        [live_runner(1, MINI, ROOT_MINI, "glaeda-warm-ffffffffffff")]):
+            self.assertEqual(pool.warm_admission_runner(runners, ROOT_MINI, MERGE_BASE), "", runners)
+        # No merge base, or no root label: nothing.
+        self.assertEqual(pool.warm_admission_runner([idle], ROOT_MINI, ""), "")
+        self.assertEqual(pool.warm_admission_runner([idle], MINI, MERGE_BASE), "")
+        # A busy warm runner is skipped for an idle one.
+        both = [live_runner(1, MINI, ROOT_MINI, WARM, busy=True), live_runner(2, MINI, ROOT_MINI, WARM)]
+        self.assertEqual(pool.warm_admission_runner(both, ROOT_MINI, MERGE_BASE), expected)
+
+    def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
+                warm_labels="1"):
+        fresh = fleet(busy=0)
+        fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
+                unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
+                unittest.mock.patch.object(pool.GitHub, "runners", return_value=runners), \
+                unittest.mock.patch("sys.stdout", io.StringIO()):
+            out, summary = Path(tmp, "out"), Path(tmp, "summary")
+            env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "t",
+                   "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
+                   "POOL_OWNED_SPLIT": "1", "OWNED_SLOTS": slots, "ROUTE_TOKEN": token,
+                   "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
+                   "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
+                   "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "WARM_LABELS": warm_labels}
+            pool.main([], env)
+            values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            values["summary"] = summary.read_text()
+        return values
+
+    def test_main_names_the_warm_runner_for_admission(self):
+        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI, WARM), live_runner(3, MINI)]
+        values = self.outputs(runners)
+        self.assertEqual((values["runner"], values["root_runner"]), (MINI, ROOT_MINI))
+        self.assertIn(" admission ", values["owned_jobs"])
+        self.assertEqual(json.loads(values["admission_runner"]), [ROOT_MINI, WARM])
+        self.assertIn(f"`{WARM}`", values["summary"])
+        # Another merge base, a busy warm runner, or no root count: admission keeps the root label.
+        self.assertEqual(self.outputs(runners, merged_onto="f" * 40)["admission_runner"], "")
+        busy = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI, WARM, busy=True)]
+        self.assertEqual(self.outputs(busy)["admission_runner"], "")
+        self.assertEqual(self.outputs(runners, slots='{"std": 40}')["admission_runner"], "")
+        # Without the route token the runners are never read.
+        self.assertEqual(self.outputs(runners, token="")["admission_runner"], "")
+        # CI_OWNED_WARM_LABELS off ignores labels already on the runners.
+        for off in ("", "0"):
+            self.assertEqual(self.outputs(runners, warm_labels=off)["admission_runner"], "", off)
+
+
 class Wiring(unittest.TestCase):
     """Every pull-request macOS route in one CI run reads the one chosen pool."""
 
@@ -1202,7 +1293,7 @@ class Wiring(unittest.TestCase):
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
             # root jobs; the side lanes are not.
-            "ci-macos.yml": {root_lane("' admission '"), root_lane("' lag '")},
+            "ci-macos.yml": {warm_lane(), warm_lane("[0]"), root_lane("' lag '")},
             "remote-daemon.yml": {retry_lane("' remote-daemon '")},
         }
         for name, lane in expected.items():
@@ -1237,6 +1328,9 @@ class Wiring(unittest.TestCase):
         # Only ci-macos.yml runs root jobs; the side lanes keep the pool label.
         self.assertEqual(jobs["macos"]["with"]["pr_root_runner"], "${{ needs.changes.outputs.macos_pr_root_runner }}")
         self.assertNotIn("pr_root_runner", jobs["remote-daemon"]["with"])
+        self.assertEqual(jobs["macos"]["with"]["pr_admission_runner"],
+                         "${{ needs.changes.outputs.macos_pr_admission_runner }}")
+        self.assertNotIn("pr_admission_runner", jobs["remote-daemon"]["with"])
         for name in ("macos", "remote-daemon", "claude-wrapper"):
             needs = jobs[name]["needs"]
             self.assertIn("changes", [needs] if isinstance(needs, str) else needs, name)
@@ -1274,6 +1368,52 @@ class Wiring(unittest.TestCase):
             for key in keys:
                 self.assertEqual((inputs[key]["required"], inputs[key]["default"], inputs[key]["type"]),
                                  (False, "", "string"), (name, key))
+
+    def test_warm_admission_is_attempt_one_only_and_reads_the_merge_base(self):
+        changes = self.workflow("ci.yml")["jobs"]["changes"]
+        self.assertEqual(changes["outputs"]["macos_pr_admission_runner"],
+                         "${{ steps.macos-pool.outputs.admission_runner }}")
+        step = next(step for step in changes["steps"] if step.get("id") == "macos-pool")
+        self.assertEqual(step["env"]["MERGED_ONTO"],
+                         "${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}")
+        inputs = self.workflow("ci-macos.yml")[True]["workflow_call"]["inputs"]["pr_admission_runner"]
+        self.assertEqual((inputs["required"], inputs["default"], inputs["type"]), (False, "", "string"))
+        admission = self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        self.assertIn("github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) ||",
+                      admission["runs-on"])
+        # Only admission reads it; its consumers follow its root label.
+        text = (WORKFLOWS / "ci-macos.yml").read_text()
+        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 2)
+
+    def test_admission_uploads_its_warm_keys_only_once_the_subcommand_exists(self):
+        steps = self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]["steps"]
+        names = [step.get("name") for step in steps]
+        keep = names.index("Keep this owned Mac's DerivedData")
+        listed = steps[names.index("List the commits this owned Mac starts from warm")]
+        upload = steps[names.index("Upload the owned Mac's warm keys")]
+        self.assertLess(keep, names.index("List the commits this owned Mac starts from warm"))
+        self.assertIs(listed["continue-on-error"], True)
+        self.assertIs(upload["continue-on-error"], True)
+        self.assertIn("steps.owned-state.outputs.fingerprint != ''", listed["if"])
+        self.assertIn('*"owned_build_state.py warm-keys"*', listed["run"])
+        self.assertEqual(upload["with"]["name"], "owned-warm-keys-${{ github.run_id }}-${{ github.run_attempt }}")
+        self.assertIn("steps.owned-warm-keys.outputs.path != ''", upload["if"])
+
+    def test_the_labeler_runs_from_main_off_by_default(self):
+        labeler = self.workflow("ci-owned-warm-labels.yml")
+        self.assertEqual(labeler[True]["workflow_run"], {"workflows": ["CI"], "types": ["completed"]})
+        self.assertEqual(labeler["permissions"], {})
+        job = labeler["jobs"]["label"]
+        self.assertIn("vars.CI_OWNED_WARM_LABELS == '1'", job["if"])
+        self.assertIn("vars.GLAEDA_ROUTE_APP_ID != ''", job["if"])
+        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", job["if"])
+        self.assertEqual(job["runs-on"], "ubuntu-24.04")
+        steps = {step.get("id") or step.get("name"): step for step in job["steps"]}
+        self.assertEqual(steps["Checkout trusted labeler"]["with"]["ref"], "main")
+        self.assertEqual(steps["keys"]["with"]["name"], "owned-warm-keys-${{ github.event.workflow_run.id }}-"
+                                                        "${{ github.event.workflow_run.run_attempt }}")
+        self.assertEqual(steps["route-token"]["with"]["permission-administration"], "write")
+        self.assertEqual(steps["Label the runner"]["run"], "python3 scripts/ci/owned_warm_labels.py")
 
     def test_package_tests_stay_off_the_pr_lane(self):
         # swift-package-tests builds the SDK 15 helper and must never move.

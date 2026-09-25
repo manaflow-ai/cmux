@@ -75,13 +75,29 @@ its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
 the same budget.
 
+Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
+same-repository pull request run, their light macOS jobs take
+vars.CI_SIDE_LANE_RUNNER, a glaeda-side-* label that only the minis' non-root
+runners carry, and every later attempt takes the job's Blacksmith default. So
+the first job on an owned label marks the run as on a persistent pool (a job
+behind a Linux gate appears once the gate ends), and the watch stops once
+every owned job has been accepted, which a side lane's few short jobs reach in
+minutes. A refused side-lane job gets the run's failed jobs re-run; a stuck
+one gets the run cancelled and its failed and cancelled jobs re-run, keeping
+the jobs that had already finished. That re-run is on Blacksmith, so it is
+not followed. A stuck run that finished some other way (a newer push cancelled
+it) is not re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS.
+
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
 were met can never count as already past the budget.
 
 It stops watching, doing nothing, when:
 - owned pools are off (CI_PR_POOL_OWNED is not 1), before any API request;
-- the run is not attempt 1 of a same-repository pull request run of ci.yml;
+- the run is not attempt 1 of a same-repository pull request run of ci.yml
+  or a side-lane workflow;
+- a side-lane run finished with no job on an owned label, or the fleet
+  accepted all of its owned jobs;
 - on the attempt 2 it re-ran, no job runs on an owned label;
 - `changes` finished without a marker: the run is on an ephemeral pool;
 - the run finished, or the watch limit passed.
@@ -121,6 +137,18 @@ IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
 # workflow_dispatch runs watched like an E2E run: each has a `runner` job that
 # picks the pool and uploads the marker.
 DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH)
+# Side-lane workflows: no picker job. Their light macOS jobs take
+# vars.CI_SIDE_LANE_RUNNER (a glaeda-side-* label) on attempt 1 of a same-repo
+# pull request run, and every later attempt takes their Blacksmith default.
+SIDE_WORKFLOW_PATHS = frozenset({
+    ".github/workflows/auth-refresh-tests.yml",
+    ".github/workflows/cloud-command-deadlines.yml",
+    ".github/workflows/cloud-machine-tests.yml",
+    ".github/workflows/cloud-task-local-tests.yml",
+    ".github/workflows/iroh-v2.yml",
+    ".github/workflows/relay-tls.yml",
+    ".github/workflows/terminal-hang-diagnostics.yml",
+})
 # test-e2e.yml's job that runs e2e_runner_pool.py (and the iOS workflows' job
 # that runs ios_runner_pool.py).
 E2E_PICKER_JOB = "runner"
@@ -136,6 +164,10 @@ IDLE_POLL_SECONDS = 120
 WATCH_LIMIT_SECONDS = 60 * 60
 # An E2E test job queues after a sibling wait (up to 35 min) and a build.
 E2E_WATCH_LIMIT_SECONDS = 150 * 60
+# A side lane's macOS job is created at once, or after a Linux gate
+# (cloud-machine-tests), which can wait in a busy Linux queue; a watch that
+# ended before the job existed would leave it on the fleet unwatched.
+SIDE_WATCH_LIMIT_SECONDS = WATCH_LIMIT_SECONDS
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
@@ -335,6 +367,7 @@ class Target:
     pr_number: int  # 0 for an E2E dispatch, which has no pull request
     e2e: bool = False  # a dispatch of DISPATCH_WORKFLOW_PATHS, watched as an E2E run
     path: str = CI_WORKFLOW_PATH
+    side: bool = False  # a side-lane workflow (SIDE_WORKFLOW_PATHS): no picker job
 
     @property
     def picker_job(self) -> str:
@@ -342,6 +375,8 @@ class Target:
 
     @property
     def watch_limit(self) -> int:
+        if self.side:
+            return SIDE_WATCH_LIMIT_SECONDS
         return E2E_WATCH_LIMIT_SECONDS if self.e2e else WATCH_LIMIT_SECONDS
 
 
@@ -349,9 +384,10 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     """The CI, E2E or iOS run to watch, or why this event is not one."""
     run = event.get("workflow_run") or {}
     path = run.get("path")
-    if path != CI_WORKFLOW_PATH and path not in DISPATCH_WORKFLOW_PATHS:
-        return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH} or one of "
-                f"{', '.join(DISPATCH_WORKFLOW_PATHS)}")
+    side = path in SIDE_WORKFLOW_PATHS
+    if path != CI_WORKFLOW_PATH and path not in DISPATCH_WORKFLOW_PATHS and not side:
+        return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, a side-lane workflow "
+                f"or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
     e2e = path in DISPATCH_WORKFLOW_PATHS
     expected = "workflow_dispatch" if e2e else "pull_request"
     if run.get("event") != expected:
@@ -367,7 +403,8 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
-    return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]))
+    return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
+                  side=side, path=str(path))
 
 
 def marker_name(target: Target) -> str:
@@ -408,7 +445,15 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        if not on_persistent and target.attempt > 1:
+        if not on_persistent and target.side:
+            # No picker: a job that asks for an owned label is the choice. A
+            # gated job (cloud-machine-tests) appears once its Linux gate ends.
+            if any(job_pool(job) for job in jobs):
+                on_persistent = True
+                log("a side-lane job asked for a persistent pool")
+            elif run_finished(jobs):
+                return "stop", "no job of the run asked for a persistent pool"
+        elif not on_persistent and target.attempt > 1:
             # A re-run of failed jobs: no `changes` job, no marker, and every
             # job is created with the re-run. Follow it only if one asks for
             # an owned pool; the first look that lists jobs decides.
@@ -447,6 +492,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 if target.attempt > 1 and owned and all(accepted(job, seen_at) for job in owned):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
+                if target.side and owned and all(accepted(job, seen_at) for job in owned):
+                    # A side lane's jobs are all created by now, and none can be refused any more.
+                    return "stop", "the fleet accepted the side-lane jobs"
         if now() >= deadline:
             return "stop", "watch limit reached"
         sleep(interval)
@@ -455,6 +503,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
 def next_attempt(target: Target) -> str:
     """Where a re-run of failed jobs goes next."""
     following = target.attempt + 1
+    if target.side:
+        return f"attempt {following} takes the side lane's Blacksmith default"
     if following <= LAST_OWNED_ATTEMPT:
         return (f"attempt {following} takes the owned pool once more where its jobs may "
                 "(pr_refused_retry_runner), else retry_runner")
@@ -584,6 +634,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         return finish(f"not watched: {target}")
     subject = ("an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"pull request #{target.pr_number}"
+    if target.side:
+        subject += " (side lane)"
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
     # One watch deadline for every attempt this job watches. A rescue may run
     # past it, within the job's own timeout, so a cancel is never started
@@ -600,11 +652,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         while True:
             # From attempt 2 on, keep what passed: only the owned jobs are moved.
             # An E2E run always keeps what passed (see the module docstring).
-            failed_only = outcome == "refused" or target.attempt > 1 or target.e2e
+            # A side-lane run too: its other jobs are on Blacksmith already.
+            failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
             result = rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only,
-                            deadline=rescue_deadline, refused=(outcome == "refused") if target.e2e else None)
+                            deadline=rescue_deadline,
+                            refused=(outcome == "refused") if target.e2e or target.side else None)
             log(result)
-            if not (failed_only and result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
+            # A side lane's re-run never takes an owned label, so there is nothing more to watch.
+            if target.side or not (failed_only and result.startswith("re-ran")
+                                   and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
                 return finish("done")
             # The re-run may take the owned pool once more; watch it here.
             target = dataclasses.replace(target, attempt=target.attempt + 1)

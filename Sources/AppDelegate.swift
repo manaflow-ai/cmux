@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
@@ -2477,7 +2478,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
         CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
-        let cloudReads = VMClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
+        let cloudReads = VMClient.bootstrap(
+            auth: auth.coordinator,
+            checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator,
+            operations: cloudOperations,
+            telemetry: .live(),
+            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }
+        )
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)

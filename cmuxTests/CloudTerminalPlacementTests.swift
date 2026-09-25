@@ -1,3 +1,4 @@
+import CmuxCloud
 import Bonsplit
 import CmuxControlSocket
 import CmuxSurfaceCatalogModel

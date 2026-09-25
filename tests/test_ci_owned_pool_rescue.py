@@ -628,6 +628,88 @@ class E2E(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
 
 
+SIDE = "glaeda-side-std-xcode-26.6"
+
+
+def side_event(**overrides):
+    return event(**{"path": ".github/workflows/relay-tls.yml", **overrides})
+
+
+def side_run(*, queued_at=0, started_at=None, gate_done_at=None):
+    """relay-tls: an owned diagnostic job and a Blacksmith keychain job; optionally behind a Linux gate."""
+    def jobs(seconds):
+        found = []
+        if gate_done_at is not None:
+            found.append(job("changes", status="completed" if seconds >= gate_done_at else "in_progress"))
+            if seconds < gate_done_at:
+                return found
+        started = started_at is not None and seconds >= started_at
+        owned = job("diagnostic-presentation", labels=[SIDE], created=queued_at,
+                    status="in_progress" if started else "queued", runner="mini-1-glaeda-2" if started else "")
+        if started:
+            owned["started_at"] = stamp(started_at)
+        found += [owned, job("system-keychain", labels=[BLACKSMITH], status="in_progress", runner="bs")]
+        return found
+    return jobs
+
+
+class SideLanes(unittest.TestCase):
+    def test_every_side_workflow_is_watched_like_a_pull_request(self):
+        for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
+            target = rescue.target_from_event(side_event(path=path), "manaflow-ai/cmux")
+            self.assertTrue(target.side, path)
+            self.assertEqual((target.pr_number, target.watch_limit), (42, rescue.SIDE_WATCH_LIMIT_SECONDS))
+        for why, payload in {"push": side_event(event="push"), "attempt 2": side_event(run_attempt=2),
+                             "fork": side_event(head_repository={"full_name": "someone/cmux"}),
+                             "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
+            self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+
+    def test_a_run_with_no_owned_job_stops_when_it_finishes(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [job("system-keychain", labels=[BLACKSMITH], status="completed")])
+        code, summary = run_main(api, clock, payload=side_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls, ["jobs"])
+        self.assertIn("no job of the run asked for a persistent pool", summary)
+        self.assertNotIn("artifact", " ".join(api.calls))
+
+    def test_the_watch_ends_once_the_fleet_accepts_the_side_job(self):
+        clock = Clock()
+        api = FakeAPI(clock, side_run(started_at=20))
+        code, summary = run_main(api, clock, payload=side_event())
+        self.assertEqual(code, 0)
+        self.assertIn("the fleet accepted the side-lane jobs", summary)
+        self.assertNotIn("cancel", api.calls)
+        self.assertLess(clock.seconds, rescue.SIDE_WATCH_LIMIT_SECONDS)
+
+    def test_a_gated_side_job_is_found_after_its_gate(self):
+        clock = Clock()
+        api = FakeAPI(clock, side_run(queued_at=90, started_at=100, gate_done_at=90))
+        code, summary = run_main(api, clock, payload=side_event(path=".github/workflows/cloud-machine-tests.yml"))
+        self.assertIn("a side-lane job asked for a persistent pool", summary)
+        self.assertIn("the fleet accepted the side-lane jobs", summary)
+
+    def test_a_stuck_side_job_moves_to_blacksmith_keeping_what_passed_and_is_not_followed(self):
+        clock = Clock()
+        api = FakeAPI(clock, side_run())
+        code, summary = run_main(api, clock, payload=side_event())
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 takes Blacksmith; no watch of it
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("Blacksmith default", summary)
+
+    def test_a_refused_side_job_is_rerun(self):
+        def jobs(seconds):
+            return [refused_job("diagnostic-presentation", labels=(SIDE,)) if seconds >= 60 else
+                    job("diagnostic-presentation", labels=[SIDE], created=0)]
+        clock = Clock()
+        api = FakeAPI(clock, jobs, finished=lambda s: s >= 60)
+        code, summary = run_main(api, clock, payload=side_event())
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn("refused", summary)
+
+
 IOS_SIM = "glaeda-ios-sim"
 
 
@@ -675,20 +757,25 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_runs_when_dispatched_or_for_a_screenshots_dispatch(self):
+    def test_runs_when_dispatched_or_for_a_screenshots_or_side_lane_run(self):
         triggers = self.doc[True]
         self.assertEqual(sorted(triggers), ["workflow_dispatch", "workflow_run"])
         self.assertIs(triggers["workflow_dispatch"]["inputs"]["run_id"]["required"], True)
         # release.yml calls ios-screenshots.yml with contents: read only, so
-        # it cannot hold an owned-pool-watch job; its rare dispatches keep
-        # the event trigger.
-        self.assertEqual(triggers["workflow_run"],
-                         {"workflows": ["iOS App Store screenshots"], "types": ["requested"]})
+        # it cannot hold an owned-pool-watch job; the side lanes have no
+        # picker and are all on the fleet. Both keep the event trigger.
+        self.assertEqual(triggers["workflow_run"]["types"], ["requested"])
+        self.assertEqual(triggers["workflow_run"]["workflows"][0], "iOS App Store screenshots")
+        self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
+        paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
+        self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS})
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "(github.event_name == 'workflow_dispatch' || "
+                     "(github.event.workflow_run.event == 'pull_request' && "
+                     "startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
-                     "github.event.workflow_run.event == 'workflow_dispatch' && "
+                     "github.event.workflow_run.event == 'workflow_dispatch') && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
                      "github.event.workflow_run.run_attempt == 1)"):
             self.assertIn(part, condition)
