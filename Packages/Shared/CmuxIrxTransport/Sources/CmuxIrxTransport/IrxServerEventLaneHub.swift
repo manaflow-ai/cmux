@@ -29,12 +29,10 @@ public actor IrxServerEventLaneHub {
     public typealias AcceptLane = @Sendable () async throws -> (IrxLaneDescriptor, any IrxEventLaneReading)?
     public typealias Output = AsyncThrowingStream<Data, any Error>
 
-    /// Stop codes the hub sends when it refuses a lane.
-    public enum StopCode {
-        public static let unsupportedLane: UInt64 = 2
-        public static let laneLimit: UInt64 = 3
-        public static let malformedFrame: UInt64 = 5
-    }
+    // Stop codes the hub sends when it refuses a lane.
+    public static let unsupportedLaneStopCode: UInt64 = 2
+    public static let laneLimitStopCode: UInt64 = 3
+    public static let malformedFrameStopCode: UInt64 = 5
 
     private let acceptLane: AcceptLane
     private let limits: Limits
@@ -46,7 +44,6 @@ public actor IrxServerEventLaneHub {
     private var nextLaneID: UInt64 = 0
     private var subscriber: Output.Continuation?
     private var subscriberID: UInt64 = 0
-    private var didStartSharedLane = false
     private var terminalError: (any Error)?
     private var isFinished = false
 
@@ -121,14 +118,14 @@ public actor IrxServerEventLaneHub {
             return
         }
         guard descriptor.lane == .events else {
-            await reader.stop(errorCode: StopCode.unsupportedLane)
+            await reader.stop(errorCode: Self.unsupportedLaneStopCode)
             return
         }
-        let surfaceID = IrxSurfaceEventLaneProtocol.surfaceID(of: descriptor)
+        let surfaceID = IrxSurfaceEventLaneProtocol().surfaceID(of: descriptor)
         if surfaceID != nil, surfaceLaneIDs.count >= limits.maximumSurfaceLaneCount {
             // The host treats a stopped lane as a failed write and falls back.
             journal?.record("client-events", "surface-lane-refused", ["reason": "limit"])
-            await reader.stop(errorCode: StopCode.laneLimit)
+            await reader.stop(errorCode: Self.laneLimitStopCode)
             return
         }
         nextLaneID &+= 1
@@ -136,8 +133,6 @@ public actor IrxServerEventLaneHub {
         readers[laneID] = reader
         if surfaceID != nil {
             surfaceLaneIDs.insert(laneID)
-        } else {
-            didStartSharedLane = true
         }
         journal?.record(
             "client-events", surfaceID == nil ? "lane-accepted" : "surface-lane-accepted",
@@ -154,7 +149,7 @@ public actor IrxServerEventLaneHub {
                     await self?.deliver(frames)
                 }
             } catch is IrxEventFrameAligner.Failure {
-                stopCode = StopCode.malformedFrame
+                stopCode = Self.malformedFrameStopCode
             } catch {
                 // A reset lane only loses its own unfinished frame.
             }

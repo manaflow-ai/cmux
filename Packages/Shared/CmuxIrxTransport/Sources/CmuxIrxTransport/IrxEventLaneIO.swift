@@ -28,14 +28,16 @@ extension IrxStreamReader: IrxEventLaneReading {}
 /// opens surface lanes after the phone advertised ``subscribeParameterValue``
 /// in `mobile.events.subscribe`, because an older phone accepts exactly one
 /// uni stream and would never read a second one.
-public enum IrxSurfaceEventLaneProtocol {
+public struct IrxSurfaceEventLaneProtocol: Sendable {
+    public init() {}
+
     /// `mobile.events.subscribe` parameter a client sends to opt in, and the
     /// acknowledgement key a host echoes when it granted surface lanes.
-    public static let subscribeParameterKey = "surface_event_lanes"
-    public static let subscribeParameterValue = "v1"
-    static let resourcePrefix = "terminal:"
+    public let subscribeParameterKey = "surface_event_lanes"
+    public let subscribeParameterValue = "v1"
+    let resourcePrefix = "terminal:"
 
-    public static func descriptor(surfaceID: String) -> IrxLaneDescriptor {
+    public func descriptor(surfaceID: String) -> IrxLaneDescriptor {
         IrxLaneDescriptor(
             lane: .events,
             resource: resourcePrefix + normalizedSurfaceID(surfaceID)
@@ -43,7 +45,7 @@ public enum IrxSurfaceEventLaneProtocol {
     }
 
     /// The surface a lane carries, or nil for the shared events lane.
-    public static func surfaceID(of descriptor: IrxLaneDescriptor) -> String? {
+    public func surfaceID(of descriptor: IrxLaneDescriptor) -> String? {
         guard descriptor.lane == .events,
               let resource = descriptor.resource,
               resource.hasPrefix(resourcePrefix) else { return nil }
@@ -51,7 +53,7 @@ public enum IrxSurfaceEventLaneProtocol {
         return surfaceID.isEmpty ? nil : surfaceID
     }
 
-    public static func normalizedSurfaceID(_ surfaceID: String) -> String {
+    public func normalizedSurfaceID(_ surfaceID: String) -> String {
         surfaceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }

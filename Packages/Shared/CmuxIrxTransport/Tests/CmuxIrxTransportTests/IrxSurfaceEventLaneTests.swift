@@ -139,7 +139,7 @@ private actor FakeLaneOpener {
     func unblock(_ surfaceID: String) { blockedSurfaces.remove(surfaceID) }
 
     func open(_ descriptor: IrxLaneDescriptor) -> any IrxEventLaneWriting {
-        let surfaceID = IrxSurfaceEventLaneProtocol.surfaceID(of: descriptor) ?? ""
+        let surfaceID = IrxSurfaceEventLaneProtocol().surfaceID(of: descriptor) ?? ""
         let writer = FakeEventLaneWriter(
             descriptor: descriptor,
             blocked: blockedSurfaces.contains(surfaceID)
@@ -150,7 +150,7 @@ private actor FakeLaneOpener {
 
     func writers(surfaceID: String) -> [FakeEventLaneWriter] {
         opened.filter {
-            IrxSurfaceEventLaneProtocol.surfaceID(of: $0.descriptor) == surfaceID
+            IrxSurfaceEventLaneProtocol().surfaceID(of: $0.descriptor) == surfaceID
         }
     }
 }
@@ -212,8 +212,8 @@ struct IrxServerEventLaneHubTests {
         defer { consumer.cancel() }
 
         let shared = acceptor.open(IrxLaneDescriptor(lane: .events))
-        let busy = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "A"))
-        let typed = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "B"))
+        let busy = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "A"))
+        let typed = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "B"))
 
         // Surface A's large replay has only partly arrived; its lane is
         // waiting for the rest. Surface B's echo must not wait behind it.
@@ -238,7 +238,7 @@ struct IrxServerEventLaneHubTests {
         defer { consumer.cancel() }
 
         let shared = acceptor.open(IrxLaneDescriptor(lane: .events))
-        let surface = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "S"))
+        let surface = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "S"))
         var surfaceBytes = Data()
         for index in 0..<20 { surfaceBytes.append(frame("s\(index)")) }
         var sharedBytes = Data()
@@ -272,10 +272,10 @@ struct IrxServerEventLaneHubTests {
             acceptLane: acceptor.accept
         )
         _ = await hub.subscribe()
-        _ = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "1"))
-        _ = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "2"))
-        let third = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "3"))
-        #expect(try await waitUntil { await third.stopCodes == [IrxServerEventLaneHub.StopCode.laneLimit] })
+        _ = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "1"))
+        _ = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "2"))
+        let third = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "3"))
+        #expect(try await waitUntil { await third.stopCodes == [IrxServerEventLaneHub.laneLimitStopCode] })
         #expect(await hub.activeSurfaceLaneCount() == 2)
         await hub.stop()
     }
@@ -286,13 +286,13 @@ struct IrxServerEventLaneHubTests {
         let collector = FrameCollector()
         let consumer = collect(await hub.subscribe(), into: collector)
         defer { consumer.cancel() }
-        let first = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "S"))
+        let first = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "S"))
         #expect(try await waitUntil { await hub.activeSurfaceLaneCount() == 1 })
         await first.push(frame("partial").prefix(6))
         await first.end()
         #expect(try await waitUntil { await hub.activeSurfaceLaneCount() == 0 })
         // The host reopens the surface on a fresh stream after a failure.
-        let reopened = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "S"))
+        let reopened = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "S"))
         await reopened.push(frame("full"))
         #expect(try await waitUntil { await collector.frames == ["full"] })
         #expect(await hub.isAlive)
@@ -337,11 +337,11 @@ struct IrxServerEventLaneHubTests {
         let collector = FrameCollector()
         let consumer = collect(await hub.subscribe(), into: collector)
         defer { consumer.cancel() }
-        let bad = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "bad"))
-        let good = acceptor.open(IrxSurfaceEventLaneProtocol.descriptor(surfaceID: "good"))
+        let bad = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "bad"))
+        let good = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "good"))
         await bad.push(frame(String(repeating: "x", count: 64)))
         await good.push(frame("ok"))
-        #expect(try await waitUntil { await bad.stopCodes == [IrxServerEventLaneHub.StopCode.malformedFrame] })
+        #expect(try await waitUntil { await bad.stopCodes == [IrxServerEventLaneHub.malformedFrameStopCode] })
         #expect(try await waitUntil { await collector.frames == ["ok"] })
         await hub.stop()
     }
@@ -399,7 +399,7 @@ struct IrxSurfaceEventLanesTests {
         // Once the stuck write fails, the queued reset lands on the old stream.
         await stalledWriter.failBlockedWrite()
         #expect(try await waitUntil {
-            await stalledWriter.resetCodes == [IrxSurfaceEventLanes.ResetCode.stalled]
+            await stalledWriter.resetCodes == [IrxSurfaceEventLanes.stalledResetCode]
         })
     }
 
@@ -479,11 +479,11 @@ struct IrxSurfaceEventLanesTests {
     }
 
     @Test func surfaceLaneDescriptorRoundTripsAndSharedLaneHasNoSurface() {
-        let descriptor = IrxSurfaceEventLaneProtocol.descriptor(surfaceID: " ABC-def ")
+        let descriptor = IrxSurfaceEventLaneProtocol().descriptor(surfaceID: " ABC-def ")
         #expect(descriptor.lane == .events)
-        #expect(IrxSurfaceEventLaneProtocol.surfaceID(of: descriptor) == "abc-def")
-        #expect(IrxSurfaceEventLaneProtocol.surfaceID(of: IrxLaneDescriptor(lane: .events)) == nil)
-        #expect(IrxSurfaceEventLaneProtocol.surfaceID(
+        #expect(IrxSurfaceEventLaneProtocol().surfaceID(of: descriptor) == "abc-def")
+        #expect(IrxSurfaceEventLaneProtocol().surfaceID(of: IrxLaneDescriptor(lane: .events)) == nil)
+        #expect(IrxSurfaceEventLaneProtocol().surfaceID(
             of: IrxLaneDescriptor(lane: .terminal, resource: "terminal:x")
         ) == nil)
     }

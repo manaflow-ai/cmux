@@ -1986,8 +1986,8 @@ actor MobileHostConnection {
             }
             let grantsSurfaceEventLanes = selectedTransport == .irohServerEvents
                 && topics.contains(MobileHostEventTopicPolicy.renderGridTopic)
-                && request.params[IrxSurfaceEventLaneProtocol.subscribeParameterKey] as? String
-                    == IrxSurfaceEventLaneProtocol.subscribeParameterValue
+                && request.params[IrxSurfaceEventLaneProtocol().subscribeParameterKey] as? String
+                    == IrxSurfaceEventLaneProtocol().subscribeParameterValue
                 && (independentEventWriter?.maximumSurfaceEventLaneCount ?? 0) > 0
             await subscribe(
                 streamID: streamID,
@@ -2017,8 +2017,8 @@ actor MobileHostConnection {
                 "event_transport": selectedTransport.rawValue,
             ]
             if subscriptions[streamID]?.surfaceEventLanes == true {
-                acknowledgement[IrxSurfaceEventLaneProtocol.subscribeParameterKey] =
-                    IrxSurfaceEventLaneProtocol.subscribeParameterValue
+                acknowledgement[IrxSurfaceEventLaneProtocol().subscribeParameterKey] =
+                    IrxSurfaceEventLaneProtocol().subscribeParameterValue
             }
             return .ok(acknowledgement)
         case "mobile.events.unsubscribe":

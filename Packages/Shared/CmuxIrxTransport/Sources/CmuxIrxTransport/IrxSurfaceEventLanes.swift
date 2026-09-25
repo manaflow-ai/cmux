@@ -55,12 +55,10 @@ public actor IrxSurfaceEventLanes {
         case writeStalled
     }
 
-    /// Stream reset codes, visible to the phone as the lane's stop reason.
-    public enum ResetCode {
-        public static let superseded: UInt64 = 0
-        public static let writeFailed: UInt64 = 6
-        public static let stalled: UInt64 = 7
-    }
+    // Stream reset codes, visible to the phone as the lane's stop reason.
+    public static let supersededResetCode: UInt64 = 0
+    public static let writeFailedResetCode: UInt64 = 6
+    public static let stalledResetCode: UInt64 = 7
 
     public typealias Opener = @Sendable (IrxLaneDescriptor) async throws -> any IrxEventLaneWriting
 
@@ -95,7 +93,7 @@ public actor IrxSurfaceEventLanes {
     /// Writes one complete frame onto the surface's lane.
     public func send(_ data: Data, surfaceID rawSurfaceID: String, generation: UInt64) async throws {
         guard isEnabled else { throw LaneError.disabled }
-        let surfaceID = IrxSurfaceEventLaneProtocol.normalizedSurfaceID(rawSurfaceID)
+        let surfaceID = IrxSurfaceEventLaneProtocol().normalizedSurfaceID(rawSurfaceID)
         let lane = try await openedLane(surfaceID: surfaceID, generation: generation)
         useTick &+= 1
         lanes[surfaceID]?.lastUse = useTick
@@ -107,11 +105,11 @@ public actor IrxSurfaceEventLanes {
                 return true
             }
         } catch {
-            retire(surfaceID: surfaceID, token: lane.token, errorCode: ResetCode.writeFailed)
+            retire(surfaceID: surfaceID, token: lane.token, errorCode: Self.writeFailedResetCode)
             throw error
         }
         if case .timeout = result {
-            retire(surfaceID: surfaceID, token: lane.token, errorCode: ResetCode.stalled)
+            retire(surfaceID: surfaceID, token: lane.token, errorCode: Self.stalledResetCode)
             journal?.record("host-surface-lanes", "write-stalled", ["surface": surfaceID])
             throw LaneError.writeStalled
         }
@@ -120,7 +118,7 @@ public actor IrxSurfaceEventLanes {
     /// Marks the surface the user is interacting with; its lane is scheduled
     /// ahead of every other surface and the bulk events lane.
     public func noteFocused(surfaceID rawSurfaceID: String) {
-        let surfaceID = IrxSurfaceEventLaneProtocol.normalizedSurfaceID(rawSurfaceID)
+        let surfaceID = IrxSurfaceEventLaneProtocol().normalizedSurfaceID(rawSurfaceID)
         guard !surfaceID.isEmpty, focusedSurfaceID != surfaceID else { return }
         let previous = focusedSurfaceID
         focusedSurfaceID = surfaceID
@@ -137,7 +135,7 @@ public actor IrxSurfaceEventLanes {
 
     /// Finishes one surface's lane, if the lane is still `generation`'s.
     public func close(surfaceID rawSurfaceID: String, generation: UInt64? = nil) {
-        let surfaceID = IrxSurfaceEventLaneProtocol.normalizedSurfaceID(rawSurfaceID)
+        let surfaceID = IrxSurfaceEventLaneProtocol().normalizedSurfaceID(rawSurfaceID)
         guard let lane = lanes[surfaceID],
               generation == nil || lane.generation == generation else { return }
         lanes.removeValue(forKey: surfaceID)
@@ -154,7 +152,7 @@ public actor IrxSurfaceEventLanes {
     public func openSurfaceIDs() -> Set<String> { Set(lanes.keys) }
 
     public func priority(surfaceID rawSurfaceID: String) -> Int32? {
-        lanes[IrxSurfaceEventLaneProtocol.normalizedSurfaceID(rawSurfaceID)]?.priority
+        lanes[IrxSurfaceEventLaneProtocol().normalizedSurfaceID(rawSurfaceID)]?.priority
     }
 
     private func openedLane(surfaceID: String, generation: UInt64) async throws -> Lane {
@@ -167,7 +165,7 @@ public actor IrxSurfaceEventLanes {
             Task { await writer.finish() }
         }
         evictLeastRecentlyUsedLaneIfFull()
-        let descriptor = IrxSurfaceEventLaneProtocol.descriptor(surfaceID: surfaceID)
+        let descriptor = IrxSurfaceEventLaneProtocol().descriptor(surfaceID: surfaceID)
         let opener = open
         // Opening waits for stream credit. The native open ignores task
         // cancellation, so a late stream is released instead of leaked.
@@ -178,19 +176,19 @@ public actor IrxSurfaceEventLanes {
         guard case .operation(let opened?) = result else {
             Task {
                 if let late = try? await openTask.value {
-                    await late.reset(errorCode: ResetCode.superseded)
+                    await late.reset(errorCode: Self.supersededResetCode)
                 }
             }
             journal?.record("host-surface-lanes", "open-timed-out", ["surface": surfaceID])
             throw LaneError.openTimedOut
         }
         guard isEnabled else {
-            await opened.reset(errorCode: ResetCode.superseded)
+            await opened.reset(errorCode: Self.supersededResetCode)
             throw LaneError.disabled
         }
         if let raced = lanes[surfaceID], raced.generation == generation {
             // A concurrent send for the same generation won the open.
-            await opened.reset(errorCode: ResetCode.superseded)
+            await opened.reset(errorCode: Self.supersededResetCode)
             return raced
         }
         nextToken &+= 1
