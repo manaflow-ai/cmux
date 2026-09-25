@@ -39,6 +39,10 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
         ["subrouter", "claude", "proxy", "--resume"],
     ]
 
+    private static let legacyProxyConfigDirectoryComponents = [
+        ".subrouter", "codex", "claude-proxy",
+    ]
+
     /// Environment keys a proven routed restore owns: the markers themselves and
     /// the Claude auth selection that Subrouter regenerates from the live pool.
     /// Replaying the captured values around `sr` would pin the restored session
@@ -77,11 +81,42 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     }
 
     private func capturedLaunchBoundMarker(in environment: [String: String]?) -> String? {
-        guard let marker = capturedMarker(in: environment),
-              canonicalMarker(environment?[Self.launchBoundEnvironmentKey]) == marker else {
+        if let marker = capturedMarker(in: environment),
+           canonicalMarker(environment?[Self.launchBoundEnvironmentKey]) == marker {
+            return marker
+        }
+        return legacyProxyMarker(in: environment)
+    }
+
+    /// Recognizes pre-marker sessions whose captured Claude config directory is
+    /// Subrouter's private proxy store. These records predate the agreeing
+    /// marker pair, but the directory is owned by Subrouter and is not used by
+    /// plain Claude or a local managed profile. Require the captured base URL
+    /// as a second signal so an orphaned directory alone cannot reroute a
+    /// session. Legacy records default to the `sr` launcher, which is the
+    /// supported end-user command and is validated against the restore PATH.
+    private func legacyProxyMarker(in environment: [String: String]?) -> String? {
+        guard let environment,
+              environment[Self.environmentKey] == nil,
+              environment[Self.launchBoundEnvironmentKey] == nil,
+              let configDirectory = environment["CLAUDE_CONFIG_DIR"],
+              !configDirectory.isEmpty,
+              !configDirectory.hasPrefix("-"),
+              !configDirectory.contains("\0"),
+              !configDirectory.contains(".."),
+              !configDirectory.split(separator: "/").isEmpty,
+              let baseURL = environment["ANTHROPIC_BASE_URL"],
+              !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        return marker
+        let components = URL(fileURLWithPath: configDirectory).standardized.pathComponents
+        guard components.count >= Self.legacyProxyConfigDirectoryComponents.count,
+              (0...(components.count - Self.legacyProxyConfigDirectoryComponents.count)).contains(where: { offset in
+                  Array(components[offset..<(offset + Self.legacyProxyConfigDirectoryComponents.count)]) == Self.legacyProxyConfigDirectoryComponents
+              }) else {
+            return nil
+        }
+        return Self.expectedMarkerTokens[0].joined(separator: " ")
     }
 
     /// Returns the agreeing marker pair for a durable launch record, or an empty
@@ -172,4 +207,3 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
         return selected
     }
 }
-
