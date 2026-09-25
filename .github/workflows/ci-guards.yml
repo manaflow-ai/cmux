@@ -167,6 +167,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
 
+      - name: Validate reload cleanup reminder preserves builds
+        if: ${{ matrix.group == 'preflight' }}
+        run: bash tests/test_reload_cleanup_reminder.sh
+
       - name: Validate sidebar extension point generation
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
