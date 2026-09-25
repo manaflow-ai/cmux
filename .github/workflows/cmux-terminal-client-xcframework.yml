@@ -29,7 +29,9 @@ on:
 
 concurrency:
   group: cmux-terminal-client-xcframework-${{ github.ref }}
-  cancel-in-progress: false
+  # A new push to a pull request supersedes its macOS compile; a dispatched
+  # release build is never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
@@ -231,13 +233,24 @@ jobs:
               echo '#include <CmuxTerminalClientFFI/cmux_terminal_client.h>'
               echo '#include <stdio.h>'
               echo 'int main(void) { const void *p[] = {'
-              nm -g "$lib" 2>/dev/null | awk '$2 == "T" && $3 ~ /^_cmux_/ { print "  (const void *)&" substr($3, 2) "," }' | sort -u
+              # Match the text-symbol substring, not a field position: nm
+              # prefixes every line with the file name for an archive whose
+              # name has no .a extension, which shifts the columns and made a
+              # positional match silently select nothing.
+              nm -g "$lib" 2>/dev/null |
+                sed -n 's/.* T _\(cmux_[A-Za-z0-9_]*\)$/  (const void *)\&\1,/p' | sort -u
               printf '%s\n' '  0 }; printf("%p\n", p[0]); return 0; }'
             } > "$src"
             local count
-            count="$(grep -c '(const void \*)&cmux_' "$src")"
+            # grep -c exits 1 on zero matches, which would end this step under
+            # set -e with no diagnostic at all; report the count instead.
+            count="$(grep -c '(const void \*)&cmux_' "$src" || true)"
             echo "$slice: $count exported symbols referenced"
-            [[ "$count" -ge 1 ]]
+            if [[ "$count" -lt 1 ]]; then
+              echo "::error::$slice exports no _cmux_ text symbols to reference; nm reported:" >&2
+              nm -g "$lib" 2>&1 | head -5 >&2
+              exit 1
+            fi
             xcrun --sdk "$sdk" clang -target "$triple" \
               -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
               -F "$dir" "${frameworks[@]}" \
