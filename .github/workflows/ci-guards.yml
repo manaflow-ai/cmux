@@ -368,6 +368,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate late placement onto idle root runners
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_late_placement.py
+
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py

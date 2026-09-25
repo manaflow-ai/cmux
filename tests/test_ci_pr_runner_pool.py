@@ -1733,7 +1733,8 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
+        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
+                                            "[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
                                             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
