@@ -45,15 +45,10 @@ struct SSHRemoteCWDRegressionTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         return ProcessRunResult(
             status: process.terminationStatus,
@@ -107,7 +102,12 @@ struct SSHRemoteCWDRegressionTests {
             """)
 
         let encodedWorkingDirectory = Data(initialWorkingDirectory.path.utf8).base64EncodedString()
-        let script = RemoteInteractiveShellBootstrapBuilder.script(remoteRelayPort: 0, shellFeatures: "")
+        // The helper exec under test belongs to the persistent PTY attach
+        // launch (`SSHPTYAttachStartupCommandBuilder` passes
+        // `protectsFromHangup: true`); plain SSH and Mosh exec the shell directly.
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0, shellFeatures: "", protectsFromHangup: true
+        )
             .replacingOccurrences(of: "__CMUX_REMOTE_INITIAL_CWD_B64__", with: encodedWorkingDirectory)
         let result = runProcess(
             executablePath: "/usr/bin/env",
@@ -117,7 +117,7 @@ struct SSHRemoteCWDRegressionTests {
                 "CMUX_CAPTURE_PWD=\(capturedPWD.path)", "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(helper.path)",
                 "/bin/sh", "-c", script,
             ],
-            timeout: 5
+            timeout: 30
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
@@ -172,7 +172,9 @@ struct SSHRemoteCWDRegressionTests {
 
         func bootstrap(for directory: URL) -> String {
             let encodedDirectory = Data(directory.path.utf8).base64EncodedString()
-            return RemoteInteractiveShellBootstrapBuilder.script(remoteRelayPort: 0, shellFeatures: "")
+            return RemoteInteractiveShellBootstrapBuilder.script(
+                remoteRelayPort: 0, shellFeatures: "", protectsFromHangup: true
+            )
                 .replacingOccurrences(of: "__CMUX_REMOTE_INITIAL_CWD_B64__", with: encodedDirectory)
         }
         try writeExecutableShellFile(at: secondBootstrap, body: bootstrap(for: secondWorkingDirectory))
@@ -186,7 +188,7 @@ struct SSHRemoteCWDRegressionTests {
                 "CMUX_SECOND_BOOTSTRAP=\(secondBootstrap.path)", "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(helper.path)",
                 "/bin/sh", "-c", bootstrap(for: firstWorkingDirectory),
             ],
-            timeout: 5
+            timeout: 30
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))

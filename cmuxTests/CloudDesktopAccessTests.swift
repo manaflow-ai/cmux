@@ -1,4 +1,7 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 import WebKit
@@ -214,8 +217,10 @@ struct CloudDesktopAccessTests {
     @Test("Every Cloud website retains its requested URL through bootstrap commits",
           arguments: ["http://10.0.0.7:6901/vnc.html", "http://10.0.0.7:3000/", "https://10.0.0.7:8443/app"])
     func desktopRetainsPendingServiceIdentity(rawURL: String) async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
         let store = CloudPortAccessStore()
-        let catalog = SurfaceCatalog()
+        let catalog = SurfaceCatalog(live: live)
         let readiness = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
         let remote = try #require(URL(string: rawURL))
         let target = CloudPortForwardTarget(host: "10.0.0.7", port: remote.port!)
@@ -230,7 +235,7 @@ struct CloudDesktopAccessTests {
             )
         }
         let provider = provider(store: store, catalog: catalog)
-        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        let browser = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
         defer { browser.close(); readiness.resolve(nil) }
         // A delayed bootstrap commit from the original WebView must not replace
         // the Cloud identity while its authenticated replacement is being prepared.
@@ -383,10 +388,12 @@ struct CloudDesktopAccessTests {
             }, stopForward: { stops += 1 }, route: .loopback)
         }
         model.acceptTunnelState(state)
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = provider(store: store, catalog: catalog)
-        let first = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
-        let second = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        let first = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
+        let second = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
         defer { first.close(); second.close() }
         let remote = try #require(URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: target.host)))
 
@@ -409,11 +416,14 @@ struct CloudDesktopAccessTests {
 
     @Test("A private-origin deny rule cannot be bypassed by the loopback rewrite")
     func deniedPrivateOriginCreatesNoForward() {
+        // A live destination, so the URL policy (not ownership) is what refuses the page.
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
         let store = CloudPortAccessStore()
-        let catalog = SurfaceCatalog()
+        let catalog = SurfaceCatalog(live: live)
         let policy = BrowserURLAllowlistPolicy(managedPatterns: ["allowed.example"], allowsLocalhost: true)
         let provider = provider(store: store, catalog: catalog, policy: policy)
-        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        let browser = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
         defer { browser.close() }
         provider.configureBrowser(browser, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
         #expect(policy.allowsTrustedInternalURL(URL(string: "http://127.0.0.1:46901")!))

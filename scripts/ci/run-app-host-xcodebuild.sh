@@ -21,7 +21,12 @@ invocation_id="$(python3 -c 'import os; print(os.getppid())')"
 log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${log_tag}-pid-${invocation_id}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
-echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
+# A crashed app host is relaunched by xcodebuild, which then resumes the run.
+# Nothing bounds that loop, so cap the restarts one invocation may spend before
+# the wrapper aborts it (https://github.com/manaflow-ai/cmux/issues/13707).
+export CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET="${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET:-2}"
+restart_budget_exit_code=123
+echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}, restart budget: ${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET}"
 
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
@@ -72,6 +77,15 @@ fi
 if [ -n "${TEST_RUNNER_BUN_INSTALL:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_BUN_INSTALL=$TEST_RUNNER_BUN_INSTALL")
 fi
+# Focused opt-in suites (renderer memory regression, benchmarks) are gated on a
+# plain variable the driver receives. Xcode does not inherit it, so a caller that
+# exports the plain name would silently run nothing. Carry those through.
+for cmux_opt_in_gate in CMUX_RENDERER_MEMORY_REGRESSION; do
+  cmux_opt_in_value="${!cmux_opt_in_gate:-}"
+  if [ -n "$cmux_opt_in_value" ]; then
+    app_host_test_runner_environment+=("TEST_RUNNER_${cmux_opt_in_gate}=$cmux_opt_in_value")
+  fi
+done
 app_host_home=""
 app_host_key=""
 app_host_receipt_dir=""
@@ -341,6 +355,12 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   if [ "$status" -ne 0 ]; then
+    # A restart-budget abort is the one failure that must never be retried:
+    # every attempt would crash-loop again and spend the same runner time.
+    if [ "$status" -eq "$restart_budget_exit_code" ]; then
+      echo "App-host restart budget exceeded on attempt $attempt/$max_attempts; not retrying" >&2
+      exit "$status"
+    fi
     retry_reason=""
     if [ "$status" -eq 124 ]; then
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"

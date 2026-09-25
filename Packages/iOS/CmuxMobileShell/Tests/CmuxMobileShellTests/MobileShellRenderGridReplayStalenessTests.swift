@@ -165,7 +165,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -229,7 +229,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -297,7 +297,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -365,7 +365,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -434,7 +434,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }

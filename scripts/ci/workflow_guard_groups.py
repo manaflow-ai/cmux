@@ -19,17 +19,24 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+import workload_entrypoints
+
 
 GUARD_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/ci-guards.yml"
 GUARD_JOB = "workflow-guard-tests"
 # A path a step runs directly, such as `python3 tests/x.py` or `./scripts/y.sh`.
 DIRECT_PATH = re.compile(r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)")
 GROUP_CONDITION = re.compile(r"\$\{\{ matrix\.group == '([^']+)' \}\}")
+# A guard job gates itself on the route that selects it, so the workflow also
+# names which route owns which job.
+ROUTE_CONDITION = re.compile(r"\$\{\{ inputs\.([A-Za-z0-9_]+) == 'true' \}\}")
+JOB_HEADER = re.compile(r"  ([A-Za-z0-9_-]+):\s*$")
 
 GROUPS = (
     "preflight",
     "ci",
     "app-host-execution",
+    "app-host-watchdog",
     "app-host-process",
     "app-host-cache",
     "release-ios",
@@ -44,6 +51,23 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+
+    # test_ci_runner_capability_resolver.py reads the capability map, the
+    # resolver it imports, the reusable workflow that publishes the map, and
+    # the one workflow wired to consume it.
+    ".github/runners.json": frozenset(("ci",)),
+    ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
+    ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "scripts/ci/resolve_runners.py": frozenset(("ci",)),
+
+    ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
+    ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
+    ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
+    # Many groups load the two reusable workflows with yaml.safe_load rather
+    # than naming them in a `run:`, so every group observes an edit to them.
+    ".github/workflows/ci-macos.yml": frozenset(GROUPS),
+    ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
@@ -52,22 +76,61 @@ PATH_OWNERS = {
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
     "agent-chat/test/claude-environment.test.ts": frozenset(("preflight",)),
     "ghostty": frozenset(("release-tooling",)),
+    "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
+    # validate_test_execution_registry.py reads the recipe for the tests it runs.
+    "scripts/verify-local.py": frozenset(("preflight", "ci")),
+    "scripts/verification_receipt.py": frozenset(("ci",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
-    "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
+    "scripts/ci/main_full_suite.py": frozenset(("ci",)),
+    # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
+    # these by path; the receipt test also reads its workflow and fixtures.
+    "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
+    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
+    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
+
+    "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
+    "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
+    "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
+    "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
+    "scripts/ci/ci_health_report.py": frozenset(("ci",)),
+    "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
+    "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
+    "scripts/ci/ci_process_tree.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    "scripts/ci/hung_test_watchdog.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    "scripts/ci/run_with_timeout.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    # test_ci_xcodebuild_noninteractive_helper.py loads it by path.
+    "scripts/ci/xcodebuild_noninteractive.py": frozenset(("app-host-watchdog",)),
+    # lint-ios-conventions-diff.sh runs lint-ios-package-conventions.sh, which
+    # runs the namespace linter, which imports the source mask.
+    "scripts/lint_swift_namespaces.py": frozenset(("release-ios",)),
+    "scripts/swift_source_mask.py": frozenset(("release-ios",)),
+    # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
+    "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
+    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
+    "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # detect_ci_change_areas.py imports this to decide the swift-package-tests
+    # route, so the ci group's router tests observe an edit to it even though
+    # no guard step names it in a `run:`.
+    "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
+    "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/agent-workflows.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/commands.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/guest.md": frozenset(("preflight",)),
+    "tests/test-execution.toml": frozenset(("preflight",)),
 }
 
 # Changes here can alter which required work runs. They always exercise every
@@ -78,12 +141,12 @@ ROUTING_POLICY_PATHS = frozenset({
     "scripts/ci/detect_ci_change_areas.py",
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
+    "scripts/ci/workload_entrypoints.py",
+    "scripts/ci/cmux-workload-profiles.json",
     "tests/test_ci_change_areas.py",
+    "tests/test_ci_fork_runner_routing.py",
     "tests/test_ci_linux_guard_routing.py",
     "tests/test_ci_guard_workflow_structure.py",
-    "tests/test_ci_app_host_guard_structure.py",
-    "tests/test_ci_quality_guard_structure.py",
-    "tests/test_ci_release_guard_structure.py",
 })
 
 DETERMINISM_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")
@@ -96,7 +159,8 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("cmuxTests/", "cmuxUITests/", "ios/cmuxUITests/",
+    if path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                        "cmuxUITests/", "ios/cmuxUITests/",
                         "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path
@@ -117,29 +181,51 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-def guard_steps(text: str) -> tuple[dict[str, str], ...]:
-    """Return the scalar fields of each workflow-guard-tests step.
-
-    The router runs on the runner's bare python3, which has no PyYAML, so this
-    reads the one job with a small line scanner. The guard tests check that it
-    agrees with yaml.safe_load on the real workflow.
-    """
+def _job_body(text: str, job_name: str) -> list[str]:
     lines = text.splitlines()
     try:
-        start = lines.index(f"  {GUARD_JOB}:") + 1
+        start = lines.index(f"  {job_name}:") + 1
     except ValueError as error:
-        raise GuardWorkflowError(f"job {GUARD_JOB} not found") from error
+        raise GuardWorkflowError(f"job {job_name} not found") from error
     end = next(
         (index for index in range(start, len(lines))
          if lines[index].strip() and _indent(lines[index]) <= 2
          and not lines[index].lstrip().startswith("#")),
         len(lines),
     )
-    job = lines[start:end]
+    return lines[start:end]
+
+
+def job_names(text: str) -> tuple[str, ...]:
+    """Every top-level job in the guard workflow, in file order."""
+    _, marker, body = text.partition("\njobs:\n")
+    if not marker:
+        raise GuardWorkflowError("workflow has no jobs: block")
+    names: list[str] = []
+    for line in body.splitlines():
+        match = JOB_HEADER.fullmatch(line)
+        if match is None:
+            continue
+        if match.group(1) in names:
+            raise GuardWorkflowError(f"duplicate job {match.group(1)!r}")
+        names.append(match.group(1))
+    if not names:
+        raise GuardWorkflowError("workflow declares no jobs")
+    return tuple(names)
+
+
+def job_steps(text: str, job_name: str = GUARD_JOB) -> tuple[dict[str, str], ...]:
+    """Return the scalar fields of each step in one job.
+
+    The router runs on the runner's bare python3, which has no PyYAML, so this
+    reads the job with a small line scanner. The guard tests check that it
+    agrees with yaml.safe_load on the real workflow.
+    """
+    job = _job_body(text, job_name)
     try:
         steps_at = next(index for index, line in enumerate(job) if line.rstrip() == "    steps:")
     except StopIteration as error:
-        raise GuardWorkflowError(f"{GUARD_JOB} has no steps") from error
+        raise GuardWorkflowError(f"{job_name} has no steps") from error
 
     steps: list[dict[str, str]] = []
     current: dict[str, str] | None = None
@@ -155,9 +241,9 @@ def guard_steps(text: str) -> tuple[dict[str, str], ...]:
             steps.append(current)
             line = "        " + line[len("      - "):]
         elif _indent(line) < 8:
-            raise GuardWorkflowError(f"unexpected line in {GUARD_JOB} steps: {line!r}")
+            raise GuardWorkflowError(f"unexpected line in {job_name} steps: {line!r}")
         if current is None:
-            raise GuardWorkflowError(f"{GUARD_JOB} step content before the first step")
+            raise GuardWorkflowError(f"{job_name} step content before the first step")
         index += 1
         if _indent(line) != 8:
             continue  # nested mapping such as `with:` values
@@ -177,8 +263,13 @@ def guard_steps(text: str) -> tuple[dict[str, str], ...]:
         else:
             current[key] = _unquote(value)
     if not steps:
-        raise GuardWorkflowError(f"{GUARD_JOB} has no steps")
+        raise GuardWorkflowError(f"{job_name} has no steps")
     return tuple(steps)
+
+
+def guard_steps(text: str) -> tuple[dict[str, str], ...]:
+    """The workflow-guard-tests steps."""
+    return job_steps(text, GUARD_JOB)
 
 
 def step_owners(text: str) -> dict[str, str]:
@@ -195,6 +286,19 @@ def step_owners(text: str) -> dict[str, str]:
     return owners
 
 
+def run_paths(run: str) -> list[str]:
+    """Paths a `run:` executes, including through a workload profile."""
+    paths = DIRECT_PATH.findall(run)
+    try:
+        profiles = workload_entrypoints.entrypoints(run)
+    except (OSError, UnicodeError, ValueError, KeyError) as error:
+        raise GuardWorkflowError(f"cannot resolve a workload profile: {error}") from error
+    for entrypoint, script in profiles:
+        paths.append(entrypoint)
+        paths.extend(DIRECT_PATH.findall(script))
+    return paths
+
+
 def direct_path_owners(text: str) -> dict[str, frozenset[str]]:
     """Map each path a group-conditioned step runs directly to its groups."""
     owners: dict[str, set[str]] = {}
@@ -202,9 +306,44 @@ def direct_path_owners(text: str) -> dict[str, frozenset[str]]:
         match = GROUP_CONDITION.fullmatch(step.get("if", ""))
         if match is None:
             continue
-        for path in DIRECT_PATH.findall(step.get("run", "")):
+        for path in run_paths(step.get("run", "")):
             owners.setdefault(path, set()).add(match.group(1))
     return {path: frozenset(groups) for path, groups in owners.items()}
+
+
+def job_route(text: str, job_name: str) -> str | None:
+    """The workflow input that gates a job, from its own top-level `if:`."""
+    for line in _job_body(text, job_name):
+        if _indent(line) != 4:
+            continue
+        key, separator, value = line.strip().partition(":")
+        if key == "if" and separator:
+            match = ROUTE_CONDITION.fullmatch(_unquote(value))
+            return match.group(1) if match else None
+        if not separator:
+            continue
+    return None
+
+
+def route_direct_paths(text: str) -> dict[str, frozenset[str]]:
+    """Map each guard route to the paths its job's steps run directly.
+
+    A guard job names the route that selects it (`if: inputs.<route> ==
+    'true'`) and names the tests and scripts it runs. Both halves of "which
+    diffs does this guard observe" therefore already live in ci-guards.yml,
+    and the router reads them instead of keeping a parallel copy.
+    """
+    routes: dict[str, set[str]] = {}
+    for job_name in job_names(text):
+        route = job_route(text, job_name)
+        if route is None:
+            continue
+        paths = routes.setdefault(route, set())
+        for step in job_steps(text, job_name):
+            paths.update(run_paths(step.get("run", "")))
+    if not routes:
+        raise GuardWorkflowError("no job is gated on a workflow input")
+    return {route: frozenset(paths) for route, paths in routes.items()}
 
 
 @lru_cache(maxsize=1)

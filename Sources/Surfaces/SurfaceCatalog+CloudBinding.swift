@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -8,7 +9,8 @@ extension SurfaceCatalog {
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
         isBase: Bool? = nil,
-        generatedTitle: String? = nil
+        generatedTitle: String? = nil,
+        remoteWorkspaceName: String? = nil
     ) {
         let workspaceBeforeBind = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID)
         let wasUnbound = workspaceBeforeBind?.cloudVMBinding?.remoteWorkspaceID?.isEmpty != false
@@ -24,7 +26,8 @@ extension SurfaceCatalog {
             machine: machine,
             remoteWorkspaceID: remoteWorkspaceID,
             isBase: isBase,
-            generatedTitle: generatedTitle
+            generatedTitle: generatedTitle,
+            remoteWorkspaceName: remoteWorkspaceName
         )
         // A remote id can arrive after a user edit. Submit that edit once, at
         // the first identity binding, before graph reconciliation can apply an

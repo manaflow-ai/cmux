@@ -1174,7 +1174,8 @@ final class TerminalControllerSocketSecurityTests {
                 "mobile.terminal.viewport",
                 "terminal.viewport",
                 "mobile.panel.artifact.stat",
-                "mobile.panel.artifact.fetch",
+                // fetch is mobile-only (authenticated execution context); the
+                // local socket neither serves nor advertises it.
                 "mobile.panel.artifact.thumbnail",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",

@@ -94,8 +94,8 @@ struct DisconnectedWorkspaceShellView: View {
                     // known/restored Mac shows up here for one-tap reconnect.
                     // Same-account discovery is the primary path. Manual pairing
                     // is available only when the root supplies its Tailscale action.
-                    async let pairedMacs: Void = store?.loadPairedMacs() ?? ()
-                    await pairedMacs
+                    async let pairedMacs: Bool = store?.loadPairedMacs() ?? false
+                    _ = await pairedMacs
                     #if os(iOS)
                     async let registryDevices: Void = store?.loadRegistryDevices() ?? ()
                     // Registry + presence enrich the rows (online dots, build

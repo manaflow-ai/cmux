@@ -7,6 +7,30 @@ import Testing
         DiagnosticEventPresentation(locale: Locale(identifier: "en"))
     }
 
+    @Test func taskModelResultDoesNotDecodeProviderAsFailure() {
+        let event = DiagnosticEvent(
+            .appFeatureAction,
+            ms: 6,
+            a: DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+            b: DiagnosticTaskModelProvider.codex.rawValue,
+            c: DiagnosticTaskModelSource.discovered.rawValue
+        )
+        let presentation = englishPresentation
+        let fields = presentation.describe(event).fields
+        #expect(presentation.failureKind(of: event) == nil)
+        #expect(fields.contains(.init(key: "provider", value: "codex")))
+        #expect(fields.contains(.init(key: "source", value: "discovered")))
+        #expect(fields.contains(.init(key: "effort_count", value: "6")))
+        #expect(!fields.contains { $0.key == "failure" })
+
+        let failed = DiagnosticEvent(
+            .appFeatureAction,
+            a: DiagnosticAppEventKind.taskModelListLoadFailed.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue
+        )
+        #expect(presentation.failureKind(of: failed) == .timedOut)
+    }
+
     /// Case names are shipped telemetry vocabulary (Sentry grouping keys), so a
     /// rename is a breaking change this test makes visible.
     @Test func pinsEventCodeNames() {

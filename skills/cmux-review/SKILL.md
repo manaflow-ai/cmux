@@ -125,7 +125,7 @@ A vague concern is a hypothesis, not a finding.
 
 ### Preserve epistemic provenance
 
-Use the repository-evidence vocabulary already exercised by Cultist:
+Use the repository-evidence vocabulary:
 
 - `PROVEN` — exact machine fact or guarantee established by direct evidence;
 - `DERIVED` — deterministic conclusion from explicit facts;
@@ -209,7 +209,7 @@ When the user requested repair, or the workflow explicitly allows it:
 Useful cmux primitives:
 
 ```bash
-cmux vault checkpoint --name "pre-review-repair"
+cmux vault checkpoint --agent <agent> --session <session> --name "pre-review-repair"
 cmux vault checkpoints --agent <agent> --session <session>
 cmux vault fork --agent <agent> --session <session> --checkpoint <id> --open
 ```

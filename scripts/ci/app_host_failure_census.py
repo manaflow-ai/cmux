@@ -12,9 +12,15 @@ from pathlib import Path
 XCTEST_START = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' started\.")
 XCTEST_FAIL = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' failed")
 SWIFT_START = re.compile(r"(?:◇|▶) Test (.+?) started\.")
-SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
+# A parameterized case names its arguments between "recorded an issue" and
+# the source location, e.g. `recorded an issue with 1 argument enabled → true
+# at Poll.swift:352:9: ...`. Without that clause the pattern matches nothing,
+# losing both the failure and its assertion text.
+SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: with \d+ arguments? .*?)?(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
 SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?: \(.*?\))?(?:\.\s*)?(?::\s*(.*))?$")
-SWIFT_FAIL = re.compile(r"✘ Test (.+?) failed(?: after| with)\b")
+# A parameterized suite closes with a rollup, `✘ Test <name> with 2 test
+# cases failed after ...`; the trailing clause is not part of the name.
+SWIFT_FAIL = re.compile(r"✘ Test (.+?)(?: with \d+ test cases?)? failed(?: after| with)\b")
 # swift-testing ends a bundle with "✘ Test run with 253 tests in 41 suites
 # failed after ...", which the patterns above otherwise capture as a test
 # named "run with 253 tests in 41 suites". One such line per shard inflates

@@ -9,6 +9,7 @@ import {
   withVaultLease,
   bindCodexOwnerIdentity,
   encryptedCredentialForAccount,
+  nativeAccountAccessible,
   transferEncryptedAccount,
   updateAccountLabel,
 } from "./repository";
@@ -21,11 +22,19 @@ import {
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
 
-export async function transferAccount(input: { sourceTeamId: string; destinationTeamId: string; accountId: string; stackUserId: string }): Promise<boolean> {
+/** Moves a native account the caller may manage into another team. Returns
+ * false, before any key operation, when the account is absent from the source
+ * team or is another member's private account. The move itself re-checks
+ * access inside its transaction. */
+export async function transferAccount(
+  input: { sourceTeamId: string; destinationTeamId: string; accountId: string; stackUserId: string },
+  keys?: CredentialKeyService,
+): Promise<boolean> {
+  if (!await nativeAccountAccessible(input.sourceTeamId, input.accountId, { kind: "user", userId: input.stackUserId })) return false;
   const envelope = await encryptedCredentialForAccount(input.sourceTeamId, input.accountId);
   if (!envelope) return false;
-  const credential = await decryptCredential(envelope);
-  const moved = await encryptCredential({ accountId: input.accountId, teamId: input.destinationTeamId, provider: envelope.provider, credentialRevision: envelope.credentialRevision + 1, credential });
+  const credential = await decryptCredential(envelope, keys);
+  const moved = await encryptCredential({ accountId: input.accountId, teamId: input.destinationTeamId, provider: envelope.provider, credentialRevision: envelope.credentialRevision + 1, credential, keys });
   return await transferEncryptedAccount({ ...input, credential: moved });
 }
 import { providerIdentityKey, withCodexOwner } from "./codexIdentity";

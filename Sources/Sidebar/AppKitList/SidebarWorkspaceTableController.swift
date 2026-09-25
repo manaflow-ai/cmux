@@ -304,18 +304,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
         guard containerView === container else { return }
         let preserveNativeDragPresentation = hasActiveWorkspaceDragPresentation
-        // A writer can outlive this representable before AppKit calls
-        // `willBeginAt`. Keep only the immutable action snapshot and the source
-        // table/delegate path needed for that callback. The table is retained
-        // by the writer; the surrounding container and its hosted cells can be
-        // detached immediately, so repeated reconstruction cannot accumulate
-        // whole sidebar graphs.
+        // A writer can outlive this representable before AppKit calls `willBeginAt`.
+        // Keep only the writer-owned source table; detach rebuilt containers immediately.
         let preserveProvisionalWorkspaceDrag = !preserveNativeDragPresentation
             && (workspaceDragWriterOwnership.hasPendingTokens
                 || pendingWorkspaceDragWriter != nil)
+        var provisionalWriters: [SidebarWorkspaceDragPasteboardWriter] = []
         if preserveProvisionalWorkspaceDrag {
             pendingWorkspaceDragActions = actions ?? pendingWorkspaceDragActions
-            var provisionalWriters = (
+            provisionalWriters = (
                 pendingWorkspaceDragWriters.objectEnumerator()?.allObjects ?? []
             ).compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
             if let pendingWorkspaceDragWriter,
@@ -339,6 +336,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
             }
         }
+        let provisionalWriterBelongsToContainer = preserveProvisionalWorkspaceDrag
+            && provisionalWriters.contains { $0.sourceViewForDrag === container.tableView }
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
             activeWorkspaceDragContainerView = container
             installDeferredDropLifecycle(on: container)
@@ -394,7 +393,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             clearDropViewActions(in: container)
         }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
-        if !preserveNativeDragPresentation && !preserveProvisionalWorkspaceDrag {
+        if !preserveNativeDragPresentation,
+           !provisionalWriterBelongsToContainer {
             detachController(from: container.tableView)
         }
         container.clipView.workspaceController = nil

@@ -46,7 +46,9 @@ extension WorkspaceListView {
             }
         } else if showsWorkspaceTableFilterEmptyRow {
             items.append(.filterEmpty)
-        } else if trimmedQuery.isEmpty && !activeFilter.isActive && workspaces.isEmpty {
+        } else if trimmedQuery.isEmpty
+            && !activeFilter.isActive
+            && workspaces.isEmpty {
             items.append(.emptyWorkspaceList)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
@@ -89,6 +91,14 @@ extension WorkspaceListView {
         let isRetryOwnerCurrentOnDisappear: (() -> Bool)? = store.map { store in
             {
                 let currentTarget = store.workspaceListRecoveryTarget
+                if store.isRecoveringWorkspaceList {
+                    return store.isWorkspaceListRecoveryOwned(
+                        byMacDeviceID: emptyStateMacDeviceID,
+                        instanceTag: emptyStateMacInstanceTag
+                    )
+                        && currentTarget?.macDeviceID == emptyStateMacDeviceID
+                        && currentTarget?.instanceTag == emptyStateMacInstanceTag
+                }
                 return currentTarget?.macDeviceID == emptyStateMacDeviceID
                     && currentTarget?.instanceTag == emptyStateMacInstanceTag
             }
@@ -99,6 +109,10 @@ extension WorkspaceListView {
                 return currentTarget?.macDeviceID == emptyStateMacDeviceID
                     && currentTarget?.instanceTag == emptyStateMacInstanceTag
                     && store.workspaces.isEmpty
+                    // Hiding the empty row is itself part of the active
+                    // recovery transition. Do not let that structural
+                    // disappearance cancel the retry that owns recovery.
+                    && !store.isRecoveringWorkspaceList
             }
         }
         let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
@@ -156,6 +170,7 @@ extension WorkspaceListView {
             connectionStatus: connectionStatus,
             workspaceOwnerID: emptyStateMacDeviceID,
             workspaceOwnerInstanceTag: emptyStateMacInstanceTag,
+            showsWorkspaceEmptyState: connectionChrome.showsWorkspaceEmptyState,
             workspaceChangesCapable: workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             openWorkspaceChanges: openChanges,
