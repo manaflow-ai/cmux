@@ -11,6 +11,7 @@ permissions: {}
 
 jobs:
   validate:
+    # Every suite must publish the stable required context, including metadata edits.
     name: CLA policy guard
     # This control-plane workflow parses attacker-controlled YAML and shell
     # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must

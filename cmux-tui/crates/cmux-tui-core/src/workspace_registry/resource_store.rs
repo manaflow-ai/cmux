@@ -631,6 +631,9 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    // These fields mirror the durable retry key and payload columns. Keep the
+    // storage boundary explicit so callers cannot accidentally omit a field.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn enqueue_agent_hook_pending(
         &mut self,
         producer_id: &str,
@@ -749,7 +752,8 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    pub fn pending_agent_hook_projections(
+    #[cfg(test)]
+    pub(crate) fn pending_agent_hook_projections(
         &self,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
         let mut statement = self.connection.prepare(
@@ -779,7 +783,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    pub fn pending_agent_hook_projections_for_terminal(
+    pub(crate) fn pending_agent_hook_projections_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
@@ -825,7 +829,7 @@ impl WorkspaceRegistry {
         Ok(pending)
     }
 
-    pub fn pending_agent_hook_projections_page(
+    pub(crate) fn pending_agent_hook_projections_page(
         &self,
         after: Option<PendingAgentHookCursor>,
     ) -> anyhow::Result<(Vec<PendingAgentHookProjection>, Option<PendingAgentHookCursor>)> {
@@ -933,6 +937,7 @@ impl WorkspaceRegistry {
             result.get("terminal_id").and_then(Value::as_str) == Some(terminal_id.as_str()),
             "agent projection terminal does not match {terminal_id}"
         );
+        let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
@@ -960,6 +965,51 @@ impl WorkspaceRegistry {
             anyhow::bail!(
                 "resource revision conflict: expected {expected}, current {previous_revision}"
             );
+        }
+        // Socket reporters are observers, not a freshness clock. A second
+        // client can report the same effective state while the first report
+        // is still current. Record the new mutation key at the existing
+        // revision, then return it as a replay-equivalent no-op so this path
+        // does not churn resource events or roster recency. Hook and plugin
+        // projections keep their timestamp semantics for arbitration.
+        if socket_report && hook_state.is_none() && journal_sequence.is_none() {
+            let existing = tx
+                .query_row(
+                    "SELECT result_json FROM resource_agent_projections
+                     WHERE terminal_id = ?1",
+                    [terminal_id.as_str()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(existing_json) = existing {
+                let existing_value: Value = serde_json::from_str(&existing_json)
+                    .context("stored agent projection is not valid JSON")?;
+                if same_agent_projection_ignoring_timestamp(&existing_value, result)? {
+                    let stored_result_json = canonical_json(&existing_value)?;
+                    tx.execute(
+                        "INSERT INTO resource_mutations(
+                           origin, idempotency_key, operation, fingerprint, result_json,
+                           committed_revision
+                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            mutation.origin,
+                            mutation.id,
+                            OPERATION,
+                            fingerprint,
+                            stored_result_json,
+                            i64::try_from(previous_revision)
+                                .context("resource revision exceeds SQLite range")?,
+                        ],
+                    )?;
+                    prune_resource_mutations(&tx)?;
+                    tx.commit()?;
+                    return Ok(ResourcePatchCommit {
+                        revision: previous_revision,
+                        result: existing_value,
+                        replayed: true,
+                    });
+                }
+            }
         }
         let revision = previous_revision
             .checked_add(1)
@@ -1806,6 +1856,7 @@ impl WorkspaceRegistry {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
                  BEFORE INSERT ON session_journal
+                 WHEN NEW.resource_revision IS NOT NULL
                  BEGIN SELECT RAISE(ABORT, 'forced resource patch failure'); END;",
             )?;
         } else {
@@ -1852,6 +1903,26 @@ impl WorkspaceRegistry {
             .optional()
             .map_err(Into::into)
     }
+}
+
+/// Compare two agent projections while ignoring the local observation clock.
+/// The caller has already restricted this to a socket report, so a matching
+/// semantic value is safe to acknowledge without another resource revision.
+fn same_agent_projection_ignoring_timestamp(
+    existing: &Value,
+    incoming: &Value,
+) -> anyhow::Result<bool> {
+    let mut existing = existing.clone();
+    let mut incoming = incoming.clone();
+    let Some(existing_object) = existing.as_object_mut() else {
+        return Ok(false);
+    };
+    let Some(incoming_object) = incoming.as_object_mut() else {
+        return Ok(false);
+    };
+    existing_object.remove("updated_at_ms");
+    incoming_object.remove("updated_at_ms");
+    Ok(canonical_json(&existing)? == canonical_json(&incoming)?)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

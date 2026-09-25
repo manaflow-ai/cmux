@@ -20,6 +20,7 @@ struct MobileSettingsView: View {
     private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
 
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Optional so previews and hosts without the app root still render; the
@@ -56,11 +57,19 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Keeps the picker responsive while Stack Auth persists the selection.
+    /// The coordinator remains the confirmed scope authority; this value is
+    /// cleared when that request finishes or fails.
+    @State private var pendingTeamID: String?
+    @State private var pendingTeamRequestID: UUID?
+    @State private var teamSelectionTask: Task<Void, Never>?
+    @State private var teamSelectionFailed = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var didCopySupportInformation = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -75,6 +84,10 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        #if DEBUG
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
+        let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
+        #endif
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -124,10 +137,20 @@ struct MobileSettingsView: View {
                             systemImage: "person.2"
                         )
                     } footer: {
-                        Text(L10n.string(
-                            "mobile.settings.teamFooter",
-                            defaultValue: "Switches which cmux team's computers and devices this app shows."
-                        ))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.teamFooter",
+                                defaultValue: "Switches which cmux team's computers and devices this app shows."
+                            ))
+                            if teamSelectionFailed {
+                                Text(L10n.string(
+                                    "mobile.settings.teamSwitchFailed",
+                                    defaultValue: "Could not switch teams. Try again."
+                                ))
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("MobileSettingsTeamSwitchError")
+                            }
+                        }
                     }
                 }
 
@@ -243,6 +266,22 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
 
+                    Toggle(isOn: $displaySettings.useLegacyTerminalSizing) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing",
+                                defaultValue: "Use Full Terminal Height"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing.description",
+                                defaultValue: "Let apps like Vim extend beneath the keyboard and toolbars."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
+
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -273,6 +312,15 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    NavigationLink {
+                        MobileWhatsNewDebugView(pages: whatsNewPages, allowedWebHosts: whatsNewHosts)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.whatsNew.debug.title", defaultValue: "Replay What's New"),
+                            systemImage: "rectangle.stack"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsReplayWhatsNew")
                     Button {
                         showingToastGallery = true
                     } label: {
@@ -444,7 +492,8 @@ struct MobileSettingsView: View {
                     MobilePushSettingsContent(
                         readiness: pushCoordinator.readiness(
                             macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true
+                            macAccountMismatch: store?.connectionRequiresReauth == true,
+                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
                         ),
                         phoneEnabled: $notificationsEnabled,
                         macStatus: store?.phonePushMacStatus,
@@ -481,6 +530,11 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
+                    if store?.phonePushKeyExchangeFailed == true {
+                        MobilePushSecuritySetupFailureView(
+                            onRetry: retrySecurePushSetup
+                        )
+                    }
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
                         applyEnabledIntent: setPhonePushEnabledIntent
@@ -517,6 +571,8 @@ struct MobileSettingsView: View {
 
                 MobileSettingsLegalSupportSection()
 
+                MobileSettingsResetSection()
+
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
@@ -529,6 +585,21 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsVersionRow")
+
+                    Button {
+                        copySupportInformation()
+                    } label: {
+                        Label(
+                            didCopySupportInformation
+                                ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
+                                : L10n.string(
+                                    "mobile.settings.about.copySupportInfo",
+                                    defaultValue: "Copy Support Information"
+                                ),
+                            systemImage: didCopySupportInformation ? "checkmark" : "doc.on.clipboard"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsCopySupportInformation")
                 }
             }
             .task {
@@ -569,7 +640,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+                    keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -582,27 +653,16 @@ struct MobileSettingsView: View {
                         (startTailscalePairing ?? startPairingScanner)?()
                     },
                     onSetKeepAwake: { [store] enabled in
-                        await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                        await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
                     },
                     onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings is reached only from
-                // the connected workspace list, so there is no current blocker to
-                // mark "You are here".
+                // Re-enterable setup help as a plain reference. Settings can be
+                // opened before pairing, but it does not own the active connection
+                // gate, so there is no current blocker to mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
-            }
-        }
-        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
-            guard oldMethod != newMethod, store != nil else { return }
-            let stackUserID = authManager.currentUser?.id
-            Task {
-                _ = await store?.retryActiveMacReconnect(
-                    stackUserID: stackUserID,
-                    force: true
-                )
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
@@ -610,6 +670,7 @@ struct MobileSettingsView: View {
             diagnosticLog?.recordAppEvent(.settingsOpened)
         }
         .onDisappear {
+            teamSelectionTask?.cancel()
             diagnosticLog?.recordAppEvent(.settingsClosed)
         }
         .onChange(of: sendAnonymousTelemetry) { _, value in
@@ -618,6 +679,37 @@ struct MobileSettingsView: View {
                 .crashReportingConsentChanged,
                 count: value ? 1 : 0
             )
+        }
+    }
+
+    @MainActor
+    private func copySupportInformation() {
+        let version = AppVersionInfo.current()
+        let info = MobileDebugInformation(
+            accountID: authManager.currentUser?.id,
+            installID: analyticsClientID,
+            deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            teamID: authManager.resolvedTeamID,
+            bundleID: Bundle.main.bundleIdentifier,
+            appChannel: MobileBuildType.current().token,
+            appVersion: version.marketingVersion,
+            buildNumber: version.buildNumber,
+            osVersion: UIDevice.current.systemVersion,
+            deviceModel: UIDevice.current.model,
+            connectionState: store.map { state in
+                switch state.connectionState {
+                case .connected: "connected"
+                case .disconnected: "disconnected"
+                }
+            },
+            transport: store?.activeRoute?.kind.rawValue
+        )
+        UIPasteboard.general.string = info.report
+        didCopySupportInformation = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopySupportInformation = false
         }
     }
 
@@ -630,7 +722,7 @@ struct MobileSettingsView: View {
         if let whatsNewCenter {
             return !whatsNewCenter.archivePages.isEmpty
         }
-        return !MobileWhatsNewCatalog.channelVisibleEntries().isEmpty
+        return !MobileWhatsNewCatalog().channelVisibleEntries().isEmpty
     }
 
     private func recordBooleanSetting(
@@ -759,6 +851,8 @@ struct MobileSettingsView: View {
             return await store?.updatePhonePushSettings(
                 forwardingEnabled: true
             ) == true
+        case .retrySecurePushSetup:
+            return store?.retryPhonePushKeyExchange() == true
         case .waitForDeviceToken, .finishAccountDeletion,
              .disablePushOnAnotherDevice, .rebuildMatchingApps:
             return false
@@ -799,6 +893,11 @@ struct MobileSettingsView: View {
         return stage
     }
 
+    @MainActor
+    private func retrySecurePushSetup() async -> Bool {
+        store?.retryPhonePushKeyExchange() == true
+    }
+
     private static var crashReportingEnabled: Bool {
         switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
         case let enabled as Bool:
@@ -818,10 +917,8 @@ struct MobileSettingsView: View {
         }
     }
 
-    /// Which setup gate to mark as the user's current blocker. Settings is reached
-    /// only from the connected workspace list, so the user has cleared every gate
-    /// and there is no "You are here" step; the help is a plain reference. `nil`
-    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
+    /// Settings is a reference entry point from both connected and pre-pairing
+    /// workspace shells. It does not identify which connection gate is active.
     private var setupHelpHighlight: MobileSetupGuidanceState? {
         nil
     }
@@ -833,22 +930,45 @@ struct MobileSettingsView: View {
     }
 
     /// Whether the setup and introduction entries apply. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac or store,
-    /// so they are hidden.
+    /// hosted by the workspace shell, the host's Computers action keeps these
+    /// entries useful even before a Mac has connected. Previews without a
+    /// shell action still omit the section.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil
+        !connectedHostName.isEmpty || store != nil || showComputers != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
     /// which falls back to the first team when nothing is explicitly selected) so
     /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
-            get: { authManager.resolvedTeamID },
+            get: { pendingTeamID ?? authManager.resolvedTeamID },
             set: { newValue in
-                if let newValue, newValue != authManager.selectedTeamID {
-                    authManager.selectedTeamID = newValue
+                guard let newValue,
+                      newValue != (pendingTeamID ?? authManager.resolvedTeamID) else { return }
+                let requestID = UUID()
+                teamSelectionTask?.cancel()
+                pendingTeamID = newValue
+                pendingTeamRequestID = requestID
+                teamSelectionFailed = false
+                teamSelectionTask = Task { @MainActor in
+                    do {
+                        try await authManager.selectTeam(id: newValue)
+                    } catch is CancellationError {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                    } catch {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                        teamSelectionFailed = true
+                        return
+                    }
+                    guard pendingTeamRequestID == requestID else { return }
+                    pendingTeamID = nil
+                    pendingTeamRequestID = nil
                 }
             }
         )

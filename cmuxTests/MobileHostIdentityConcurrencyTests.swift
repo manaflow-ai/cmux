@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -9,6 +10,37 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityConcurrencyTests {
+    @Test(.timeLimit(.minutes(1)))
+    func backgroundDefaultsNotificationDoesNotWaitForTheMainThread() async {
+        let center = NotificationCenter()
+        let environment = AppearanceSettingsUserDefaultsObserver.Environment.live(notificationCenter: center)
+        let (deliveries, continuation) = AsyncStream<Void>.makeStream()
+        let observer = environment.addDefaultsObserver {
+            MainActor.preconditionIsolated()
+            continuation.yield()
+        }
+        defer {
+            environment.removeObserver(observer)
+            continuation.finish()
+        }
+        let postReturned = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            center.post(name: UserDefaults.didChangeNotification, object: nil)
+            postReturned.signal()
+        }
+
+        // Deliberately hold main while a background preference writer posts.
+        // A finite wait reproduces the cache-initialization deadlock without
+        // leaving the test host blocked when the assertion fails.
+        #expect(Self.waitForPostWhileMainThreadIsOccupied(postReturned))
+        var iterator = deliveries.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
+    }
+
+    private static func waitForPostWhileMainThreadIsOccupied(_ posted: DispatchSemaphore) -> Bool {
+        posted.wait(timeout: .now() + 1) == .success
+    }
+
     @Test func dismissalWarmupGateDoesNotResolveIdentityOnTheSynchronousPath() throws {
         let prewarm = PhonePushIdentityPrewarm(
             identityProvider: NeverReadyPhonePushIdentityProvider()

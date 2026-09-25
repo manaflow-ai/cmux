@@ -21,7 +21,7 @@ let package = Package(
         .package(path: "../CmuxIrohTransport"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
-            exact: "1.0.2-cmux.7.ios17.1"
+            exact: "1.0.2-cmux.7.ios17.3"
         ),
     ],
     targets: [
@@ -48,6 +48,9 @@ let package = Package(
                 "CMUXMobileCore",
                 "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
+            ],
+            resources: [
+                .copy("V2/Fixtures"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

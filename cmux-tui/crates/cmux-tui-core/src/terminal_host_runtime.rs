@@ -30,7 +30,7 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_SMART_RENDERER,
-    FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
+    FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
     RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
@@ -158,6 +158,10 @@ pub struct TerminalHostRecord {
     /// accept fire-and-forget input but cannot confirm PTY delivery.
     #[serde(default)]
     pub supports_input_ack: bool,
+    /// Additive snapshot capability. Missing/false records use the v4
+    /// snapshot layout without the optional generic terminal metadata tail.
+    #[serde(default)]
+    pub supports_terminal_metadata: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -175,6 +179,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_clear_history", &self.supports_clear_history)
             .field("supports_terminate_ack", &self.supports_terminate_ack)
             .field("supports_input_ack", &self.supports_input_ack)
+            .field("supports_terminal_metadata", &self.supports_terminal_metadata)
             .finish()
     }
 }
@@ -230,6 +235,10 @@ pub struct HostSnapshot {
     pub pid: Option<u32>,
     pub command: Vec<String>,
     pub cwd: Option<String>,
+    /// Optional generic terminal metadata restored at the same snapshot
+    /// boundary. It is sent only when the client and host negotiate the
+    /// `FLAG_TERMINAL_METADATA` capability.
+    pub osc_progress: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2285,10 +2294,16 @@ mod unix {
                 || record.supports_clear_history
                 || record.supports_terminate_ack
                 || record.supports_input_ack
+                || record.supports_terminal_metadata
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
         } else {
+            if record.record_version < HOST_RECORD_VERSION && record.supports_terminal_metadata {
+                anyhow::bail!(
+                    "legacy terminal-host record advertises terminal metadata without support"
+                );
+            }
             if record.record_version == 2 && record.supports_terminate_ack {
                 anyhow::bail!("version 2 terminal-host record advertises terminate receipts");
             }
@@ -2759,19 +2774,28 @@ mod unix {
         };
         let mut hello_frame = hello.into_frame(1);
         hello_frame.version = protocol_version;
+        let terminal_metadata_requested =
+            protocol_version == PROTOCOL_VERSION && record.supports_terminal_metadata;
         if smart_renderer {
             hello_frame.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        }
+        if terminal_metadata_requested {
+            hello_frame.flags |= FLAG_TERMINAL_METADATA;
         }
         write_frame(&mut stream, &hello_frame)?;
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
         if hello_frame.kind != MessageKind::HostHello
             || hello_frame.version != protocol_version
             || hello_frame.flags
-                & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER | FLAG_LAUNCH_ACTIVATION_REQUIRED)
+                & !(FLAG_VIEWER_SIZE_ACKS
+                    | FLAG_SMART_RENDERER
+                    | FLAG_LAUNCH_ACTIVATION_REQUIRED
+                    | FLAG_TERMINAL_METADATA)
                 != 0
             || hello_frame.request_id != 1
             || hello_frame.sequence != 0
             || (smart_renderer && hello_frame.flags & FLAG_SMART_RENDERER == 0)
+            || (!terminal_metadata_requested && hello_frame.flags & FLAG_TERMINAL_METADATA != 0)
         {
             anyhow::bail!("terminal host rejected owner handshake");
         }
@@ -2787,6 +2811,7 @@ mod unix {
         {
             anyhow::bail!("terminal-host record identity does not match live host");
         }
+        let terminal_metadata_negotiated = hello_frame.flags & FLAG_TERMINAL_METADATA != 0;
         let snapshot_frame = read_required_frame(&mut stream, "terminal snapshot")?;
         if snapshot_frame.kind != MessageKind::Snapshot
             || snapshot_frame.version != protocol_version
@@ -2795,7 +2820,11 @@ mod unix {
         {
             anyhow::bail!("terminal host did not send an initial snapshot");
         }
-        let mut snapshot = decode_snapshot_for_version(&snapshot_frame.payload, protocol_version)?;
+        let mut snapshot = decode_snapshot_for_version(
+            &snapshot_frame.payload,
+            protocol_version,
+            terminal_metadata_negotiated,
+        )?;
         let colors_frame = read_required_frame(&mut stream, "terminal color state")?;
         if colors_frame.kind != MessageKind::Colors
             || colors_frame.version != protocol_version
@@ -3472,6 +3501,10 @@ mod unix {
         owner_token: CapabilityToken,
         capabilities: CapabilityStore,
         term: Mutex<Terminal>,
+        /// Generic metadata parsed from the same ordered PTY bytes as the
+        /// authoritative terminal. Snapshot code takes this after `term`,
+        /// preserving one metadata boundary for reconnecting mirrors.
+        terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
         default_colors: Mutex<DefaultColors>,
         stream_progress: TerminalStreamProgress,
         writer: Mutex<Box<dyn Write + Send>>,
@@ -3946,6 +3979,7 @@ mod unix {
                     // command submitter publishes the smart resync marker
                     // while it still owns source order.
                     self.broadcast(MessageKind::Output, clear.clone());
+                    self.stream_progress.notify();
                     ParserClearHistoryResult::Cleared(clear)
                 }
                 ClearHistoryTransition::Blocked => ParserClearHistoryResult::Blocked,
@@ -5110,6 +5144,7 @@ mod unix {
             supports_clear_history: true,
             supports_terminate_ack: true,
             supports_input_ack: true,
+            supports_terminal_metadata: true,
         };
         let record_root = Path::new(&launch.record_path)
             .parent()
@@ -5191,7 +5226,19 @@ mod unix {
                     )?;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(20));
+                    // Wake as soon as an attachment arrives. The timeout keeps
+                    // the same lifecycle/owner-death polling bound without
+                    // imposing a 20 ms admission delay on each new connection.
+                    let mut fd =
+                        libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+                    // SAFETY: fd is valid for this call and listener owns the
+                    // descriptor until the accept loop exits.
+                    if unsafe { libc::poll(&mut fd, 1, 20) } < 0 {
+                        let error = std::io::Error::last_os_error();
+                        if error.kind() != std::io::ErrorKind::Interrupted {
+                            return Err(error.into());
+                        }
+                    }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error.into()),
@@ -5278,6 +5325,7 @@ mod unix {
             owner_token: bootstrapped.owner_token(),
             capabilities: CapabilityStore::new(64),
             term: Mutex::new(term),
+            terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
             default_colors: Mutex::new(launch.default_colors),
             stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
@@ -5346,6 +5394,7 @@ mod unix {
                                 .cursor_activity()
                                 .expect("valid host terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&bytes).into_owned();
+                            parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
                             let title = title_changed
                                 .swap(false, Ordering::AcqRel)
                                 .then(|| term.title().unwrap_or_default());
@@ -5371,10 +5420,12 @@ mod unix {
                             // snapshot cannot include output that its boundary
                             // still describes as unapplied.
                             parser_host.smart.mark_applied(source_cursor);
+                            // Keep the host stream watermark on the same side
+                            // of the terminal lock as the applied bytes.
+                            parser_host.stream_progress.notify();
                             title
                         };
                         parser_host.note_parser_progress();
-                        parser_host.stream_progress.notify();
                         parser_host.parser_budget.release(accounted_bytes);
                         if let Some(title) = title {
                             parser_host.broadcast(MessageKind::Title, title.into_bytes());
@@ -5416,7 +5467,6 @@ mod unix {
                             .map_err(|error| error.to_string());
                         if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
                             parser_host.note_parser_progress();
-                            parser_host.stream_progress.notify();
                         }
                         flush_pending_responses();
                         let _ = response.send(result);
@@ -5559,7 +5609,11 @@ mod unix {
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
-            || hello_frame.flags & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER) != 0
+            || hello_frame.flags
+                & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER | FLAG_TERMINAL_METADATA)
+                != 0
+            || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
+                && hello_frame.version != PROTOCOL_VERSION)
         {
             anyhow::bail!("terminal-host client did not send ClientHello");
         }
@@ -5582,6 +5636,8 @@ mod unix {
         let smart_renderer = selected_version >= SMART_RENDERER_PROTOCOL_VERSION
             && hello_frame.flags & FLAG_SMART_RENDERER != 0
             && matches!(hello.role, ClientRole::Renderer | ClientRole::Admin);
+        let terminal_metadata =
+            selected_version == PROTOCOL_VERSION && hello_frame.flags & FLAG_TERMINAL_METADATA != 0;
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
             hello_response.flags |= FLAG_VIEWER_SIZE_ACKS;
@@ -5591,6 +5647,9 @@ mod unix {
         }
         if smart_renderer {
             hello_response.flags |= FLAG_SMART_RENDERER;
+        }
+        if terminal_metadata {
+            hello_response.flags |= FLAG_TERMINAL_METADATA;
         }
         hello_response.request_id = hello_frame.request_id;
         write_frame(&mut stream, &hello_response)?;
@@ -5672,6 +5731,7 @@ mod unix {
                 crate::surface::VT_REPLAY_MAX_BYTES,
             )?;
             let colors = term.color_overrides();
+            let osc_progress = host.terminal_metadata.lock().unwrap().osc_progress().to_owned();
             let (cols, rows) = *size;
             let cell_pixels = *cell_pixels;
             debug_assert_eq!((term.cols(), term.rows()), (cols, rows));
@@ -5716,6 +5776,7 @@ mod unix {
                         &host.owner_token,
                         selected_version,
                     ),
+                    osc_progress,
                 },
                 colors,
                 snapshot_sequence,
@@ -5736,7 +5797,11 @@ mod unix {
         if !activation_required {
             launch_owner.stream_ready();
         }
-        let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
+        let include_terminal_metadata = hello_response.flags & FLAG_TERMINAL_METADATA != 0;
+        let mut snapshot_frame = Frame::new(
+            MessageKind::Snapshot,
+            encode_snapshot_for_version(&snapshot, selected_version, include_terminal_metadata)?,
+        );
         snapshot_frame.sequence = snapshot_sequence;
         write_frame(&mut stream, &snapshot_frame)?;
         let mut colors_frame =
@@ -6051,6 +6116,25 @@ mod unix {
     }
 
     fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
+        encode_snapshot_for_version(snapshot, PROTOCOL_VERSION, false)
+    }
+
+    fn encode_snapshot_for_version(
+        snapshot: &HostSnapshot,
+        protocol_version: u16,
+        include_terminal_metadata: bool,
+    ) -> anyhow::Result<Vec<u8>> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
+        }
+        if include_terminal_metadata && protocol_version < PROTOCOL_VERSION {
+            anyhow::bail!("terminal metadata requires the current snapshot protocol");
+        }
+        if snapshot.osc_progress.chars().count() > crate::terminal_metadata::MAX_PROGRESS_CHARS
+            || snapshot.osc_progress.chars().any(char::is_control)
+        {
+            anyhow::bail!("terminal-host OSC progress is out of range");
+        }
         let (cols, rows) = normalize_terminal_geometry(snapshot.cols, snapshot.rows)?;
         snapshot
             .kitty_state
@@ -6073,6 +6157,9 @@ mod unix {
         output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
         output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
         encode_kitty_replay_state(&mut output, snapshot.kitty_state)?;
+        if include_terminal_metadata {
+            put_string(&mut output, &snapshot.osc_progress)?;
+        }
         if output.len() > MAX_FRAME_PAYLOAD {
             anyhow::bail!("terminal-host snapshot payload is too large");
         }
@@ -6088,19 +6175,23 @@ mod unix {
 
     #[cfg(test)]
     fn decode_snapshot(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
-        decode_snapshot_for_version(payload, PROTOCOL_VERSION)
+        decode_snapshot_for_version(payload, PROTOCOL_VERSION, false)
     }
 
     pub fn decode_host_snapshot_payload(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
-        decode_snapshot_for_version(payload, PROTOCOL_VERSION)
+        decode_snapshot_for_version(payload, PROTOCOL_VERSION, false)
     }
 
     fn decode_snapshot_for_version(
         payload: &[u8],
         protocol_version: u16,
+        include_terminal_metadata: bool,
     ) -> anyhow::Result<HostSnapshot> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
+        }
+        if include_terminal_metadata && protocol_version < PROTOCOL_VERSION {
+            anyhow::bail!("terminal metadata requires the current snapshot protocol");
         }
         let mut decoder = PayloadDecoder::new(payload);
         let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
@@ -6135,6 +6226,20 @@ mod unix {
         } else {
             KittyReplayState::disabled()
         };
+        let osc_progress = if include_terminal_metadata {
+            if !decoder.has_remaining() {
+                anyhow::bail!("terminal-host snapshot omitted negotiated metadata");
+            }
+            let value = decoder.string()?;
+            if value.chars().count() > crate::terminal_metadata::MAX_PROGRESS_CHARS
+                || value.chars().any(char::is_control)
+            {
+                anyhow::bail!("terminal-host OSC progress is out of range");
+            }
+            value
+        } else {
+            String::new()
+        };
         pty_size(cols, rows, cell_pixels)?;
         decoder.finish()?;
         Ok(HostSnapshot {
@@ -6149,6 +6254,7 @@ mod unix {
             pid,
             command,
             cwd,
+            osc_progress,
         })
     }
 
@@ -6485,6 +6591,10 @@ mod unix {
             }
             Ok(())
         }
+
+        fn has_remaining(&self) -> bool {
+            self.offset < self.payload.len()
+        }
     }
 
     fn put_bytes(output: &mut Vec<u8>, bytes: &[u8]) -> anyhow::Result<()> {
@@ -6679,6 +6789,7 @@ mod unix {
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(64),
                 term: Mutex::new(term),
+                terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
                 default_colors: Mutex::new(DefaultColors::default()),
                 stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
@@ -6769,6 +6880,7 @@ mod unix {
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(64),
                 term: Mutex::new(term),
+                terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
                 default_colors: Mutex::new(DefaultColors::default()),
                 stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
@@ -6844,6 +6956,7 @@ mod unix {
                 supports_clear_history: true,
                 supports_terminate_ack: true,
                 supports_input_ack: true,
+                supports_terminal_metadata: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -6869,6 +6982,7 @@ mod unix {
                 supports_clear_history: false,
                 supports_terminate_ack: false,
                 supports_input_ack: true,
+                supports_terminal_metadata: false,
             };
             let record_path = std::env::temp_dir().join(format!(
                 "cmux-input-ack-surface-{}-{}.json",
@@ -6892,6 +7006,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -7108,6 +7223,7 @@ mod unix {
                 pid: Some(42),
                 command: vec!["/bin/cat".into()],
                 cwd: Some("/tmp".into()),
+                osc_progress: String::new(),
             };
             let payload = encode_snapshot(&snapshot).unwrap();
 
@@ -7124,6 +7240,60 @@ mod unix {
         }
 
         #[test]
+        fn snapshot_payload_round_trip_preserves_negotiated_terminal_metadata() {
+            let snapshot = HostSnapshot {
+                cols: 80,
+                rows: 24,
+                cell_pixels: (9, 18),
+                replay: b"replay".to_vec(),
+                kitty_image_aliases: Vec::new(),
+                kitty_state: KittyReplayState::disabled(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+                osc_progress: "4;1;50".into(),
+            };
+            let payload = encode_snapshot_for_version(&snapshot, PROTOCOL_VERSION, true).unwrap();
+            let decoded = decode_snapshot_for_version(&payload, PROTOCOL_VERSION, true).unwrap();
+            assert_eq!(decoded.osc_progress, snapshot.osc_progress);
+            assert!(
+                decode_snapshot(&payload).is_err(),
+                "a metadata tail must not be accepted without negotiation"
+            );
+        }
+
+        #[test]
+        fn host_snapshot_negotiates_terminal_metadata_at_the_stream_boundary() {
+            let host = exited_host_fixture();
+            assert!(host.terminal_metadata.lock().unwrap().set_osc_progress("4;1;50"));
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let server = thread::spawn({
+                let host = host.clone();
+                move || serve_client(host, server_stream)
+            });
+
+            let mut hello = snapshot_boundary_client_hello(&host, false).unwrap();
+            hello.flags |= FLAG_TERMINAL_METADATA;
+            write_frame(&mut client_stream, &hello).unwrap();
+            let host_hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+            assert_eq!(host_hello.flags & FLAG_TERMINAL_METADATA, FLAG_TERMINAL_METADATA);
+            let snapshot_frame = read_required_frame(&mut client_stream, "snapshot").unwrap();
+            let snapshot =
+                decode_snapshot_for_version(&snapshot_frame.payload, PROTOCOL_VERSION, true)
+                    .unwrap();
+            assert_eq!(snapshot.osc_progress, "4;1;50");
+            assert_eq!(
+                read_required_frame(&mut client_stream, "colors").unwrap().kind,
+                MessageKind::Colors
+            );
+            drop(client_stream);
+            assert!(server.join().unwrap().is_ok());
+        }
+
+        #[test]
         fn snapshot_payload_matches_the_cross_language_current_golden_bytes() {
             let snapshot = HostSnapshot {
                 cols: 1,
@@ -7137,6 +7307,7 @@ mod unix {
                 pid: None,
                 command: Vec::new(),
                 cwd: None,
+                osc_progress: String::new(),
             };
 
             assert_eq!(
@@ -7163,11 +7334,13 @@ mod unix {
                 pid: Some(42),
                 command: vec!["/bin/cat".into()],
                 cwd: Some("/tmp".into()),
+                osc_progress: String::new(),
             };
             let snapshot_payload = encode_snapshot(&snapshot).unwrap();
             let v2_snapshot_len = snapshot_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
-            let decoded = decode_snapshot_for_version(&snapshot_payload[..v2_snapshot_len], 2)
-                .expect("protocol-v2 snapshots end after cell metrics");
+            let decoded =
+                decode_snapshot_for_version(&snapshot_payload[..v2_snapshot_len], 2, false)
+                    .expect("protocol-v2 snapshots end after cell metrics");
             assert_eq!(decoded.replay, snapshot.replay);
             assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
             assert_eq!(decoded.cell_pixels, snapshot.cell_pixels);
@@ -7181,6 +7354,7 @@ mod unix {
             let decoded = decode_snapshot_for_version(
                 &snapshot_payload[..v1_snapshot_len],
                 LEGACY_PROTOCOL_VERSION,
+                false,
             )
             .expect("protocol-v1 snapshots end before Kitty aliases");
             assert_eq!(decoded.replay, snapshot.replay);
@@ -7322,6 +7496,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -7376,6 +7551,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: true,
@@ -7643,6 +7819,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: true,
@@ -7692,6 +7869,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -7991,6 +8169,7 @@ mod unix {
                 legacy.record_version = version;
                 legacy.supports_terminate_ack = version >= 3;
                 legacy.supports_input_ack = false;
+                legacy.supports_terminal_metadata = false;
                 validate_terminal_host_record(&record_path, &legacy).unwrap();
                 legacy.supports_input_ack = true;
                 assert!(
@@ -8019,6 +8198,7 @@ mod unix {
             legacy.supports_clear_history = false;
             legacy.supports_terminate_ack = false;
             legacy.supports_input_ack = false;
+            legacy.supports_terminal_metadata = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 
@@ -8137,7 +8317,10 @@ mod unix {
             let hellos = server.join().unwrap();
             assert_eq!(
                 hellos,
-                vec![(PROTOCOL_VERSION, FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS)]
+                vec![(
+                    PROTOCOL_VERSION,
+                    FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS | FLAG_TERMINAL_METADATA
+                )]
             );
 
             let _ = fs::remove_file(endpoint);
@@ -8172,6 +8355,7 @@ mod unix {
                     pid: None,
                     command: vec!["/bin/cat".into()],
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -8288,6 +8472,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: true,
@@ -8447,6 +8632,7 @@ mod unix {
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
+                    osc_progress: String::new(),
                 },
                 protocol_version: PROTOCOL_VERSION,
                 smart_renderer: false,
@@ -8565,6 +8751,7 @@ mod unix {
                     pid: Some(42),
                     command: vec!["/bin/cat".into()],
                     cwd: Some("/tmp".into()),
+                    osc_progress: String::new(),
                 };
                 let mut payload = encode_snapshot(&snapshot).unwrap();
                 payload.truncate(
@@ -8613,6 +8800,10 @@ mod unix {
         #[test]
         fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
             let (record_path, record, lease) = record_fixture("legacy-fallback");
+            let mut record = record;
+            // This fixture models a current-protocol host from before the
+            // optional metadata extension. It must not receive the new tail.
+            record.supports_terminal_metadata = false;
             let endpoint = PathBuf::from(&record.endpoint);
             prepare_private_dir(endpoint.parent().unwrap()).unwrap();
             let _ = fs::remove_file(&endpoint);
@@ -8683,6 +8874,7 @@ mod unix {
                     pid: None,
                     command: vec!["/bin/sh".into()],
                     cwd: None,
+                    osc_progress: String::new(),
                 };
                 let mut snapshot_frame =
                     Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);

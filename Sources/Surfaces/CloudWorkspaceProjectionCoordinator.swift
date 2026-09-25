@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Materializes the accepted Cloud graph into bound native workspaces. The graph
@@ -90,6 +92,13 @@ final class CloudWorkspaceProjectionCoordinator {
         let machine = state.machine
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
+            if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspaceID) { continue }
+            // A delete owns this workspace's visible lifecycle. Do not let a
+            // late projection refresh recreate its panes while the backend
+            // request is pending; a committed delete will reconcile them once.
+            if catalog.isCloudWorkspaceDeletionPending(machine: machine, workspaceID: remoteID) {
+                continue
+            }
             guard isCurrent(state, catalog: catalog) else {
                 if !Task.isCancelled { requested.insert(machine) }
                 return
@@ -116,6 +125,9 @@ final class CloudWorkspaceProjectionCoordinator {
                     return
                 }
                 for projection in plan.obsolete {
+#if DEBUG
+                    cmuxDebugLog("cloudWorkspace.projection.obsolete workspace=\(workspaceID) panel=\(projection.panelID) resource=\(projection.resource.rawValue) remoteWorkspace=\(projection.remoteWorkspaceID ?? "nil") tab=\(projection.remoteTabID ?? "nil") desired=\(desired.count)")
+#endif
                     environment.close(projection)
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
