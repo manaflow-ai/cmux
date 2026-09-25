@@ -34,6 +34,10 @@ final class LocalTmuxSettingsModel {
 
     var isLoading: Bool { phase == .loading }
     var actionInFlight: Bool { phase == .acting }
+    /// True while a start or attach runs, even after cancel() stops publishing
+    /// its result. A second action must not replace, and so kill, a live one.
+    private(set) var actionRunning = false
+    var canStartAction: Bool { phase == .idle && !actionRunning }
 
     init(hostActions: SettingsHostActions) {
         self.hostActions = hostActions
@@ -58,11 +62,13 @@ final class LocalTmuxSettingsModel {
     /// Starts the typed session name, then refreshes.
     func startSession() {
         let name = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
+        guard !name.isEmpty, !actionRunning else { return }
 
         let generation = beginRequest(phase: .acting)
+        actionRunning = true
         tasks.replaceOnMainActor(.action) { @MainActor [weak self] in
             guard let self else { return }
+            defer { actionRunning = false }
             do {
                 try await hostActions.startLocalTmuxSession(name: name)
                 guard isCurrent(generation) else { return }
@@ -77,9 +83,12 @@ final class LocalTmuxSettingsModel {
 
     /// Attaches one session, then refreshes.
     func attach(_ session: LocalTmuxSessionSummary) {
+        guard !actionRunning else { return }
         let generation = beginRequest(phase: .acting)
+        actionRunning = true
         tasks.replaceOnMainActor(.action) { @MainActor [weak self] in
             guard let self else { return }
+            defer { actionRunning = false }
             do {
                 try await hostActions.attachLocalTmuxSession(session)
                 guard isCurrent(generation) else { return }

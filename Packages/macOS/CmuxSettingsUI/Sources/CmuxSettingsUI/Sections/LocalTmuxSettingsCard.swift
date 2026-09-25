@@ -81,7 +81,7 @@ struct LocalTmuxSettingsCard: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(
-                        model.phase != .idle
+                        !model.canStartAction
                             || model.sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
                     .accessibilityIdentifier("SettingsTerminalLocalTmuxStartButton")
@@ -103,7 +103,7 @@ struct LocalTmuxSettingsCard: View {
                 SettingsCardDivider()
                 LocalTmuxSessionRow(
                     session: session,
-                    canAttach: model.phase == .idle,
+                    canAttach: model.canStartAction,
                     onAttach: { model.attach(session) }
                 )
             }
