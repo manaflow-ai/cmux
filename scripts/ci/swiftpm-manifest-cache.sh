@@ -107,11 +107,23 @@ stage() {
   rm -f "$dir/manifest.db-wal" "$dir/manifest.db-shm"
 }
 
+# Past this size a kept cache is replaced instead of merged into.
+MANIFEST_CACHE_MERGE_MAX_BYTES="${CMUX_CI_SWIFTPM_MANIFEST_MERGE_MAX_BYTES:-268435456}"
+
 # Installs a restored manifest.db as SwiftPM's cache. A missing or unreadable
 # restore leaves the runner's own cache alone: the resolve then evaluates
 # manifests as it always has.
+#
+# An owned Mac keeps its cache between jobs, so the restored entries are merged
+# into it rather than replacing it. The seed holds entries for one canonical
+# root (the key names each manifest's absolute path), and a second compile slot
+# resolves at /private/tmp/cmux-ci-2. Replaced every job, that slot evaluated
+# all 91 manifests every time: 53 to 64 s of the resolve against 15 to 22 s in
+# root 1 (hq#661). Merged, it evaluates only what changed since its last job on
+# that Mac. Entries are keyed on contents, so an old one is never wrong, only
+# unused. An ephemeral runner has no cache and gets the plain copy.
 install() {
-  local dir="$1" entries
+  local dir="$1" entries kept_bytes
   if [ ! -f "$dir/manifest.db" ]; then
     echo "No restored SwiftPM manifest cache; resolving without it"
     return 0
@@ -121,6 +133,17 @@ install() {
     return 0
   fi
   mkdir -p "$MANIFEST_CACHE_DIR"
+  if [ -f "$MANIFEST_CACHE_DIR/manifest.db" ]; then
+    kept_bytes="$(stat -f %z "$MANIFEST_CACHE_DIR/manifest.db" 2>/dev/null || stat -c %s "$MANIFEST_CACHE_DIR/manifest.db")"
+    if [ "$kept_bytes" -le "$MANIFEST_CACHE_MERGE_MAX_BYTES" ] \
+      && sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" \
+        "ATTACH '$dir/manifest.db' AS seed; INSERT OR REPLACE INTO main.MANIFEST_CACHE SELECT * FROM seed.MANIFEST_CACHE;" \
+        >/dev/null 2>&1; then
+      echo "Merged $entries SwiftPM manifest cache entries into this Mac's $(sqlite3 "$MANIFEST_CACHE_DIR/manifest.db" 'select count(*) from MANIFEST_CACHE')"
+      return 0
+    fi
+    echo "Replacing this Mac's SwiftPM manifest cache ($kept_bytes bytes, or not mergeable)"
+  fi
   rm -f "$MANIFEST_CACHE_DIR/manifest.db" "$MANIFEST_CACHE_DIR/manifest.db-wal" "$MANIFEST_CACHE_DIR/manifest.db-shm"
   cp "$dir/manifest.db" "$MANIFEST_CACHE_DIR/manifest.db"
   echo "Installed $entries SwiftPM manifest cache entries"
