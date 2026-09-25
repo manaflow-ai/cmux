@@ -239,6 +239,47 @@ class Wiring(unittest.TestCase):
         self.assertLess(index("Keep this owned Mac's build state"), index("Prepare isolated DerivedData"))
         self.assertIn("steps.owned-adopt.outcome", self.step("Forget the adopted-build inode override")["if"])
 
+    def slot(self, root, runner="glaeda-std-xcode-26.6"):
+        """Run the build-slot step; (exit code, GITHUB_ENV, GITHUB_OUTPUT)."""
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file, out_file = Path(tmp, "env"), Path(tmp, "out")
+            env = {"PATH": os.environ["PATH"], "GITHUB_ENV": str(env_file), "GITHUB_OUTPUT": str(out_file),
+                   "CMUX_PRODUCT_RUNNER": runner, "CMUX_OWNED_STATE_ROOT": "/Users/Shared/cmux-build-fleet/ci"}
+            if root is not None:
+                env["CMUX_CI_CANONICAL_ROOT"] = root
+            result = subprocess.run(["bash", "-c", self.by_id["build-slot"]["run"]], env=env,
+                                    capture_output=True, text=True)
+            read = lambda path: path.read_text() if path.exists() else ""
+            return result.returncode, read(env_file), read(out_file)
+
+    def test_a_second_compile_slot_keeps_its_own_root_and_state(self):
+        # The first slot, and every Blacksmith job, keeps the default root and store.
+        for runner in ("glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+            self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
+        code, env, out = self.slot("/private/tmp/cmux-ci-2")
+        self.assertEqual(code, 0)
+        self.assertEqual(env, "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n")
+        self.assertEqual(out, "root=/private/tmp/cmux-ci-2\n")
+        # Only an owned Mac may move the root, and only to a slot root.
+        self.assertNotEqual(self.slot("/private/tmp/cmux-ci-2", "blacksmith-6vcpu-macos-26")[0], 0)
+        for bad in ("/tmp/elsewhere", "/private/tmp/cmux-ci-x", "/private/tmp/cmux-ci/../x"):
+            self.assertNotEqual(self.slot(bad)[0], 0, bad)
+        # It runs before anything reads the root, and is not part of the product key.
+        index = self.names.index
+        self.assertLess(index("Choose this job's canonical build root"), index("Prepare isolated admission DerivedData"))
+        import product_input_identity as identity
+        self.assertIn("Choose this job's canonical build root", identity.NON_PRODUCT_RECIPE_STEPS)
+
+    def test_consumers_run_the_product_at_the_root_it_was_compiled_at(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
+        self.assertEqual(self.job["outputs"]["canonical_root"], "${{ steps.build-slot.outputs.root }}")
+        for name in ("app-host-unit-tests", "cli-product-tests", "tests-build-and-lag"):
+            self.assertEqual(workflow["jobs"][name]["env"]["CMUX_CI_CANONICAL_ROOT"],
+                             "${{ needs.macos-compile-admission.outputs.canonical_root || '/private/tmp/cmux-ci' }}",
+                             name)
+
     def test_only_a_successful_compile_is_kept_as_xcode_left_it(self):
         index = self.names.index
         keep = self.step("Keep this owned Mac's DerivedData")

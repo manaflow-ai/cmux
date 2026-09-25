@@ -179,6 +179,10 @@ jobs:
       # consumers with it.
       runner: ${{ env.CMUX_PRODUCT_RUNNER }}
       xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
+      # The canonical root the product was compiled at: /private/tmp/cmux-ci,
+      # or an owned Mac's second compile slot. Its consumers alias their
+      # checkout there, where the product's #filePath strings point.
+      canonical_root: ${{ steps.build-slot.outputs.root }}
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -357,6 +361,33 @@ jobs:
               output.write(f"seconds={seconds:.3f}\n")
           print(f"hosted admission queue-to-start: {seconds:.3f}s")
           PY
+
+      - name: Choose this job's canonical build root
+        id: build-slot
+        run: |
+          set -euo pipefail
+          # /private/tmp/cmux-ci everywhere but the second compile slot of an
+          # owned Mac, whose runner sets CMUX_CI_CANONICAL_ROOT to
+          # /private/tmp/cmux-ci-<n> so two compiles on one Mac never share a
+          # tree. compile-app-host-test-product.sh puts such a root in the
+          # canonical fingerprint, so it never adopts a seed or compilation
+          # cache built at another root, and the product's consumers take the
+          # root from this job's canonical_root output: tests read fixtures
+          # through compiled #filePath. Its kept build state sits in its own
+          # directory beside the first slot's.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          case "$root" in
+            /private/tmp/cmux-ci) ;;
+            /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9])
+              case "$CMUX_PRODUCT_RUNNER" in
+                glaeda-*) ;;
+                *) echo "::error::$root is only for an owned Mac's second compile slot"; exit 1 ;;
+              esac
+              echo "CMUX_OWNED_STATE_ROOT=$CMUX_OWNED_STATE_ROOT/${root##*/}" >> "$GITHUB_ENV"
+              ;;
+            *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
+          esac
+          echo "root=$root" >> "$GITHUB_OUTPUT"
 
       - name: Prepare isolated admission DerivedData
         run: |
@@ -1292,6 +1323,7 @@ jobs:
       # The admission's own pin, so the shards select the Xcode that linked
       # the product they run.
       CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
+      CMUX_CI_CANONICAL_ROOT: ${{ needs.macos-compile-admission.outputs.canonical_root || '/private/tmp/cmux-ci' }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       # Global search owns a seventh consumer because its serialized container
@@ -2257,6 +2289,7 @@ jobs:
       CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
       CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
       CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
+      CMUX_CI_CANONICAL_ROOT: ${{ needs.macos-compile-admission.outputs.canonical_root || '/private/tmp/cmux-ci' }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -3024,6 +3057,7 @@ jobs:
       CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
       CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_xcode_app || (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_CANONICAL_ROOT: ${{ needs.macos-compile-admission.outputs.canonical_root || '/private/tmp/cmux-ci' }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate display runner identity
