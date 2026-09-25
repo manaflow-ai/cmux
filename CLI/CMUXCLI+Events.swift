@@ -167,15 +167,16 @@ extension CMUXCLI {
         // The decision itself lives in CmuxControlSocket
         // (`EventStreamReconnectPolicy`) so it can be unit-tested without the
         // CLI target; this wrapper only maps CLI spellings onto it.
+        let policy = EventStreamReconnectPolicy()
         if let cliError = error as? CLIError {
-            return EventStreamReconnectPolicy.isTransient(
+            return policy.isTransient(
                 socketFailureKind: cliError.socketFailureKind == .receiveTimeoutConfiguration
                     ? .receiveTimeoutConfiguration
                     : nil,
                 message: cliError.message
             )
         }
-        return EventStreamReconnectPolicy.isTransient(
+        return policy.isTransient(
             message: "",
             untypedDescription: String(describing: error)
         )
