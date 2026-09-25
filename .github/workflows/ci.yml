@@ -631,6 +631,8 @@ jobs:
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          # Rounds of queue a pool may hold, owned or Blacksmith (default 1; 0 off).
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           # Owned Mac pools (off unless 1), their machine counts, and the lane
           # Xcode whose version names their label (glaeda-std-xcode-26.6).
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}

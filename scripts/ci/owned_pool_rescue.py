@@ -118,6 +118,15 @@ while one of its jobs waits for a runner and every IDLE_POLL_SECONDS otherwise,
 about 30 in all for an hour-long run. A read that fails is retried
 READ_ATTEMPTS times before the watch gives up; a failed cancel or re-run is
 never retried.
+
+A CI run's owned jobs may wait on purpose: pr_runner_pool.py lets a run take
+an owned pool with CI_PR_POOL_QUEUE_ROUNDS rounds of queue behind its busy
+runners (default 1), each about one job length. A budget of 30 seconds would
+cancel and re-run every such run, so for a ci.yml run the budget is
+CI_OWNED_POOL_RESCUE_SECONDS plus QUEUE_ROUND_SECONDS per round (queue_seconds(),
+930 seconds by default). Only that picker queues: an E2E, iOS or side-lane
+run keeps the configured budget, since its picker takes an owned pool only
+when the machines are free.
 """
 from __future__ import annotations
 
@@ -136,7 +145,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import persistent  # noqa: E402
+from pr_runner_pool import parse_queue_rounds, persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
@@ -165,6 +174,10 @@ PICKER_JOB = "changes"
 DEFAULT_BUDGET_SECONDS = 90
 MIN_BUDGET_SECONDS = 30
 MAX_BUDGET_SECONDS = 600
+# One round of queue on an owned pool: the longest job a queued job commonly
+# waits behind, compile admission. Over 80 pull request runs on 2026-09-25 it
+# took a median 638 s on the minis (p90 745 s) and a p90 893 s on Blacksmith.
+QUEUE_ROUND_SECONDS = 900
 FIRST_LOOK_SECONDS = 45
 POLL_SECONDS = 20
 IDLE_POLL_SECONDS = 120
@@ -218,6 +231,15 @@ def budget(value: str | None) -> int | None:
     except ValueError:
         return None
     return seconds if MIN_BUDGET_SECONDS <= seconds <= MAX_BUDGET_SECONDS else None
+
+
+def queue_seconds(rounds: str | None) -> int:
+    """The wait pr_runner_pool.py may queue a CI run's owned job for on purpose (CI_PR_POOL_QUEUE_ROUNDS).
+
+    An invalid value makes the picker keep every run off the owned pools, so
+    it adds nothing.
+    """
+    return (parse_queue_rounds(rounds) or 0) * QUEUE_ROUND_SECONDS
 
 
 def parse_time(value: object) -> dt.datetime | None:
@@ -637,6 +659,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if target.e2e else f"pull request #{target.pr_number}"
     if target.side:
         subject += " (side lane)"
+    if target.path == CI_WORKFLOW_PATH:
+        # Its picker may have queued its owned jobs on purpose (see the docstring).
+        seconds += queue_seconds(env.get("QUEUE_ROUNDS"))
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
     # A watch deadline for attempt 1, and a fresh one (capped by the job's
     # timeout) for an attempt it re-ran and follows. A rescue may run past it,

@@ -86,6 +86,8 @@ jobs:
 
       - name: Watch the run's persistent pool jobs
         env:
+          # A CI run's budget grows by a round per queue round the picker allows.
+          QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           GH_TOKEN: ${{ github.token }}
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}

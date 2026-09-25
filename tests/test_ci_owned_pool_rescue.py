@@ -134,8 +134,11 @@ def run_main(api, clock, *, env_extra=None, payload=None):
         path = Path(tmp, "event.json")
         path.write_text(json.dumps(payload or event()))
         summary = Path(tmp, "summary")
+        # QUEUE_ROUNDS 0 keeps a CI run's budget the configured one; QueueBudget
+        # covers the default, where the picker may queue on purpose.
         env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_EVENT_PATH": str(path),
-               "GITHUB_STEP_SUMMARY": str(summary), "POOL_OWNED": "1", **(env_extra or {})}
+               "GITHUB_STEP_SUMMARY": str(summary), "POOL_OWNED": "1", "QUEUE_ROUNDS": "0",
+               **(env_extra or {})}
         with unittest.mock.patch("sys.stdout", io.StringIO()):
             code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep)
         return code, summary.read_text() if summary.exists() else ""
@@ -391,6 +394,50 @@ class Watching(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("watch limit reached", summary)
         self.assertNotIn("cancel", api.calls)
+
+
+class QueueBudget(unittest.TestCase):
+    """A CI run's owned job may wait a round per CI_PR_POOL_QUEUE_ROUNDS on purpose; the rescue waits it out."""
+
+    def test_a_round_is_a_compile_admissions_length(self):
+        self.assertEqual(rescue.queue_seconds(""), rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(rescue.queue_seconds(None), rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(rescue.queue_seconds("2"), 2 * rescue.QUEUE_ROUND_SECONDS)
+        # 0 (the kill switch) and invalid values (no owned pick at all) add nothing.
+        for value in ("0", "-1", "x"):
+            self.assertEqual(rescue.queue_seconds(value), 0, value)
+
+    def test_a_queued_ci_job_is_not_rescued_at_30_seconds(self):
+        # CI_OWNED_POOL_RESCUE_SECONDS is 30 on manaflow-ai/cmux (2026-09-25).
+        clock = Clock()
+        # Compile admission waits 10 minutes for a busy root runner, then starts.
+        api = FakeAPI(clock, persistent_run(compile_started_at=40 + 600), marker=True)
+        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertEqual(code, 0)
+        self.assertIn(f"(budget {30 + rescue.QUEUE_ROUND_SECONDS}s)", summary)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_ci_job_queued_past_its_round_is_still_rescued(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+        budget = 30 + rescue.QUEUE_ROUND_SECONDS
+        self.assertIn(f"for at least {budget}s", summary)
+        self.assertLess(api.cancelled_at, 40 + budget + rescue.POLL_SECONDS + 1)
+
+    def test_only_ci_runs_get_the_queue_round(self):
+        # E2E (and iOS, side-lane) pickers take an owned pool only when it is free.
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
+        _, summary = run_main(api, clock, payload=e2e_event(),
+                              env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertIn("(budget 30s)", summary)
+
+    def test_the_workflow_passes_the_rounds_variable(self):
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        step = doc["jobs"]["rescue"]["steps"][-1]
+        self.assertEqual(step["env"]["QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
 
 
 class Rescuing(unittest.TestCase):

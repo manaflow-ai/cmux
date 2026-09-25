@@ -380,6 +380,7 @@ POOL_SETTINGS_ENV = {
     "PR_POOL_OVERFLOW": "overflow",
     "PR_POOL_ORDER": "order",
     "PR_POOL_MAX_QUEUED": "max_queued",
+    "PR_POOL_QUEUE_ROUNDS": "queue_rounds",
 }
 
 
