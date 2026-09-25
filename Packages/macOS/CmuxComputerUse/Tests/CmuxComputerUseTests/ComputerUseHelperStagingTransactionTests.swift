@@ -30,9 +30,9 @@ struct ComputerUseHelperStagingTransactionTests {
         let directory = fixture.root.appendingPathComponent("installed")
         let installed = directory.appendingPathComponent("cmux Computer Use.app")
         try fixture.makeReadOnly(fixture.bundle)
-        let result = await Task.detached {
+        let result = await Task.detached { [bundle = fixture.bundle] in
             ComputerUseHelperStaging(fileManager: HelperCopyFailureFileManager(failure))
-                .install(nested: fixture.bundle, destination: installed, directory: directory)
+                .install(nested: bundle, destination: installed, directory: directory)
         }.value
 
         #expect(result == nil)

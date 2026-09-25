@@ -1,8 +1,7 @@
 import Foundation
 
-/// Failure configuration is immutable; overridden operations touch only their
-/// caller's fixture paths, so concurrent FileManager use shares no mutable state.
-final class HelperCopyFailureFileManager: FileManager, @unchecked Sendable {
+/// Injects failures inside a single transaction; it never crosses a task boundary.
+final class HelperCopyFailureFileManager: FileManager {
     enum Failure: Equatable, Sendable {
         case copiedThenThrows
         case copiedThenCancelled
