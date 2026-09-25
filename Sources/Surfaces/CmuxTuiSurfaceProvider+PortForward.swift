@@ -95,7 +95,7 @@ extension CmuxTuiSurfaceProvider {
             return false
         }
         guard let address = info.privateAddress,
-              let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address, allowLoopback: machine.isSSH) else {
+              let privateURL = CloudPortRoutePolicy().privateURL(url.absoluteString, address: address, allowLoopback: machine.isSSH) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return false
         }

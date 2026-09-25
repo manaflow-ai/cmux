@@ -22,33 +22,9 @@ enum CloudPortRoutePlan: Equatable, Sendable {
         let raw = resource.url ?? (desktop
             ? CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: address, port: port)
             : CmuxInternalHostnames().directPortURL(privateAddress: address, port: port))
-        guard let url = privateURL(raw, address: address, allowLoopback: resource.machine.isSSH) else {
+        guard let url = CloudPortRoutePolicy().privateURL(raw, address: address, allowLoopback: resource.machine.isSSH) else {
             return .unsupported(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
         }
         return .privateDirect(remoteURL: url.absoluteString)
-    }
-
-    /// SSH's authenticated proxy resolves loopback on the remote host, never this Mac.
-    static func privateURL(_ raw: String, address: String, allowLoopback: Bool = false) -> URL? {
-        guard var parts = URLComponents(string: raw),
-              ["http", "https"].contains(parts.scheme?.lowercased() ?? ""),
-              let host = IPNetworkPrefix.routeHost("http://\(address.contains(":") && !address.hasPrefix("[") ? "[\(address)]" : address)"),
-              !["0.0.0.0", "::"].contains(host) else { return nil }
-        if ["127.0.0.1", "::1"].contains(host) {
-            guard allowLoopback else { return nil }
-        } else {
-            guard BrowserInsecureHTTPSettings.isPrivateNetworkHost(host) else { return nil }
-        }
-        parts.host = host.contains(":") ? "[\(host)]" : host
-        return parts.url
-    }
-
-    /// HTTP browser and Desktop routes use this transformation after the shared
-    /// authenticated forward has been established.
-    static func localURL(rewriting remoteURL: String, toLoopbackPort localPort: UInt16) -> URL? {
-        guard localPort > 0, var parts = URLComponents(string: remoteURL), parts.scheme?.lowercased() == "http" else { return nil }
-        parts.host = "127.0.0.1"
-        parts.port = Int(localPort)
-        return parts.url
     }
 }

@@ -1272,7 +1272,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String, allowLoopback: Bool = false) -> String? {
         guard let parts = URLComponents(string: raw),
               RemoteLoopbackProxyAlias.isLoopbackHost(parts.host ?? "") else { return nil }
-        return CloudPortRoutePlan.privateURL(raw, address: privateAddress, allowLoopback: allowLoopback)?.absoluteString
+        return CloudPortRoutePolicy().privateURL(raw, address: privateAddress, allowLoopback: allowLoopback)?.absoluteString
     }
 
     /// Shared Cloud terminal-link conversion for Workspace and Dock containers.
