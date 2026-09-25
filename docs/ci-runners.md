@@ -217,6 +217,19 @@ class. While owned pools are on, the `changes` job raises a workflow error
 annotation and a summary line for each such entry,
 so a typo shows up on every run instead of quietly leaving a pool unused.
 
+Root runners: glaeda gives compile admission, the app-host shards,
+tests-build-and-lag, cli-product-tests and E2E jobs a mini's one canonical-root
+token and refuses such a job on a mini whose token is taken. It also labels
+one runner per mini `glaeda-root-<class>-xcode-<version>`. A root count in
+`CI_OWNED_POOL_SLOTS` (`"root-std": 10`, or the full root label) sends those
+jobs to the root label, where they wait for a free root instead of being
+refused, and the picker places no more of them than the root runners free.
+The janitor counts a root job toward the root label and its pool. Without a
+root count every job keeps the pool label. The CLI pipe, remote daemon and
+Claude wrapper lanes always do. A root count above its pool's is an error.
+With 8 std minis and 2 light ones:
+`{"std": 32, "light": 4, "root-std": 8, "root-light": 2}`.
+
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it
 stays busy. An offline mini still counts as a slot, and the snapshot can be
