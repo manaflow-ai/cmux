@@ -8,6 +8,7 @@ import {
 } from "./docs-nav-items";
 import { ContentLocaleLink } from "./content-locale-link";
 import { docsChannelUrl, docsNavPath } from "@/app/lib/docs-channel";
+import { docsPagerAdjacentItems } from "@/app/lib/docs-pager-path";
 import { useDocsChannel } from "./docs-channel-context";
 
 export function DocsPager() {
@@ -17,9 +18,7 @@ export function DocsPager() {
   const t = useTranslations("docs.navItems");
   const flat = flatNavItems(navItemsForLocale(locale, channel));
   const releasePathname = docsNavPath(pathname, locale);
-  const index = flat.findIndex((item) => item.href === releasePathname);
-  const prev = index > 0 ? flat[index - 1] : null;
-  const next = index < flat.length - 1 ? flat[index + 1] : null;
+  const { prev, next } = docsPagerAdjacentItems(flat, releasePathname);
 
   if (!prev && !next) return null;
 

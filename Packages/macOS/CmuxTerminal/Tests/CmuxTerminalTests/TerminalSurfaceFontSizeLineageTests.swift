@@ -1470,6 +1470,8 @@ private func setFontBindingResult(_ result: Bool)
             configTemplate: template,
             registry: registry
         )
+        var acceptedInputCount = 0
+        surface.onExplicitInput = { acceptedInputCount += 1 }
         let runtimeSurface = UnsafeMutableRawPointer.allocate(
             byteCount: 1,
             alignment: 1
@@ -1489,6 +1491,7 @@ private func setFontBindingResult(_ result: Bool)
         }
 
         #expect(surface.adjustFontSize(byRuntimePoints: -1))
+        #expect(acceptedInputCount == 0)
         #expect(
             try #require(surface.fontSizeLineageSnapshot())
                 == TerminalFontSizeLineage(
@@ -1513,6 +1516,8 @@ private func setFontBindingResult(_ result: Bool)
             configTemplate: template,
             registry: registry
         )
+        var acceptedInputCount = 0
+        surface.onExplicitInput = { acceptedInputCount += 1 }
         let runtimeSurface = UnsafeMutableRawPointer.allocate(
             byteCount: 1,
             alignment: 1
@@ -1532,6 +1537,7 @@ private func setFontBindingResult(_ result: Bool)
         }
 
         #expect(surface.adjustFontSize(byRuntimePoints: -6))
+        #expect(acceptedInputCount == 0)
         #expect(
             try #require(surface.fontSizeLineageSnapshot())
                 == TerminalFontSizeLineage(
@@ -1549,6 +1555,48 @@ private func setFontBindingResult(_ result: Bool)
         )
     }
 
+    @Test func liveClampedMobileAdjustmentAcceptsExplicitOwnership() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(
+            TerminalFontSizePolicy.minimumRuntimePoints,
+            isExplicitOverride: false
+        )
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        var acceptedInputCount = 0
+        surface.onExplicitInput = { acceptedInputCount += 1 }
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: TerminalFontSizePolicy.minimumRuntimePoints,
+            fittedRuntimePointSize: TerminalFontSizePolicy.minimumRuntimePoints
+        )
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(surface.adjustFontSize(byRuntimePoints: -1))
+        #expect(acceptedInputCount == 0)
+        #expect(
+            try #require(surface.fontSizeLineageSnapshot())
+                == TerminalFontSizeLineage(
+                    basePoints: TerminalFontSizePolicy.minimumRuntimePoints,
+                    isExplicitOverride: true
+                )
+        )
+    }
+
     @Test func liveResetPreservesTemporaryMobileFit() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(13, isExplicitOverride: true)
@@ -1557,6 +1605,8 @@ private func setFontBindingResult(_ result: Bool)
             configTemplate: template,
             registry: registry
         )
+        var acceptedInputCount = 0
+        surface.onExplicitInput = { acceptedInputCount += 1 }
         let runtimeSurface = UnsafeMutableRawPointer.allocate(
             byteCount: 1,
             alignment: 1
@@ -1576,6 +1626,7 @@ private func setFontBindingResult(_ result: Bool)
         }
 
         #expect(surface.resetFontSize(toConfiguredRuntimePoints: 14))
+        #expect(acceptedInputCount == 0)
         #expect(
             try #require(surface.fontSizeLineageSnapshot())
                 == TerminalFontSizeLineage(
@@ -1711,11 +1762,11 @@ private func setFontBindingResult(_ result: Bool)
                     interSpawnDelay: .zero
                 ),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    claudeCommandShimTemporaryDirectory: URL(
+                    agentCommandShimTemporaryDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),
-                    installClaudeCommandShim: { _, _, _ in nil },
+                    installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),
                 sessionPortBase: 40_000,

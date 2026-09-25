@@ -17,12 +17,15 @@ namespace cmux {
 inline constexpr std::array<uint8_t, 4> kTerminalHostMagic = {'C', 'M', 'T',
                                                               'H'};
 inline constexpr size_t kTerminalHostHeaderLength = 32;
-inline constexpr uint16_t kTerminalHostProtocolVersion = 1;
+inline constexpr uint16_t kTerminalHostProtocolVersionV1 = 1;
+inline constexpr uint16_t kTerminalHostProtocolVersionV2 = 2;
+inline constexpr uint16_t kTerminalHostProtocolVersion = 3;
 inline constexpr uint32_t kTerminalHostFlagColorsFollow = 1u << 0;
 inline constexpr uint32_t kTerminalHostFlagViewerSizeAcks = 1u << 1;
 inline constexpr uint32_t kTerminalHostResizeAckCanonicalChanged = 1u << 0;
 inline constexpr size_t kTerminalHostMaxFramePayload = 16 * 1024 * 1024;
-inline constexpr size_t kTerminalHostMaxSnapshotReplay = 8 * 1024 * 1024;
+inline constexpr size_t kTerminalHostMaxSnapshotReplay = 15'692'632;
+inline constexpr size_t kTerminalHostMaxKittyImageAliases = 4'096;
 inline constexpr size_t kTerminalHostMaxString = 256 * 1024;
 inline constexpr size_t kTerminalHostMaxCommandArguments = 256;
 inline constexpr uint16_t kTerminalHostColorsVersionV1 = 1;
@@ -48,12 +51,19 @@ enum class TerminalHostMessageKind : uint16_t {
   kLaunch = 14,
   kCapability = 15,
   kResizeAck = 16,
+  kClearHistoryAck = 17,
+  kCellPixelSizeAck = 18,
+  kKittyGraphicsLimitsAck = 19,
   kInput = 100,
   kPaste = 101,
   kViewerSize = 102,
   kReleaseViewer = 103,
   kTerminate = 104,
   kMintCapability = 105,
+  kSetDefaults = 106,
+  kClearHistory = 107,
+  kSetCellPixelSize = 108,
+  kSetKittyGraphicsLimits = 109,
 };
 
 enum class TerminalHostProtocolError {
@@ -240,6 +250,7 @@ enum class TerminalHostRendererGrantError {
   kInvalidIncarnation,
   kInvalidToken,
   kInvalidRights,
+  kInvalidProtocolVersion,
   kInvalidTtl,
 };
 
@@ -249,25 +260,64 @@ struct TerminalHostRendererGrant {
   TerminalHostIncarnation incarnation{};
   TerminalHostCapabilityToken token{};
   TerminalHostCapabilityRights rights = TerminalHostCapabilityRights::kNone;
+  uint16_t protocol_version = kTerminalHostProtocolVersion;
   uint32_t ttl_ms = 0;
 };
 
 // Parses the canonical JSON grant fields without depending on a JSON library.
 // IDs are lowercase, unhyphenated UUIDv4 hex; the capability is 32 nonzero
-// bytes of lowercase hex; rights must be exactly the renderer set; and the
-// response TTL must equal the bounded TTL sent in the request.
+// bytes of lowercase hex; rights must be exactly the renderer set; the host
+// protocol version must be supported; and the response TTL must equal the
+// bounded TTL sent in the request.
 TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
     std::string_view endpoint,
     std::string_view terminal_id,
     std::string_view incarnation,
     std::string_view token,
     uint64_t rights,
+    uint64_t protocol_version,
     uint64_t ttl_ms,
     uint64_t expected_ttl_ms,
     TerminalHostRendererGrant* grant);
+TerminalHostClientHello TerminalHostClientHelloForRendererGrant(
+    const TerminalHostRendererGrant& grant);
 const char* TerminalHostRendererGrantErrorMessage(
     TerminalHostRendererGrantError error);
 std::string EncodeTerminalHostId(const TerminalHostId& id);
+
+struct TerminalHostKittyImageAlias {
+  uint32_t image_id = 0;
+  uint32_t image_number = 0;
+
+  bool operator==(const TerminalHostKittyImageAlias& other) const {
+    return image_id == other.image_id && image_number == other.image_number;
+  }
+};
+
+struct TerminalHostKittyGraphicsLimits {
+  uint64_t image_bytes = 0;
+  uint64_t inflight_bytes = 0;
+  uint64_t images = 0;
+  uint64_t placements = 0;
+
+  bool operator==(const TerminalHostKittyGraphicsLimits& other) const;
+};
+
+struct TerminalHostKittyImageIdCursors {
+  uint32_t primary = 2'147'483'647;
+  uint32_t alternate = 2'147'483'647;
+
+  bool operator==(const TerminalHostKittyImageIdCursors& other) const;
+};
+
+struct TerminalHostKittyReplayState {
+  TerminalHostKittyGraphicsLimits limits;
+  uint32_t replay_cursor_offset = 0;
+  TerminalHostKittyImageIdCursors replay_next_image_ids;
+  TerminalHostKittyImageIdCursors next_image_ids;
+
+  bool operator==(const TerminalHostKittyReplayState& other) const;
+};
 
 struct TerminalHostSnapshot {
   TerminalHostSnapshot();
@@ -279,10 +329,14 @@ struct TerminalHostSnapshot {
 
   uint16_t cols = 80;
   uint16_t rows = 24;
+  uint16_t cell_width = 8;
+  uint16_t cell_height = 16;
   std::optional<uint32_t> pid;
   std::vector<uint8_t> replay;
   std::optional<std::string> cwd;
   std::vector<std::string> command;
+  std::vector<TerminalHostKittyImageAlias> kitty_image_aliases;
+  TerminalHostKittyReplayState kitty_state;
 
   bool operator==(const TerminalHostSnapshot& other) const;
 };
@@ -292,6 +346,10 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
     std::vector<uint8_t>* payload);
 TerminalHostProtocolError DecodeTerminalHostSnapshot(
     std::string_view payload,
+    TerminalHostSnapshot* snapshot);
+TerminalHostProtocolError DecodeTerminalHostSnapshotForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
     TerminalHostSnapshot* snapshot);
 
 struct TerminalHostResize {
@@ -304,7 +362,11 @@ struct TerminalHostResize {
 
   uint16_t cols = 80;
   uint16_t rows = 24;
+  uint16_t cell_width = 8;
+  uint16_t cell_height = 16;
   std::vector<uint8_t> replay;
+  std::vector<TerminalHostKittyImageAlias> kitty_image_aliases;
+  TerminalHostKittyReplayState kitty_state;
 
   bool operator==(const TerminalHostResize& other) const;
 };
@@ -314,6 +376,10 @@ TerminalHostProtocolError EncodeTerminalHostResize(
     std::vector<uint8_t>* payload);
 TerminalHostProtocolError DecodeTerminalHostResize(std::string_view payload,
                                                    TerminalHostResize* resize);
+TerminalHostProtocolError DecodeTerminalHostResizeForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
+    TerminalHostResize* resize);
 
 struct TerminalHostResizeAck {
   uint16_t cols = 80;

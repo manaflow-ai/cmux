@@ -9,11 +9,17 @@ const locality = "Rowland Heights";
 const region = "CA";
 const postalCode = "91748-5142";
 
-export const metadata: Metadata = legalMetadata(
-  "/company-information",
-  "Company information — cmux",
-  "Legal entity, address, contact, and domain information for cmux and Manaflow",
-);
+export const metadata: Metadata = {
+  ...legalMetadata(
+    "/company-information",
+    "Company information — cmux",
+    "Legal entity, address, contact, and domain information for cmux and Manaflow",
+  ),
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 const organizationJsonLd = {
   "@context": "https://schema.org",

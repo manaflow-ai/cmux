@@ -254,6 +254,37 @@ import Testing
         await waitUntilTokenTouchingCleanupFinished(coordinator)
     }
 
+    @Test func explicitSupersedeUnblocksTimedOutAccessTokenPhaseImmediately() async throws {
+        // One launch-time Stack call hung on a dead pooled connection arms
+        // the token-touching damper; a pairing attempt seconds later must be
+        // able to supersede it instead of fast-failing for the damper's
+        // remaining window.
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = HangingLaunchTokenProbeAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        let first = Task { try await coordinator.accessToken() }
+        await client.accessTokenDidStart()
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+        await #expect(throws: AuthError.timedOut) { try await first.value }
+
+        // Damper armed (default 30s window): an automatic retry fast-fails.
+        let second = Task { try await coordinator.accessToken() }
+        await #expect(throws: AuthError.timedOut) { try await second.value }
+        #expect(await client.accessStartCount == 1)
+
+        // An explicit interactive attempt supersedes and runs a fresh probe.
+        await coordinator.supersedeTimedOutAuthPhases()
+        await client.releaseHangingAccessTokenProbe()
+        await waitUntilTokenTouchingCleanupFinished(coordinator)
+        await #expect(throws: AuthError.networkError) {
+            try await coordinator.accessToken()
+        }
+        #expect(await client.accessStartCount == 2)
+    }
+
     @Test func timedOutAccessTokenPhaseRetriesAfterBoundedReset() async throws {
         let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
