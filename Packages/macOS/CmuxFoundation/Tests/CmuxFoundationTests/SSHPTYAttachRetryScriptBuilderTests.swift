@@ -106,7 +106,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
 
         #expect(result.status == SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue)
         #expect(result.stderr.contains("could not contact cmux to start the remote session"))
-        #expect(try String(contentsOf: log, encoding: .utf8) == "attach\nattach\n")
+        #expect(!FileManager.default.fileExists(atPath: log.path))
     }
 
     @Test func defaultReconnectPolicyIsFinite() {
