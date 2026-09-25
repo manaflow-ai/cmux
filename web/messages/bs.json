@@ -1312,7 +1312,7 @@
           "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
         },
         "terminal": {
-          "adaptiveDefaultTheme": "Kada je true (zadano), cmux koristi zadanu paletu koja prati izgled, osim ako je podešena Ghostty tema. Izričito zadane boje terminala nadjačavaju samo odgovarajuće vrijednosti, a font i ostale postavke se zadržavaju. Kada je false, Ghostty koristi svoju fiksnu ugrađenu paletu. Izričito zadane teme uvijek imaju prednost, uključujući theme = light:X,dark:Y.",
+          "adaptiveDefaultTheme": "Kada je true (zadano), cmux koristi zadanu paletu koja prati izgled, osim ako je podešena Ghostty tema. Izričito zadane boje terminala nadjačavaju samo odgovarajuće vrijednosti, a font i ostale postavke se zadržavaju. Kada je false, cmux ne primjenjuje prilagodljivu paletu; Ghostty koristi svoje konfigurisane boje ili svoju fiksnu ugrađenu paletu. Izričito zadane teme uvijek imaju prednost, uključujući theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",

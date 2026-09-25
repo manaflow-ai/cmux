@@ -1312,7 +1312,7 @@
           "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
         },
         "terminal": {
-          "adaptiveDefaultTheme": "为 true（默认）时，除非配置了 Ghostty 主题，否则 cmux 会提供随外观变化的默认配色。显式指定的颜色只覆盖对应值，同时保留字体和其他设置。为 false 时，Ghostty 使用固定的内置配色。显式指定的主题始终优先，包括 theme = light:X,dark:Y。",
+          "adaptiveDefaultTheme": "为 true（默认）时，除非配置了 Ghostty 主题，否则 cmux 会提供随外观变化的默认配色。显式指定的颜色只覆盖对应值，同时保留字体和其他设置。为 false 时，cmux 不应用自适应配色；Ghostty 使用已配置的颜色或固定的内置配色。显式指定的主题始终优先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "终端和内置代理聊天内容的可选最大宽度，单位为点。设为 false 可使用整个窗格宽度。",
           "sessionContentAlignment": "启用 sessionContentMaxWidth 时，终端和内置代理聊天内容的水平位置。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
