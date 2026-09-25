@@ -86,6 +86,23 @@ struct VMRemoteWorkspaceResolver: Sendable {
         return matches[0]
     }
 
+    /// Returns the accepted daemon label for one workspace in a catalog payload.
+    /// The id is the identity; this name is only a presentation hint used while
+    /// adopting an optimistic local workspace.
+    func remoteWorkspaceName(
+        _ workspaceID: String,
+        machine: String,
+        in catalog: [String: Any]
+    ) -> String? {
+        guard let machinePayload = vmMachinePayload(machine, from: catalog),
+              let workspaces = machinePayload["remote_workspaces"] as? [[String: Any]],
+              let rawName = workspaces.first(where: { ($0["id"] as? String) == workspaceID })?["name"] as? String else {
+            return nil
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
     enum VMRemoteViewResolution {
         case resolved([String: Any])
         /// A legacy resource identifies one workspace but has no tab id. Whole
