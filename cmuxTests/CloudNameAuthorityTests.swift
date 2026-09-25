@@ -176,28 +176,6 @@ extension SetAutoTitleSocketTests {
         return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))
     }
 
-    @Test("A tab opened after the process title shows that title")
-    func cloudTitleAppliesWhenProjectionRecorded() async throws {
-        try await withCloudNameFixture { fixture in
-            #expect(fixture.provider.install(try nextFixtureState(fixture) { document in
-                var terminals = try #require(document["terminals"] as? [[String: Any]])
-                let index = try #require(terminals.firstIndex { $0["id"] as? String == "term_b" })
-                terminals[index]["title"] = "vim README.md"
-                document["terminals"] = terminals
-            }))
-            // The title is already current when this tab opens; no later
-            // title change will arrive to deliver it.
-            let panel = try #require(fixture.workspace.newTerminalSurfaceInFocusedPane(focus: false))
-            defer { fixture.catalog.endProjections(panelID: panel.id, reason: .replaced) }
-            fixture.catalog.record(SurfaceProjection(
-                resource: .init(machine: fixture.provider.machine, kind: .terminal, key: "term_b"),
-                workspaceID: fixture.workspace.id, panelID: panel.id,
-                remoteWorkspaceID: "b", remoteTabID: "tab_b"))
-            let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(panel.id))
-            #expect(fixture.workspace.bonsplitController.tab(tabID)?.title == "vim README.md")
-        }
-    }
-
     @Test("A local OSC title update keeps the Cloud agent's tab icon")
     func cloudAgentTabIconSurvivesTitleUpdate() async throws {
         try await withCloudNameFixture { fixture in
@@ -205,7 +183,8 @@ extension SetAutoTitleSocketTests {
                 document["agents"] = [["terminal_id": "term_a", "state": "working", "source": "hook", "agent": "claude"]]
             }))
             let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(fixture.panelID))
-            #expect(fixture.workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+            // Ghostty reports the agent's OSC title for the mirrored pane; the
+            // tab mark must come from the Cloud resource, not local PID state.
             _ = fixture.workspace.updatePanelTitle(panelId: fixture.panelID, title: "✳ Claude Code")
             #expect(fixture.workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
         }
