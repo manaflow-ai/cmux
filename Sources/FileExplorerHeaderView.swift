@@ -104,6 +104,7 @@ final class FileExplorerHeaderView: NSView {
 
     @objc private func retryFiles() { retry?() }
 
+    /// Updates the path label and sort tooltip, and shows the retry button only when `retry` is non-nil (Cloud roots).
     func update(displayPath: String, sortOptions: FileExplorerSortOptions, retry: (() -> Void)? = nil) {
         self.retry = retry
         applyRetryVisibility(retry != nil)
@@ -153,6 +154,7 @@ final class FileExplorerHeaderView: NSView {
         )
     }
 
+    /// Shows the sort menu below the header button, with the current key and order checked.
     @objc private func showSortMenu(_ sender: NSButton) {
         let menu = NSMenu()
 
@@ -193,12 +195,14 @@ final class FileExplorerHeaderView: NSView {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 2), in: sender)
     }
 
+    /// Forwards the chosen sort key to ``onSelectSortKey``.
     @objc private func selectSortKey(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String,
               let key = FileExplorerSortKey(rawValue: rawValue) else { return }
         onSelectSortKey?(key)
     }
 
+    /// Forwards the chosen sort order to ``onSelectSortOrder``.
     @objc private func selectSortOrder(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String,
               let order = FileExplorerSortOrder(rawValue: rawValue) else { return }
