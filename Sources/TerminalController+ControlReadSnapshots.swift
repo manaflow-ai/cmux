@@ -155,4 +155,3 @@ extension TerminalController {
         controlCommandCoordinator.handles = store.makeRegistry()
     }
 }
-

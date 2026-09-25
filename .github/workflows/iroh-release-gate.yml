@@ -32,7 +32,7 @@ jobs:
   tailscale-version-skew:
     needs: resolve-ref
     name: Tailscale version-skew compatibility
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -77,7 +77,7 @@ jobs:
       max-parallel: 1
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 120
     steps:
       - name: Checkout
@@ -110,11 +110,16 @@ jobs:
           set -euo pipefail
           [[ -n "${CMUX_DOGFOOD_STACK_EMAIL:-}" ]] || { echo "::error::missing staging email"; exit 1; }
           [[ -n "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]] || { echo "::error::missing staging password"; exit 1; }
+          # The Mac app's DebugDogfoodCredentialResolver and
+          # scripts/lib/dev-secrets.sh read this fixed path under $HOME, so it
+          # cannot move to $RUNNER_TEMP. "Remove staging account" below deletes
+          # it however the job ends.
           mkdir -p "$HOME/.secrets"
-          {
+          (
+            umask 077
             printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
             printf 'CMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
-          } > "$HOME/.secrets/cmuxterm-dev.env"
+          ) > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
       - name: Run staging Iroh gate
@@ -142,3 +147,11 @@ jobs:
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac.cmuxdiag
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Remove staging account
+        # The runner user's home outlives the job on a reused machine; never
+        # leave the staging credentials behind.
+        if: ${{ always() }}
+        run: |
+          rm -f "$HOME/.secrets/cmuxterm-dev.env"
+          rmdir "$HOME/.secrets" 2>/dev/null || true

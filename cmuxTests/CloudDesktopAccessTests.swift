@@ -1,4 +1,7 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 import WebKit

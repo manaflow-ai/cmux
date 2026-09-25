@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import Foundation
 import WebKit
 

@@ -51,9 +51,8 @@ extension GlobalSearchShortcutBehaviorTests {
             KeyboardShortcutSettings.shortcut(for: .globalSearch) == shortcut,
             "The monitor-chain fixture must install a valid, unclaimed Command shortcut"
         )
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
 
@@ -92,9 +91,8 @@ extension GlobalSearchShortcutBehaviorTests {
             ),
             for: .globalSearch
         )
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
 
@@ -144,9 +142,8 @@ extension GlobalSearchShortcutBehaviorTests {
             ),
             for: .globalSearch
         )
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
 
@@ -194,9 +191,8 @@ extension GlobalSearchShortcutBehaviorTests {
             chordCommand: true
         )
         KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
         appDelegate.activeConfiguredShortcutChordPrefixForCurrentEvent =
@@ -238,9 +234,8 @@ extension GlobalSearchShortcutBehaviorTests {
             chordKey: "g"
         )
         KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
         let unrelatedSuffixEvent = try makeKeyDownEvent(
@@ -289,9 +284,29 @@ extension GlobalSearchShortcutBehaviorTests {
         return window
     }
 
+    // On macOS 26 a status item is placed by Control Center asynchronously.
+    // When the menu bar extra was just created, its button has no window
+    // yet, the popover is positioned at infinity and never becomes visible,
+    // while NSPopover still reports it as shown. Close that phantom and
+    // toggle again once the status item has settled.
+    private func presentSearchPopover(
+        appDelegate: AppDelegate,
+        excluding mainWindow: NSWindow,
+        attempts: Int = 3
+    ) -> NSWindow? {
+        for _ in 0..<attempts {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            appDelegate.toggleGlobalSearchPalette()
+            if let window = waitForSearchPopoverWindow(excluding: mainWindow) {
+                return window
+            }
+        }
+        return nil
+    }
+
     private func waitForSearchPopoverWindow(
         excluding mainWindow: NSWindow,
-        timeout: TimeInterval = 2
+        timeout: TimeInterval = 3
     ) -> NSWindow? {
         let deadline = Date.now.addingTimeInterval(timeout)
         repeat {

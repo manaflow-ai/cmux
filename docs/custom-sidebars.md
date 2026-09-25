@@ -77,7 +77,10 @@ examples.
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
 true; pass `false` for persistent fields so mounting never steals focus).
 Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
-(`tabs[i].id` is the panel behind the tab, not interchangeable).
+(`tabs[i].id` is the stable panel identity, not interchangeable).
+For remote tmux tabs, `surfaceId` targets the window's active pane and can
+change when another pane becomes active. It is absent until the pane is ready.
+Pass the containing workspace's `id` as `workspace_id` to focus across workspaces.
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
@@ -449,8 +452,10 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
             for i in 0..<workspaces.count {
                 if workspaces[i].selected {
                     for j in 0..<workspaces[i].tabs.count {
-                        Button(action: { cmux("surface.focus", surface_id: workspaces[i].tabs[j].id) }) {
-                            HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                        if let surfaceId = workspaces[i].tabs[j].surfaceId {
+                            Button(action: { cmux("surface.focus", surface_id: surfaceId, workspace_id: workspaces[i].id) }) {
+                                HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                            }
                         }
                     }
                 }

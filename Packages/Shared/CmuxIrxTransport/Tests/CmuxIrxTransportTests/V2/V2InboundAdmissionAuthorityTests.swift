@@ -14,7 +14,8 @@ struct V2InboundAdmissionAuthorityTests {
             identity: V2Identity(appNamespace: platform == .mac ? "com.cmux.mac" : "dev.cmux.ios",
                 buildTag: "tag", deviceID: deviceID, environment: environment, projectID: project,
                 teamID: team, userID: platform == .mac ? "host-owner" : "permitted-teammate"),
-            identityGeneration: generation, metadata: V2DeviceMetadata(appVersion: "2", capabilities: [],
+            identityGeneration: generation, metadata: V2DeviceMetadata(appVersion: "2",
+                capabilities: platform == .mac ? ["cmux.mac-host.v1", "cmux.mac-devices.v1"] : [],
                 displayName: deviceID, pairingEnabled: true, platform: platform, relayURLs: []))
     }
 
@@ -68,6 +69,79 @@ struct V2InboundAdmissionAuthorityTests {
         _ = authority.restore(cache(outbound: [outbound]))
         #expect(authority.authorizedPeer(endpointID: outbound.descriptor.endpointID) == nil)
         #expect(authority.nextExpiration == nil)
+    }
+
+    @Test func macOnlyHostKeepsMacInboundAuthorityWhenPairingIsOff() throws {
+        let base = device()
+        let host = V2DeviceDescriptor(
+            endpointID: base.endpointID,
+            identity: base.identity,
+            identityGeneration: base.identityGeneration,
+            metadata: V2DeviceMetadata(
+                appVersion: base.metadata.appVersion,
+                capabilities: ["cmux.mac-host.v1"],
+                displayName: base.metadata.displayName,
+                pairingEnabled: false,
+                platform: .mac,
+                relayURLs: []
+            )
+        )
+        let mac = V2DeviceRecord(
+            descriptor: device(key: "b", deviceID: "peer", platform: .mac),
+            deviceRecordID: "peer-record",
+            revision: 1,
+            revoked: false
+        )
+        let permission = V2InboundPeerPermission(device: mac, permissionExpiresAt: timestamp + 100)
+        let authority = try V2InboundAdmissionAuthority(
+            host: host,
+            wallNow: { Date(timeIntervalSince1970: TimeInterval(timestamp)) },
+            monotonicNow: { .now }
+        )
+        #expect(authority.restore(cache(peers: [permission], outbound: [mac], host: host)))
+        #expect(authority.authorizedPeer(endpointID: mac.descriptor.endpointID) != nil)
+    }
+
+    @Test("Cached inbound permissions preserve independent Mac and iOS opt-ins",
+          arguments: [false, true], [false, true])
+    func cachedPeerPlatformIsGated(pairing: Bool, hosting: Bool) throws {
+        let base = device()
+        let host = V2DeviceDescriptor(endpointID: base.endpointID, identity: base.identity,
+            identityGeneration: base.identityGeneration,
+            metadata: V2DeviceMetadata(appVersion: "2", capabilities: hosting ? ["cmux.mac-host.v1"] : [],
+                displayName: "Host", pairingEnabled: pairing, platform: .mac, relayURLs: []))
+        let macBase = device(key: "c", deviceID: "mac-peer")
+        let mac = V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: macBase.endpointID,
+            identity: macBase.identity, identityGeneration: macBase.identityGeneration,
+            metadata: V2DeviceMetadata(appVersion: "2", capabilities: ["cmux.mac-devices.v1"],
+                displayName: "Mac peer", pairingEnabled: false, platform: .mac, relayURLs: [])),
+            deviceRecordID: "mac-record", revision: 1, revoked: false)
+        let phone = peer()
+        let clock = V2AdmissionTestClock(wall: timestamp)
+        let authority = try V2InboundAdmissionAuthority(host: host,
+            wallNow: { clock.wall }, monotonicNow: { clock.monotonic })
+        _ = authority.restore(cache(peers: [phone,
+            V2InboundPeerPermission(device: mac, permissionExpiresAt: timestamp + 100)], host: host))
+        #expect((authority.authorizedPeer(endpointID: mac.descriptor.endpointID) != nil) == hosting)
+        #expect((authority.authorizedPeer(endpointID: phone.device.descriptor.endpointID) != nil) == pairing)
+    }
+
+    @Test(arguments: [V2Platform.mac, .ios])
+    func knowingAnEndpointIDNeverReplacesPermission(platform: V2Platform) throws {
+        let authority = try authority(V2AdmissionTestClock(wall: timestamp))
+        let record = V2DeviceRecord(descriptor: device(key: "b", deviceID: "peer", platform: platform),
+            deviceRecordID: "peer-record", revision: 1, revoked: false)
+        _ = authority.restore(cache(outbound: [record]))
+        #expect(throws: IrxAdmissionDenied(code: .invalidGrant)) {
+            try authority.judgment()(nil, record.descriptor.endpointID)
+        }
+        let permission = V2InboundPeerPermission(device: record, permissionExpiresAt: timestamp + 100)
+        _ = authority.apply(snapshot(cache(peers: [permission], revision: 2, outbound: [record]), sequence: 1))
+        #expect(try authority.judgment()(nil, record.descriptor.endpointID).deviceID == "peer")
+        _ = authority.apply(snapshot(cache(peers: [], revision: 3, outbound: [record]), sequence: 2))
+        #expect(throws: IrxAdmissionDenied(code: .invalidGrant)) {
+            try authority.judgment()(nil, record.descriptor.endpointID)
+        }
     }
 
     @Test func anotherCacheFormatCannotEstablishOrPreserveAuthority() throws {
