@@ -20,10 +20,16 @@ extension DockSplitStore {
 
     func effectiveSessionResumeBinding(
         panelId: UUID,
-        detected: SurfaceResumeBindingSnapshot?,
+        index: SurfaceResumeBindingIndex?,
         downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool,
-        detectedIsAmbiguous: Bool
+        preserveUndetectedBindingForManualRecovery: Bool
     ) -> SurfaceResumeBindingSnapshot? {
+        let observationWorkspaceId = detachedSurfaceTransfersByPanelId[panelId]?
+            .sessionRestoreWorkspaceId ?? workspaceId
+        let detected = index?.isAvailable == true
+            ? index?.bindingForStablePanel(workspaceId: observationWorkspaceId, panelId: panelId)
+            : nil
+        let detectedIsAmbiguous = index?.isAvailable == true && index?.hasAmbiguousPanel(panelId) == true
         var stored = surfaceResumeBindingsByPanelId[panelId]
         if detected != nil {
             stored?.clearRestoredProcessDetectionObservation()
@@ -50,9 +56,15 @@ extension DockSplitStore {
             stored.approvalRecordId = nil
             effective = stored
         } else if stored?.isProcessDetected == true {
-            effective = detectedIsAmbiguous
-                ? stored?.disablingAutomaticResume()
-                : (stored?.preservesRestoredProcessDetection() == true ? stored : nil)
+            // A cold or unavailable index is not evidence of process exit.
+            // Only an available scan may retire an unobserved binding.
+            if detectedIsAmbiguous || preserveUndetectedBindingForManualRecovery {
+                effective = stored?.disablingAutomaticResume()
+            } else if index?.isAvailable != true || stored?.preservesRestoredProcessDetection() == true {
+                effective = stored
+            } else {
+                effective = nil
+            }
         } else {
             effective = stored
         }

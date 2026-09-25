@@ -127,7 +127,7 @@ extension Workspace {
         downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool = false
     ) -> SurfaceResumeBindingSnapshot? {
         let storedBinding = surfaceResumeBindingsByPanelId[panelId]
-        guard let surfaceResumeBindingIndex else {
+        guard let surfaceResumeBindingIndex, surfaceResumeBindingIndex.isAvailable else {
             guard var storedBinding,
                   storedBinding.isProcessDetected,
                   downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable else {

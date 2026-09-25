@@ -64,13 +64,9 @@ extension DockSplitStore {
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
                     ),
-                    detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
-                        workspaceId: observationWorkspaceId,
-                        panelId: panelId
-                    ),
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex,
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
                         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
-                    detectedResumeBindingIsAmbiguous: surfaceResumeBindingIndex?.hasAmbiguousPanel(panelId) == true,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
                     notificationStore: notificationStore,
@@ -172,10 +168,9 @@ extension DockSplitStore {
                 },
                 revalidateProcessEvidence: false
             ),
-            detectedResumeBinding: nil,
+            surfaceResumeBindingIndex: nil,
             downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: false,
-            detectedResumeBindingIsAmbiguous:
-                surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
+            preserveUndetectedBindingForManualRecovery: true,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
             notificationStore: resolvedNotificationStore(),
@@ -214,9 +209,9 @@ extension DockSplitStore {
         panelId: UUID,
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
-        detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
-        detectedResumeBindingIsAmbiguous: Bool = false,
+        preserveUndetectedBindingForManualRecovery: Bool = false,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
         notificationStore: TerminalNotificationStore?,
@@ -251,10 +246,10 @@ extension DockSplitStore {
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
-                detected: detectedResumeBinding,
+                index: surfaceResumeBindingIndex,
                 downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable:
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
-                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
+                preserveUndetectedBindingForManualRecovery: preserveUndetectedBindingForManualRecovery
             )
             let restorableAgent = localTmuxStartCommand == nil
                 ? effectiveSessionRestorableAgent(

@@ -145,11 +145,29 @@ struct RecoverableMainWindowLifecycleTests {
 
             // Snapshot capture cannot scan synchronously. A missing or incomplete
             // index keeps the route live, even when scrollback is requested.
-            for index: RestorableAgentSessionIndex? in [nil, .unavailable] {
-                _ = try #require(app.debugBuildSessionSnapshotForTesting(
+            let unavailableIndexes: [(RestorableAgentSessionIndex?, SurfaceResumeBindingIndex?)] = [
+                (nil, nil),
+                (.unavailable, .unavailable)
+            ]
+            for (agentIndex, bindingIndex) in unavailableIndexes {
+                let pendingSnapshot = try #require(app.debugBuildSessionSnapshotForTesting(
                     includeScrollback: true,
-                    restorableAgentIndex: index
+                    restorableAgentIndex: agentIndex,
+                    surfaceResumeBindingIndex: bindingIndex
                 ))
+                let pendingWindow = try #require(pendingSnapshot.windows.first { $0.windowId == windowId })
+                let pendingWorkspace = try #require(
+                    pendingWindow.tabManager.workspaces.first { $0.workspaceId == workspaceId }
+                )
+                let bindings = [
+                    "workspace": pendingWorkspace.panels.first { $0.id == workspacePanelId }?.terminal?.resumeBinding,
+                    "workspace Dock": pendingWorkspace.dock?.panels.first { $0.id == workspaceDockPanelId }?.terminal?.resumeBinding,
+                    "window Dock": pendingWindow.dock?.panels.first { $0.id == windowDockPanelId }?.terminal?.resumeBinding
+                ]
+                for (scope, binding) in bindings {
+                    #expect(binding?.checkpointId == "recovered", "\(scope) must retain its binding without process evidence")
+                    #expect(binding?.allowsAutomaticResume == true, "\(scope) must retain its launch policy without process evidence")
+                }
                 #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === liveManager)
                 #expect(app.recoverableMainWindowRoute(windowId: windowId)?.frozenWindowSnapshot == nil)
                 #expect(liveManager.tabs.contains { !$0.panels.isEmpty })
