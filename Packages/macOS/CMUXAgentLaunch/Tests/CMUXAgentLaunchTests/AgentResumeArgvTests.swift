@@ -199,7 +199,12 @@ struct AgentResumeArgvTests {
                 ["bash", "--noprofile", "--norc", "-c", "exec -l fish"],
                 ["claude", "--resume", "SID"]
             ),
-            ("codex", Optional("/bin/zsh"), ["zsh", "-il"], ["codex", "resume", "SID"]),
+            (
+                "codex",
+                Optional("/bin/zsh"),
+                ["zsh", "-il"],
+                ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+            ),
             // Login shells rewrite argv[0] with a leading dash.
             ("grok", Optional<String>.none, ["-fish"], ["grok", "-r", "SID"]),
             (
