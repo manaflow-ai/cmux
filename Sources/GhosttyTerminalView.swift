@@ -4104,6 +4104,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         externalHoverOwnerCoordinator.retireLifetime()
     }
 
+    private func installExternalHoverLifetimeIfNeeded() {
+        guard let terminalSurface,
+              terminalSurface.surface != nil,
+              externalHoverLifetimeGeneration != terminalSurface.runtimeSurfaceGeneration else {
+            return
+        }
+        externalHoverOwnerCoordinator.beginLifetime(
+            surfaceID: terminalSurface.id,
+            runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+        )
+        externalHoverLifetimeGeneration = terminalSurface.runtimeSurfaceGeneration
+    }
+
     static func shouldRequestFirstResponderForMouseFocus(
         focusFollowsMouseEnabled: Bool,
         pressedMouseButtons: Int,
@@ -4376,14 +4389,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !isAlreadyAttached {
             updateSurfaceSize()
         }
-        if surface.surface != nil,
-           externalHoverLifetimeGeneration != surface.runtimeSurfaceGeneration {
-            externalHoverOwnerCoordinator.beginLifetime(
-                surfaceID: surface.id,
-                runtimeSurfaceGeneration: surface.runtimeSurfaceGeneration
-            )
-            externalHoverLifetimeGeneration = surface.runtimeSurfaceGeneration
-        }
+        installExternalHoverLifetimeIfNeeded()
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
     }
@@ -4922,6 +4928,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func runtimeSurfaceDidBecomeReady() {
+        installExternalHoverLifetimeIfNeeded()
         guard keyboardCopyModeActive, let surface else { return }
         guard initializeKeyboardCopyModeCursor(surface: surface) else {
             setKeyboardCopyModeActive(false)
