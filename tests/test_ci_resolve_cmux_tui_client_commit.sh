@@ -223,4 +223,63 @@ for bad in x -1; do
   fi
 done
 
+# Regression (#14090): a PR branch touches cmux-tui, merges main into itself after main
+# also touched cmux-tui, and lands through a merge-commit PR. The artifacts workflow
+# publishes main's merge (M), never the branch-side merge (B). Plain history
+# simplification follows the branch side, so B looked like the newest candidate and
+# exact mode failed every reload build (run 36117899936, 52020d35 vs f4b331d15).
+git init -q "$TMP/merge"
+git -C "$TMP/merge" checkout -q -b main
+mcommit() {
+  mkdir -p "$(dirname "$TMP/merge/$2")"
+  echo "$1" >"$TMP/merge/$2"
+  git -C "$TMP/merge" add -A
+  GIT_COMMITTER_DATE="$3" GIT_AUTHOR_DATE="$3" git -C "$TMP/merge" commit -q -m "$1"
+  git -C "$TMP/merge" rev-parse HEAD
+}
+mcommit "base" cmux-tui/a.rs "2026-09-20T00:00:00" >/dev/null
+git -C "$TMP/merge" checkout -q -b feature
+mcommit "feature tui" cmux-tui/b.rs "2026-09-21T00:00:00" >/dev/null
+git -C "$TMP/merge" checkout -q main
+mcommit "main tui" cmux-tui/c.rs "2026-09-22T00:00:00" >/dev/null
+git -C "$TMP/merge" checkout -q feature
+GIT_COMMITTER_DATE="2026-09-23T00:00:00" git -C "$TMP/merge" merge -q --no-edit main
+B="$(git -C "$TMP/merge" rev-parse HEAD)"
+git -C "$TMP/merge" checkout -q main
+GIT_COMMITTER_DATE="2026-09-24T00:00:00" git -C "$TMP/merge" merge -q --no-ff --no-edit feature
+M="$(git -C "$TMP/merge" rev-parse HEAD)"
+mcommit "app after" Sources/App.swift "2026-09-25T00:00:00" >/dev/null
+MSTORE="$TMP/mstore"
+mkdir -p "$MSTORE/$M"
+printf '{"commit":"%s"}\n' "$M" >"$MSTORE/$M/manifest.json"
+got="$(cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER" 2>"$TMP/merge.err")" || {
+  echo "FAIL: exact mode must accept main's published merge $M for the branch-side merge $B"
+  cat "$TMP/merge.err"
+  exit 1
+}
+if [[ "$got" != "$M" ]]; then
+  echo "FAIL: expected main's published merge $M, got '$got'"
+  exit 1
+fi
+if grep -q '^::warning' "$TMP/merge.err"; then
+  echo "FAIL: a commit with identical client inputs is not a fallback and must not warn"
+  exit 1
+fi
+# A later commit off main that does not touch the client resolves the same way: main's
+# published merge stays the newest commit with its inputs.
+git -C "$TMP/merge" checkout -q -b later "$M"
+mcommit "later app" Sources/Other.swift "2026-09-26T00:00:00" >/dev/null
+got="$(cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER" 2>/dev/null)"
+if [[ "$got" != "$M" ]]; then
+  echo "FAIL: a branch off main must resolve main's published merge $M, got '$got'"
+  exit 1
+fi
+# Different inputs still count as a fallback: dropping M's manifest leaves nothing with
+# HEAD's content, so exact mode fails.
+rm "$MSTORE/$M/manifest.json"
+if (cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER" >/dev/null 2>&1); then
+  echo "FAIL: exact mode must fail when no commit with HEAD's client inputs is published"
+  exit 1
+fi
+
 echo "PASS: resolve-cmux-tui-client-commit picks the newest published cmux-tui commit, shallow or not"
