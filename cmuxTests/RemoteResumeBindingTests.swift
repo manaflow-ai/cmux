@@ -698,11 +698,13 @@ struct RemoteResumeBindingTests {
         #expect(hookParams["checkpoint_id"] as? String == "kiro-remote-session")
         #expect(hookParams["auto_resume"] as? Bool == true)
 
-        // TTY SSH has no persistent-SSH resume owner, so an authenticated
-        // relay-originated registration is rejected and stores nothing.
+        // Even a persistent-SSH workspace with a daemon slot no longer accepts
+        // an authenticated relay-originated registration; nothing is stored.
         let relayedData = workspace.rewriteRemoteRelayCommandLine(try requestData(resumeRequest))
         let relayed = try v2Envelope(requestData: relayedData)
         #expect(relayed["ok"] as? Bool == false, "\(relayed)")
+        let relayedError = relayed["error"] as? [String: Any]
+        #expect(relayedError?["message"] as? String == "Failed to set resume binding", "\(relayed)")
         let bindingAfterRelay = try v2Result(request: [
             "id": "binding-after-relayed-registration",
             "method": "surface.resume.get",
