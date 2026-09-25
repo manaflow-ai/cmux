@@ -1424,10 +1424,7 @@ struct cmuxApp: App {
     }
 
     private func performRootSplitFromMenu(direction: SplitDirection) {
-        if AppDelegate.shared?.performRootSplitShortcut(direction: direction) == true {
-            return
-        }
-        if !tabManager.createRootSplitOutcome(direction: direction).isAccepted {
+        if !(AppDelegate.shared?.performRootSplitAction(direction: direction) ?? false) {
             NSSound.beep()
         }
     }

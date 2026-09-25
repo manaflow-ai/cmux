@@ -557460,6 +557460,12 @@
             "value": "워크스페이스 루트를 오른쪽으로 분할"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកប្លង់មេនៃកន្លែងធ្វើការទៅស្តាំ"
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -557577,6 +557583,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 루트를 아래로 분할"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកប្លង់មេនៃកន្លែងធ្វើការចុះក្រោម"
           }
         },
         "nb": {
@@ -557698,6 +557710,12 @@
             "value": "워크스페이스 루트를 오른쪽으로 분할"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកប្លង់មេនៃកន្លែងធ្វើការទៅស្តាំ"
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -557815,6 +557833,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 루트를 아래로 분할"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកប្លង់មេនៃកន្លែងធ្វើការចុះក្រោម"
           }
         },
         "nb": {
@@ -557936,6 +557960,12 @@
             "value": "워크스페이스 레이아웃"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្លង់កន្លែងធ្វើការ"
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -558055,6 +558085,12 @@
             "value": "워크스페이스 루트를 오른쪽으로 분할"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកប្លង់មេនៃកន្លែងធ្វើការទៅស្តាំ"
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -558172,6 +558208,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 루트를 아래로 분할"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកប្លង់មេនៃកន្លែងធ្វើការចុះក្រោម"
           }
         },
         "nb": {

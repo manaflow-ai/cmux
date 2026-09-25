@@ -16910,12 +16910,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didCreateSplit
     }
 
+    /// Executes a root split for the requested window or explicitly supplied manager.
+    @discardableResult
+    func performRootSplitAction(
+        direction: SplitDirection,
+        targetManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let manager = targetManager ?? {
+            let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+            return synchronizeActiveMainWindowContext(preferredWindow: targetWindow) ?? tabManager
+        }()
+        return manager?.createRootSplitOutcome(direction: direction).isAccepted ?? false
+    }
+
     /// Creates a terminal pane beside the selected workspace's full split tree.
     @discardableResult
     func performRootSplitShortcut(direction: SplitDirection, preferredWindow: NSWindow? = nil) -> Bool {
-        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
-        let targetManager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow) ?? tabManager
-        return targetManager?.createRootSplitOutcome(direction: direction).isAccepted ?? false
+        performRootSplitAction(direction: direction, preferredWindow: preferredWindow)
     }
 
     /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts

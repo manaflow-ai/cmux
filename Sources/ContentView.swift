@@ -9306,7 +9306,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalSplitRootRight") {
-            if !tabManager.createRootSplitOutcome(direction: .right).isAccepted {
+            if !(AppDelegate.shared?.performRootSplitAction(direction: .right, targetManager: tabManager) ?? false) {
                 NSSound.beep()
             }
         }
@@ -9334,7 +9334,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalSplitRootDown") {
-            if !tabManager.createRootSplitOutcome(direction: .down).isAccepted {
+            if !(AppDelegate.shared?.performRootSplitAction(direction: .down, targetManager: tabManager) ?? false) {
                 NSSound.beep()
             }
         }
