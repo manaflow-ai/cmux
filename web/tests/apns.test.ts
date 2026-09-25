@@ -508,6 +508,7 @@ describe("apns route policy", () => {
     expect(registrationApnsBundle(official, "SANDBOX")).toEqual(official);
     const dev = normalizeApnsBundle("dev.cmux.ios.push1")!;
     expect(registrationApnsBundle(dev, "production")).toEqual(dev);
+    expect(registrationApnsBundle(null, "sandbox")).toBeNull();
   });
 
   test("allows the internal TestFlight bundle id as a production APNs topic", () => {

@@ -117,10 +117,10 @@ function boundedString(value: unknown, maxChars: number): string | null {
  * BadDeviceToken and prunes the row. Development bundles stay sandbox-only.
  */
 export function registrationApnsBundle(
-  bundle: ApnsBundlePolicy,
+  bundle: ApnsBundlePolicy | null,
   requestedEnvironment: unknown,
-): ApnsBundlePolicy {
-  if (bundle.environment === "production" && requestedEnvironment === "sandbox") {
+): ApnsBundlePolicy | null {
+  if (bundle?.environment === "production" && requestedEnvironment === "sandbox") {
     return { bundleId: bundle.bundleId, environment: "sandbox" };
   }
   return bundle;
