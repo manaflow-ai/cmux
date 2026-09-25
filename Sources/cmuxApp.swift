@@ -18,21 +18,17 @@ import UniformTypeIdentifiers
 import CmuxTerminal
 
 struct cmuxApp: App {
-    /// Dependency container for the new settings packages. Constructed
-    /// once at app launch and injected into the SwiftUI environment via
-    /// `.settingsRuntime(_:)`; descendant views resolve their settings
-    /// through it via the `@LiveSetting` property wrapper.
+    /// App-owned settings graph, injected into each SwiftUI hosting root.
     private let settingsRuntime: SettingsRuntime
 
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
 
-    /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
-    /// hosted-browser sign-in flow). Constructed once at app launch and
-    /// injected into AppDelegate and the auth-consuming services.
+    /// App-owned auth graph injected into the delegate and auth consumers.
     private let authComposition: MacAuthComposition
     /// Composition-root owner for the config-backed automation bridge.
     private let automationEngine: AutomationEngine
+    private let browserDataImportCoordinator: BrowserDataImportCoordinator
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore: ClosedItemHistoryStore
@@ -102,10 +98,12 @@ struct cmuxApp: App {
             backupTimestamp: secretMigrationTimestamp
         )
         let authComposition = MacAuthComposition()
+        let browserDataImportCoordinator = BrowserDataImportCoordinator()
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared
         let sidebarState = SidebarState()
         self.authComposition = authComposition
+        self.browserDataImportCoordinator = browserDataImportCoordinator
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -200,6 +198,7 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
+                browserDataImportCoordinator: browserDataImportCoordinator,
                 computersActions: devices.settingsActions,
                 runComputerUseOnboardingAction: { startingPoint in
                     AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
@@ -318,6 +317,7 @@ struct cmuxApp: App {
             cloudWorkspaceOperationController: cloudWorkspaceOperationController,
             newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
+            browserDataImportCoordinator: browserDataImportCoordinator,
             computerUseRuntimeService: computerUseRuntimeService,
             devicesRegistry: devicesRegistry,
             computersService: computersService
@@ -1182,7 +1182,7 @@ struct cmuxApp: App {
             Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
                 // Defer modal presentation until after AppKit finishes menu tracking.
                 DispatchQueue.main.async {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    browserDataImportCoordinator.presentImportDialog()
                 }
             }
 
@@ -2385,7 +2385,7 @@ private struct BrowserImportHintDebugView: View {
                             }
                             Button("Open Import Dialog") {
                                 DispatchQueue.main.async {
-                                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                                    AppDelegate.shared?.browserDataImportCoordinator?.presentImportDialog()
                                 }
                             }
                         }
