@@ -38,28 +38,6 @@ public actor GitHubPullRequestRequestCoordinator {
         return "\(userAgentProductToken)/\(version)"
     }
 
-    enum RateLimitResource: Hashable, Sendable {
-        case rest
-        case graphql
-    }
-
-    private enum RateLimitScope: Hashable, Sendable {
-        case primary(RateLimitResource)
-        case secondary
-    }
-
-    private struct RateLimitKey: Hashable, Sendable {
-        let authorizationFingerprint: Data
-        let scope: RateLimitScope
-    }
-
-    internal struct RequestKey: Hashable, Sendable {
-        let endpoint: String
-        let body: Data?
-        let authorizationFingerprint: Data
-        let rateLimitResource: RateLimitResource
-    }
-
     private struct CachedResponse: Sendable {
         let etag: String
         let data: Data

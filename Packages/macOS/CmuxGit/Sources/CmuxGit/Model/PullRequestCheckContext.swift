@@ -53,16 +53,10 @@ struct PullRequestCheckContext: Sendable {
         }
     }
 
-    enum Ordering {
-        case newer
-        case older
-        case ambiguous
-    }
-
     /// Compares attempts using the provider's numeric identifier when present.
     /// Missing identifiers and timestamps fail closed instead of guessing which
     /// queued or completed attempt should win.
-    func ordering(against other: Self) -> Ordering {
+    func ordering(against other: Self) -> PullRequestCheckOrdering {
         if runNumber != nil || other.runNumber != nil {
             guard let runNumber, let otherNumber = other.runNumber, runNumber != otherNumber else {
                 return .ambiguous
