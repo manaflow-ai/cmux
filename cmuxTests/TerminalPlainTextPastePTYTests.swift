@@ -15,11 +15,15 @@ extension TerminalPlainTextPasteStartupTests {
     @Test("Dictation paste retains requested text after the sender restores the clipboard")
     func clipboardRestorationAfterNativePaste() async throws {
         defer { NSPasteboard.general.clearContents() }
-        let fixture = try PlainPastePTYFixture(optimized: true)
+        // Model the measured 271 ms fresh helper startup, beyond the sender's
+        // 100 ms restore window. Delaying startup must not delay an accepted paste.
+        let fixture = try PlainPastePTYFixture(optimized: true, workerStartupDelay: 0.3)
         defer { fixture.close() }
         try await fixture.waitUntilReady()
         let savedText = "previous clipboard contents"
         for trial in 0..<3 {
+            // Allow a standby helper to reach its request wait before dictation.
+            try await Task.sleep(for: .milliseconds(600))
             let transcription = "dictation-\(trial) 日本語 🦀\nsecond line\n"
             NSPasteboard.general.clearContents()
             try #require(NSPasteboard.general.setString(transcription, forType: .string))
@@ -37,11 +41,14 @@ extension TerminalPlainTextPasteStartupTests {
             default:
                 try #require(fixture.view.performBindingAction("paste_from_clipboard"))
             }
-            // Deterministically restore before the asynchronous preparation task
-            // can run, instead of relying on the dictation app's 100 ms timer.
-            NSPasteboard.general.clearContents()
-            try #require(NSPasteboard.general.setString(savedText, forType: .string))
+            let restoration = Task { @MainActor in
+                try await Task.sleep(for: .milliseconds(100))
+                NSPasteboard.general.clearContents()
+                try #require(NSPasteboard.general.setString(savedText, forType: .string))
+            }
+            defer { restoration.cancel() }
             let receipt = try await fixture.receipt(trial: trial)
+            try await restoration.value
             let bytes = try #require(receipt["hex"] as? String)
             let expected = Data(("\u{1b}[200~" + transcription + "\u{1b}[201~").utf8)
             #expect(bytes == expected.map { String($0, radix: 16).leftPaddedByte }.joined())
