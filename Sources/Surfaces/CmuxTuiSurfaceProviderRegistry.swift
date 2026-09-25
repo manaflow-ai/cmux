@@ -147,7 +147,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
               providers[summary.id] == nil else { return }
         let provider = CmuxTuiSurfaceProvider(
-            summary: summary, links: links, catalog: catalog,
+            summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
             portForwards: portForwards, portAccessStore: portAccess
         )
         providers[summary.id] = provider
@@ -515,7 +515,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 provider.update(summary: summary)
             } else {
                 let provider = CmuxTuiSurfaceProvider(
-                    summary: summary, links: links, catalog: catalog,
+                    summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
                     portForwards: portForwards, portAccessStore: portAccess
                 )
                 providers[summary.id] = provider
