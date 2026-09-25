@@ -6,6 +6,7 @@
     owned_build_state.py record SOURCE DERIVED_DATA
     owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
+    owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -65,6 +66,21 @@ xctestruns, which a later build must not start from (seed-derived-data.yml
 saves its seed before them for the same reason). A failed or cancelled
 compile keeps nothing, so the store still holds the state it started from.
 `save` runs last, always, and replaces the kept packages with the job's.
+
+A warm Mac is not always the cheapest start. Its kept DerivedData is the
+previous pull request's build, so the compile undoes that diff as well as
+building this one: warm compiles took 365 to 428 s on 2026-09-25, against 50
+to 160 s from a seed a few commits behind. `prefer` runs on a warm Mac when
+CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
+DerivedData. It digests the workspace once and counts the inputs each would
+rebuild: those whose content differs from the kept RECORD, and from the
+MANIFEST of the nearest seed in this commit's history that this Mac keeps
+(seed_derived_data.py CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the
+one with fewer changed inputs wins, and the adopt that follows clones exactly
+that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 190 s,
+so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
+given. A kept DerivedData without a record replays nothing and rebuilds the
+whole `cmux` module, so any seed beats it. Every error keeps the warm path.
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
@@ -301,6 +317,80 @@ def save(store: Path, source_packages: Path, workspace: Path, package_store: Pat
     return {"packages": "false"}
 
 
+# Not build inputs of the compile, and not present at every recording.
+UNCOMPARED = (".ci-source-packages/", "GhosttyKit.xcframework/")
+
+
+def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
+    """Files whose content differs between two records, or that only one has."""
+    def files(entries: dict[str, list]) -> dict[str, str]:
+        return {
+            path: entry[0] for path, entry in entries.items()
+            if not path.endswith("/") and not path.startswith(UNCOMPARED) and isinstance(entry, list) and entry
+        }
+    now, then = files(current), files(recorded)
+    return sum(1 for path in now.keys() | then.keys() if now.get(path) != then.get(path))
+
+
+def nearest_kept_seed(prefix: str, revision: str) -> tuple[str, int] | None:
+    """The nearest seed in REVISION's history that this Mac keeps, and its distance.
+
+    The nearest seed in the bucket moves with every main push that reseeds, so
+    a warm Mac that never downloads would rarely keep that exact one.
+    """
+    widths = (seed.swift_jobs(), *(width for width in seed.SEEDED_JOB_WIDTHS if width != seed.swift_jobs()))
+    for distance, commit in enumerate(seed.lineage(revision)):
+        for jobs in widths:
+            key = seed.scoped(prefix, jobs) + commit
+            if seed.cached(key):
+                return key, distance
+    return None
+
+
+def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distance: int | None) -> dict[str, str]:
+    """Whether a seed should replace this warm Mac's kept DerivedData.
+
+    `seed_key` and `local` tell seed_derived_data.py which kept seed to clone
+    (CMUX_SEED_EXACT), so it adopts the seed compared here, not a newer one.
+    """
+    result = {"prefer": "false", "local": "false"}
+    manifest = store / DERIVED / RECORD
+    kept_record = json.loads(manifest.read_text()) if manifest.is_file() else None
+    current = seed.warm.record(workspace) if kept_record is not None else {}
+    kept_changed = changed_inputs(current, kept_record) if kept_record is not None else None
+    if kept_changed is not None:
+        result["kept_changed"] = str(kept_changed)
+    kept_seed = nearest_kept_seed(prefix, revision)
+    if kept_seed:
+        key, distance = kept_seed
+        result.update(seed_key=key, seed_distance=str(distance), local="true")
+        if kept_changed is None:
+            result.update(prefer="true", reason="kept DerivedData has no input record")
+            return result
+        seed_changed = changed_inputs(current, json.loads((seed.cached(key) / seed.MANIFEST).read_text()))
+        result["seed_changed"] = str(seed_changed)
+        if seed_changed < kept_changed:
+            result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
+            return result
+        result["reason"] = "the kept DerivedData has no more changed inputs than the seed this Mac keeps"
+    if max_distance is None:
+        result.setdefault("reason", "this Mac keeps no seed in this commit's history")
+        return result
+    exact, distance = seed.locate(prefix, revision)
+    if distance is None:
+        result.setdefault("reason", "no seed in this commit's history")
+        return result
+    if kept_changed == 0:
+        result["reason"] = "the kept DerivedData has no changed inputs"
+    elif distance <= max_distance:
+        result.update(prefer="true", seed_key=exact, seed_distance=str(distance), local="false",
+                      reason=f"seed {distance} commits behind, within {max_distance}"
+                      + ("" if kept_changed is not None else "; kept DerivedData has no input record"))
+    else:
+        result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
+    return result
+
+
 def package_store(argv: list[str]) -> Path | None:
     return Path(argv[5]) if len(argv) == 6 and argv[5] else None
 
@@ -320,6 +410,14 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) in (5, 6) and argv[1] == "save":
         write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4]), package_store(argv)))
+        return 0
+    if len(argv) in (6, 7) and argv[1] == "prefer":
+        max_distance = int(argv[6]) if len(argv) == 7 and argv[6].isdigit() else None
+        try:
+            result = prefer(Path(argv[2]), Path(argv[3]).resolve(), argv[4], argv[5], max_distance)
+        except Exception as error:  # noqa: BLE001 - any doubt keeps the warm path
+            result = {"prefer": "false", "reason": f"{type(error).__name__}: {error}"[:200]}
+        write_outputs(result)
         return 0
     print(__doc__, file=sys.stderr)
     return 2

@@ -255,12 +255,11 @@ extension TerminalSurface {
         if [[ -r "$cmux_computer_use_setting" ]]; then
             IFS= read -r cmux_computer_use_enabled < "$cmux_computer_use_setting" || true
         fi
-        # App authority and the user's documented kill switch are separate:
-        # app state may disable attachment, but enabling it never clears a
-        # user-exported CMUX_COMPUTER_USE_MCP_DISABLED=1.
-        case "$cmux_computer_use_enabled" in
-            0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
-        esac
+        # A functional `$cmux-cua` request is the explicit opt-in. Keep the
+        # live setting available to the app for first-use reconciliation, but
+        # do not turn an ordinary settings-off value into the hard kill switch.
+        # Only CMUX_COMPUTER_USE_MCP_DISABLED=1 (or managed policy in cmux)
+        # blocks attachment.
         if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
             cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/\(definition.wrapperName)"
             if [[ -x "$cmux_candidate" ]]; then

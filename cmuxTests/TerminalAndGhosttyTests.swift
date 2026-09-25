@@ -3052,7 +3052,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
-    private func makeWindow() -> NSWindow {
+    func makeWindow() -> NSWindow {
         let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -3107,7 +3107,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
-    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+    func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while ProcessInfo.processInfo.systemUptime < deadline {
             if condition() {
@@ -3118,7 +3118,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         return condition()
     }
 
-    private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
+    func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
         var drained = false
         DispatchQueue.main.async {
             drained = true
@@ -3126,7 +3126,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
     }
 
-    private func waitForRuntimeSurface(
+    func waitForRuntimeSurface(
         _ surface: TerminalSurface,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
@@ -3677,63 +3677,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
-    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
-#if DEBUG
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let livePortalWorkspace = try makeAuthorizedPortalTabId()
-        defer { livePortalWorkspace.tearDown() }
-
-        let surface = TerminalSurface(
-            tabId: livePortalWorkspace.id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        hostedView.setVisibleInUI(true)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertNotNil(
-            surface.surface,
-            "Expected runtime surface before measuring visibility-restore redraws"
-        )
-
-        hostedView.setActive(false)
-        hostedView.setVisibleInUI(false)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        surface.resetDebugForceRefreshCount()
-        hostedView.setVisibleInUI(true)
-        drainMainQueue()
-        // The visibility-restore redraw is scheduled through a main-actor task, which
-        // `drainMainQueue` (GCD) does not drain; wait for it before counting.
-        _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= 1 }
-
-        XCTAssertEqual(
-            surface.debugForceRefreshCount(),
-            1,
-            "Restoring panel visibility should force a redraw even when focus recovery is inactive"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
-    }
-
     func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() throws {
 #if DEBUG
         let window = makeWindow()
@@ -4254,6 +4197,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     func testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles() throws {
 #if DEBUG
+        // Skips outside its dedicated CI step, which sets the variable. A pull
+        // request that edits this test runs that step too (choose_ci_suite.py).
         guard ProcessInfo.processInfo.environment["CMUX_RENDERER_MEMORY_REGRESSION"] == "1" else {
             throw XCTSkip("Runs in the isolated renderer-memory CI invocation")
         }

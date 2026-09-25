@@ -4,6 +4,7 @@ import { join } from "node:path";
 import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
 import { issueDashboardTicket } from "../src/dashboard-auth";
+import { objectName } from "../src/routing";
 import { V2DashboardController } from "../../../web/app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
 
 let mf: Miniflare;
@@ -331,6 +332,78 @@ test("native socket setup delivers directory and relay responses", async () => {
   }
 });
 
+test("a socket reclaims reservations leaked by a Durable Object reset", async () => {
+  // A reset drops sockets without webSocketClose, leaving reservations whose
+  // unacknowledged output still counts against the user's aggregate budget.
+  const namespace = await mf.getDurableObjectNamespace("USER_USAGE");
+  const usage = namespace.getByName(objectName(environment, projectId, userId)) as any;
+  for (const index of [1, 2, 3, 4]) {
+    const sessionId = `leaked-${index}`;
+    expect((await usage.reserveSocket({ userId, teamId, sessionId, deviceKey: "f".repeat(64) })).ok).toBe(true);
+    expect((await usage.setOutput(userId, sessionId, 1, 2 * 1024 * 1024, 1000)).ok).toBe(true);
+  }
+  const setup = await setupFor("socket-leaked", undefined);
+  const socketURL = new URL("v2/control/socket", await mf.ready);
+  socketURL.protocol = "ws:";
+  const socket = new NodeWebSocket(socketURL.href, {
+    headers: { authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(setup) },
+  });
+  const messages: any[] = [];
+  socket.on("message", value => messages.push(JSON.parse(value.toString())));
+  await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+  const response = (requestId: string) => new Promise<any>((resolve, reject) => {
+    const buffered = messages.find(message => message.requestId === requestId);
+    if (buffered) { resolve(buffered); return; }
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off("message", onMessage);
+      socket.off("close", onClose);
+      socket.off("error", onError);
+    };
+    const onError = (error: Error) => { cleanup(); reject(error); };
+    const onClose = () => onError(new Error(`Socket closed before ${requestId}`));
+    const onMessage = (value: NodeWebSocket.RawData) => {
+      const message = JSON.parse(value.toString());
+      if (message.requestId !== requestId) return;
+      cleanup(); resolve(message);
+    };
+    const timeout = setTimeout(() => onError(new Error(`Timed out waiting for ${requestId}`)), 2_000);
+    socket.on("message", onMessage);
+    socket.once("close", onClose);
+    socket.once("error", onError);
+  });
+  try {
+    socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "leaked-directory" }));
+    expect((await response("leaked-directory")).schemaId).toBe("directory.result.v1");
+    const remaining = (await usage.listSocketReservations(userId)).value.map((row: { sessionId: string }) => row.sessionId);
+    expect(remaining.filter((id: string) => id.startsWith("leaked-"))).toEqual([]);
+    // Repeated leaked budgets must recover on an already-open connection
+    // without reclaiming that live socket's reservation.
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const live = (await usage.listSocketReservations(userId)).value;
+      const liveIDs = live.map((row: any) => row.sessionId);
+      expect(liveIDs.length).toBeGreaterThan(0);
+      let available = 8 * 1024 * 1024 - live.reduce((sum: number, row: any) => sum + row.outputBytes, 0);
+      for (let index = 0; available > 0; index += 1) {
+        const sessionId = `leaked-cycle-${cycle}-${index}`;
+        const bytes = Math.min(available, 2 * 1024 * 1024);
+        expect((await usage.reserveSocket({ userId, teamId, sessionId, deviceKey: "f".repeat(64) })).ok).toBe(true);
+        expect((await usage.setOutput(userId, sessionId, 1, bytes, 1000)).ok).toBe(true);
+        available -= bytes;
+      }
+      const requestId = `directory-cycle-${cycle}`;
+      const pending = response(requestId);
+      socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId }));
+      expect((await pending).schemaId).toBe("directory.result.v1");
+      const retained = (await usage.listSocketReservations(userId)).value.map((row: any) => row.sessionId);
+      expect(retained.filter((id: string) => id.startsWith("leaked-"))).toEqual([]);
+      for (const id of liveIDs) expect(retained).toContain(id);
+    }
+  } finally {
+    socket.close();
+  }
+});
+
 test("forged scope is rejected before the TeamControl binding", async () => {
   const forged = { ...descriptor, identity: { ...descriptor.identity, teamId: "other-team" } };
   const requestId = "forged-scope";
@@ -343,15 +416,15 @@ test("forged scope is rejected before the TeamControl binding", async () => {
 });
 
 
-test("a discovery-only Mac can open control without publishing a host", async () => {
-  for (const discovery of [false, true]) {
+test("Mac control accepts either discovery or hosting without enabling iOS pairing", async () => {
+  for (const capabilities of [[], ["cmux.mac-devices.v1"], ["cmux.mac-host.v1"]]) {
     const device = { ...descriptor, metadata: { ...descriptor.metadata,
-      pairingEnabled: false, capabilities: discovery ? ["cmux.mac-devices.v1"] : [] } };
-    const setup = await setupFor(`discovery-only-${discovery}`, undefined, device);
+      pairingEnabled: false, capabilities } };
+    const setup = await setupFor(`capabilities-${capabilities.length}-${capabilities.join()}`, undefined, device);
     const result = await json("https://iroh.test/v2/control/session", {
       method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}` },
       body: JSON.stringify(setup),
     });
-    expect(result.response.status).toBe(discovery ? 200 : 403);
+    expect(result.response.status).toBe(capabilities.length > 0 ? 200 : 403);
   }
 });
