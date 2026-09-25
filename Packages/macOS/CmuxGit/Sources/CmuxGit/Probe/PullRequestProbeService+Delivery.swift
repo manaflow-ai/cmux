@@ -41,7 +41,7 @@ extension PullRequestProbeService {
         guard !sha.isEmpty else { return nil }
         let endpoints = [
             "repos/\(repositorySlug)/commits/\(sha)/check-runs?per_page=100",
-            "repos/\(repositorySlug)/commits/\(sha)/status",
+            "repos/\(repositorySlug)/commits/\(sha)/status?per_page=100",
         ]
         let responses = await withTaskGroup(
             of: (Int, WorkspacePullRequestHTTPResponse?).self,
