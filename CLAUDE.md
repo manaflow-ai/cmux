@@ -144,7 +144,9 @@ declares or extends, and an app-source diff runs the suites whose tests mention
 what it changed (`reverse_test_impact.py`, #14418), in one changed-suites batch
 with no label (edited suites over its budget take all seven shards). `unit-ci` runs
 every app-host suite across all seven workers; `full-ci` adds the other lanes on
-top. Neither is needed to test the suites you edited. No PR job runs
+top. Neither is needed to test the suites you edited. A change to how the suites
+are laid out over the workers (the timings file, the sharder, the batch runner, or
+the job's matrix and shard env) runs every app-host suite on its own. No PR job runs
 `cmuxUITests/`; `no-full-ci` records a deliberate skip for `suite-coverage`. The label permits eligible app-host shards,
 lag builds, and other full-suite lanes; path routing, release routing, and job
 dependencies still apply. It does not request every repository test. Inspect
