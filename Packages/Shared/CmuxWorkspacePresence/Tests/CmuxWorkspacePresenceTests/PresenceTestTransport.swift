@@ -38,4 +38,19 @@ actor PresenceTestTransport: WorkspacePresenceConnecting {
             return await group.next() ?? nil
         }
     }
+
+    static func finishes<Value: Sendable>(_ stream: AsyncStream<Value>) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in stream {}
+                return true
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: .seconds(3))
+                return false
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? false
+        }
+    }
 }

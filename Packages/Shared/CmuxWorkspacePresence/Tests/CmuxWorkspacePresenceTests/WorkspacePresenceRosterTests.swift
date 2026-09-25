@@ -90,6 +90,6 @@ struct WorkspacePresenceRosterTests {
         #expect(await PresenceTestTransport.next(changes) == a)
         roster.setWorkspaces(observed: [], selected: nil, isActive: true)
         #expect(roster.collaborators(in: a).isEmpty)
-        #expect(await PresenceTestTransport.next(connection.views) == nil)
+        #expect(await PresenceTestTransport.finishes(connection.views))
     }
 }

@@ -79,7 +79,10 @@ public final class WorkspacePresenceSession {
             phase = .connecting
             var retryDelay = backoff
             do {
-                guard let token = await accessToken(), !Task.isCancelled, generation == epoch, isCurrent() else { return }
+                let token = await accessToken()
+                guard !Task.isCancelled, generation == epoch, isCurrent() else { return }
+                // A current authority with no token is transient; use the existing retry path.
+                guard let token else { throw WorkspacePresenceError.stale }
                 let opened = try await transport.connect(scope: scope, accessToken: token)
                 guard !Task.isCancelled, generation == epoch, isCurrent() else { opened.close(); return }
                 connection = opened

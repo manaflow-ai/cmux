@@ -142,10 +142,10 @@ view state; identity, profile image, room, and expiry are server-owned.
 `GET /v1/workspace-presence?scope=<encoded-scope>` upgrades to a hibernating
 WebSocket. The Worker verifies the Stack bearer, checks Cloud team membership,
 resolves the DO by a structured room key, and forwards bounded identity and
-token-expiry headers. The DO sends full versioned snapshots, coalesces multiple
-devices for one account, renews active leases every 15 seconds, expires them
-after 45 seconds, and closes the connection at the bounded authentication
-deadline. Disconnects, backgrounding, scope switches, and account changes
+token-expiry headers. Clients send active-view renewals every 15 seconds and the DO applies them
+to the live lease. The DO sends full versioned snapshots, coalesces multiple
+devices for one account, expires active leases after 45 seconds, and closes the
+connection at the bounded authentication deadline. Disconnects, backgrounding, scope switches, and account changes
 therefore remove a viewer without requiring a separate leave mutation.
 
 The shared `CmuxWorkspacePresence` package owns scope validation, the wire

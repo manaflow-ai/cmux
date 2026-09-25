@@ -33,25 +33,27 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
         session = WorkspacePresenceSession(transport: transport)
     }
 
-    /// Replaces the active workspace lease. An unchanged scope is a no-op.
+    /// Replaces the active workspace lease, including when the account changes.
     public func setWorkspaceScope(_ nextScope: WorkspacePresenceScope?) async {
-        guard nextScope != scope else { return }
+        let nextAccountID = await tokenSource.currentUserID()
+        guard nextScope != scope || nextAccountID != accountID else { return }
         generation &+= 1
         let currentGeneration = generation
         runTask?.cancel()
         runTask = nil
         session.stop()
         scope = nextScope
-        accountID = await tokenSource.currentUserID()
+        accountID = nextAccountID
         guard let nextScope, self.scope == nextScope, generation == currentGeneration else { return }
         session.setViewing(true)
         let session = self.session
         let tokenSource = self.tokenSource
-        runTask = Task { @MainActor [weak self, session, tokenSource] in
+        let accountID = nextAccountID
+        runTask = Task { @MainActor [weak self, session, tokenSource, accountID] in
             await session.run(
                 scope: nextScope,
                 accessToken: {
-                    guard let accountID = self?.accountID else { return nil }
+                    guard let accountID else { return nil }
                     return await tokenSource.accessToken(expectedUserID: accountID)
                 },
                 isCurrent: {
