@@ -4,8 +4,7 @@ extension TabManager {
     /// Saves one live workspace to the parked manifest and tears down its runtime resources.
     @discardableResult
     func parkWorkspaceNonInteractively(_ workspace: Workspace) -> Bool {
-        guard tabs.count > 1,
-              tabs.contains(where: { $0.id == workspace.id }),
+        guard tabs.contains(where: { $0.id == workspace.id }),
               canCloseWorkspace(workspace, allowPinned: true),
               let index = tabs.firstIndex(where: { $0.id == workspace.id }) else {
             return false
@@ -16,6 +15,18 @@ extension TabManager {
             restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                 ?? RestorableAgentSessionIndex.load()
         )
+        // A TabManager keeps one live workspace while its window is open. Seed a
+        // replacement shell before parking the final workspace so the action is
+        // available on every workspace without leaving the app window empty.
+        if tabs.count == 1 {
+            guard addWorkspaceIfActive(
+                select: true,
+                eagerLoadTerminal: true,
+                autoWelcomeIfNeeded: false
+            ) != nil else {
+                return false
+            }
+        }
         ParkedWorkspaceStore.shared.append(ParkedWorkspaceRecord(
             id: workspace.id,
             workspaceIndex: index,

@@ -251,7 +251,7 @@ extension TabItemView {
         ) {
             actions.parkTargets(targetIds)
         }
-        .disabled(targetIds.isEmpty || snapshot.workspaceCount <= targetIds.count)
+        .disabled(targetIds.isEmpty)
 
         Divider()
 

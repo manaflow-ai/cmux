@@ -4886,9 +4886,6 @@ class TerminalController {
     @MainActor
 
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
         guard let action = v2ActionKey(params) else {
             return .err(code: "invalid_params", message: "Missing action", data: nil)
         }
@@ -4925,8 +4922,8 @@ class TerminalController {
                   let record = ParkedWorkspaceStore.shared.records.first(where: { $0.id == parkedID }) else {
                 return .err(code: "not_found", message: "Parked workspace not found", data: nil)
             }
-            let manager = v2ResolveTabManager(params: params)
-                ?? record.windowId.flatMap { AppDelegate.shared?.tabManagerFor(windowId: $0) }
+            let manager = record.windowId.flatMap { AppDelegate.shared?.tabManagerFor(windowId: $0) }
+                ?? v2ResolveTabManager(params: params)
                 ?? AppDelegate.shared?.tabManager
             guard let manager, manager.unparkWorkspace(record) else {
                 return .err(code: "unavailable", message: "Could not restore parked workspace", data: nil)
@@ -4936,6 +4933,10 @@ class TerminalController {
                 "workspace_id": record.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: record.id),
             ])
+        }
+
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [

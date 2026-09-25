@@ -134,29 +134,70 @@ final class ParkedWorkspaceStore: ObservableObject {
             let title = [record.snapshot.customTitle, record.snapshot.processTitle, record.snapshot.currentDirectory]
                 .compactMap { $0?.lowercased() }
                 .joined(separator: "\n")
-            return title.contains(normalized) || record.snapshot.panels.contains { panel in
-                let text = [panel.customTitle, panel.terminal?.agent?.sessionId, panel.terminal?.agent?.kind.rawValue]
-                    .compactMap { $0?.lowercased() }
-                    .joined(separator: "\n")
-                return text.contains(normalized)
-            }
+            guard !title.contains(normalized) else { return true }
+            let panelText = record.snapshot.panels.map { panel in
+                [
+                    panel.customTitle,
+                    panel.terminal?.agent?.sessionId,
+                    panel.terminal?.agent?.kind.rawValue,
+                    panel.terminal?.scrollback,
+                ]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: "\n")
+            }.joined(separator: "\n")
+            let sidebarText = record.snapshot.statusEntries
+                .map { "\($0.key) \($0.value)" }
+                .joined(separator: "\n")
+                + "\n"
+                + record.snapshot.logEntries.map(\.message).joined(separator: "\n")
+            return (panelText + "\n" + sidebarText).contains(normalized)
         }
+    }
+
+    /// Removes snapshots that retain a Cloud VM attachment after account or policy transitions.
+    func removeManagedCloudVMRecords() {
+        let filtered = records.filter { record in
+            !ClosedItemHistoryStore.workspaceSnapshotHostsCloudVM(record.snapshot)
+        }
+        guard filtered.count != records.count else { return }
+        records = filtered
+        persist()
     }
 
     func flush() {
         guard let fileURL else { return }
-        Self.saveRecords(records, fileURL: fileURL)
+        let snapshot = records
+        let revisionSnapshot = revision
+        if persistsSynchronously {
+            Self.saveRecords(snapshot, fileURL: fileURL)
+            return
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached(priority: .userInitiated) {
+            await ParkedWorkspacePersistenceActor.shared.save(
+                snapshot,
+                fileURL: fileURL,
+                revision: revisionSnapshot
+            )
+            semaphore.signal()
+        }
+        semaphore.wait()
     }
 
     private func persist() {
         revision &+= 1
         guard let fileURL else { return }
+        let revisionSnapshot = revision
         if persistsSynchronously {
             Self.saveRecords(records, fileURL: fileURL)
         } else {
             let snapshot = records
-            Task.detached(priority: .utility) {
-                Self.saveRecords(snapshot, fileURL: fileURL)
+            Task {
+                await ParkedWorkspacePersistenceActor.shared.save(
+                    snapshot,
+                    fileURL: fileURL,
+                    revision: revisionSnapshot
+                )
             }
         }
     }
@@ -175,7 +216,7 @@ final class ParkedWorkspaceStore: ObservableObject {
         return (try? JSONDecoder().decode([ParkedWorkspaceRecord].self, from: data)) ?? []
     }
 
-    nonisolated private static func saveRecords(_ records: [ParkedWorkspaceRecord], fileURL: URL) {
+    nonisolated fileprivate static func saveRecords(_ records: [ParkedWorkspaceRecord], fileURL: URL) {
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
@@ -186,6 +227,25 @@ final class ParkedWorkspaceStore: ObservableObject {
         } catch {
             closedItemHistoryLogger.error("parkedWorkspace.save.failed error=\(error.localizedDescription, privacy: .public)")
         }
+    }
+}
+
+private actor ParkedWorkspacePersistenceActor {
+    static let shared = ParkedWorkspacePersistenceActor()
+
+    private var latestRevisionByPath: [String: UInt64] = [:]
+
+    func save(
+        _ records: [ParkedWorkspaceRecord],
+        fileURL: URL,
+        revision: UInt64
+    ) {
+        let path = fileURL.standardizedFileURL.path
+        if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
+            return
+        }
+        latestRevisionByPath[path] = revision
+        ParkedWorkspaceStore.saveRecords(records, fileURL: fileURL)
     }
 }
 struct ClosedWindowHistoryEntry: Codable, Sendable {

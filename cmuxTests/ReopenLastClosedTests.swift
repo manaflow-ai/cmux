@@ -26,6 +26,11 @@ struct ReopenLastClosedTests {
         let workspace = try #require(manager.selectedWorkspace)
         var snapshot = workspace.sessionSnapshot(includeScrollback: false)
         snapshot.customTitle = "Benchmark waiting room"
+        var terminalPanel = try #require(snapshot.panels.first)
+        var terminalSnapshot = try #require(terminalPanel.terminal)
+        terminalSnapshot.scrollback = "infra benchmark transcript marker"
+        terminalPanel.terminal = terminalSnapshot
+        snapshot.panels[0] = terminalPanel
         let store = ParkedWorkspaceStore(
             fileURL: directory.appendingPathComponent("parked.json"),
             loadPersisted: false,
@@ -44,6 +49,7 @@ struct ReopenLastClosedTests {
             persistsSynchronously: true
         )
         #expect(restored.search("benchmark").map(\.id) == [workspace.id])
+        #expect(restored.search("transcript marker").map(\.id) == [workspace.id])
         #expect(restored.remove(id: workspace.id)?.snapshot.customTitle == "Benchmark waiting room")
         #expect(restored.isEmpty)
     }

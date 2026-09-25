@@ -735,7 +735,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         )
         menu.addItem(item(
             label,
-            enabled: tabManager.tabs.count > targetIds.count && !targetIds.isEmpty
+            enabled: !targetIds.isEmpty
         ) { [commands] in
             commands.parkWorkspaceTargets(commands.contextMenuWorkspaceIds)
         })

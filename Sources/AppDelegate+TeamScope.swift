@@ -33,6 +33,7 @@ extension AppDelegate {
             }
         }
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
+        ParkedWorkspaceStore.shared.removeManagedCloudVMRecords()
         cloudWorkspaceOperationController?.cancelAll()
         cloudTunnelAccessDidEnd()
         NotificationCenter.default.post(

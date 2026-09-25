@@ -9079,6 +9079,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entrypoint; remove only Cloud VM records while preserving local tab
         // history for the next account/session.
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
+        ParkedWorkspaceStore.shared.removeManagedCloudVMRecords()
         cloudWorkspaceOperationController?.cancelAll()
         cloudTunnelAccessDidEnd()
         NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: self)
