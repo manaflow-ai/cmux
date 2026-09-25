@@ -137,15 +137,14 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         }
     }
 
-    /// The REAL drain: calls `ghostty_surface_drain_external_hover_diagnostics`
-    /// and decodes each raw POD entry into `ExternalHoverDiagEntryValue` —
-    /// exactly what `defaultDrainExternalHoverDiagnostics` used to do
-    /// inline. `nonisolated static` so it can serve as a default
-    /// parameter expression.
+    /// Package-safe fallback used by consumers that do not provide the app's
+    /// GhosttyKit-backed drain closure. The app composition root injects the
+    /// real implementation because the standalone package and cmux CLI do
+    /// not link the cmux-only Ghostty diagnostics symbol.
     public nonisolated static func defaultDrainExternalHoverRing(
         _ surface: ghostty_surface_t
     ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
-        GhosttyRuntimeCInterop.drainExternalHoverDiagnostics(surface)
+        (entries: [], droppedCountCumulative: 0)
     }
 
     @MainActor

@@ -274,7 +274,41 @@ class GhosttyApp {
 
     /// The process-wide bounded native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
-    static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
+    static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator(
+        drainExternalHoverRing: { surface in
+            GhosttyApp.drainExternalHoverDiagnostics(surface)
+        }
+    )
+
+    /// Drains cmux's Ghostty diagnostics extension at the app composition
+    /// boundary. `CmuxTerminal` and cmux-cli intentionally do not link this
+    /// app-only symbol, so the package receives this operation as a closure.
+    private static func drainExternalHoverDiagnostics(
+        _ surface: ghostty_surface_t,
+        capacity: Int = 64
+    ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
+        guard capacity > 0 else { return (entries: [], droppedCountCumulative: 0) }
+        var buffer = [ghostty_external_hover_diag_entry_s](
+            repeating: ghostty_external_hover_diag_entry_s(), count: capacity
+        )
+        var droppedCountCumulative: UInt64 = 0
+        let count: Int = buffer.withUnsafeMutableBufferPointer { buffer in
+            Int(ghostty_surface_drain_external_hover_diagnostics(
+                surface, buffer.baseAddress, buffer.count, &droppedCountCumulative
+            ))
+        }
+        let entries = buffer.prefix(min(count, buffer.count)).map { raw in
+            ExternalHoverDiagEntryValue(
+                event: raw.event,
+                source: raw.source,
+                reason: raw.reason,
+                verdict: raw.verdict,
+                flags: raw.flags,
+                seq: raw.seq
+            )
+        }
+        return (entries: entries, droppedCountCumulative: droppedCountCumulative)
+    }
 
     /// cmux fork: (B) ExternalHover — the process-wide hover-candidate
     /// resolution/cache actor. One instance, injected the same way as
@@ -373,22 +407,7 @@ class GhosttyApp {
         // last) place this file calls a raw `ghostty_surface_*` C
         // function for hover; see the type doc above.
         drainDiagnostics: { lease, capacity in
-            var buffer = [ghostty_external_hover_diag_entry_s](
-                repeating: ghostty_external_hover_diag_entry_s(), count: capacity
-            )
-            var droppedCumulative: UInt64 = 0
-            let count: Int = buffer.withUnsafeMutableBufferPointer { buf in
-                Int(ghostty_surface_drain_external_hover_diagnostics(
-                    lease.surface, buf.baseAddress, buf.count, &droppedCumulative
-                ))
-            }
-            let entries = buffer.prefix(count).map { raw in
-                ExternalHoverDiagEntryValue(
-                    event: raw.event, source: raw.source, reason: raw.reason,
-                    verdict: raw.verdict, flags: raw.flags, seq: raw.seq
-                )
-            }
-            return (entries: entries, droppedCountCumulative: droppedCumulative)
+            Self.drainExternalHoverDiagnostics(lease.surface, capacity: capacity)
         }
     )
 
