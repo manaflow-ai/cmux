@@ -58,6 +58,14 @@ public actor CloudMachineLink {
     public struct Connected: Sendable, Equatable {
         public let socketPath: String
         public let session: String
+
+        public init(
+            socketPath: String,
+            session: String
+        ) {
+            self.socketPath = socketPath
+            self.session = session
+        }
     }
 
     /// The first thing the link process tells us: a socket line, stdout closing

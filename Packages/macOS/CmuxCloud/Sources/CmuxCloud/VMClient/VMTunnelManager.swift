@@ -49,6 +49,18 @@ public struct VMTunnelManager: Sendable {
         /// The same config as text, for the NetworkExtension backend, which
         /// hands it to the system rather than to wg-quick. Never logged.
         public let completedConfig: String
+
+        public init(
+            endpoint: VMTunnelEndpoint,
+            configPath: String,
+            interfaceName: String,
+            completedConfig: String
+        ) {
+            self.endpoint = endpoint
+            self.configPath = configPath
+            self.interfaceName = interfaceName
+            self.completedConfig = completedConfig
+        }
     }
 
     public enum TunnelError: Error, CustomStringConvertible {

@@ -649,6 +649,14 @@ public struct VMCmuxRemoteEndpoint: Sendable {
     public struct NetworkAddresses: Sendable {
         public let ipv4: String?
         public let ipv6: String?
+
+        public init(
+            ipv4: String?,
+            ipv6: String?
+        ) {
+            self.ipv4 = ipv4
+            self.ipv6 = ipv6
+        }
     }
 
     public let networkAddresses: NetworkAddresses?
@@ -657,6 +665,16 @@ public struct VMCmuxRemoteEndpoint: Sendable {
         public let commit: String?
         public let remoteProtocol: Int?
         public let version: String?
+
+        public init(
+            commit: String?,
+            remoteProtocol: Int?,
+            version: String?
+        ) {
+            self.commit = commit
+            self.remoteProtocol = remoteProtocol
+            self.version = version
+        }
     }
 
     public let daemonBuild: DaemonBuild?
@@ -1831,6 +1849,14 @@ public actor VMClient {
         public let deviceID: String
 
         public var body: [String: Any] { ["deviceId": deviceID] }
+
+        public init(
+            path: String,
+            deviceID: String
+        ) {
+            self.path = path
+            self.deviceID = deviceID
+        }
     }
 
     public nonisolated static func cloudAccessRevocationRequest(deviceID: String) -> CloudAccessRevocationRequest {

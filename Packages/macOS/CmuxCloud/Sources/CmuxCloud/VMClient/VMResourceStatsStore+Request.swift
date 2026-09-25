@@ -6,6 +6,16 @@ extension VMResourceStatsStore {
         public let machineID: String
         public let revision: UUID
         public let sequence: UInt64
+
+        public init(
+            machineID: String,
+            revision: UUID,
+            sequence: UInt64
+        ) {
+            self.machineID = machineID
+            self.revision = revision
+            self.sequence = sequence
+        }
     }
 
 }

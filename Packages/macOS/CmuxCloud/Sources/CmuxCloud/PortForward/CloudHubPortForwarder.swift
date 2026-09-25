@@ -8,6 +8,14 @@ public actor CloudHubPortForwarder {
     public struct Key: Hashable, Sendable {
         public let machineID: String
         public let port: Int
+
+        public init(
+            machineID: String,
+            port: Int
+        ) {
+            self.machineID = machineID
+            self.port = port
+        }
     }
 
     /// Builds one forward. The forwarder takes its two dependencies through

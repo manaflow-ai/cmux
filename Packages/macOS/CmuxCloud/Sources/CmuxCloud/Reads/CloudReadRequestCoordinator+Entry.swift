@@ -12,5 +12,27 @@ extension CloudReadRequestCoordinator {
         public var invalidated = false
         public let operation: @Sendable () async throws -> Response
         public var pending: Pending?
+
+        public init(
+            id: UUID,
+            transportDeadline: Duration,
+            waiters: [UUID: Waiter],
+            work: Task<Void, Never>? = nil,
+            timer: Task<Void, Never>? = nil,
+            terminalError: URLError? = nil,
+            invalidated: Bool = false,
+            operation: @escaping @Sendable () async throws -> Response,
+            pending: Pending? = nil
+        ) {
+            self.id = id
+            self.transportDeadline = transportDeadline
+            self.waiters = waiters
+            self.work = work
+            self.timer = timer
+            self.terminalError = terminalError
+            self.invalidated = invalidated
+            self.operation = operation
+            self.pending = pending
+        }
     }
 }

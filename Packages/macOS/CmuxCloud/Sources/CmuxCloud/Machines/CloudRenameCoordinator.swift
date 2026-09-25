@@ -30,6 +30,16 @@ public final class CloudRenameCoordinator {
         public static func terminal(machine: SurfaceMachineID, id: String) -> Self {
             Self(machine: machine, scope: .terminal, remoteID: id)
         }
+
+        public init(
+            machine: SurfaceMachineID,
+            scope: Scope,
+            remoteID: String
+        ) {
+            self.machine = machine
+            self.scope = scope
+            self.remoteID = remoteID
+        }
     }
 
     private struct Entry {

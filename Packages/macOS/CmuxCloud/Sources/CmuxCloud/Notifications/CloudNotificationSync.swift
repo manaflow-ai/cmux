@@ -105,6 +105,16 @@ public enum CloudNotificationSyncReducer: Sendable {
         /// of truth and it no longer has the row.
         public var removed: [String]
         public var state: CloudNotificationSyncState
+
+        public init(
+            deliver: [CloudVMNotificationRow],
+            removed: [String],
+            state: CloudNotificationSyncState
+        ) {
+            self.deliver = deliver
+            self.removed = removed
+            self.state = state
+        }
     }
 
     /// Fold one accepted set of rows. A row is delivered when this client has

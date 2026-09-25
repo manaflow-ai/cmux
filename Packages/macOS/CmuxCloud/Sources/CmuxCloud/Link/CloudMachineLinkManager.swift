@@ -16,6 +16,14 @@ public actor CloudMachineLinkManager {
     public struct LinkStatus: Sendable, Equatable {
         public let state: SurfaceLinkState
         public let error: String?
+
+        public init(
+            state: SurfaceLinkState,
+            error: String?
+        ) {
+            self.state = state
+            self.error = error
+        }
     }
 
     public enum ManagerError: Error, LocalizedError {

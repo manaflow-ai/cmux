@@ -52,6 +52,22 @@ public actor CloudWireGuardHub {
         public let pinnedByExternalClient: Bool
         public let restartAttempts: Int
         public let lastError: String?
+
+        public init(
+            running: Bool,
+            socketPath: String?,
+            leases: Int,
+            pinnedByExternalClient: Bool,
+            restartAttempts: Int,
+            lastError: String?
+        ) {
+            self.running = running
+            self.socketPath = socketPath
+            self.leases = leases
+            self.pinnedByExternalClient = pinnedByExternalClient
+            self.restartAttempts = restartAttempts
+            self.lastError = lastError
+        }
     }
 
     public enum HubError: Error, LocalizedError, Equatable {

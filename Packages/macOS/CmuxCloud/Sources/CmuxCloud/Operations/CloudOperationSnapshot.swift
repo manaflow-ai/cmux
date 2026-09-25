@@ -9,6 +9,24 @@ public struct CloudOperationSnapshot: Identifiable, Equatable, Sendable {
         public var durationMs: Int64?
         public var failure: CloudDiagnosticFailure?
         public var isRemote = false
+
+        public init(
+            id: String,
+            phase: CloudOperationPhase,
+            startedAt: Date,
+            outcome: CloudTelemetrySpan.Outcome? = nil,
+            durationMs: Int64? = nil,
+            failure: CloudDiagnosticFailure? = nil,
+            isRemote: Bool = false
+        ) {
+            self.id = id
+            self.phase = phase
+            self.startedAt = startedAt
+            self.outcome = outcome
+            self.durationMs = durationMs
+            self.failure = failure
+            self.isRemote = isRemote
+        }
     }
     public let id: UUID
     public let traceID: String
