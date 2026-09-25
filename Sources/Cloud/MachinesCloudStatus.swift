@@ -1,3 +1,4 @@
+import CmuxCloud
 import SwiftUI
 
 /// Main's Cloud toolbar status, driven by values from the combined Cloud/Devices panel.

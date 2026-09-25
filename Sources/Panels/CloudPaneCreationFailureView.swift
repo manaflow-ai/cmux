@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxAppKitSupportUI
 import SwiftUI

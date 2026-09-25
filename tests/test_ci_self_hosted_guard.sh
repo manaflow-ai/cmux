@@ -253,11 +253,21 @@ check_ios_tart_canary() {
     echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
     exit 1
   fi
-  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}" "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
+  # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
+  # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
+  # every macOS job reads its answer, and a re-run attempt its retry answer.
+  # mobile-core-package needs no simulator, so it reads package_runs_on.
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 2 ]] ||
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
+    echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
-  if [[ "$(grep -Fc "startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
+  if ! grep -Fq 'RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}' "$IOS_FILE" ||
+     ! grep -Fq 'REQUESTED_RUNNER: ${{ inputs.runner }}' "$IOS_FILE"; then
+    echo "FAIL: test-ios.yml's runner job must read the runner input, MACOS_RUNNER_TESTS and MACOS_RUNNER_IOS"
+    exit 1
+  fi
+  if [[ "$(grep -Fc "startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
     echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
     exit 1
   fi
@@ -1371,12 +1381,15 @@ SHARD_PICKED = "steps.macos-pool.outputs.shard_runner"
 SHARD_OUTPUT = "needs.changes.outputs.macos_pr_shard_runner"
 ROOT_PICKED = "steps.macos-pool.outputs.root_runner"
 ROOT_OUTPUT = "needs.changes.outputs.macos_pr_root_runner"
+ADMISSION_PICKED = "steps.macos-pool.outputs.admission_runner"
+ADMISSION_OUTPUT = "needs.changes.outputs.macos_pr_admission_runner"
 PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
 # Each input the picked pools reach a reusable workflow through, and its value.
 INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
           "pr_refused_retry_runner": "${{ " + REFUSED_OUTPUT + " }}",
           "pr_shard_runner": "${{ " + SHARD_OUTPUT + " }}",
-          "pr_root_runner": "${{ " + ROOT_OUTPUT + " }}"}
+          "pr_root_runner": "${{ " + ROOT_OUTPUT + " }}",
+          "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}"}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
           "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
 # The runs-on branches that may read the picked pool, each behind its
@@ -1437,19 +1450,23 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_root_runner")
                 and value == "${{ " + ROOT_PICKED + " }}"):
             violations.append(f"{where}: reads the picker's root runner outside macos_pr_root_runner")
+        if ADMISSION_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_admission_runner")
+                and value == "${{ " + ADMISSION_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's admission runner outside macos_pr_admission_runner")
         if len(path) >= 3 and path[-2] == "with" and path[-1] in INPUTS:
             if value != INPUTS[path[-1]] or file.name != "ci.yml":
                 violations.append(f"{where}: {path[-1]} must be exactly {INPUTS[path[-1]]}")
             continue
         if OUTPUT not in value and RETRY_OUTPUT not in value and REFUSED_OUTPUT not in value \
-                and SHARD_OUTPUT not in value and ROOT_OUTPUT not in value:
+                and SHARD_OUTPUT not in value and ROOT_OUTPUT not in value and ADMISSION_OUTPUT not in value:
             continue
         if path[-1:] == ("runs-on",):
             rest = value
             for branch in GUARDED:
                 rest = rest.replace(branch, "")
             if OUTPUT not in rest and RETRY_OUTPUT not in rest and REFUSED_OUTPUT not in rest \
-                    and SHARD_OUTPUT not in rest and ROOT_OUTPUT not in rest:
+                    and SHARD_OUTPUT not in rest and ROOT_OUTPUT not in rest and ADMISSION_OUTPUT not in rest:
                 continue
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
@@ -1760,6 +1777,15 @@ from pathlib import Path
 import yaml
 
 
+# Attempt 1 of compile admission may take the warm labels in
+# pr_admission_runner, a JSON array; the env restates the first, the root label.
+WARM_RUNS_ON = "fromJSON(inputs.pr_admission_runner)"
+
+
+def restated(value):
+    return value.replace(WARM_RUNS_ON + "[0]", WARM_RUNS_ON)
+
+
 def mismatched_identities(document):
     for job_id, job in document.get("jobs", {}).items():
         runs_on = job.get("runs-on")
@@ -1767,7 +1793,7 @@ def mismatched_identities(document):
         scopes.extend((f"step {index}", step) for index, step in enumerate(job.get("steps", [])))
         for scope, owner in scopes:
             for key, value in (owner.get("env") or {}).items():
-                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and value != runs_on:
+                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and restated(value) != runs_on:
                     yield f"{job_id}/{scope}: {key}\n  env value {value}\n  runs-on   {runs_on}"
 
 
