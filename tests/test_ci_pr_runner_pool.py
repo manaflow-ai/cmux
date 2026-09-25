@@ -2507,6 +2507,103 @@ class IOSRouting(unittest.TestCase):
         outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
         self.assertEqual((outputs["jobs"], outputs["sim_jobs"]), ("1", "0"))
 
+    def live(self, pool_free, sim_free, **kwargs):
+        load = ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=pool_free, sim=sim_free))
+        return ios_route(measure=lambda: load, **kwargs)[0]
+
+    def test_live_capacity_decides_without_the_snapshot(self):
+        # Both families: two machines, two simulators.
+        route = self.live(2, 2)
+        self.assertEqual((route.label, route.persistent), (MINI, True))
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        self.assertFalse(self.live(2, 1).persistent)
+        self.assertFalse(self.live(1, 2).persistent)
+        self.assertTrue(self.live(2, 1, device_family="iphone").persistent)
+        # A package run holds one machine and no simulator.
+        self.assertTrue(self.live(1, 0, swift_package="CmuxSyncStore").persistent)
+        self.assertFalse(self.live(0, 0, swift_package="CmuxSyncStore").persistent)
+        # Not even a live read moves a non-default or blocked run.
+        self.assertFalse(self.live(9, 9, variable="blacksmith-12vcpu-macos-26").persistent)
+        self.assertFalse(self.live(9, 9, ios_version="26.4").persistent)
+
+    def test_live_capacity_respects_the_pool_order(self):
+        load = ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=9, sim=9))
+        kwargs = dict(ios_owned="1", owned="1", owned_slots=json.dumps(IOS_SLOTS), pr_xcode_app=PR_XCODE,
+                      max_queued="", measure=lambda: load, now=NOW)
+        self.assertTrue(ios_pool.resolve("test-ios", "auto", "", order="", **kwargs).persistent)
+        light = MINI.replace("-std-", "-light-")
+        self.assertFalse(ios_pool.resolve("test-ios", "auto", "", order=f"{light},{SMALL}", **kwargs).persistent)
+
+    def test_live_free_counts_idle_pool_runners_and_simulator_minis(self):
+        def runner(host, k, *labels, status="online", busy=False):
+            name = f"{host}-glaeda" + (f"-{k}" if k else "")
+            return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+
+        # Two simulator minis with four instances each; mini-a's simulator job holds one slot.
+        runners = [runner("mini-a", k, MINI, IOS_SIM, busy=k == 0) for k in range(4)]
+        runners += [runner("mini-b", k, MINI, IOS_SIM) for k in range(4)]
+        runners += [runner("mini-c", 0, MINI), runner("mini-d", 0, MINI, IOS_SIM, status="offline"),
+                    runner("mini-e", 0, IOS_SIM), runner("mini-f", 0, "glaeda-std-xcode-26.5", IOS_SIM)]
+        # Eight idle pool runners; two online simulator minis, not six idle simulator runners.
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=3), ios_pool.LiveFree(pool=8, sim=2))
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=1), ios_pool.LiveFree(pool=8, sim=1))
+        title = "iOS tests · main · {} · all · {} · default · on {}"
+        fresh = pool.iso(NOW - dt.timedelta(minutes=1))
+        recent = [{"display_title": title.format("simulator", "iphone", "auto"), "created_at": fresh},  # 2, 1 sim
+                  {"display_title": title.format("CmuxSyncStore", "all", "auto"), "created_at": fresh},  # 1, 0
+                  {"display_title": title.format("simulator", "all", "blacksmith-6vcpu-macos-26")},  # none
+                  {"display_title": "iOS screenshots"}]  # unparsed: in full
+        self.assertEqual(ios_pool.live_free(runners, MINI, recent, now=NOW, capacity=3),
+                         ios_pool.LiveFree(pool=8 - 5, sim=2 - 3))
+        # A run past the live window holds its simulators (mini-a's busy one), not unstarted machines.
+        older = [{"display_title": title.format("simulator", "iphone", "auto"),
+                  "created_at": pool.iso(NOW - dt.timedelta(minutes=90))}]
+        self.assertEqual(ios_pool.live_free(runners, MINI, older, now=NOW, capacity=3),
+                         ios_pool.LiveFree(pool=8, sim=1))
+        # No runner in the pool: raise, so main() falls back to the snapshot.
+        with self.assertRaises(RuntimeError):
+            ios_pool.live_free([runner("mini-e", 0, IOS_SIM)], MINI, [], now=NOW, capacity=3)
+
+    def test_main_reads_runners_with_the_route_token_and_falls_back_on_error(self):
+        idle = [{"name": f"mini-{n}-glaeda", "status": "online", "busy": False,
+                 "labels": [{"name": MINI}, {"name": IOS_SIM}]} for n in range(2)]
+
+        class FakeGitHub:
+            fail = False
+
+            def __init__(self, token, repo):
+                self.token = token
+
+            def runners(self):
+                assert self.token == "route"
+                if FakeGitHub.fail:
+                    raise RuntimeError("403")
+                return idle
+
+            def runs_since(self, workflow, since, **filters):
+                FakeGitHub.asked.append((workflow, filters.get("status")))
+                return []
+
+            def snapshot(self, *, now):
+                return None
+
+        FakeGitHub.asked = []
+        args = ["--lane", "test-ios", "--owned", "1", "--ios-owned", "1", "--owned-slots", json.dumps(IOS_SLOTS),
+                "--pr-xcode-app", PR_XCODE, "--order", MINI]
+        env = {"GH_TOKEN": "t", "GH_REPO": "manaflow-ai/cmux", "ROUTE_TOKEN": "route"}
+        for fail, persistent in ((False, "true"), (True, "false")):
+            FakeGitHub.fail = fail
+            out, err = io.StringIO(), io.StringIO()
+            with unittest.mock.patch.object(pool, "GitHub", FakeGitHub), \
+                    unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+                self.assertEqual(ios_pool.main(args, env=env), 0)
+            outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+            self.assertEqual(outputs["persistent"], persistent, err.getvalue())
+            self.assertEqual("using the snapshot" in err.getvalue(), fail)
+        # In-flight runs are asked for by status, so completed ones never fill the page.
+        self.assertIn(("test-ios.yml", "in_progress"), FakeGitHub.asked)
+        self.assertIn(("ios-screenshots.yml", "queued"), FakeGitHub.asked)
+
 class E2EQueueRounds(unittest.TestCase):
     """e2e_runner_pool.py queues for an owned pool within CI_PR_POOL_QUEUE_ROUNDS, as pull requests do."""
 
@@ -2577,7 +2674,6 @@ class E2EQueueRounds(unittest.TestCase):
         self.assertIn("pool.QUEUE_ROUNDS_VARIABLE, QUEUE_ROUNDS_ENV",
                       (ROOT / "scripts/ci/dispatch-focused-test.py").read_text())
 
-
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
 
@@ -2589,6 +2685,16 @@ class IOSWiring(unittest.TestCase):
 
     def picker_step(self, runner):
         return next(step for step in runner["steps"] if step.get("id") == "pool")
+
+    def test_test_ios_mints_the_route_token_for_same_repository_runs_only(self):
+        runner = self.workflow("test-ios.yml")["jobs"]["runner"]
+        steps = {step.get("id"): step for step in runner["steps"]}
+        mint = steps["route-token"]
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", mint["if"])
+        self.assertIn("vars.GLAEDA_ROUTE_APP_ID != ''", mint["if"])
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual(mint["with"]["permission-administration"], "read")
+        self.assertEqual(self.picker_step(runner)["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
 
     def test_test_ios_macos_jobs_take_the_runner_jobs_pool(self):
         jobs = self.workflow("test-ios.yml")["jobs"]
