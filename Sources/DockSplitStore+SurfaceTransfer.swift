@@ -437,6 +437,10 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: detached.panelId,
+            fallback: detached.customTitle ?? detached.title
+        )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
                     terminalFontSizeOwningWorkspace {
@@ -534,6 +538,10 @@ extension DockSplitStore {
             inPane: newPane,
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
+        )
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: detached.panelId,
+            fallback: detached.customTitle ?? detached.title
         )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =

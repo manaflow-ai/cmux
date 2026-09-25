@@ -31,7 +31,7 @@ extension Workspace {
         let panel: any Panel
         var surfaceMachine: SurfaceMachineID? = nil
         var origin: SurfaceTransferOrigin? = nil
-        let title: String
+        var title: String
         let icon: String?
         let iconImageData: Data?
         let kind: String?
@@ -43,7 +43,7 @@ extension Workspace {
         var ttyName: String?
         var ttyNameWasReportedByCurrentRuntime: Bool = false
         var ttyReportRuntimeSurfaceGeneration: UInt64? = nil
-        let cachedTitle: String?
+        var cachedTitle: String?
         let customTitle: String?
         let customTitleSource: Workspace.CustomTitleSource?
         let manuallyUnread: Bool

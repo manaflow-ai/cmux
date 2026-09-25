@@ -497,6 +497,7 @@ extension Workspace {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        _ = reconcileTabTitlePresentation(panelId: targetPanelId)
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
@@ -514,6 +515,7 @@ extension Workspace {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
             didClear = true
+            _ = reconcileTabTitlePresentation(panelId: panelId)
             if recordsHibernationActivity {
                 recordAgentLifecycleChange(panelId: panelId)
             }
@@ -545,6 +547,7 @@ extension Workspace {
                 }
             }
         }
+        _ = reconcileTabTitlePresentation(panelId: panelId)
         recordAgentLifecycleChange(panelId: panelId)
     }
 
@@ -553,6 +556,7 @@ extension Workspace {
         guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
         for panelId in panelIds {
+            _ = reconcileTabTitlePresentation(panelId: panelId)
             recordAgentLifecycleChange(panelId: panelId)
         }
     }
