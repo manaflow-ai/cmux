@@ -5,13 +5,13 @@ import Foundation
 import OSLog
 import SwiftUI
 
-private let projectPanelLogger = Logger(subsystem: "com.cmuxterm.app", category: "ProjectPanel")
+nonisolated private let projectPanelLogger = Logger(subsystem: "com.cmuxterm.app", category: "ProjectPanel")
 
 /// Localized presentation for values that are shared by the project panel's
 /// tabs. Parser errors intentionally expose only a stable, localized summary;
 /// the adapter's raw reason is logged by ``ProjectPanel`` for diagnostics.
 enum ProjectPanelLocalization {
-    static func loadErrorMessage(for error: Error, projectURL: URL) -> String {
+    nonisolated static func loadErrorMessage(for error: Error, projectURL: URL) -> String {
         if let loadError = error as? ProjectLoadError {
             switch loadError {
             case let .unreadable(url):
@@ -37,7 +37,7 @@ enum ProjectPanelLocalization {
         )
     }
 
-    static func productTypeLabel(_ productType: TargetProductType) -> String {
+    nonisolated static func productTypeLabel(_ productType: TargetProductType) -> String {
         switch productType {
         case .application:
             return String(localized: "projectTargets.productType.application", defaultValue: "Application")
@@ -68,7 +68,7 @@ enum ProjectPanelLocalization {
         }
     }
 
-    static func membershipRoleLabel(_ role: TargetMembershipRole) -> String {
+    nonisolated static func membershipRoleLabel(_ role: TargetMembershipRole) -> String {
         switch role {
         case .compile:
             return String(localized: "projectFiles.membership.role.compile", defaultValue: "Compile")
