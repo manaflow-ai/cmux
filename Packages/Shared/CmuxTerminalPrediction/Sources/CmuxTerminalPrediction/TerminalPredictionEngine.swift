@@ -103,6 +103,10 @@ public struct TerminalPredictionEngine: Sendable {
     private var scanner = TerminalOutputScanner()
     private var entries: [Entry] = []
     private var isAlternateScreen = false
+    /// Set once a mode switch has been seen in output. A switch the engine
+    /// saw can be newer than what the terminal's parser has applied, so it
+    /// outranks a seeded read.
+    private var hasObservedAlternateScreenSwitch = false
     /// Set by the first confirmed echo, cleared by any output we did not
     /// predict. Gates display entirely.
     private var isEchoRunActive = false
@@ -198,8 +202,11 @@ public struct TerminalPredictionEngine: Sendable {
     /// in output, so a surface that was already in the alternate screen when
     /// prediction started (the setting turned on, or the surface registered,
     /// with vim or htop open) would predict inside it. The host reads the
-    /// terminal's current mode and passes it here before anything is typed.
+    /// terminal's current mode and passes it here before the first keystroke.
+    /// Ignored once a mode switch has been seen in output, because output is
+    /// teed ahead of the terminal's parser and may be newer than the read.
     public mutating func seedAlternateScreen(_ isActive: Bool) {
+        guard !hasObservedAlternateScreenSwitch else { return }
         isAlternateScreen = isActive
     }
 
@@ -326,6 +333,7 @@ public struct TerminalPredictionEngine: Sendable {
 
             case .alternateScreen(let entered):
                 isAlternateScreen = entered
+                hasObservedAlternateScreenSwitch = true
                 changed = withdrawAll(countingMisprediction: false, at: now) || changed
 
             case .disruptive:

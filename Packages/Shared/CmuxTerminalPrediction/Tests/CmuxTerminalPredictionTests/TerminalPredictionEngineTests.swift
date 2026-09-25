@@ -270,6 +270,15 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.status(at: session.clock) == .listening)
     }
 
+    @Test func aModeSwitchSeenInOutputOutranksTheSeed() {
+        // Output is teed ahead of the terminal's parser, so a read taken at
+        // the first keystroke can predate vim's switch the engine already saw.
+        var session = Session()
+        session.remote("\u{1B}[?1049h")
+        session.engine.seedAlternateScreen(false)
+        #expect(session.engine.status(at: session.clock) == .alternateScreen)
+    }
+
     @Test func aFastLinkIsLeftAlone() {
         var session = Session()
         session.type("l")

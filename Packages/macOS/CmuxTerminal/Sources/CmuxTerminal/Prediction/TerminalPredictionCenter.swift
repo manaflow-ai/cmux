@@ -169,6 +169,7 @@ public final class TerminalPredictionCenter {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
         enabledGate.storeRelease(enabled)
+        if !enabled { surfacesAwaitingSeed.removeAll() }
         for surfaceID in engines.keys {
             engines[surfaceID]?.isEnabled = enabled
             if enabled {
