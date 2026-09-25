@@ -401,7 +401,8 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        self.assertEqual(len(calls), 6)
+        # check, prefer, adopt, record, keep, warm-keys (skipped until the script has it), save.
+        self.assertEqual(len(calls), 7)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / "derived").mkdir()
@@ -481,7 +482,8 @@ class Wiring(unittest.TestCase):
         for name in ("Reuse this owned Mac's build state", "Prefer a near seed over this owned Mac's DerivedData",
                      "Adopt this owned Mac's DerivedData",
                      "Record this owned Mac's build inputs", "Keep this owned Mac's DerivedData",
-                     "Keep this owned Mac's build state"):
+                     "Keep this owned Mac's build state", "List the commits this owned Mac starts from warm",
+                     "Upload the owned Mac's warm keys"):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():

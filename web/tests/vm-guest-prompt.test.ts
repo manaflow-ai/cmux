@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { guestPromptInstallCommand, vmPromptIdentity } from "../services/vms/guestPrompt";
@@ -62,7 +62,7 @@ describe("Cloud Bash prompt", () => {
       .digest("hex");
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
       bashrc: "b5229855c3edd1961e8bd695ea1254b410ca2146a8f37903d7c2b9db588692c8",
-      prompt: "71dd0bdc75bf70c12de5e01c9844b2801a37c5d0bbb80e346b00e2199f502134",
+      prompt: "af6c2d4797c6c6e4ff3ec617b2bfceda66a3efa847d8c5511d6662a3656c8dde",
     });
   });
 
@@ -250,5 +250,128 @@ print("named", ready.wait(2.0))
 `, script, directory], { encoding: "utf8" });
     expect(result.stderr).toBe("");
     expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
+  });
+
+  test("prompt sync creates the first workspace only after the daemon answers with no terminal", () => {
+    // A warm clone's daemon is still adopting the template terminal when the
+    // prompt sync starts. An unanswered list must not fall through to a
+    // create: the CLI then waits for the daemon and adds a second workspace.
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const run = (listings: string, runDir = path.join(fixture(), "run")) => spawnSync("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+module.time = types.SimpleNamespace(sleep=lambda _: None, monotonic=module.time.monotonic)
+listings = json.loads(sys.argv[3])
+calls = []
+def tui(*args):
+    calls.append(" ".join(args))
+    if args[:2] == ("terminal", "list"):
+        code, out = listings.pop(0) if listings else (0, '{"terminals":[{"terminal_id":"term_created"}]}')
+        return types.SimpleNamespace(returncode=code, stdout=out)
+    if args[:2] == ("workspace", "create"):
+        return types.SimpleNamespace(returncode=0, stdout='{"terminal_id":"term_created"}')
+    return types.SimpleNamespace(returncode=0, stdout="")
+module.tui = tui
+ready = threading.Event(); ready.set()
+module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
+print(json.dumps([c for c in calls if c.startswith(("terminal list", "workspace create"))]))
+`, script, fixture(), listings], { encoding: "utf8", env: { ...process.env, CMUX_PROMPT_RUN_DIR: runDir } });
+    const adopted = run(JSON.stringify([[1, ""], [1, ""], [0, '{"terminals":[{"terminal_id":"term_adopted"}]}']]));
+    expect(adopted.stderr).toBe("");
+    expect(JSON.parse(adopted.stdout)).toEqual(["terminal list --json", "terminal list --json", "terminal list --json"]);
+    const empty = run(JSON.stringify([[1, ""], [0, '{"terminals":[]}']]));
+    expect(empty.stderr).toBe("");
+    expect(JSON.parse(empty.stdout)).toEqual(["terminal list --json", "terminal list --json", "workspace create --name Cloud --json"]);
+  });
+
+  test("prompt sync seeds the terminal a warm clone's daemon bound, even before the list shows it", () => {
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const run = path.join(fixture(), "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "bound"), "CMUX_TUI_SESSION_ID=session_clone\nCMUX_TUI_TERMINAL_ID=term_adopted\n");
+    const result = spawnSync("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+module.time = types.SimpleNamespace(sleep=lambda _: None, monotonic=module.time.monotonic)
+calls = []
+def tui(*args):
+    calls.append(" ".join(args))
+    if args[:2] == ("terminal", "list"):
+        return types.SimpleNamespace(returncode=0, stdout='{"terminals":[]}')
+    return types.SimpleNamespace(returncode=0, stdout='{"terminal_id":"term_created"}')
+module.tui = tui
+ready = threading.Event(); ready.set()
+module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
+print(json.dumps(calls))
+`, script, fixture()], { encoding: "utf8", env: { ...process.env, CMUX_PROMPT_RUN_DIR: run } });
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual(["terminal term_adopted history clear --quiet", "terminal term_adopted keys ctrl+c --quiet"]);
+  });
+
+  test("the armed template shell waits for its clone binding and replaces the builder's ids", () => {
+    const directory = fixture();
+    install(directory, "cmux", 100);
+    const run = path.join(directory, "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "template-arm"), "");
+    // A clone binds 0.3 s after the shell reached its first prompt; the name
+    // arrives right after. The builder's ids must be gone, the clone's set.
+    const output = bash(directory, `
+      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_TUI_SESSION_ID=sess_builder CMUX_TUI_TERMINAL_ID=term_builder
+      . '${directory}/prompt.bash'
+      ( sleep 0.3; : > '${run}/clone-started'
+        printf 'CMUX_TUI_SESSION_ID=sess_clone\\nCMUX_TUI_TERMINAL_ID=term_clone\\n' > '${run}/bound'
+        printf 'shiny-cobalt-lizard\\n' > '${directory}/vm-name' ) &
+      __cmux_prompt_name >/dev/null
+      printf '%s %s %s ' "$CMUX_TUI_SESSION_ID" "$CMUX_TUI_TERMINAL_ID" "$__cmux_vm_name"
+      [ -e '${run}/template-arm' ] && printf armed || printf consumed
+      [ -e '${run}/first-prompt-named' ] && printf ' named'
+      wait
+    `);
+    expect(output).toBe("sess_clone term_clone shiny-cobalt-lizard consumed named");
+  });
+
+  test("without a binding the template shell gives up, drops the builder's ids, and imports a late binding", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    const run = path.join(directory, "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "template-arm"), "");
+    writeFileSync(path.join(run, "clone-started"), "");
+    // A zero clone deadline gives up at once. The binding then arrives after
+    // the first prompt; the next prompt must pick it up.
+    const output = bash(directory, `
+      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_PROMPT_TEMPLATE_WAIT_US=0 CMUX_TUI_SESSION_ID=sess_builder CMUX_TUI_TERMINAL_ID=term_builder
+      . '${directory}/prompt.bash'
+      __cmux_prompt_name >/dev/null
+      printf '[%s][%s]' "\${CMUX_TUI_SESSION_ID-unset}" "\${CMUX_TUI_TERMINAL_ID-unset}"
+      printf 'CMUX_TUI_SESSION_ID=sess_late\\nCMUX_TUI_TERMINAL_ID=term_late\\n' > '${run}/bound'
+      __cmux_prompt_name >/dev/null
+      printf '[%s][%s]' "\${CMUX_TUI_SESSION_ID-unset}" "\${CMUX_TUI_TERMINAL_ID-unset}"
+    `);
+    expect(output).toBe("[unset][unset][sess_late][term_late]");
+  });
+
+  test("a shell that finds no arm file never waits", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    const run = path.join(directory, "run");
+    mkdirSync(run);
+    const output = bash(directory, `
+      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_TUI_SESSION_ID=sess_live
+      . '${directory}/prompt.bash'
+      __cmux_prompt_name >/dev/null
+      printf '%s' "$CMUX_TUI_SESSION_ID"
+    `);
+    expect(output).toBe("sess_live");
+    // The gate writes template-shell-ready as its first step, so its absence
+    // proves this shell never entered the wait.
+    expect(existsSync(path.join(run, "template-shell-ready"))).toBe(false);
   });
 });

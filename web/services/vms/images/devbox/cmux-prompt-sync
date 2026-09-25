@@ -109,13 +109,30 @@ def terminal_id(value):
 
 
 def find_existing_terminal():
+    """Returns (answered, terminal). answered is False until the daemon replies."""
     result = tui("terminal", "list", "--json")
     if result.returncode != 0:
-        return None
+        return False, None
     try:
-        return terminal_id(json.loads(result.stdout))
+        return True, terminal_id(json.loads(result.stdout))
     except (ValueError, TypeError):
-        return None
+        return False, None
+
+
+# Written by cmux-devbox-boot and the template shell (cmux-prompt.bash).
+RUN_DIR = Path(os.environ.get("CMUX_PROMPT_RUN_DIR") or "/run/cmux")
+
+
+def bound_terminal():
+    """The warm template terminal the clone's daemon adopted, from its binding."""
+    try:
+        for line in (RUN_DIR / "bound").read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key == "CMUX_TUI_TERMINAL_ID" and value.startswith("term_"):
+                return value
+    except OSError:
+        pass
+    return None
 
 
 def seed_terminal(ready, directory):
@@ -126,11 +143,18 @@ def seed_terminal(ready, directory):
             terminal = terminal_id(json.loads(marker.read_text()))
     except (OSError, ValueError, TypeError):
         terminal = None
+    # A warm clone's daemon names its adopted terminal in the binding before it
+    # listens, while `terminal list` can still omit it for a moment.
+    terminal = terminal or bound_terminal()
     for _ in range(60):
         if terminal:
             break
-        terminal = find_existing_terminal()
-        if not terminal:
+        answered, terminal = find_existing_terminal()
+        # Create only when the daemon answered with no terminal. A warm clone's
+        # daemon is still adopting the snapshot's template terminal when this
+        # starts; a create sent then waits for the daemon and adds a second
+        # workspace beside the adopted one.
+        if not terminal and answered:
             result = tui("workspace", "create", "--name", "Cloud", "--json")
             if result.returncode == 0:
                 try:
@@ -139,7 +163,7 @@ def seed_terminal(ready, directory):
                 except (OSError, ValueError, TypeError):
                     pass
                 if not terminal:
-                    terminal = find_existing_terminal()
+                    terminal = find_existing_terminal()[1]
                 if terminal:
                     marker.write_text(json.dumps({"terminal_id": terminal}) + "\n")
         if not terminal:
@@ -149,6 +173,11 @@ def seed_terminal(ready, directory):
         # Clear that bytes/history and interrupt it after the clone identity is
         # published. These two calls are deliberately detached from the name
         # refresh loop, so New Machine never waits on them.
+        # A warm template shell draws its first prompt only after the name
+        # arrives (cmux-prompt.bash) and records that here. Clearing and
+        # interrupting it then would only drop what the user already typed.
+        if (RUN_DIR / "first-prompt-named").exists():
+            return
         tui("terminal", terminal, "history", "clear", "--quiet")
         tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
 
