@@ -23,7 +23,8 @@ extension CMUXCLI {
             let targetNames = ["--workspace", "--surface"]
             if targetNames.contains(argument) {
                 let value = index + 1 < commandArgs.count ? commandArgs[index + 1] : nil
-                if value == nil || value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true || value?.hasPrefix("-") == true {
+                let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedValue == nil || trimmedValue?.isEmpty == true || trimmedValue?.hasPrefix("-") == true {
                     try requireExplicitSurfaceTarget(commandName: command, workspaceArgument: nil, surfaceArgument: nil)
                 }
             } else if let targetName = targetNames.first(where: { argument.hasPrefix("\($0)=") }) {

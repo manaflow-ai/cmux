@@ -558161,49 +558161,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [Flags] [--] <Text>\n\nEin Tastenereignis an eine Terminaloberfläche senden.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Arbeitsbereich (erforderlich ohne --surface)\n  --surface <id|ref|index>     Ziel-Oberfläche (erforderlich ohne --workspace)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n\nBeispiel:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "Verwendung: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [Flags] [--] <key>\n\nEin Tastenereignis an eine Terminaloberfläche senden.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Arbeitsbereich (erforderlich ohne --surface)\n  --surface <id|ref|index>     Ziel-Oberfläche (erforderlich ohne --workspace)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n\nBeispiel:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [options] [--] <texte>\n\nEnvoyer un événement de touche à une surface de terminal.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (requis sans --surface)\n  --surface <id|ref|index>     Surface cible (requise sans --workspace)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index\n\nExemple :\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "Utilisation : cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [options] [--] <key>\n\nEnvoyer un événement de touche à une surface de terminal.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (requis sans --surface)\n  --surface <id|ref|index>     Surface cible (requise sans --workspace)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index\n\nExemple :\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nإرسال حدث مفتاح إلى سطح طرفية.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (مطلوبة ما لم يتم تحديد --surface)\n  --surface <id|ref|index>     السطح المستهدف (مطلوب ما لم يتم تحديد --workspace)\n  --window <id|ref|index>      سياق النافذة لمراجع ومساحات العمل والأسطح\n\nمثال:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "الاستخدام: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <key>\n\nإرسال حدث مفتاح إلى سطح طرفية.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (مطلوبة ما لم يتم تحديد --surface)\n  --surface <id|ref|index>     السطح المستهدف (مطلوب ما لم يتم تحديد --workspace)\n  --window <id|ref|index>      سياق النافذة لمراجع ومساحات العمل والأسطح\n\nمثال:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [opciones] [--] <texto>\n\nEnvía un evento de tecla a una superficie de terminal.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (obligatorio sin --surface)\n  --surface <id|ref|index>     Superficie de destino (obligatoria sin --workspace)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices\n\nEjemplo:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "Uso: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [opciones] [--] <key>\n\nEnvía un evento de tecla a una superficie de terminal.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (obligatorio sin --surface)\n  --surface <id|ref|index>     Superficie de destino (obligatoria sin --workspace)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices\n\nEjemplo:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [選項] [--] <文字>\n\n將按鍵事件傳送至終端機表面。\n\n選項：\n  --workspace <id|ref|index>   目標工作區（未提供 --surface 時必須指定）\n  --surface <id|ref|index>     目標表面（未提供 --workspace 時必須指定）\n  --window <id|ref|index>      工作區／表面參照與索引的視窗內容\n\n範例：\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [選項] [--] <文字>\n\n將按鍵事件傳送至終端機表面。\n\n選項：\n  --workspace <id|ref|index>   目標工作區（未提供 --surface 時必須指定）\n  --surface <id|ref|index>     目標表面（未提供 --workspace 時必須指定）\n  --window <id|ref|index>      工作區／表面參照與索引的視窗內容\n\n範例：\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [选项] [--] <文本>\n\n向终端表面发送按键事件。\n\n选项：\n  --workspace <id|ref|index>   目标工作区（未提供 --surface 时必须指定）\n  --surface <id|ref|index>     目标表面（未提供 --workspace 时必须指定）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n\n示例：\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [选项] [--] <key>\n\n向终端表面发送按键事件。\n\n选项：\n  --workspace <id|ref|index>   目标工作区（未提供 --surface 时必须指定）\n  --surface <id|ref|index>     目标表面（未提供 --workspace 时必须指定）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n\n示例：\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [플래그] [--] <텍스트>\n\n터미널 표면에 키 이벤트를 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 작업 공간(--surface를 지정하지 않으면 필수)\n  --surface <id|ref|index>     대상 표면(--workspace를 지정하지 않으면 필수)\n  --window <id|ref|index>      작업 공간/표면 참조와 인덱스에 사용할 창 컨텍스트\n\n예:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "사용법: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [플래그] [--] <key>\n\n터미널 표면에 키 이벤트를 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 작업 공간(--surface를 지정하지 않으면 필수)\n  --surface <id|ref|index>     대상 표면(--workspace를 지정하지 않으면 필수)\n  --window <id|ref|index>      작업 공간/표면 참조와 인덱스에 사용할 창 컨텍스트\n\n예:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nターミナルサーフェスにキーイベントを送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（--surface を指定しない場合は必須）\n  --surface <id|ref|index>     対象サーフェス（--workspace を指定しない場合は必須）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+            "value": "使用方法: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <key>\n\nターミナルサーフェスにキーイベントを送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（--surface を指定しない場合は必須）\n  --surface <id|ref|index>     対象サーフェス（--workspace を指定しない場合は必須）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         }
       }
