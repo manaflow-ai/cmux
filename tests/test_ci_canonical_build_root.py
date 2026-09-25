@@ -308,8 +308,9 @@ class CanonicalRecipeTests(unittest.TestCase):
                 if "-scheme" in args and "-resolvePackageDependencies" not in args
             ]
             self.assertEqual(built, expected_schemes)
+            canonical_src = str((root / "src").resolve())
             for cwd, args in records:
-                self.assertEqual(cwd, str(root / "src"))
+                self.assertEqual(cwd, canonical_src)
                 if '-clonedSourcePackagesDirPath' in args:
                     self.assertEqual(args[args.index('-clonedSourcePackagesDirPath')+1],
                                      str(root / 'src' / '.ci-source-packages'))
@@ -351,8 +352,9 @@ class CanonicalRecipeTests(unittest.TestCase):
             self.assertFalse((root / "src").is_symlink())
             records = [json.loads(line) for line in calls.read_text().splitlines()]
             self.assertTrue(records)
+            canonical_src = str((root / "src").resolve())
             for cwd, _args in records:
-                self.assertEqual(cwd, str(root / "src"))
+                self.assertEqual(cwd, canonical_src)
 
 class SeededBuildFileSystemModeTests(unittest.TestCase):
     """A seeded build must compare inputs by content, not by stat.
