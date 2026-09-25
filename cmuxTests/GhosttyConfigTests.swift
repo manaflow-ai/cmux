@@ -3726,9 +3726,9 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
+    func testShouldApplyManagedDefaultAppearanceLayersOverExplicitTerminalColorDirective() throws {
         try withTempConfig("background = black\n") { path in
-            XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true
             ))

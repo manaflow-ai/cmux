@@ -153,7 +153,7 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: [
                     String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
-                        defaultValue: "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+                        defaultValue: "cmux's managed light and dark palettes follow the app appearance when no Ghostty theme is configured. Explicit colors override only their matching values, so the rest of the palette stays intact."
                     ),
                     String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",

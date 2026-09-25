@@ -41,13 +41,18 @@ import Testing
     }
 
     @Test(arguments: ["background = #123456", "theme = Deliberate Dark"])
-    func authoredAppearanceStillOwnsColors(setting: String) throws {
+    func authoredAppearanceStillOwnsExplicitColors(setting: String) throws {
         try withFixture(setting) { path, resources in
             let light = load(path, resources: resources, scheme: .light)
             let dark = load(path, resources: resources, scheme: .dark)
             #expect(light.backgroundColor == dark.backgroundColor)
-            #expect(light.foregroundColor == dark.foregroundColor)
             #expect(light.backgroundColor.hexString() == (setting.hasPrefix("theme") ? "#334455" : "#123456"))
+            if setting.hasPrefix("theme") {
+                #expect(light.foregroundColor == dark.foregroundColor)
+            } else {
+                #expect(light.foregroundColor.hexString() == "#202122")
+                #expect(dark.foregroundColor.hexString() == "#F0F1F2")
+            }
         }
     }
 

@@ -134,18 +134,31 @@ import Testing
             )
 
         case .partialExplicitColors:
-            var palette = Self.ghosttyDefaultPalette
-            palette[1] = "#ABCDEF"
-            let expected = snapshot(
-                foreground: "#FFFFFF",
-                background: "#123456",
-                palette: palette
-            )
+            var lightPalette = Self.managedLightPalette
+            lightPalette[1] = "#ABCDEF"
+            var darkPalette = Self.managedDarkPalette
+            darkPalette[1] = "#ABCDEF"
             return ScenarioFixture(
                 configContents: "background = #123456\npalette = 1=#abcdef\n",
-                light: expected,
-                dark: expected,
-                changesWithAppearance: false
+                light: snapshot(
+                    foreground: "#000000",
+                    background: "#123456",
+                    cursor: "#98989D",
+                    cursorText: "#FFFFFF",
+                    selectionBackground: "#ABD8FF",
+                    selectionForeground: "#000000",
+                    palette: lightPalette
+                ),
+                dark: snapshot(
+                    foreground: "#FFFFFF",
+                    background: "#123456",
+                    cursor: "#98989D",
+                    cursorText: "#FFFFFF",
+                    selectionBackground: "#3F638B",
+                    selectionForeground: "#FFFFFF",
+                    palette: darkPalette
+                ),
+                changesWithAppearance: true
             )
 
         case .fullExplicitColors:

@@ -1197,8 +1197,8 @@ class GhosttyApp {
     }
 
     /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
-    /// default appearance applies unless the config authors a theme or terminal
-    /// colors. Typography and other behavior settings keep the adaptive base.
+    /// default appearance applies unless the config authors a theme. Explicit
+    /// colors then override their corresponding managed values.
     private func loadRealUserGhosttyConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -1220,8 +1220,8 @@ class GhosttyApp {
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
         // `config` that cmux's scan-path policy treats as stale when `config.ghostty`
-        // is non-empty. For a config without authored colors, re-assert the managed
-        // default so that skipped legacy-file colors cannot override it.
+        // is non-empty. For a config without an authored theme, re-assert the
+        // managed default so that skipped legacy-file colors cannot override it.
         if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }

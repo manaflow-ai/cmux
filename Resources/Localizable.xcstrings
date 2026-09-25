@@ -371953,55 +371953,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+            "value": "cmux's managed light and dark palettes follow the app appearance when no Ghostty theme is configured. Explicit colors override only their matching values, so the rest of the palette stays intact."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定が空の場合のみ、cmux の管理するライト／ダークパレットがアプリの外観に追従します。既存の Ghostty 設定には重ねて適用しません。"
+            "value": "Ghostty のテーマが設定されていない場合、cmux の管理するライト／ダークパレットがアプリの外観に追従します。明示した色は対応する値だけを上書きし、残りのパレットは保持します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仅当你的 Ghostty 配置没有任何设置时，cmux 托管的浅色与深色调色板才会跟随应用外观。已有的 Ghostty 设置永远不会被覆盖。"
+            "value": "未配置 Ghostty 主题时，cmux 托管的浅色与深色调色板会跟随应用外观。显式颜色只覆盖对应的值，其余调色板会保留。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die von cmux verwalteten hellen und dunklen Paletten folgen dem Erscheinungsbild der App nur dann, wenn Ihre Ghostty-Konfiguration keine Einstellungen enthält. Bestehende Ghostty-Einstellungen werden niemals überschrieben."
+            "value": "Die von cmux verwalteten hellen und dunklen Paletten folgen dem Erscheinungsbild der App, wenn kein Ghostty-Theme konfiguriert ist. Explizite Farben überschreiben nur die passenden Werte; der übrige Teil der Palette bleibt erhalten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les palettes claire et sombre gérées de cmux suivent l’apparence de l’application uniquement si votre configuration Ghostty ne contient aucun paramètre. Les paramètres Ghostty existants ne sont jamais écrasés."
+            "value": "Les palettes claire et sombre gérées de cmux suivent l’apparence de l’application si aucun thème Ghostty n’est configuré. Les couleurs explicites ne remplacent que leurs valeurs correspondantes; le reste de la palette est conservé."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتبع لوحات الألوان الفاتحة والداكنة المدارة لـ cmux مظهر التطبيق فقط عندما لا يحتوي تكوين Ghostty على إعدادات. لا يتم تداخل إعدادات Ghostty الحالية مطلقًا."
+            "value": "تتبع لوحات الألوان الفاتحة والداكنة التي يديرها cmux مظهر التطبيق عند عدم تهيئة سمة Ghostty. تستبدل الألوان الصريحة القيم المطابقة فقط، وتبقى بقية اللوحة محفوظة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las paletas clara y oscura administradas de cmux siguen la apariencia de la aplicación solo cuando tu configuración de Ghostty no tiene ajustes. Los ajustes existentes de Ghostty nunca se sobrescriben."
+            "value": "Las paletas clara y oscura administradas por cmux siguen la apariencia de la aplicación cuando no hay ningún tema de Ghostty configurado. Los colores explícitos solo reemplazan sus valores correspondientes y el resto de la paleta se conserva."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "僅在您的 Ghostty 設定檔中沒有任何設定時，cmux 管理的淺色與深色調色盤才會隨軟體外觀變更。現有的 Ghostty 設定絕不會被覆蓋。"
+            "value": "未設定 Ghostty 主題時，cmux 管理的淺色和深色調色盤會隨軟體外觀變更。明確指定的顏色只會覆寫對應值，其餘調色盤會保留。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정에 아무런 설정이 없는 경우에만 cmux가 관리하는 라이트 및 다크 팔레트가 앱 외양을 따릅니다. 기존 Ghostty 설정은 절대로 덮어씌워지지 않습니다."
+            "value": "Ghostty 테마가 설정되지 않은 경우 cmux가 관리하는 라이트 및 다크 팔레트가 앱 모양을 따릅니다. 명시한 색상은 해당 값만 덮어쓰고 나머지 팔레트는 유지됩니다."
           }
         }
       }
