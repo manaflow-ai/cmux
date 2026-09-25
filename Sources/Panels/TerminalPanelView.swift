@@ -5,6 +5,7 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxTestSupport
 import CmuxTerminal
+import CmuxTerminalCore
 import CmuxFoundation
 import CmuxSettings
 
