@@ -84,9 +84,11 @@ struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
 /// (non-persistent) browsing gets no controller: as in Chrome, extensions do
 /// not run there.
 ///
-/// Deliberately not supported, for security: Chrome native messaging hosts,
-/// API shims for Chrome APIs WebKit does not implement, and user-agent
-/// spoofing inside extension contexts. Extensions can never navigate a tab to
+/// Deliberately not supported, for security: Chrome native messaging hosts and
+/// native implementations of Chrome APIs WebKit lacks. The only compatibility
+/// layer is ``ChromeExtensionCompatibility``: a Chrome identity and missing
+/// enum constants inside the extension's own pages and worker, with no new
+/// capability. Extensions can never navigate a tab to
 /// privileged URLs (see ``ChromeExtensionNavigationPolicy``) or touch the
 /// Chrome Web Store, matching Chrome.
 @available(macOS 15.4, *)
@@ -573,6 +575,9 @@ final class BrowserExtensions: NSObject, ObservableObject {
             guard let self, let controller else { return }
             defer { controller.loading.remove(id) }
             do {
+                // Chrome identity and constants inside the extension's own
+                // pages and worker (see ChromeExtensionCompatibility).
+                try await Self.detached { try ChromeExtensionCompatibility.install(into: folder) }
                 let found = try await WKWebExtension(resourceBaseURL: folder)
                 let context = WKWebExtensionContext(for: found)
                 context.uniqueIdentifier = id
