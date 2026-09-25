@@ -1,0 +1,467 @@
+name: Repair v0.64.25 DMG (Intel Gatekeeper rpath)
+
+# One-off repair for https://github.com/manaflow-ai/cmux/releases/tag/v0.64.25.
+#
+# The bundled cmux-cua binaries (Contents/Resources/bin/cmux-cua and the nested
+# "cmux Computer Use.app") carry absolute LC_RPATHs into the CI runner's Xcode
+# toolchain. syspolicy_check reports them as a fatal "Bad Load Command", and
+# Gatekeeper rejects the quarantined first launch on Intel Macs, so fresh
+# v0.64.25 installs cannot be opened there.
+#
+# This branch is the v0.64.25 tag tree plus this workflow and its helper scripts
+# in .github/repair-v0.64.25 (every other workflow is removed so nothing else
+# runs). The tag's own signing and notarization scripts are reused unchanged.
+#
+# - A plain push patches the shipped app, re-signs it with the release
+#   identity, notarizes and staples the helper, the app and the DMG, and
+#   regenerates the appcast enclosure. It only uploads a workflow artifact.
+# - A push whose head commit message contains [publish] swaps that verified
+#   artifact into the release. It reads the repair run ID and expected hashes
+#   from .github/repair-v0.64.25/publish.env.
+
+on:
+  push:
+    branches:
+      - ops/repair-v0.64.25-intel-dmg
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-v0.64.25-dmg
+  cancel-in-progress: false
+
+env:
+  TAG: v0.64.25
+  ORIGINAL_DMG_SHA256: cd30300c10095e6219721c65dd26ca2a986f8e00a10f960dbac9fefbe48771c1
+  ORIGINAL_APPCAST_SHA256: c2cf6c0cff81c3929ec30b83082f4631f4d53400912ee5c18aefbb0c3ee9df0c
+  CREATE_DMG_VERSION: 8.0.0
+  XCODE_SWIFT_LIB_DIR: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib
+  ARTIFACT_NAME: cmux-v0.64.25-repaired
+  REPAIR_DIR: .github/repair-v0.64.25
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, '[publish]') }}
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          sw_vers
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install create-dmg
+        run: |
+          set -euo pipefail
+          CMUX_NODE_BIN="$(command -v node)"
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$CMUX_NODE_BIN" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Import signing cert
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
+            echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
+            exit 1
+          fi
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
+            exit 1
+          fi
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+          rm -f /tmp/cert.p12
+
+      - name: Download original release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p original
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir original \
+            --pattern cmux-macos.dmg --pattern appcast.xml
+          echo "$ORIGINAL_DMG_SHA256  original/cmux-macos.dmg" | shasum -a 256 -c -
+          echo "$ORIGINAL_APPCAST_SHA256  original/appcast.xml" | shasum -a 256 -c -
+
+      - name: Extract shipped app
+        run: |
+          set -euo pipefail
+          mnt="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" original/cmux-macos.dmg
+          ls -la "$mnt"
+          mkdir -p work original-app
+          ditto "$mnt/cmux.app" work/cmux.app
+          ditto "$mnt/cmux.app" original-app/cmux.app
+          hdiutil detach "$mnt"
+          echo "--- load-command guard on the shipped app (expected to fail) ---"
+          "$REPAIR_DIR/lc-guard.sh" original-app/cmux.app | sed 's/^::error:://' || true
+          echo "--- syspolicy_check on the shipped app (expected to fail) ---"
+          syspolicy_check distribution original-app/cmux.app || true
+
+      - name: Strip CI toolchain rpaths from cmux-cua
+        run: |
+          set -euo pipefail
+          APP=work/cmux.app
+          for bin in \
+            "$APP/Contents/Resources/bin/cmux-cua" \
+            "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"; do
+            echo "==> $bin"
+            args=()
+            for dir in swift swift-5.5 swift-6.2; do
+              rpath="$XCODE_SWIFT_LIB_DIR/$dir/macosx"
+              if /usr/bin/otool -l "$bin" | grep -qF "path $rpath "; then
+                args+=(-delete_rpath "$rpath")
+              fi
+            done
+            if [ "${#args[@]}" -eq 0 ]; then
+              echo "::error::$bin has none of the expected CI toolchain rpaths"
+              exit 1
+            fi
+            /usr/bin/install_name_tool "${args[@]}" "$bin"
+            for arch in $(/usr/bin/lipo -archs "$bin"); do
+              echo "  [$arch] remaining LC_RPATH:"
+              /usr/bin/otool -arch "$arch" -l "$bin" | awk '/cmd LC_RPATH/{getline; getline; print "    " $2}'
+            done
+          done
+          "$REPAIR_DIR/lc-guard.sh" "$APP"
+
+      - name: Re-sign patched binaries and notarize the Computer Use helper
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          APP=work/cmux.app
+          # Same flags sign-cmux-bundle.sh uses for Contents/Resources/bin helpers.
+          /usr/bin/codesign --force --options runtime --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            --entitlements cmux-helper.entitlements \
+            "$APP/Contents/Resources/bin/cmux-cua"
+          /usr/bin/codesign --verify --strict --verbose=2 "$APP/Contents/Resources/bin/cmux-cua"
+          # Signs, notarizes and staples the helper, then reseals only the host
+          # with CMUX_SIGN_MODE=main-only (the tag's sign-cmux-bundle.sh).
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            "$APP" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+          "$APP/Contents/Resources/bin/cmux-cua" --version
+
+      - name: Verify only the patched code changed
+        run: |
+          set -euo pipefail
+          "$REPAIR_DIR/diff-guard.sh" original-app/cmux.app work/cmux.app guard-pre-notary
+
+      - name: Notarize app and build DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          APP_PATH="work/cmux.app"
+          ZIP_SUBMIT="cmux-notary.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
+          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
+          APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
+          echo "app notarization $APP_SUBMIT_ID: $APP_STATUS"
+          if [ "$APP_STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+          xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" > app-notary-log.json
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("app notary issues:", d.get("issues"))' app-notary-log.json
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          "$REPAIR_DIR/retry.sh" 20 15 syspolicy_check distribution "$APP_PATH"
+          CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
+          ./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
+          rm -f "$ZIP_SUBMIT"
+          # Same create-dmg invocation as release.yml, run inside out/.
+          mkdir -p out
+          ( cd out && create-dmg --no-code-sign "../$APP_PATH" ./ && mv ./cmux*.dmg cmux-macos.dmg )
+          DMG_RELEASE="out/cmux-macos.dmg"
+          /usr/bin/codesign --force --timestamp --keychain build.keychain \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "$DMG_RELEASE"
+          /usr/bin/codesign --verify --verbose=2 "$DMG_RELEASE"
+          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
+          DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
+          echo "dmg notarization $DMG_SUBMIT_ID: $DMG_STATUS"
+          if [ "$DMG_STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+          xcrun stapler staple "$DMG_RELEASE"
+          xcrun stapler validate "$DMG_RELEASE"
+          "$REPAIR_DIR/retry.sh" 20 15 spctl -a -vv -t open --context context:primary-signature "$DMG_RELEASE"
+
+      - name: Verify the app inside the final DMG
+        run: |
+          set -euo pipefail
+          mnt="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" out/cmux-macos.dmg
+          ls -la "$mnt"
+          APP="$mnt/cmux.app"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
+          xcrun stapler validate "$APP"
+          xcrun stapler validate "$APP/Contents/Library/cmux Computer Use.app"
+          spctl -a -vv --type execute "$APP"
+          syspolicy_check distribution "$APP"
+          "$REPAIR_DIR/lc-guard.sh" "$APP"
+          "$REPAIR_DIR/diff-guard.sh" original-app/cmux.app "$APP" guard-final
+          /usr/bin/lipo -archs "$APP/Contents/MacOS/cmux"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist"
+          hdiutil detach "$mnt"
+
+      - name: Regenerate Sparkle enclosure
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p gen
+          ./scripts/sparkle_generate_appcast.sh out/cmux-macos.dmg "$TAG" gen/appcast.xml
+          cat gen/appcast.xml
+          # Keep the published item (pubDate, notes link, versions) and swap
+          # only the enclosure length and EdDSA signature for the new DMG.
+          python3 - original/appcast.xml gen/appcast.xml out/cmux-macos.dmg out/appcast.xml <<'PY'
+          import os, re, sys
+          live_path, gen_path, dmg_path, out_path = sys.argv[1:]
+          live = open(live_path).read()
+          gen = open(gen_path).read()
+          gen_enclosures = re.findall(r'<enclosure [^>]*>', gen)
+          live_enclosures = re.findall(r'<enclosure [^>]*>', live)
+          assert len(gen_enclosures) == 1, gen_enclosures
+          assert len(live_enclosures) == 1, live_enclosures
+          g = gen_enclosures[0]
+          length = re.search(r'length="(\d+)"', g).group(1)
+          sig = re.search(r'sparkle:edSignature="([^"]+)"', g).group(1)
+          url = re.search(r'url="([^"]+)"', g).group(1)
+          assert int(length) == os.path.getsize(dmg_path), (length, os.path.getsize(dmg_path))
+          old = live_enclosures[0]
+          assert re.search(r'url="([^"]+)"', old).group(1) == url, url
+          new = re.sub(r'length="\d+"', f'length="{length}"', old)
+          new = re.sub(r'sparkle:edSignature="[^"]+"', f'sparkle:edSignature="{sig}"', new)
+          assert new != old
+          open(out_path, 'w').write(live.replace(old, new))
+          print("old:", old)
+          print("new:", new)
+          PY
+          diff original/appcast.xml out/appcast.xml || true
+
+      - name: Verify EdDSA signature against the app's SUPublicEDKey
+        run: |
+          set -euo pipefail
+          pub="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' work/cmux.app/Contents/Info.plist)"
+          sig="$(python3 -c 'import re,sys; print(re.search(r"sparkle:edSignature=\"([^\"]+)\"", open(sys.argv[1]).read()).group(1))' out/appcast.xml)"
+          cat > "$RUNNER_TEMP/verify-ed.swift" <<'SWIFT'
+          import CryptoKit
+          import Foundation
+          let args = CommandLine.arguments
+          let key = try Curve25519.Signing.PublicKey(rawRepresentation: Data(base64Encoded: args[1])!)
+          let data = try Data(contentsOf: URL(fileURLWithPath: args[3]), options: .alwaysMapped)
+          if key.isValidSignature(Data(base64Encoded: args[2])!, for: data) {
+            print("EdDSA signature valid")
+          } else {
+            print("EdDSA signature INVALID")
+            exit(1)
+          }
+          SWIFT
+          xcrun swift "$RUNNER_TEMP/verify-ed.swift" "$pub" "$sig" out/cmux-macos.dmg
+
+      - name: Write manifest
+        run: |
+          set -euo pipefail
+          {
+            echo "tag=$TAG"
+            echo "source_commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "original_dmg_sha256=$ORIGINAL_DMG_SHA256"
+            echo "repaired_dmg_sha256=$(shasum -a 256 out/cmux-macos.dmg | awk '{print $1}')"
+            echo "repaired_dmg_size=$(stat -f %z out/cmux-macos.dmg)"
+            echo "repaired_appcast_sha256=$(shasum -a 256 out/appcast.xml | awk '{print $1}')"
+          } | tee out/repair-manifest.txt
+          cp guard-final/original-files.txt guard-final/repaired-files.txt out/
+
+      - name: Upload repaired DMG
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            out/cmux-macos.dmg
+            out/appcast.xml
+            out/repair-manifest.txt
+            out/original-files.txt
+            out/repaired-files.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12
+
+  publish:
+    if: ${{ contains(github.event.head_commit.message, '[publish]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download verified repair artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source "$REPAIR_DIR/publish.env"
+          gh run download "$REPAIR_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir repaired
+          echo "$REPAIRED_DMG_SHA256  repaired/cmux-macos.dmg" | sha256sum -c -
+          echo "$REPAIRED_APPCAST_SHA256  repaired/appcast.xml" | sha256sum -c -
+          grep -q "length=\"$(stat -c %s repaired/cmux-macos.dmg)\"" repaired/appcast.xml
+          cat repaired/repair-manifest.txt
+
+      - name: Swap release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api="repos/$GITHUB_REPOSITORY/releases"
+          asset_field() {
+            gh api "$api/tags/$TAG" --jq ".assets[] | select(.name == \"$1\") | .$2"
+          }
+          rename_asset() {
+            gh api -X PATCH "$api/assets/$1" -f name="$2" --jq '.name'
+          }
+          [ "$(asset_field cmux-macos.dmg digest)" = "sha256:$ORIGINAL_DMG_SHA256" ]
+          [ "$(asset_field appcast.xml digest)" = "sha256:$ORIGINAL_APPCAST_SHA256" ]
+          cp repaired/cmux-macos.dmg repaired/cmux-macos-repaired.dmg
+          cp repaired/appcast.xml repaired/appcast-repaired.xml
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
+            repaired/cmux-macos-repaired.dmg repaired/appcast-repaired.xml
+          old_dmg="$(asset_field cmux-macos.dmg id)"
+          new_dmg="$(asset_field cmux-macos-repaired.dmg id)"
+          old_feed="$(asset_field appcast.xml id)"
+          new_feed="$(asset_field appcast-repaired.xml id)"
+          [ -n "$old_dmg" ] && [ -n "$new_dmg" ] && [ -n "$old_feed" ] && [ -n "$new_feed" ]
+          rename_asset "$old_dmg" cmux-macos-original.dmg
+          rename_asset "$new_dmg" cmux-macos.dmg
+          rename_asset "$old_feed" appcast-original.xml
+          rename_asset "$new_feed" appcast.xml
+          gh api "$api/tags/$TAG" --jq '.assets[] | [.name, .size, .digest] | @tsv'
+
+      - name: Upload stable appcast to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Same guard as release.yml: never overwrite the stable feed unless
+          # this tag is still the newest published release.
+          LATEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | sort -V | tail -1)
+          if [ "$LATEST" != "$TAG" ]; then
+            echo "::error::$TAG is no longer the latest release ($LATEST); not touching stable/appcast.xml"
+            exit 1
+          fi
+          python3 scripts/ci/upload-r2-object.py \
+            --file repaired/appcast.xml \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --key stable/appcast.xml \
+            --content-type "application/xml" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+      - name: Verify public downloads
+        run: |
+          set -euo pipefail
+          source "$REPAIR_DIR/publish.env"
+          check() {
+            local url="$1" want="$2" got attempt
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              got="$(curl -fsSL -H 'Cache-Control: no-cache' "$url?repair=$attempt" | sha256sum | awk '{print $1}')" || got="curl-failed"
+              if [ "$got" = "$want" ]; then
+                echo "OK $url"
+                return 0
+              fi
+              echo "waiting on $url (got $got)"
+              sleep 10
+            done
+            echo "::error::$url does not serve $want"
+            return 1
+          }
+          check "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/cmux-macos.dmg" "$REPAIRED_DMG_SHA256"
+          check "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/cmux-macos.dmg" "$REPAIRED_DMG_SHA256"
+          check "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml" "$REPAIRED_APPCAST_SHA256"
+          check "https://files.cmux.com/stable/appcast.xml" "$REPAIRED_APPCAST_SHA256"
+
+      - name: Remove superseded assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete-asset "$TAG" cmux-macos-original.dmg --repo "$GITHUB_REPOSITORY" --yes
+          gh release delete-asset "$TAG" appcast-original.xml --repo "$GITHUB_REPOSITORY" --yes
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | [.name, .size, .digest] | @tsv'
