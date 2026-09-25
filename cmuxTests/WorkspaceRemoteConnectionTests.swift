@@ -204,7 +204,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     /// and returns its non-empty stdout lines.
     private func runRelayZsh(
         configureUserHome: (URL) throws -> URL,
-        command: String
+        command: String,
+        zshFlags: String = "-ilc"
     ) throws -> [String] {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-zsh-\(UUID().uuidString)")
@@ -218,7 +219,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         try writeShellFile(at: relayDir.appendingPathComponent(".zshenv"), lines: bootstrap.zshEnvLines)
         try writeShellFile(at: relayDir.appendingPathComponent(".zprofile"), lines: bootstrap.zshProfileLines)
-        try writeShellFile(at: relayDir.appendingPathComponent(".zshrc"), lines: bootstrap.zshRCLines(commonShellLines: []))
+        try writeShellFile(
+            at: relayDir.appendingPathComponent(".zshrc"),
+            lines: bootstrap.zshRCLines(commonShellLines: ["print -r -- relay-zshrc-tail"])
+        )
         try writeShellFile(at: relayDir.appendingPathComponent(".zlogin"), lines: bootstrap.zshLoginLines)
 
         let result = runProcess(
@@ -231,7 +235,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "CMUX_REAL_ZDOTDIR=\(home.path)",
                 "ZDOTDIR=\(relayDir.path)",
                 "/bin/zsh",
-                "-ilc",
+                zshFlags,
                 command,
             ],
             timeout: 5
@@ -539,6 +543,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ".zshenv=\(homePath)",
             ".zprofile=\(homePath)",
             ".zshrc=\(homePath)",
+            "relay-zshrc-tail",
             ".zlogin=\(homePath)",
             "session=\(homePath)",
         ])
@@ -566,7 +571,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             command: "print -r -- \"session=$ZDOTDIR\""
         )
 
-        XCTAssertEqual(output, ["xdg-zshrc", "session=\(xdgPath)"])
+        XCTAssertEqual(output, ["xdg-zshrc", "relay-zshrc-tail", "session=\(xdgPath)"])
     }
 
     func testRelayZshBootstrapKeepsZdotdirSetInUserZprofile() throws {
@@ -596,7 +601,24 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             command: "print -r -- \"session=$ZDOTDIR\""
         )
 
-        XCTAssertEqual(output, ["xdg-zshrc", "session=\(xdgPath)"])
+        XCTAssertEqual(output, ["xdg-zshrc", "relay-zshrc-tail", "session=\(xdgPath)"])
+    }
+
+    func testRelayZshBootstrapRestoresZdotdirForShellExecedByRemoteCommand() throws {
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                try "print -r -- home-zshrc\n".write(
+                    to: home.appendingPathComponent(".zshrc"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                return home
+            },
+            command: "exec /bin/zsh -ic 'print -r -- \"session=${ZDOTDIR-unset}\"'",
+            zshFlags: "-c"
+        )
+
+        XCTAssertEqual(output, ["home-zshrc", "relay-zshrc-tail", "session=unset"])
     }
 
     func testRemoteUTF8LocaleSetupLinesSeedUTF8LocaleWhenMissing() {

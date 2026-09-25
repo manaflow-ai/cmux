@@ -45,10 +45,9 @@ struct RemoteRelayZshBootstrap {
             "[ -f \"$CMUX_REAL_ZDOTDIR/.zshenv\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshenv\"",
             captureUserZdotdirLine,
         ] + sharedHistoryLines + [
-            // A non-interactive, non-login zsh (a RemoteCommand run with
-            // `zsh -c`) reads no other startup file, so it keeps the user's
-            // value.
-            "if [[ -o interactive || -o login ]]; then \(relayZdotdirLine); fi",
+            // Stays set even for `zsh -c`: a RemoteCommand like `exec zsh`
+            // relies on it to start the next shell through the relay files.
+            relayZdotdirLine,
         ]
     }
 
@@ -67,7 +66,10 @@ struct RemoteRelayZshBootstrap {
             "[ -f \"$CMUX_REAL_ZDOTDIR/.zshrc\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshrc\"",
             captureUserZdotdirLine,
             relayZdotdirLine,
-        ] + commonShellLines
+        ] + commonShellLines + [
+            // A non-login interactive shell reads no .zlogin, so restore here.
+            "if [[ ! -o login ]]; then \(restoreUserZdotdirLine); fi",
+        ]
     }
 
     var zshLoginLines: [String] {
