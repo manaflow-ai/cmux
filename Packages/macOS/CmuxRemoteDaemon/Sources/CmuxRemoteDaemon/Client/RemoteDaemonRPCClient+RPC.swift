@@ -159,9 +159,11 @@ extension RemoteDaemonRPCClient {
             let returnedToken = (result["attachment_token"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 ?? clientAttachmentToken
+            let replayByteCount = max(0, (result["replay_bytes"] as? Int) ?? 0)
             return RemotePTYBridgeAttachment(
                 attachmentID: returnedAttachmentID,
-                token: returnedToken
+                token: returnedToken,
+                replayByteCount: replayByteCount
             )
         } catch {
             unregisterPTY(
@@ -293,7 +295,12 @@ extension RemoteDaemonRPCClient {
             throw error
         }
 
-        return try waitForCall(pendingCall, method: method, timeout: timeout)
+        return try waitForCall(
+            pendingCall,
+            method: method,
+            params: params,
+            timeout: timeout
+        )
     }
 
     /// Sends an RPC only when the transport has no unanswered application
@@ -322,18 +329,35 @@ extension RemoteDaemonRPCClient {
         }
 
         guard let admittedCall else { return nil }
-        return try waitForCall(admittedCall, method: method, timeout: timeout)
+        return try waitForCall(
+            admittedCall,
+            method: method,
+            params: params,
+            timeout: timeout
+        )
     }
 
     private func waitForCall(
         _ pendingCall: RemoteDaemonPendingCallRegistry.PendingCall,
         method: String,
+        params: [String: Any],
         timeout: TimeInterval
     ) throws -> [String: Any] {
         let response: [String: Any]
         switch pendingCalls.wait(for: pendingCall, timeout: timeout) {
         case .timedOut:
-            stop(suppressTerminationCallback: false)
+            // pty.attach is dispatched independently by the daemon because
+            // PTY allocation can block inside the operating system. Its
+            // deadline removes only this pending call; it is not evidence
+            // that the shared transport or existing PTY subscriptions died.
+            if method == "pty.attach" {
+                sendPTYAttachCancellation(
+                    requestID: pendingCall.id,
+                    attachParams: params
+                )
+            } else {
+                stop(suppressTerminationCallback: false)
+            }
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "daemon RPC timeout waiting for \(method) response",
             ])
@@ -359,6 +383,7 @@ extension RemoteDaemonRPCClient {
         let message = (errorObject["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "daemon RPC call failed"
         throw NSError(domain: "cmux.remote.daemon.rpc", code: 14, userInfo: [
             NSLocalizedDescriptionKey: "\(method) failed (\(code)): \(message)",
+            Self.rpcErrorCodeUserInfoKey: code,
         ])
     }
 

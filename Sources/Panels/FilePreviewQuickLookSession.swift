@@ -79,15 +79,15 @@ final class FilePreviewQuickLookSession {
     }
 
     private static func makeView() -> NSView {
-        FilePreviewQuickLookContainerView.make() ?? NSView()
+        FilePreviewQuickLookContainerView.make()
     }
 
     private static func releaseView(_ view: NSView) {
-        // QLPreviewView.close() asserts when the view is inactive and makes the
-        // view permanently reject future items. Session retirement handles stale
-        // updates; clearing the item releases the active preview.
-        (view as? FilePreviewQuickLookContainerView)?.clearPreviewItem()
-        view.removeFromSuperview()
+        if let container = view as? FilePreviewQuickLookContainerView {
+            container.dismantle()
+        } else {
+            view.removeFromSuperview()
+        }
     }
 
     private func configure(

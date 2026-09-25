@@ -1,4 +1,4 @@
-import type { ClientInfo, Id } from "cmux/browser";
+import type { ClientInfo, Id } from "cmux/raw";
 import type { ContextMenuItem } from "../components/ContextMenu";
 import { t } from "../i18n";
 

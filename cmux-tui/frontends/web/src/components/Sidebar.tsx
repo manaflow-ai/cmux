@@ -1,5 +1,5 @@
 import { useReducer, useRef, type TouchEvent } from "react";
-import type { Id } from "cmux/browser";
+import type { Id } from "cmux/raw";
 import { t } from "../i18n";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { renameCanCommit, renameReducer } from "../lib/rename";

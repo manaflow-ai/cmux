@@ -47,6 +47,90 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect(workspace.panels[bottomRightPanel.id] != nil)
     }
 
+    @Test func cycleFocusWrapsInSpatialPaneOrder() throws {
+        let workspace = Workspace()
+        let leftPanelId = try #require(workspace.focusedPanelId)
+        let leftPaneId = try #require(workspace.paneId(forPanelId: leftPanelId))
+        let topRightPanel = try #require(
+            workspace.newTerminalSplit(
+                from: leftPanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let bottomRightPanel = try #require(
+            workspace.newTerminalSplit(
+                from: topRightPanel.id,
+                orientation: .vertical,
+                focus: false
+            )
+        )
+        let topRightPaneId = try #require(workspace.paneId(forPanelId: topRightPanel.id))
+        let bottomRightPaneId = try #require(workspace.paneId(forPanelId: bottomRightPanel.id))
+        let orderedPaneIds = workspace.spatiallyOrderedPaneIds
+        try #require(orderedPaneIds.count == 3)
+        #expect(orderedPaneIds == [leftPaneId.id, topRightPaneId.id, bottomRightPaneId.id])
+
+        workspace.focusPanel(leftPanelId)
+        var visited = [try #require(workspace.bonsplitController.focusedPaneId?.id)]
+        for _ in 0..<3 {
+            #expect(workspace.cycleFocus(forward: true))
+            visited.append(try #require(workspace.bonsplitController.focusedPaneId?.id))
+        }
+
+        #expect(visited == [orderedPaneIds[0], orderedPaneIds[1], orderedPaneIds[2], orderedPaneIds[0]])
+        #expect(workspace.focusedPanelId == leftPanelId)
+
+        #expect(workspace.cycleFocus(forward: false))
+        #expect(workspace.bonsplitController.focusedPaneId?.id == orderedPaneIds[2])
+        #expect(workspace.focusedPanelId == bottomRightPanel.id)
+    }
+
+    @Test func cycleFocusReturnsFalseWithASinglePane() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+
+        #expect(!workspace.cycleFocus(forward: true))
+        #expect(!workspace.cycleFocus(forward: false))
+        #expect(workspace.bonsplitController.focusedPaneId == paneId)
+        #expect(workspace.focusedPanelId == panelId)
+    }
+
+    @Test func cycleFocusReturnsFalseInCanvasModeWithoutHiddenSplitMutation() throws {
+        let workspace = Workspace()
+        let leftPanelId = try #require(workspace.focusedPanelId)
+        _ = try #require(
+            workspace.newTerminalSplit(
+                from: leftPanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        workspace.focusPanel(leftPanelId)
+        workspace.setLayoutMode(.canvas)
+
+        let focusedPanelBefore = try #require(workspace.focusedPanelId)
+        let focusedPaneBefore = try #require(workspace.bonsplitController.focusedPaneId)
+        let selectedTabsBefore = Dictionary(
+            uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.compactMap { paneId in
+                workspace.bonsplitController.selectedTab(inPane: paneId).map { (paneId, $0.id) }
+            }
+        )
+
+        #expect(!workspace.cycleFocus(forward: true))
+        #expect(!workspace.cycleFocus(forward: false))
+        #expect(workspace.focusedPanelId == focusedPanelBefore)
+        #expect(workspace.bonsplitController.focusedPaneId == focusedPaneBefore)
+        #expect(
+            Dictionary(
+                uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.compactMap { paneId in
+                    workspace.bonsplitController.selectedTab(inPane: paneId).map { (paneId, $0.id) }
+                }
+            ) == selectedTabsBefore
+        )
+    }
+
     @Test func directionalMovementUsesPaneAdjacency() throws {
         try expectDirectionalMovement(
             .right,

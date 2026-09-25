@@ -45,7 +45,7 @@ struct BrowserViewportRuntimeTests {
         let slot = WindowBrowserSlotView(
             frame: NSRect(x: 0, y: 0, width: 380, height: 610)
         )
-        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let viewportHost = BrowserViewportHostView(frame: slot.bounds)
         let viewportModel = BrowserViewportModel()
         defer {
@@ -126,7 +126,7 @@ struct BrowserViewportRuntimeTests {
             defer: false
         )
         let pane = NSView(frame: paneFrame)
-        let webView = CmuxWebView(frame: pane.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: pane.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let viewportHost = BrowserViewportHostView(frame: pane.bounds)
         let viewportModel = BrowserViewportModel()
         let loadDelegate = BrowserViewportRuntimeLoadDelegate()
@@ -276,7 +276,7 @@ struct BrowserViewportRuntimeTests {
     func presentationRootTracksExternalWebKitOwnershipAndRestoresSafely() throws {
         let originalContainer = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 610))
         let externalContainer = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        let webView = CmuxWebView(frame: originalContainer.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: originalContainer.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let viewportHost = BrowserViewportHostView(frame: originalContainer.bounds)
         let viewportModel = BrowserViewportModel()
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
@@ -341,6 +341,64 @@ struct BrowserViewportRuntimeTests {
         #expect(panel.viewportHostView.frame == container.bounds)
         #expect(panel.viewportHostView.bounds == container.bounds)
         #expect(panel.webView.autoresizingMask == [.width, .height])
+    }
+
+    @Test
+    func mobileStreamViewportPersistsOffscreenAcrossRotationAndRestoresPresentation() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: URL(string: "about:blank")!)
+        defer { panel.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let presentationView = panel.webView.cmuxBrowserViewportPresentationView
+        container.addSubview(presentationView)
+
+        let previousViewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        _ = try panel.setAutomationViewport(previousViewport).get()
+        let previousPresentationView = panel.webView.cmuxBrowserViewportPresentationView
+        #expect(previousPresentationView.superview === container)
+
+        #expect(panel.applyMobileStreamViewport(width: 393, height: 852, scale: 3))
+        let offscreenHost = try #require(
+            panel.webView.cmuxBrowserViewportAttachmentSuperview
+        )
+        #expect(panel.mobileBrowserStreamRenderHost != nil)
+        #expect(panel.viewportModel.requestedViewport == BrowserViewport(width: 393, height: 852))
+        #expect(previousPresentationView.superview === offscreenHost)
+        #expect(
+            panel.webView.cmuxBrowserViewportAttachmentWindow?.identifier?.rawValue ==
+                "cmux.browserVisualAutomationRender"
+        )
+
+        #expect(panel.applyMobileStreamViewport(width: 852, height: 393, scale: 3))
+        #expect(panel.webView.cmuxBrowserViewportAttachmentSuperview === offscreenHost)
+        #expect(offscreenHost.bounds.size == NSSize(width: 852, height: 393))
+        #expect(panel.viewportModel.requestedViewport == BrowserViewport(width: 852, height: 393))
+
+        panel.clearMobileStreamViewport()
+
+        #expect(panel.mobileBrowserStreamRenderHost == nil)
+        #expect(panel.mobileBrowserStreamViewport == nil)
+        #expect(panel.viewportModel.requestedViewport == previousViewport)
+        #expect(panel.webView.cmuxBrowserViewportPresentationView === previousPresentationView)
+        #expect(previousPresentationView.superview === container)
+    }
+
+    @Test
+    func mobileStreamViewportFallsBackToOnscreenCaptureForAttachedInspector() {
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: URL(string: "about:blank")!)
+        defer { panel.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let presentationView = panel.webView.cmuxBrowserViewportPresentationView
+        container.addSubview(presentationView)
+        let inspectorCompanion = WKWebView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 180),
+            configuration: WKWebViewConfiguration()
+        )
+        container.addSubview(inspectorCompanion)
+
+        #expect(panel.applyMobileStreamViewport(width: 393, height: 852, scale: 3))
+        #expect(panel.mobileBrowserStreamRenderHost == nil)
+        #expect(panel.viewportModel.requestedViewport == nil)
+        #expect(panel.webView.cmuxBrowserViewportPresentationView.superview === container)
     }
 
     private func runtimeMetrics(in webView: WKWebView) async throws -> [String: Any] {

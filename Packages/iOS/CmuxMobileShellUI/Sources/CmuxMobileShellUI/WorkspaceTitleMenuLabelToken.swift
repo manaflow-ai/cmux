@@ -1,13 +1,13 @@
-import CmuxAgentChat
+import CmuxMobileShellModel
 
 enum WorkspaceTitleMenuLabelToken: Equatable {
-    case chat(
-        descriptor: ChatSessionDescriptor,
-        agentState: ChatAgentState,
-        isConnected: Bool,
-        titleOverride: String?,
-        subtitle: String?
+    /// `connectionStatus` drives the title's leading indicator slot — a
+    /// spinner while reconnecting, a red dot while disconnected — and
+    /// participates in equality so the memoized toolbar label re-renders on
+    /// those transitions.
+    case standard(
+        title: String,
+        subtitle: String?,
+        connectionStatus: MobileMacConnectionStatus
     )
-    case browser(title: String)
-    case standard(title: String, subtitle: String?)
 }

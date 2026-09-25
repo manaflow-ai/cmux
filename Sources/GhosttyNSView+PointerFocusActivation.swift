@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import GhosttyKit
 
 extension GhosttyNSView {
     func activateContainerFocusFromPointerDown() {
@@ -18,20 +19,33 @@ extension GhosttyNSView {
 
     func terminalPointerShouldForwardActivation() -> Bool {
         guard let terminalSurface else { return false }
-        guard desiredFocus else { return false }
 
-        let policy = TerminalPointerFocusActivationPolicy()
-        switch terminalSurface.focusPlacement {
-        case .workspace:
-            return policy.shouldForwardToTerminal(
-                currentPanelId: terminalSurface.id,
-                focusedPanelId: terminalSurface.owningWorkspace()?.focusedPanelId
-            )
-        case .rightSidebarDock:
-            return policy.shouldForwardToTerminal(
-                currentPanelId: terminalSurface.id,
-                focusedPanelId: DockSplitStore.liveStore(containingPanel: terminalSurface.id)?.focusedPanelId
-            )
+        let mouseCaptured = terminalSurface.surface.map {
+            ghostty_surface_mouse_captured($0)
+        } ?? false
+        let wasFocusedBeforePointerDown: Bool
+
+        if desiredFocus {
+            switch terminalSurface.focusPlacement {
+            case .workspace:
+                wasFocusedBeforePointerDown = terminalSurface.owningWorkspace()?
+                    .isFocusedTerminalInputSurface(terminalSurface.id) == true
+            case .rightSidebarDock:
+                wasFocusedBeforePointerDown = TerminalPointerFocusActivationPolicy()
+                    .shouldForwardToTerminal(
+                        currentPanelId: terminalSurface.id,
+                        focusedPanelId: DockSplitStore.liveStore(
+                            containingPanel: terminalSurface.id
+                        )?.focusedPanelId
+                    )
+            }
+        } else {
+            wasFocusedBeforePointerDown = false
         }
+
+        return TerminalPointerFocusActivationPolicy().shouldForwardToTerminal(
+            mouseCaptured: mouseCaptured,
+            wasFocusedBeforePointerDown: wasFocusedBeforePointerDown
+        )
     }
 }

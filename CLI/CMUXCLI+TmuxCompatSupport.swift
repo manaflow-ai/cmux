@@ -1,6 +1,146 @@
+import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    func tmuxStripUnresolvedLongFormatTokens(_ value: String) -> String {
+        var cleaned = ""
+        cleaned.reserveCapacity(value.count)
+        var index = value.startIndex
+
+        while index < value.endIndex {
+            guard value[index] == "#" else {
+                cleaned.append(value[index])
+                index = value.index(after: index)
+                continue
+            }
+
+            let markerIndex = value.index(after: index)
+            guard markerIndex < value.endIndex, value[markerIndex] == "{" else {
+                cleaned.append("#")
+                index = markerIndex
+                continue
+            }
+
+            let keyStart = value.index(after: markerIndex)
+            guard let close = value[keyStart...].firstIndex(of: "}") else {
+                cleaned.append(contentsOf: value[index...])
+                break
+            }
+            index = value.index(after: close)
+        }
+
+        return cleaned
+    }
+
+    func tmuxRenderFormatContent(
+        _ format: String,
+        context: [String: String]
+    ) -> String {
+        let shortKeys: [Character: String] = [
+            "D": "pane_id",
+            "F": "window_flags",
+            "I": "window_index",
+            "P": "pane_index",
+            "S": "session_name",
+            "T": "pane_title",
+            "W": "window_name",
+        ]
+
+        var rendered = ""
+        rendered.reserveCapacity(format.count)
+        var index = format.startIndex
+        while index < format.endIndex {
+            let character = format[index]
+            guard character == "#" else {
+                rendered.append(character)
+                index = format.index(after: index)
+                continue
+            }
+
+            let markerIndex = format.index(after: index)
+            guard markerIndex < format.endIndex else {
+                rendered.append(character)
+                break
+            }
+            let marker = format[markerIndex]
+
+            if marker == "#" {
+                rendered.append("#")
+                index = format.index(after: markerIndex)
+                continue
+            }
+
+            if marker == "{" {
+                let keyStart = format.index(after: markerIndex)
+                guard let close = format[keyStart...].firstIndex(of: "}") else {
+                    rendered.append(contentsOf: format[index...])
+                    break
+                }
+                let key = String(format[keyStart..<close])
+                if let value = context[key] {
+                    rendered.append(tmuxStripUnresolvedLongFormatTokens(value))
+                }
+                index = format.index(after: close)
+                continue
+            }
+
+            if let key = shortKeys[marker] {
+                if let value = context[key] {
+                    rendered.append(tmuxStripUnresolvedLongFormatTokens(value))
+                }
+                index = format.index(after: markerIndex)
+                continue
+            }
+
+            rendered.append("#")
+            index = markerIndex
+        }
+
+        return rendered
+    }
+
+    func tmuxPaneHasTargetableSurface(_ pane: [String: Any]) -> Bool {
+        if let surfaceCount = intFromAny(pane["surface_count"]) {
+            return surfaceCount > 0
+        }
+        if let surfaceIDs = pane["surface_ids"] as? [String] {
+            return !surfaceIDs.isEmpty
+        }
+        if let surfaces = pane["surfaces"] as? [[String: Any]] {
+            return !surfaces.isEmpty
+        }
+        if let selectedSurfaceID = pane["selected_surface_id"] as? String {
+            return !selectedSurfaceID.isEmpty
+        }
+        return false
+    }
+
+    /// Returns nil only when pane.surfaces succeeds with an empty surface list.
+    func tmuxSelectedSurfaceIdIfPresent(
+        workspaceId: String,
+        paneId: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(
+            method: "pane.surfaces",
+            params: ["workspace_id": workspaceId, "pane_id": paneId]
+        )
+        guard let surfaces = payload["surfaces"] as? [[String: Any]] else {
+            throw CLIError(message: "Pane has no surface to target")
+        }
+        guard !surfaces.isEmpty else { return nil }
+        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
+           let id = selected["id"] as? String,
+           !id.isEmpty {
+            return id
+        }
+        if let id = surfaces.lazy.compactMap({ $0["id"] as? String }).first(where: { !$0.isEmpty }) {
+            return id
+        }
+        throw CLIError(message: "Pane has no surface to target")
+    }
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
@@ -76,26 +216,31 @@ extension CMUXCLI {
     /// the pane exits before the real command runs; that is why Claude Code
     /// 2.1.183 teammates never opened a split pane (issue #6447).
     ///
-    /// Every command is run through `/bin/sh -c '<command>'`, so Ghostty execs a
-    /// shell rather than a builtin/expression/assignment-prefix. The whole command
-    /// is single-quoted, so it round-trips verbatim regardless of operators or
-    /// quoting — there is no attempt to classify which commands "need" a shell,
-    /// which was unreliable (tmux shell-commands can hide operators with no
-    /// surrounding whitespace). Commands that are already a shell invocation (e.g.
-    /// OMO's `/bin/sh -c "…"`) are simply run through one more shell, which execs
-    /// straight into them.
+    /// Every command is run through `/bin/sh -lc '<command>'`, so Ghostty execs a
+    /// login shell rather than a builtin/expression/assignment-prefix. The `-l`
+    /// is important: Ghostty's `exec -l` only changes argv[0], and does not make
+    /// macOS `/bin/sh` read `/etc/profile` when it is given a non-interactive `-c`
+    /// command. The login shell therefore runs `path_helper` and restores the
+    /// user's full login PATH before the command starts (issue #10189). The whole
+    /// command is single-quoted, so it round-trips verbatim regardless of
+    /// operators or quoting — there is no attempt to classify which commands
+    /// "need" a shell, which was unreliable (tmux shell-commands can hide
+    /// operators with no surrounding whitespace). Commands that are already a
+    /// shell invocation (e.g. OMO's `/bin/sh -c "…"`) are simply run through one
+    /// more shell, which execs straight into them.
     ///
     /// A POSIX shell (`/bin/sh`) is used deliberately rather than the user's
     /// `$SHELL`: the commands being wrapped are POSIX `sh` syntax (Claude Code's
     /// `cd … && env …`, and the no-command fallback `exec ${SHELL:-/bin/sh} -l`),
-    /// and `csh`/`tcsh` login shells cannot parse `${VAR:-default}` parameter
-    /// expansion or `NAME=value` command prefixes. `/bin/sh` is always present and
-    /// runs the bodies correctly for every user. `-l` is not passed (`/bin/sh`
-    /// does not take it); on macOS Ghostty already supplies a login-style argv0.
+    /// and `csh`/`tcsh` cannot parse `${VAR:-default}` parameter expansion or
+    /// `NAME=value` command prefixes. `/bin/sh` is always present and runs the
+    /// bodies correctly for every user; its login mode is a shell-independent way to
+    /// invoke macOS `path_helper` without asking the user's shell to parse a
+    /// POSIX command body.
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return command }
-        return "/bin/sh -c \(tmuxShellQuote(trimmed))"
+        return "/bin/sh -lc \(tmuxShellQuote(trimmed))"
     }
 
     /// Like `tmuxShellInvokedStartCommand`, but first exports `prependEnv` inside
@@ -122,11 +267,14 @@ extension CMUXCLI {
     ///
     /// Teammate panes are respawned by cmux's surface layer, not by `cmux
     /// claude-teams`, so they do NOT inherit the launcher environment the lead
-    /// got from `configureClaudeTeamsEnvironment`. The one variable that matters
-    /// for startup is `CLAUDE_CODE_SANDBOXED`: Claude Code short-circuits its
-    /// interactive "Do you trust this folder?" gate on it, and a teammate that
-    /// hits that gate hangs forever (its pane opens but it never checks in —
-    /// issue #6447). Re-supply it so teammates start the same way the lead does.
+    /// got from `configureClaudeTeamsEnvironment`. The launcher records a
+    /// replay-safe snapshot in
+    /// ``ClaudeTeamsRespawnEnvironmentTransport/environmentKey``;
+    /// re-supply that snapshot so PATH-based tools and allowlisted Claude
+    /// configuration match the lead without copying secrets or surface identity.
+    /// `CLAUDE_CODE_SANDBOXED` is handled alongside it: Claude Code short-circuits
+    /// its interactive "Do you trust this folder?" gate on that variable, and a
+    /// teammate that hits the gate hangs forever (issue #6447).
     ///
     /// That trust gate is a real safety boundary, so it is only waived when the
     /// user already opted into skipping safety prompts. The opt-in is NOT inferred
@@ -146,10 +294,17 @@ extension CMUXCLI {
     /// it correctly falls back to Claude's trust prompt rather than silently bypassing
     /// the trust boundary outside an explicit opt-in.
     func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
-        guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" else {
-            return []
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let transport = ClaudeTeamsRespawnEnvironmentTransport()
+        var environment = transport.decodedEnvironment(
+            from: processEnvironment[ClaudeTeamsRespawnEnvironmentTransport.environmentKey]
+        )
+        if processEnvironment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" {
+            environment["CLAUDE_CODE_SANDBOXED"] = "1"
         }
-        return [(key: "CLAUDE_CODE_SANDBOXED", value: "1")]
+        return environment.keys.sorted().compactMap { key in
+            environment[key].map { (key: key, value: $0) }
+        }
     }
 
     func tmuxShellWords(_ commandText: String) -> [String] {
@@ -405,22 +560,7 @@ extension CMUXCLI {
     }
 
     func prependPathEntries(_ newEntries: [String], to currentPath: String?) -> String {
-        var ordered: [String] = []
-        var seen: Set<String> = []
-        for entry in newEntries + (currentPath?.split(separator: ":").map(String.init) ?? []) where !entry.isEmpty {
-            if seen.insert(entry).inserted {
-                ordered.append(entry)
-            }
-        }
-        return ordered.joined(separator: ":")
+        CmuxPathEnvironment().prependingUniqueEntries(newEntries, to: currentPath)
     }
 
-    struct TmuxCompatFocusedContext {
-        let socketPath: String
-        let workspaceId: String
-        let windowId: String?
-        let paneHandle: String
-        let paneId: String?
-        let surfaceId: String?
-    }
 }

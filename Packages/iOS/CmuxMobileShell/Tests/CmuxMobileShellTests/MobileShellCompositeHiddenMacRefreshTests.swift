@@ -235,7 +235,7 @@ import Testing
         #expect(store.workspaceListReconnectTargetMacDeviceID() == "mac-b")
     }
 
-    @Test func secondaryAggregationKeepsOneConnectionPerPhysicalMacWithTaggedSiblings() async throws {
+    @Test func secondaryAggregationDialsEachTaggedSiblingSeparately() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [
@@ -268,7 +268,12 @@ import Testing
             teamIDProvider: { "team-a" }
         )
 
-        #expect(await store.secondaryAggregationCandidateMacIDs() == ["mac-a"])
+        // Sibling builds of one physical Mac are distinct pairings and each
+        // gets its own control connection (active first, then most recent).
+        #expect(await store.secondaryAggregationCandidateMacIDs() == [
+            "mac-a\u{1F}feature-a",
+            "mac-a\u{1F}feature-b",
+        ])
     }
 
     @Test func secondaryAggregationUsesFreshUUIDAliasWithoutMergingStaleRoutes() throws {
@@ -323,9 +328,12 @@ import Testing
         ])
 
         let canonical = try #require(candidates.first { $0.macDeviceID == lowercaseUUID })
-        #expect(candidates.count == 3)
+        // The two UUID spellings carry DIFFERENT instance tags on different
+        // endpoints, so they are distinct pairings (sibling builds), not
+        // duplicate rows to coalesce.
+        #expect(candidates.count == 4)
         #expect(Set(candidates.map(\.macDeviceID)) == Set([
-            lowercaseUUID, "Legacy-ID", "legacy-id",
+            uppercaseUUID, lowercaseUUID, "Legacy-ID", "legacy-id",
         ]))
         #expect(canonical.displayName == "Fresh Studio")
         #expect(canonical.customName == "Fresh Name")

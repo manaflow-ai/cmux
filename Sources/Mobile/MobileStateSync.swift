@@ -97,6 +97,13 @@ final class MobileStateSyncHost {
             removedIDs: change.removedIDs
         )
         guard let payload = try? MobileSyncFrameCoder().jsonObject(from: event) else { return }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.sync.emit",
+            "coll=\(collection.rawValue) rev=\(change.toRev) " +
+                "rows=\(change.records.count + change.removedIDs.count)"
+        )
+        #endif
         MobileHostService.shared.emitEvent(topic: Self.deltaTopic, payload: payload)
     }
 
@@ -127,6 +134,11 @@ final class MobileStateSyncHost {
         for summary in app.listMainWindowSummaries() {
             guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
             guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            let tabs = windowTabManager.tabs
+            let currentDirectoryByWorkspaceID = Dictionary(
+                uniqueKeysWithValues: tabs.map { ($0.id, $0.currentDirectory) }
+            )
+            let configStore = app.mainWindowContext(for: windowTabManager)?.cmuxConfigStore
             for group in windowTabManager.workspaceGroups where seenGroupIDs.insert(group.id).inserted {
                 groupRows.append(
                     GroupSyncRecord(
@@ -134,12 +146,20 @@ final class MobileStateSyncHost {
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         isPinned: group.isPinned,
-                        anchorWorkspaceID: group.anchorWorkspaceId.uuidString,
-                        sortIndex: groupRows.count
+                        iconSymbol: controller.mobileWorkspaceGroupEffectiveIconSymbol(
+                            group,
+                            anchorCwd: group.liveAnchorWorkspaceId.flatMap {
+                                currentDirectoryByWorkspaceID[$0]
+                            },
+                            configStore: configStore
+                        ),
+                        anchorWorkspaceID: group.liveAnchorWorkspaceId?.uuidString,
+                        sortIndex: groupRows.count,
+                        isEmpty: group.isEmpty
                     )
                 )
             }
-            for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+            for workspace in tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
                 liveWorkspaceIDs.insert(workspace.id)
                 liveWorkspaceObjectIDs[workspace.id] = ObjectIdentifier(workspace)
                 workspaceRows.append(
@@ -177,15 +197,30 @@ final class MobileStateSyncHost {
                 localFallback: controller.mobileNonEmpty(terminal.directory)
                     ?? controller.mobileNonEmpty(terminal.requestedWorkingDirectory)
             )
+            let agent = workspace.mobileAgentStatus(forPanel: terminal.id)
             return WorkspaceSyncRecord.Terminal(
                 id: terminal.id.uuidString,
                 title: workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 currentDirectory: terminalDirectory,
                 isReady: terminal.surface.surface != nil,
-                isFocused: terminal.id == workspace.focusedPanelId
+                isFocused: workspace.isFocusedTerminalInputSurface(terminal.id),
+                agentSource: agent?.source,
+                agentState: agent?.state
             )
         }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [MobileSimulatorPanelDescriptor]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = controller.mobileSimulatorPanels(in: workspace).map { panel in
+                MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id)
+            }
+        } else {
+            simulators = []
+        }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
+        let unreadCount = notificationStore?.unreadCount(forTabId: workspace.id) ?? 0
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
             cachedDescriptionProjection(for: workspace),
@@ -205,9 +240,12 @@ final class MobileStateSyncHost {
             preview: preview?.text,
             previewAt: preview?.epochSeconds,
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
-            hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            hasUnread: unreadCount > 0,
+            unreadCount: unreadCount,
             sortIndex: sortIndex,
-            terminals: terminals
+            terminals: terminals,
+            surfaces: controller.mobileSurfaceDescriptors(in: workspace),
+            simulators: simulators
         )
     }
 

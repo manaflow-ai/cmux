@@ -619,6 +619,17 @@ func TestTmuxCorpusCapturePanePreservesTruecolorEscapeBytesInBuffers(t *testing.
 	if output != "\x1b[31mRED\x1b[0m\nplain\n" {
 		t.Fatalf("captured buffer = %q", output)
 	}
+	named := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "capture-pane", []string{"-b", "scratch"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := dispatchTmuxCommand(nil, "show-buffer", []string{"-b", "scratch"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if named != printed {
+		t.Fatalf("named buffer = %q, want %q", named, printed)
+	}
 }
 
 func TestTmuxCorpusCapturePanePreservesTerminalByteFixtures(t *testing.T) {

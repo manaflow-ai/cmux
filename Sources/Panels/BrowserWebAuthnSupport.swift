@@ -1,6 +1,7 @@
 import AppKit
 import AuthenticationServices
 import Bonsplit
+import CmuxBrowser
 import CoreBluetooth
 import Foundation
 import ObjectiveC.runtime
