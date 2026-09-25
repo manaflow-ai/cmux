@@ -301,7 +301,8 @@ final class AgentJournalLifecycleCenter: Sendable {
             cmuxDebugLog("agentJournal.append.error \(String(describing: error))")
 #endif
             if draft.kind == .goalStateChanged,
-               case .invalidDraft = error {
+               let storeError = error as? AgentJournalStoreError,
+               case .invalidDraft = storeError {
                 return "ERROR: goal_fence_rejected"
             }
             return "ERROR: agent journal append failed"
