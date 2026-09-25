@@ -504,4 +504,63 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             )
         )
     }
+
+    func testPressAndHoldSettingSuppressesPlainLetterRepeats() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let hostedTerminal = try await makeHostedTerminalWindow()
+            let terminalSurface = hostedTerminal.surface
+            let window = hostedTerminal.window
+            let surfaceView = hostedTerminal.surfaceView
+            let defaults = UserDefaults.standard
+            let previousSetting = defaults.object(forKey: "terminal.macosPressAndHold")
+            let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+            let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+            defer {
+                if let previousSetting {
+                    defaults.set(previousSetting, forKey: "terminal.macosPressAndHold")
+                } else {
+                    defaults.removeObject(forKey: "terminal.macosPressAndHold")
+                }
+                GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+                window.orderOut(nil)
+                withExtendedLifetime(terminalSurface) {}
+            }
+
+            defaults.set(true, forKey: "terminal.macosPressAndHold")
+            GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
+            var forwardedRepeatCount = 0
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                previousKeyEventObserver?(keyEvent)
+                if keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 {
+                    forwardedRepeatCount += 1
+                }
+            }
+
+            let baseTimestamp = ProcessInfo.processInfo.systemUptime
+            for index in 0..<3 {
+                let event = try XCTUnwrap(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [],
+                    timestamp: baseTimestamp + (Double(index) * 0.001),
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    characters: "a",
+                    charactersIgnoringModifiers: "a",
+                    isARepeat: true,
+                    keyCode: 0
+                ))
+                withExtendedLifetime(terminalSurface) {
+                    surfaceView.keyDown(with: event)
+                }
+            }
+
+            XCTAssertEqual(
+                forwardedRepeatCount,
+                0,
+                "The press-and-hold setting should keep plain letter repeats out of the terminal"
+            )
+        }
+    }
 }
