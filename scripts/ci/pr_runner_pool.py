@@ -1633,7 +1633,8 @@ class GitHub:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
                                   f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
             group = next((group for group in groups
-                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP), None)
+                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP
+                          and isinstance(group.get("id"), int)), None)
             if group is None:
                 raise RuntimeError(f"no runner group {RUNNER_GROUP} is visible to {self.repo}")
             org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners")

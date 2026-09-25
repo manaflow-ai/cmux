@@ -708,6 +708,11 @@ class OwnedPools(unittest.TestCase):
                                    self.GROUPS: {"runner_groups": [{"id": 4, "name": "Blacksmith runners"}]}})
         with self.assertRaisesRegex(RuntimeError, "no runner group glaeda-minis"):
             client.runners()
+        # A group entry without an id is skipped, never listed as runner-groups/None.
+        client, _ = self.fake_api({self.REPO_RUNNERS: {"runners": []},
+                                   self.GROUPS: {"runner_groups": [{"name": pool.RUNNER_GROUP}]}})
+        with self.assertRaisesRegex(RuntimeError, "no runner group glaeda-minis"):
+            client.runners()
 
     def test_attempt_2_may_take_the_light_tier_when_switched_on(self):
         # The rescue re-runs a run stuck on a full std pool in full; that
