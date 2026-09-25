@@ -116,10 +116,15 @@ struct ComputerUseRuntimeServiceTests {
             ".cmux Computer Use.not-a-uuid.app",
             isDirectory: true
         )
+        let malformed = directory.appendingPathComponent(
+            ".cmux Computer Use.app",
+            isDirectory: true
+        )
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try fileManager.copyItem(at: fixture.bundle, to: stale)
         try fileManager.copyItem(at: fixture.bundle, to: installed)
         try fileManager.createDirectory(at: unrelated, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: malformed, withIntermediateDirectories: true)
         let staleEntries = try fixture.entries(of: stale)
         for entry in staleEntries {
             var metadata = stat()
@@ -138,6 +143,7 @@ struct ComputerUseRuntimeServiceTests {
         #expect(!fileManager.fileExists(atPath: stale.path))
         #expect(fileManager.fileExists(atPath: installed.path))
         #expect(fileManager.fileExists(atPath: unrelated.path))
+        #expect(fileManager.fileExists(atPath: malformed.path))
     }
 
     @Test func failedInstallAttemptsDoNotAccumulateStagingBundles() throws {

@@ -219,8 +219,12 @@ struct ComputerUseHelperStaging {
         guard name.hasPrefix(Self.stagingPrefix), name.hasSuffix(Self.appSuffix) else {
             return false
         }
+        guard name.count > Self.stagingPrefix.count + Self.appSuffix.count else {
+            return false
+        }
         let start = name.index(name.startIndex, offsetBy: Self.stagingPrefix.count)
         let end = name.index(name.endIndex, offsetBy: -Self.appSuffix.count)
+        guard start < end else { return false }
         let identifier = String(name[start ..< end])
         return UUID(uuidString: identifier) != nil
     }
