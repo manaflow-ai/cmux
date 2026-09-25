@@ -528,7 +528,8 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
                 accumulatedText: [],
                 event: event,
-                suppressPressAndHoldKeyRepeat: true
+                suppressPressAndHoldKeyRepeat: true,
+                pressAndHoldEvent: event
             )
         )
     }

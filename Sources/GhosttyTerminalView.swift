@@ -6895,11 +6895,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
+            event: textInputEvent,
+            inputSourceId: keyboardIdBefore,
+            suppressPressAndHoldKeyRepeat: TerminalPressAndHoldSettings.isEnabled(),
             // Use the original AppKit event for modifier checks. The translated
             // event may intentionally drop Option when Ghostty maps it to Alt.
-            event: event,
-            inputSourceId: keyboardIdBefore,
-            suppressPressAndHoldKeyRepeat: TerminalPressAndHoldSettings.isEnabled()
+            pressAndHoldEvent: event
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
             return

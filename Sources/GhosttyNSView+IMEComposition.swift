@@ -43,13 +43,14 @@ extension GhosttyNSView {
         accumulatedText: [String],
         event: NSEvent? = nil,
         inputSourceId: String? = nil,
-        suppressPressAndHoldKeyRepeat: Bool = false
+        suppressPressAndHoldKeyRepeat: Bool = false,
+        pressAndHoldEvent: NSEvent? = nil
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
 
         if suppressPressAndHoldKeyRepeat,
            shouldSuppressPressAndHoldKeyRepeat(
-               event: event,
+               event: pressAndHoldEvent ?? event,
                before: before,
                after: after
            ) {
@@ -190,7 +191,8 @@ extension GhosttyNSView {
         accumulatedText: [String],
         event: NSEvent? = nil,
         inputSourceId: String? = nil,
-        suppressPressAndHoldKeyRepeat: Bool = false
+        suppressPressAndHoldKeyRepeat: Bool = false,
+        pressAndHoldEvent: NSEvent? = nil
     ) -> Bool {
         shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: (markedTextBefore, markedSelectionBefore),
@@ -198,7 +200,8 @@ extension GhosttyNSView {
             accumulatedText: accumulatedText,
             event: event,
             inputSourceId: inputSourceId,
-            suppressPressAndHoldKeyRepeat: suppressPressAndHoldKeyRepeat
+            suppressPressAndHoldKeyRepeat: suppressPressAndHoldKeyRepeat,
+            pressAndHoldEvent: pressAndHoldEvent
         )
     }
 #endif
