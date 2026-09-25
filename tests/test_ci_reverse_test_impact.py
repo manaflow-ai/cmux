@@ -255,6 +255,59 @@ class LiteralTests(unittest.TestCase):
             [("workspace_id_value", f"hot: {rti.HOT_TEST_FILES + 1} test files")],
         )
 
+    def test_text_moved_to_another_file_only_moved(self) -> None:
+        line = '        throw CLIError(message: "Workspace ref not found: \\(ref)")'
+        diff = change("CLI/cmux.swift", [line], []) + change("CLI/CMUXCLI+Refs.swift", [], [line])
+        files = fixture(**{"cmuxTests/CLIWorkspaceRefTests.swift": CLI_OUTPUT_TESTS})
+        self.assertEqual(rti.changed_literals(diff), {})
+        self.assertEqual(rti.select(files, diff).suites, set())
+
+    def test_a_literal_that_is_also_a_common_property_name_is_still_followed(self) -> None:
+        # Three app files declare `surfaceIdentifier`; as a name it is
+        # ambiguous, but as JSON text a test asserts on it is specific.
+        files = fixture(**{
+            f"Sources/Surface{index}.swift": f"struct Surface{index} {{ var surfaceIdentifier = 0 }}\n"
+            for index in range(rti.AMBIGUOUS_APP_DECLARATIONS)
+        })
+        files["cmuxTests/CLISurfaceJSONTests.swift"] = (
+            "final class CLISurfaceJSONTests: XCTestCase {\n"
+            '    func testKey() { XCTAssertTrue(output().contains("surfaceIdentifier")) }\n'
+            "}\n"
+        )
+        diff = change("CLI/cmux.swift", ['    payload["surfaceIdentifier"] = id'], ['    payload["surface_id"] = id'])
+        self.assertEqual(rti.select(files, diff).suites, {"CLISurfaceJSONTests"})
+
+    def test_a_literal_is_followed_through_a_test_helper(self) -> None:
+        files = fixture(**{
+            "cmuxTests/CLIFixtures.swift": (
+                "enum CLIFixtures {\n"
+                '    static let missingRef = "Workspace ref not found: workspace:9"\n'
+                "}\n"
+            ),
+            "cmuxTests/CLIRefErrorTests.swift": (
+                "final class CLIRefErrorTests: XCTestCase {\n"
+                "    func testMessage() { XCTAssertEqual(run(), CLIFixtures.missingRef) }\n"
+                "}\n"
+            ),
+        })
+        diff = change("CLI/cmux.swift", ['    fail("Workspace ref not found: \\(ref)")'], [])
+        self.assertEqual(rti.select(files, diff).suites, {"CLIRefErrorTests"})
+
+    def test_a_literal_does_not_hide_a_type_with_the_same_name(self) -> None:
+        # Line 3 is inside FeedCoordinator; the literal names it too.
+        diff = hunk("Sources/Feed/FeedCoordinator.swift", 3) + change(
+            "Sources/Feed/FeedLabels.swift", [], ['    let id = "FeedCoordinator"']
+        )
+        seeds = {(seed.name, seed.how) for seed in rti.select(fixture(), diff).reached}
+        self.assertIn(("FeedCoordinator", "string"), seeds)
+        self.assertIn(("FeedCoordinator", "top"), seeds)
+
+    def test_literals_past_the_cap_are_recorded_not_searched(self) -> None:
+        added = [f'    let m{index} = "distinct message number {index}"' for index in range(5)]
+        with unittest.mock.patch.object(rti, "MAX_LITERAL_SEEDS", 3):
+            selection = rti.select(fixture(), change("CLI/cmux.swift", [], added))
+        self.assertIn("CLI/cmux.swift literals over the cap of 3", selection.untraceable)
+
     def test_text_no_test_contains_is_left_out_of_the_report(self) -> None:
         diff = change("CLI/cmux.swift", ['    log("an internal log line nobody asserts")'], [])
         selection = rti.select(fixture(), diff)

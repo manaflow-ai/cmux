@@ -84,6 +84,9 @@ APP_DECLARATION_RE = re.compile(
 
 # Changed string literals shorter than this ("ok", "--json") match too much.
 MIN_LITERAL_CHARS = 8
+# Each literal is a text search over all of cmuxTests/; a diff with more than
+# this many (a generated file, a mass rename) keeps the job inside its timeout.
+MAX_LITERAL_SEEDS = 1500
 STRING_LITERAL_RE = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 # `\(value)` inside a literal; the text on either side is what a test sees.
 INTERPOLATION_RE = re.compile(r"\\\((?:[^()]|\([^()]*\))*\)")
@@ -109,10 +112,12 @@ def literal_pieces(text: str) -> set[str]:
 
 
 def changed_literals(diff: str) -> dict[str, set[str]]:
-    """Per file, the literals only one side of the diff has.
+    """Per file, the literals only one side of the whole diff has.
 
-    A literal on both a removed and an added line only moved or was
-    reformatted; one on a single side is text a test may still expect.
+    A literal on both a removed and an added line, in any file, only moved or
+    was reformatted; one on a single side is text a test may still expect.
+    Only single-line literals are read: text in a multi-line block or a raw
+    string with inner quotes is not followed, which costs recall only.
     """
     removed: dict[str, set[str]] = {}
     added: dict[str, set[str]] = {}
@@ -120,19 +125,23 @@ def changed_literals(diff: str) -> dict[str, set[str]]:
     new: str | None = None
     for line in diff.splitlines():
         if line.startswith("--- "):
-            old = line[6:] if line.startswith("--- a/") else None
+            old = line[6:].split("\t")[0] if line.startswith("--- a/") else None
             continue
         if line.startswith("+++ "):
-            new = line[6:] if line.startswith("+++ b/") else None
+            new = line[6:].split("\t")[0] if line.startswith("+++ b/") else None
             continue
         if line.startswith("-") and old is not None:
             removed.setdefault(old, set()).update(literal_pieces(line[1:]))
         elif line.startswith("+") and new is not None:
             added.setdefault(new, set()).update(literal_pieces(line[1:]))
+    sources = {path for path in set(removed) | set(added) if is_literal_source(path)}
+    moved = set().union(*(removed.get(path, set()) for path in sources)) & set().union(
+        *(added.get(path, set()) for path in sources)
+    )
     changed: dict[str, set[str]] = {}
-    for path in set(removed) | set(added):
-        literals = removed.get(path, set()) ^ added.get(path, set())
-        if literals and is_literal_source(path):
+    for path in sources:
+        literals = (removed.get(path, set()) | added.get(path, set())) - moved
+        if literals:
             changed[path] = literals
     return changed
 
@@ -241,6 +250,8 @@ class TestIndex:
     def __init__(self, files: dict[str, str]):
         self.text = {path: text for path, text in files.items() if path.startswith("cmuxTests/")}
         self.lines = {path: text.splitlines() for path, text in self.text.items()}
+        # One search here rules out most changed text before a per-file scan.
+        self.all_text = "\n".join(self.text.values())
         self.mentions: dict[str, set[str]] = {}
         for path, lines in self.lines.items():
             for word in set(IDENTIFIER_RE.findall("\n".join(lines))):
@@ -278,13 +289,17 @@ def reach(
         searched.add((name, owner))
         text_search = literal and first
         if text_search:
+            if name not in tests.all_text:
+                continue
             scope = {path for path, text in tests.text.items() if name in text}
         else:
             scope = set(tests.mentions.get(name, ()))
         if not scope:
             continue
         cap = HOT_TEST_FILES if first else HOT_HELPER_TEST_FILES
-        ambiguous = declared.get(name, 0) >= AMBIGUOUS_APP_DECLARATIONS
+        # Text is matched as written, so a JSON key that is also a common
+        # property name is still specific.
+        ambiguous = not text_search and declared.get(name, 0) >= AMBIGUOUS_APP_DECLARATIONS
         if (ambiguous or len(scope) > cap) and owner and owner in tests.mentions:
             scope &= tests.mentions[owner]
         if len(scope) > cap or (ambiguous and not owner):
@@ -342,8 +357,15 @@ def select(files: dict[str, str], diff: str | None) -> Selection:
         return selection
     seeds: list[Seed] = []
     literals = changed_literals(diff)
+    searched_literals: set[str] = set()
     for path in sorted(set(hunks) | set(literals)):
         for literal in sorted(literals.get(path, ())):
+            if literal in searched_literals:
+                continue
+            if len(searched_literals) >= MAX_LITERAL_SEEDS:
+                selection.untraceable.append(f"{path} literals over the cap of {MAX_LITERAL_SEEDS}")
+                break
+            searched_literals.add(literal)
             seeds.append(Seed(literal, None, "string"))
         if path.startswith("CLI/"):
             # The CLI is its own module; cmuxTests/ reaches it only through
@@ -372,11 +394,12 @@ def select(files: dict[str, str], diff: str | None) -> Selection:
         if not path.startswith("cmuxTests/"):
             for word in set(APP_DECLARATION_RE.findall(text)):
                 declared[word] = declared.get(word, 0) + 1
-    seen: set[tuple[str, str | None]] = set()
+    seen: set[tuple[str, str | None, bool]] = set()
     for seed in seeds:
-        if not seed.name or (seed.name, seed.owner) in seen:
+        key = (seed.name, seed.owner, seed.how == "string")
+        if not seed.name or key in seen:
             continue
-        seen.add((seed.name, seed.owner))
+        seen.add(key)
         result = reach(seed, tests, declared, selection.untraceable)
         if isinstance(result, str):
             selection.dropped.append((seed, result))
@@ -428,7 +451,8 @@ def budgeted(
 
 def seed_label(seed: Seed) -> str:
     if seed.how == "string":
-        return json.dumps(seed.name)
+        # Backticks would close the summary's code span around the label.
+        return json.dumps(seed.name).replace("`", "\\u0060")
     return f"{seed.owner}.{seed.name}" if seed.owner else seed.name
 
 
