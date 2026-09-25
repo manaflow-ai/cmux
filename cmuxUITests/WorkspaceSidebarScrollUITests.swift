@@ -207,6 +207,84 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    func testWorkspaceGroupHeaderWrapsTitleAndKeepsAnchorDescription() throws {
+        for nativeSidebar in [true, false] {
+            let app = XCUIApplication.cmuxTestApplication()
+            let token = UUID().uuidString
+            let socketPath = "/tmp/cmux-ui-group-header-\(token).sock"
+            defer {
+                app.terminate()
+                try? FileManager.default.removeItem(atPath: socketPath)
+            }
+            configureLaunch(app)
+            app.launchArguments += [
+                "-sidebarWrapWorkspaceTitles", "YES",
+                "-cmux.flags.override.sidebar-appkit-list-experiment", nativeSidebar ? "YES" : "NO",
+                "-socketControlMode", "allowAll"
+            ]
+            app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+            app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+            app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+            app.launchEnvironment["CMUX_TAG"] = "ui-group-header-\(token.prefix(8))"
+            launchAndEnsureRunning(app)
+            XCTAssertTrue(pollUntil(timeout: 10) { self.sendSocketLine("ping", to: socketPath) == "PONG" })
+            let anchor = try XCTUnwrap(sendSocketLine("current_workspace", to: socketPath))
+            let created = try groupHeaderRequest("workspace.group.create", params: [
+                "name": "Orchestrator", "child_workspace_ids": [anchor]
+            ], socketPath: socketPath)
+            let group = try XCTUnwrap(created["group"] as? [String: Any])
+            let groupID = try XCTUnwrap(group["id"] as? String)
+            _ = try groupHeaderRequest("workspace.group.set_anchor", params: [
+                "group_id": groupID, "workspace_id": anchor
+            ], socketPath: socketPath)
+            let header = app.descendants(matching: .any)["sidebarWorkspaceGroup.\(groupID)"].firstMatch
+            XCTAssertTrue(header.waitForExistence(timeout: 5))
+            let compactHeight = header.frame.height
+            let longTitle = String(repeating: "Orchestrator running verification and waiting for agent results ", count: 5)
+            _ = try groupHeaderRequest("workspace.group.rename", params: [
+                "group_id": groupID, "name": longTitle
+            ], socketPath: socketPath)
+            XCTAssertTrue(pollUntil(timeout: 5) { header.frame.height > compactHeight + 10 },
+                          "Group title must wrap when workspace title wrapping is enabled (native=\(nativeSidebar))")
+
+            let description = "Anchor run state: all agents finished; preparing the review"
+            _ = try groupHeaderRequest("workspace.action", params: [
+                "workspace_id": anchor, "action": "set_description", "description": description
+            ], socketPath: socketPath)
+            let detail = app.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", description, description)).firstMatch
+            XCTAssertTrue(detail.waitForExistence(timeout: 5), "Anchor description must render in its group header")
+            XCTAssertTrue(detail.isHittable)
+            _ = try groupHeaderRequest("workspace.group.collapse", params: ["group_id": groupID], socketPath: socketPath)
+            XCTAssertTrue(pollUntil(timeout: 5) { detail.exists && detail.isHittable },
+                          "Collapsing members must preserve anchor details")
+
+            let updatedDescription = "Anchor run state: review complete"
+            _ = try groupHeaderRequest("workspace.action", params: [
+                "workspace_id": anchor, "action": "set_description", "description": updatedDescription
+            ], socketPath: socketPath)
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", updatedDescription, updatedDescription))
+                .firstMatch.waitForExistence(timeout: 5), "Anchor description updates must repaint without selecting another workspace")
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "group-header-\(nativeSidebar ? "appkit" : "swiftui")"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            app.terminate()
+        }
+    }
+
+    private func groupHeaderRequest(
+        _ method: String,
+        params: [String: Any],
+        socketPath: String
+    ) throws -> [String: Any] {
+        let request = try JSONSerialization.data(withJSONObject: ["id": UUID().uuidString, "method": method, "params": params])
+        let reply = try XCTUnwrap(sendSocketLine(String(decoding: request, as: UTF8.self), to: socketPath))
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
+        XCTAssertEqual(payload["ok"] as? Bool, true, "\(method): \(reply)")
+        return try XCTUnwrap(payload["result"] as? [String: Any])
+    }
+
     private func configureLaunch(_ app: XCUIApplication) {
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

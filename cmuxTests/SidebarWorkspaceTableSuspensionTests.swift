@@ -904,6 +904,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: Self.groupHeaderGroupID,
             anchorWorkspaceId: Self.groupHeaderAnchorWorkspaceID,
             name: "Group", iconSymbol: "folder",
+            anchorDescription: nil, wrapsWorkspaceTitles: false,
             tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: isAnchorActive,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,

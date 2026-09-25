@@ -2111,6 +2111,8 @@ struct SidebarPinnedIndicatorColorTests {
             groupId: UUID(),
             anchorWorkspaceId: UUID(),
             name: "Group",
+            anchorDescription: nil,
+            wrapsWorkspaceTitles: false,
             iconSymbol: "folder",
             tintHex: nil,
             isCollapsed: false,

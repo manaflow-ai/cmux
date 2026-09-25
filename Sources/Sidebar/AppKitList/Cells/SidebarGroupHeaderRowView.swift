@@ -17,6 +17,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
+    private let descriptionView = SidebarRowTextView(lines: 2)
     // Direct-draw badge (shared with workspace rows): NSTextField's
     // intrinsic insets shift single digits off the circle's optical center.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
@@ -71,6 +72,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.maximumNumberOfLines = 1
         nameField.cell?.truncatesLastVisibleLine = true
         addSubview(nameField)
+        descriptionView.isHidden = true
+        addSubview(descriptionView)
 
         addSubview(unreadBadgeView)
 
@@ -181,9 +184,21 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
+        nameField.maximumNumberOfLines = model.wrapsWorkspaceTitles ? 8 : 1
+        nameField.lineBreakMode = model.wrapsWorkspaceTitles ? .byWordWrapping : .byTruncatingTail
+        nameField.cell?.truncatesLastVisibleLine = true
         nameField.textColor = model.isAnchorActive
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
             : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
+
+        descriptionView.isHidden = model.anchorDescription?.isEmpty != false
+        if let description = model.anchorDescription, !description.isEmpty {
+            descriptionView.configurePlainText(
+                description.sidebarBoundedDisplayString(maxDisplayedLines: 2, maxDisplayedCharacters: 512),
+                font: .systemFont(ofSize: GlobalFontMagnification.scaledSize(10.5, percent: percent)),
+                color: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+            )
+        }
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -368,7 +383,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             weight: .semibold
         )
         let nameLineHeight = ceil(nameFont.ascender - nameFont.descender + nameFont.leading)
-        let content = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, nameLineHeight)
+        let titleLines = model.wrapsWorkspaceTitles ? 8 : 1
+        let titleHeight = CGFloat(titleLines) * nameLineHeight
+        let descriptionHeight = model.anchorDescription?.isEmpty == false
+            ? GlobalFontMagnification.scaledSize(12, percent: percent) * 2 + 4
+            : 0
+        let content = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, titleHeight + descriptionHeight)
         return ceil(content + 10)
     }
 
@@ -420,17 +440,24 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let nameSize = nameField.attributedStringValue.size()
         // The field owns ALL remaining width (truncation only when genuinely
         // out of space); the badge tracks the measured text width instead.
-        nameField.frame = NSRect(
-            x: x,
-            y: midY - ceil(nameSize.height) / 2,
-            width: nameAvailable,
-            height: ceil(nameSize.height)
-        )
+        let titleHeight = model.wrapsWorkspaceTitles ? ceil(nameField.font?.ascender ?? nameSize.height) * 8 : ceil(nameSize.height)
+        let descriptionHeight = descriptionView.isHidden ? 0 : ceil(GlobalFontMagnification.scaledSize(12, percent: percent) * 2 + 4)
+        let contentHeight = titleHeight + descriptionHeight
+        let contentTop = midY - contentHeight / 2
+        nameField.frame = NSRect(x: x, y: contentTop, width: nameAvailable, height: titleHeight)
+        if !descriptionView.isHidden {
+            descriptionView.frame = NSRect(
+                x: x,
+                y: nameField.frame.maxY + 2,
+                width: max(0, contentMaxX - x),
+                height: descriptionHeight
+            )
+        }
         if !unreadBadgeView.isHidden {
             let badgeX = x + min(ceil(nameSize.width), nameAvailable) + 6
             unreadBadgeView.frame = NSRect(
                 x: badgeX,
-                y: midY - badgeSize.height / 2,
+                y: contentTop + titleHeight / 2 - badgeSize.height / 2,
                 width: badgeSize.width,
                 height: badgeSize.height
             )
