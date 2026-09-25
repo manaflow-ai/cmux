@@ -348,6 +348,9 @@ class Prefer(Fixture):
 
     def test_a_seed_to_download_wins_only_within_max_distance(self):
         self.kept(changed=3)
+        self.env_compare = unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=False)
+        self.env_compare.start()
+        self.addCleanup(self.env_compare.stop)
         self.assertEqual(self.prefer(("p-j14-base", 2))["prefer"], "false")
         self.assertEqual(self.prefer(("p-j14-base", 2), max_distance=2)["prefer"], "true")
         self.assertEqual(self.prefer(("p-j14-base", 3), max_distance=2)["prefer"], "false")
@@ -381,6 +384,122 @@ class Prefer(Fixture):
             self.assertEqual(state.seed.chosen(), ("p-j12-older", 1))
         with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": "p-j14-gone"}):
             self.assertIsNone(state.seed.chosen())
+
+    def recorded_with_package_change(self, changed):
+        record = self.recorded(changed)
+        record["Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/F.swift"] = ["stale", 1]
+        return record
+
+    def test_rebuilds_app_only_for_a_package_swift_source(self):
+        self.assertTrue(state.rebuilds_app({"Packages/macOS/CmuxCloud/Sources/CmuxCloud/A.swift"}))
+        self.assertTrue(state.rebuilds_app({"vendor/bonsplit/Package.swift"}))
+        self.assertFalse(state.rebuilds_app({"Sources/AppDelegate.swift", "cmuxTests/ATests.swift",
+                                             "Packages/macOS/CmuxCloud/README.md"}))
+
+    def test_a_seed_without_a_package_change_beats_more_changed_inputs_with_one(self):
+        """115 changed inputs across a package change cost 958 s (job 108004619872)."""
+        self.kept(changed=5)
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
+                         ("false", "true", "false"))
+
+    def test_a_nearer_bucket_seed_replaces_a_kept_seed_that_recompiles_the_app(self):
+        self.kept(changed=6)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=6)))
+        (self.cache / "p-j14-oldest").mkdir(parents=True)
+        (self.cache / "p-j14-oldest" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=False) as compare:
+            result = self.prefer(("p-j14-base", 0), max_distance=2)
+        compare.assert_called_once_with("p-j14-base", self.workspace)
+        self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-base", "false"))
+        # When the bucket seed recompiles the app too, or GitHub cannot say,
+        # the clone stays: it is the cheaper start.
+        for answer in (True, None):
+            with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
+                result = self.prefer(("p-j14-base", 0), max_distance=2)
+            self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-oldest", "true"))
+        # Without downloads, the kept seed is all there is.
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app") as compare:
+            result = self.prefer(("p-j14-base", 0))
+        compare.assert_not_called()
+        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j14-oldest"))
+
+    def test_a_far_bucket_seed_replaces_a_kept_build_that_recompiles_the_app(self):
+        (self.store / "derived-data").mkdir(parents=True)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=3)))
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=False):
+            result = self.prefer(("p-j14-base", 6), max_distance=2)
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_distance"], result["local"]),
+                         ("true", "p-j14-base", "6", "false"))
+        for answer in (True, None):
+            with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
+                self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=2)["prefer"], "false")
+
+    def test_a_near_bucket_seed_that_recompiles_the_app_never_replaces_a_kept_build_that_does_not(self):
+        self.kept(changed=3)
+        for answer, expected in ((True, "false"), (None, "false"), (False, "true")):
+            with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
+                result = self.prefer(("p-j14-base", 1), max_distance=2)
+            self.assertEqual(result["prefer"], expected)
+            if expected == "false":
+                self.assertEqual(result["reason"],
+                                 "the seed 1 commits behind may recompile the app; the kept DerivedData does not")
+
+    def test_package_tests_do_not_rebuild_the_app(self):
+        self.assertFalse(state.rebuilds_app({"Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/ATests.swift"}))
+
+    def test_a_far_bucket_seed_never_replaces_a_kept_build_without_a_package_change(self):
+        self.kept(changed=3)
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app") as compare:
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=2)["prefer"], "false")
+        compare.assert_not_called()
+
+    def test_the_bucket_compare_reads_github_and_gives_up_past_its_file_limit(self):
+        def run(files):
+            def fake(argv, **_):
+                out = "abc123\n" if argv[0] == "git" else json.dumps(files)
+                return unittest.mock.Mock(stdout=out)
+            return fake
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}):
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=run(["Sources/A.swift"])) as ran:
+                self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), False)
+            self.assertEqual(ran.call_args_list[1].args[0][:3], ["gh", "api", "repos/o/r/compare/seedsha...abc123"])
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=run(["Packages/X/Sources/X/A.swift"])):
+                self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), True)
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=run(["Sources/A.swift"] * 300)):
+                self.assertIsNone(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace))
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=OSError("no gh")):
+                self.assertIsNone(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace))
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": ""}):
+            self.assertIsNone(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace))
+
+    def test_a_submodule_bump_under_a_package_root_rebuilds_the_app(self):
+        """Compare lists a submodule bump as the bare path (bonsplit, 4 bumps this month)."""
+        (self.workspace / ".gitmodules").write_text(
+            '[submodule "vendor/bonsplit"]\n\tpath = vendor/bonsplit\n\turl = x\n'
+            '[submodule "ghostty"]\n\tpath = ghostty\n\turl = y\n')
+        self.assertEqual(state.submodules(self.workspace), {"vendor/bonsplit", "ghostty"})
+        real = state.subprocess.run
+
+        def fake(argv, **kwargs):
+            if argv[:2] == ["git", "-C"]:
+                return unittest.mock.Mock(stdout="abc123\n")
+            if argv[0] == "gh":
+                return unittest.mock.Mock(stdout=json.dumps(self.compared))
+            return real(argv, **kwargs)
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+             unittest.mock.patch.object(state.subprocess, "run", side_effect=fake):
+            self.compared = ["vendor/bonsplit"]
+            self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), True)
+            # ghostty ships as a prebuilt xcframework, not a package root.
+            self.compared = ["ghostty", "Sources/A.swift"]
+            self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), False)
 
     def test_any_error_keeps_the_warm_path(self):
         output = Path(self.tmp.name) / "output"
