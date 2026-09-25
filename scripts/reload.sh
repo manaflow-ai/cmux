@@ -1665,6 +1665,27 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
 fi
+if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-0}" != "1" ]]; then
+  # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
+  # which reload never builds) and no Objective-C includes its generated header.
+  # Xcode's integrated driver still emits the module in a separate job that
+  # type-checks every declaration in the app. The standalone driver with
+  # -no-emit-module-separately emits none, the same change #14364 made for
+  # cmuxTests; the app's Debug configuration generates no Objective-C header.
+  # Settings are per target, so packages and the CLI are unchanged. App edits
+  # rebuild ~13 s faster on a 12-core runner. lldb's po/expr in app frames need
+  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again.
+  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
+  XCODEBUILD_ARGS+=(
+    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INTEGRATED_DRIVER_cmux=NO
+    'SWIFT_INSTALL_MODULE=$(CMUX_RELOAD_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INSTALL_MODULE_cmux=NO
+  )
+  # shellcheck disable=SC2016
+  SWIFT_OTHER_FLAGS+=' $(CMUX_RELOAD_SWIFT_FLAGS_$(TARGET_NAME))'
+  XCODEBUILD_ARGS+=(CMUX_RELOAD_SWIFT_FLAGS_cmux=-no-emit-module-separately)
+fi
 if [[ "$SWIFT_OTHER_FLAGS" != '$(inherited)' ]]; then
   XCODEBUILD_ARGS+=("OTHER_SWIFT_FLAGS=$SWIFT_OTHER_FLAGS")
 fi
@@ -2070,6 +2091,40 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+
+TAG_LAUNCHD_LABEL=""
+TAG_LAUNCHD_DOMAIN=""
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  TAG_LAUNCHD_LABEL="${BUNDLE_ID}.reload"
+  TAG_LAUNCHD_DOMAIN="gui/$(id -u)"
+fi
+
+# Terminate the existing same-tag instance before replacing its bundle. The
+# running process resolves SwiftPM resources through its app path; removing
+# that path first can make Bundle.module trap during startup while the old
+# process is still initializing.
+if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
+  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+  sleep 0.3
+  TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
+  pkill -f "$TAG_PROCESS_PATTERN" || true
+  for _ in {1..20}; do
+    if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  # A startup process may not service its quit event yet. Do not replace the
+  # resource-bearing bundle while it is still mapped; force only this tagged
+  # executable after the bounded graceful window.
+  pkill -KILL -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  # Tagged --launch runs are handed off to launchd so they survive the terminal
+  # or automation process that invoked reload.sh. Remove a still-registered
+  # prior job before publishing the replacement bundle.
+  /bin/launchctl bootout "$TAG_LAUNCHD_DOMAIN/$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
+  /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
+fi
+
 if [[ "$BUILD_ONLY" -eq 1 && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   # Keep the staged artifact separate from the running tagged app. This mode is
   # explicitly for compilation/validation and must not mutate the active bundle.
@@ -2080,29 +2135,6 @@ elif [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-
-TAG_LAUNCHD_LABEL=""
-TAG_LAUNCHD_DOMAIN=""
-if [[ -n "${TAG_SLUG:-}" ]]; then
-  TAG_LAUNCHD_LABEL="${BUNDLE_ID}.reload"
-  TAG_LAUNCHD_DOMAIN="gui/$(id -u)"
-fi
-
-# Tag mode: always terminate the existing same-tag instance after a successful build,
-# even without --launch. A stale tagged app pinned to this bundle id would otherwise
-# keep running against freshly-overwritten resources, and macOS would foreground it
-# instead of launching the newly built binary when the user cmd-clicks the .app.
-if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
-  pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-  sleep 0.3
-  # Tagged --launch runs are handed off to launchd so they survive the terminal or
-  # automation process that invoked reload.sh. Remove a still-registered prior job
-  # after giving the app a chance to quit gracefully.
-  /bin/launchctl bootout "$TAG_LAUNCHD_DOMAIN/$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
-  /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
-fi
 
 if [[ "$BUILD_ONLY" -eq 1 ]]; then
   CAN_PUBLISH_RELOAD_STATE=0

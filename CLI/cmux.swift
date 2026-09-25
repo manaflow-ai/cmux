@@ -3463,8 +3463,10 @@ final class SocketClient {
             return
         }
 
-        Darwin.close(socketFD)
-        socketFD = -1
+        // Use the full cleanup, not a bare descriptor close: a retry must not
+        // inherit lastConfiguredReceiveTimeout from the failed socket, or the
+        // next connect would skip SO_RCVTIMEO on the fresh descriptor.
+        close()
         throw SocketConnectError(
             targetDescription: "socket at \(path)",
             errnoValue: connectErrno
@@ -3927,6 +3929,15 @@ final class SocketClient {
     }
 
     func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+        // Skip the setsockopt entirely when the receive timeout is already
+        // configured with this value: streaming callers (the events line
+        // reader) re-invoke this before every read, and a redundant
+        // SO_RCVTIMEO reconfiguration is pure syscall churn in the middle of
+        // a replay burst (#12756).
+        if let lastConfiguredReceiveTimeout,
+           abs(lastConfiguredReceiveTimeout - timeout) <= Self.receiveTimeoutReconfigurationToleranceSeconds {
+            return
+        }
         var interval = Self.socketTimeval(for: timeout)
         let result = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
@@ -3940,7 +3951,10 @@ final class SocketClient {
         guard result == 0 else {
             let errorCode = errno
             let reason = String(cString: strerror(errorCode))
-            throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
+            throw CLIError(
+                message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))",
+                socketFailureKind: errorCode == EINVAL ? .receiveTimeoutConfiguration : nil
+            )
         }
         lastConfiguredReceiveTimeout = timeout
     }
@@ -4091,7 +4105,15 @@ final class SocketClient {
         deadline: Date? = nil
     ) throws -> String {
         if deadline == nil {
-            try configureReceiveTimeout(45)
+            do {
+                try configureReceiveTimeout(45)
+            } catch let error as CLIError where error.socketFailureKind == .receiveTimeoutConfiguration {
+                // macOS rejects SO_RCVTIMEO with EINVAL once the peer has shut
+                // the socket down, e.g. right after a backlog replay (#12756).
+                // Frames sent before the close are still buffered, so keep
+                // reading: the reads below return them, then report
+                // "Event stream closed", which --reconnect retries.
+            }
         }
         while true {
             if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
@@ -4197,19 +4219,11 @@ struct CMUXCLI {
     /// Restored terminals start the app and then race its listener bind. Keep
     /// the implicit restore connection alive long enough for that lifecycle,
     /// while explicit socket paths retain their immediate failure semantics.
-    private static let defaultRestoreSocketStartupTimeoutSeconds: TimeInterval = 45
-    /// Tests that exercise the "still opening" failure set
-    /// `CMUX_RESTORE_SOCKET_STARTUP_TIMEOUT_SECONDS` so they do not wait out
-    /// the full startup budget. It can only shorten the default.
-    private static var restoreSocketStartupTimeoutSeconds: TimeInterval {
-        let key = "CMUX_RESTORE_SOCKET_STARTUP_TIMEOUT_SECONDS"
-        guard let raw = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let value = TimeInterval(raw),
-              value.isFinite else {
-            return defaultRestoreSocketStartupTimeoutSeconds
-        }
-        return min(max(value, 0.05), defaultRestoreSocketStartupTimeoutSeconds)
-    }
+    ///
+    /// ``SocketStartupWaiter`` owns the default window and its environment
+    /// override, so the CLI and the socket package cannot drift apart.
+    private static let restoreSocketStartupTimeoutSeconds: TimeInterval =
+        SocketClient.appStartupWaitTimeoutSeconds
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -11385,11 +11399,12 @@ struct CMUXCLI {
         var destination: String?
         var port: Int?
         var identityFile: String?
+        var workspaceName: String?
         var noFocus = false
         var newWindow = false
 
         // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
-        // passthrough, --ssh-option, --name, or --window support.
+        // passthrough, --ssh-option, or --window support.
         var index = 0
         while index < commandArgs.count {
             let arg = commandArgs[index]
@@ -11408,6 +11423,13 @@ struct CMUXCLI {
                     throw CLIError(message: "ssh-tmux: --identity requires a path")
                 }
                 identityFile = commandArgs[index + 1]
+                index += 2
+            case "--name":
+                guard index + 1 < commandArgs.count,
+                      !commandArgs[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: String(localized: "cli.sshTmux.error.nameRequiresTitle", defaultValue: "ssh-tmux: --name requires a workspace title"))
+                }
+                workspaceName = commandArgs[index + 1]
                 index += 2
             case "--no-focus":
                 noFocus = true
@@ -11437,6 +11459,10 @@ struct CMUXCLI {
         var params: [String: Any] = ["host": destination]
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
+        if let trimmedWorkspaceName = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmedWorkspaceName.isEmpty {
+            params["workspace_name"] = trimmedWorkspaceName
+        }
         params["activate"] = !noFocus
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
@@ -17099,7 +17125,6 @@ struct CMUXCLI {
             return
         }
 
-
         if subcommand == "find" {
             let sid = try requireSurface()
             guard let locator = subArgs.first?.lowercased() else {
@@ -19108,7 +19133,7 @@ struct CMUXCLI {
             return Self.moshTmuxCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
-            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]
 
             Mirror a remote host's tmux sessions into the current window's sidebar over
             SSH tmux control mode (tmux -CC). Each session becomes a workspace, each
@@ -19124,11 +19149,16 @@ struct CMUXCLI {
             Flags:
               --port <n>          SSH port
               --identity <path>   SSH identity file path
+              --name <title>      Set the mirrored workspace's local display title. This is
+                                   cosmetic only: it does not rename the remote tmux session.
+                                   Applies to the first newly-mirrored session when the host
+                                   has more than one.
               --no-focus          Do not select the mirror workspace or focus its window
 
             Example:
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
+              cmux ssh-tmux dev@my-host --name "prod db"
             """)
             let newWindowHelp = String(
                 localized: "cli.help.ssh-tmux.newWindow",
@@ -39278,7 +39308,7 @@ export default CMUXSessionRestore;
     /// leaves ``feedAttentionSendReserveSeconds`` of the shared deadline for
     /// the essential send — a stalled probe degrades to ambient addressing,
     /// never to a starved notification.
-    private func resolvedAttentionDeliveryTarget(
+    func resolvedAttentionDeliveryTarget(
         workspaceId: String?,
         surfaceId: String?,
         client: SocketClient,
@@ -39366,13 +39396,6 @@ export default CMUXSessionRestore;
                 probe.close()
                 return nil
             }
-        }
-
-        // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
-        // Also matches the graceful-fallback pattern of the other hooks.
-        guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
-            print("{}")
-            return
         }
 
         let commandEvent = optionValue(commandArgs, name: "--event")
@@ -39624,21 +39647,37 @@ export default CMUXSessionRestore;
                 return
             }
         }
-
+        let claimedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+        let claimedSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+            ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
+        // Telemetry must not wait for a routing response. Carry its scope to
+        // the host, where Computer Use checks live local ownership before
+        // presenting setup. Blocking decisions resolve their target first.
+        if isActionable, validatedCodexFeedTarget == nil,
+           let activeClient = client ?? makeLifecycleProbeClient(),
+           let target = resolvedFeedDeliveryTarget(
+               workspaceId: claimedWorkspaceId,
+               surfaceId: claimedSurfaceId,
+               agentPid: agentPid,
+               relayOrigin: env[agentHookRelayOriginEnvironmentKey] == "1",
+               client: activeClient,
+               deadline: Date.now.addingTimeInterval(
+                   Self.feedAttentionSendReserveSeconds
+                       + Self.feedAttentionProbeTimeoutCapSeconds
+               )
+           ) { validatedCodexFeedTarget = target }
+        guard !isActionable || validatedCodexFeedTarget != nil else { print("{}"); return }
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
         ]
-        if agentPid > 0 {
-            eventDict["_ppid"] = agentPid
-        }
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+        if agentPid > 0 { eventDict["_ppid"] = agentPid }
+        if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
             eventDict["workspace_id"] = workspaceId
         }
-        if let validatedCodexFeedTarget {
-            eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
-            eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
+        if let surfaceId = validatedCodexFeedTarget?.surfaceId ?? claimedSurfaceId {
+            eventDict["surface_id"] = surfaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]

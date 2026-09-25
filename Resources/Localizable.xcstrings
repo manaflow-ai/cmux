@@ -979,55 +979,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Use app windows\n\nUse computer-use tools for native apps or visual controls. cmux provides these tools to Claude Code and Codex sessions launched in cmux. Complete setup in Settings > Computer Use. Read the `cmux-cua` skill for your agent's methods: inspect app or window state, click or type, then inspect again."
+            "value": "## Use app windows\n\nUse computer-use tools for native apps or visual controls. cmux provides these tools to Claude Code and Codex sessions launched in cmux. The first functional cmux Computer Use request opens setup automatically when needed. You can resume setup in Settings > cmux Computer Use. Read the `cmux-cua` skill for your agent's methods: inspect app or window state, click or type, then inspect again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## App-Fenster bedienen\n\nVerwenden Sie Computer-Use-Werkzeuge für native Apps oder visuelle Bedienelemente. cmux stellt diese Werkzeuge in Claude-Code- und Codex-Sitzungen bereit, die in cmux gestartet wurden. Schließen Sie die Einrichtung unter Einstellungen > Computer Use ab. Lesen Sie den Skill `cmux-cua` für die Methoden Ihres Agenten: App- oder Fensterzustand prüfen, klicken oder tippen und erneut prüfen."
+            "value": "## App-Fenster bedienen\n\nVerwenden Sie Computer-Use-Werkzeuge für native Apps oder visuelle Bedienelemente. cmux stellt diese Werkzeuge in Claude-Code- und Codex-Sitzungen bereit, die in cmux gestartet wurden. Die Einrichtung wird bei der ersten funktionalen cmux Computer Use-Anfrage bei Bedarf automatisch geöffnet. Sie können die Einrichtung unter Einstellungen > cmux Computer Use fortsetzen. Lesen Sie den Skill `cmux-cua` für die Methoden Ihres Agenten: App- oder Fensterzustand prüfen, klicken oder tippen und erneut prüfen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Utiliser les fenêtres des applications\n\nUtilisez les outils computer-use pour les applications natives ou les commandes visuelles. cmux fournit ces outils aux sessions Claude Code et Codex lancées dans cmux. Terminez la configuration dans Réglages > Computer Use. Lisez le skill `cmux-cua` pour connaître les méthodes de votre agent : inspectez l’état de l’application ou de la fenêtre, cliquez ou saisissez du texte, puis inspectez à nouveau."
+            "value": "## Utiliser les fenêtres des applications\n\nUtilisez les outils computer-use pour les applications natives ou les commandes visuelles. cmux fournit ces outils aux sessions Claude Code et Codex lancées dans cmux. La configuration s’ouvre automatiquement si nécessaire lors de la première demande cmux Computer Use fonctionnelle. Vous pouvez la reprendre dans Réglages > cmux Computer Use. Lisez le skill `cmux-cua` pour connaître les méthodes de votre agent : inspectez l’état de l’application ou de la fenêtre, cliquez ou saisissez du texte, puis inspectez à nouveau."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## استخدام نوافذ التطبيقات\n\nاستخدم أدوات computer-use للتطبيقات الأصلية أو عناصر التحكم المرئية. يوفر cmux هذه الأدوات لجلسات Claude Code وCodex التي تبدأ داخله. أكمل الإعداد في الإعدادات > Computer Use. اقرأ مهارة `cmux-cua` لمعرفة طرق وكيلك: افحص حالة التطبيق أو النافذة، وانقر أو اكتب، ثم افحص مجدداً."
+            "value": "## استخدام نوافذ التطبيقات\n\nاستخدم أدوات computer-use للتطبيقات الأصلية أو عناصر التحكم المرئية. يوفر cmux هذه الأدوات لجلسات Claude Code وCodex التي تبدأ داخله. يُفتح الإعداد تلقائيًا عند الحاجة مع أول طلب وظيفي لـ cmux Computer Use. يمكنك متابعة الإعداد من الإعدادات > cmux Computer Use. اقرأ مهارة `cmux-cua` لمعرفة طرق وكيلك: افحص حالة التطبيق أو النافذة، وانقر أو اكتب، ثم افحص مجدداً."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Usar ventanas de aplicaciones\n\nUse herramientas computer-use para aplicaciones nativas o controles visuales. cmux proporciona estas herramientas a las sesiones de Claude Code y Codex iniciadas en cmux. Complete la configuración en Ajustes > Computer Use. Lea el skill `cmux-cua` para conocer los métodos de su agente: inspeccione el estado de la aplicación o ventana, haga clic o escriba y vuelva a inspeccionar."
+            "value": "## Usar ventanas de aplicaciones\n\nUse herramientas computer-use para aplicaciones nativas o controles visuales. cmux proporciona estas herramientas a las sesiones de Claude Code y Codex iniciadas en cmux. La configuración se abre automáticamente cuando es necesaria con la primera solicitud funcional de cmux Computer Use. Puedes reanudarla en Ajustes > cmux Computer Use. Lea el skill `cmux-cua` para conocer los métodos de su agente: inspeccione el estado de la aplicación o ventana, haga clic o escriba y vuelva a inspeccionar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 操作應用程式視窗\n\n使用 computer-use 工具操作原生應用程式或視覺控制項。cmux 會為在其中啟動的 Claude Code 與 Codex 工作階段提供這些工具。請在「設定 > Computer Use」完成設定。閱讀 `cmux-cua` 技能以了解代理的操作方法：檢查應用程式或視窗狀態，點按或輸入，再次檢查。"
+            "value": "## 操作應用程式視窗\n\n使用 computer-use 工具操作原生應用程式或視覺控制項。cmux 會為在其中啟動的 Claude Code 與 Codex 工作階段提供這些工具。第一次功能性 cmux Computer Use 要求需要設定時會自動開啟。您可以在「設定 > cmux Computer Use」繼續設定。閱讀 `cmux-cua` 技能以了解代理的操作方法：檢查應用程式或視窗狀態，點按或輸入，再次檢查。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 操作应用窗口\n\n使用 computer-use 工具操作原生应用或可视控件。cmux 会为在其中启动的 Claude Code 和 Codex 会话提供这些工具。请在“设置 > Computer Use”完成设置。阅读 `cmux-cua` 技能以了解代理的操作方法：检查应用或窗口状态，点击或输入，再次检查。"
+            "value": "## 操作应用窗口\n\n使用 computer-use 工具操作原生应用或可视控件。cmux 会为在其中启动的 Claude Code 和 Codex 会话提供这些工具。首次功能性 cmux Computer Use 请求需要设置时会自动打开。你可以在“设置 > cmux Computer Use”继续设置。阅读 `cmux-cua` 技能以了解代理的操作方法：检查应用或窗口状态，点击或输入，再次检查。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 앱 창 사용\n\n네이티브 앱이나 시각적 컨트롤에는 computer-use 도구를 사용하세요. cmux에서 시작한 Claude Code와 Codex 세션에는 cmux가 이 도구를 제공합니다. 설정 > Computer Use에서 설정을 완료하세요. 에이전트별 방법은 `cmux-cua` 스킬을 읽으세요. 앱 또는 창 상태를 확인하고 클릭하거나 입력한 다음 다시 확인하세요."
+            "value": "## 앱 윈도우 사용\n\n네이티브 앱이나 시각적 컨트롤에는 computer-use 도구를 사용하세요. cmux에서 시작한 Claude Code와 Codex 세션에는 cmux가 이 도구를 제공합니다. 첫 번째 기능적 cmux Computer Use 요청에서 설정이 필요하면 설정이 자동으로 열립니다. 설정 > cmux Computer Use에서 설정을 다시 진행할 수 있습니다. 에이전트별 방법은 `cmux-cua` 스킬을 읽으세요. 앱 또는 윈도우 상태를 확인하고 클릭하거나 입력한 다음 다시 확인하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## アプリのウインドウを操作する\n\nネイティブアプリや視覚的な操作には computer-use ツールを使います。cmux から起動した Claude Code と Codex のセッションには、cmux がこれらのツールを提供します。「設定 > Computer Use」でセットアップを完了してください。エージェントごとの操作方法は `cmux-cua` スキルを読んでください。アプリやウインドウの状態を確認し、クリックや入力を行い、再度確認します。"
+            "value": "## アプリのウインドウを操作する\n\nネイティブアプリや視覚的な操作には computer-use ツールを使います。cmux から起動した Claude Code と Codex のセッションには、cmux がこれらのツールを提供します。最初の機能的な cmux Computer Use リクエストで設定が必要な場合、セットアップが自動的に開きます。「設定 > cmux Computer Use」でセットアップを再開できます。エージェントごとの操作方法は `cmux-cua` スキルを読んでください。アプリやウインドウの状態を確認し、クリックや入力を行い、再度確認します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Korištenje prozora aplikacija\n\nKoristite computer-use alate za izvorne aplikacije ili vizuelne kontrole. cmux pruža ove alate sesijama Claude Code i Codex pokrenutim u cmuxu. Prvi funkcionalni zahtjev za cmux Computer Use automatski otvara postavljanje kada je potrebno. Postavljanje možete nastaviti u Settings > cmux Computer Use. Pročitajte vještinu `cmux-cua` za metode svog agenta: provjerite stanje aplikacije ili prozora, kliknite ili upišite, pa ponovo provjerite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Brug af programvinduer\n\nBrug computer-use-værktøjer til indbyggede programmer eller visuelle kontroller. cmux leverer disse værktøjer til Claude Code- og Codex-sessioner, der startes i cmux. Den første funktionelle cmux Computer Use-anmodning åbner automatisk opsætningen efter behov. Du kan genoptage opsætningen i Settings > cmux Computer Use. Læs færdigheden `cmux-cua` for agentens metoder: se appens eller vinduets tilstand, klik eller skriv, og kontrollér igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usare le finestre delle app\n\nUsa gli strumenti computer-use per app native o controlli visivi. cmux fornisce questi strumenti alle sessioni Claude Code e Codex avviate in cmux. La prima richiesta funzionale di cmux Computer Use apre automaticamente la configurazione quando serve. Puoi riprendere la configurazione in Impostazioni > cmux Computer Use. Leggi la skill `cmux-cua` per i metodi del tuo agente: controlla lo stato dell’app o della finestra, fai clic o digita, quindi controlla di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## ប្រើបង្អួចកម្មវិធី\n\nប្រើឧបករណ៍ computer-use សម្រាប់កម្មវិធីដើម ឬការគ្រប់គ្រងដែលមើលឃើញ។ cmux ផ្តល់ឧបករណ៍ទាំងនេះដល់សម័យ Claude Code និង Codex ដែលចាប់ផ្តើមក្នុង cmux។ សំណើ cmux Computer Use ដែលដំណើរការដំបូងនឹងបើកការរៀបចំដោយស្វ័យប្រវត្តិនៅពេលចាំបាច់។ អ្នកអាចបន្តការរៀបចំនៅ Settings > cmux Computer Use។ អានជំនាញ `cmux-cua` សម្រាប់វិធីសាស្ត្ររបស់ភ្នាក់ងារ៖ ពិនិត្យស្ថានភាពកម្មវិធី ឬបង្អួច ចុច ឬវាយ បន្ទាប់មកពិនិត្យម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Bruk appvinduer\n\nBruk computer-use-verktøy for innebygde apper eller visuelle kontroller. cmux gir disse verktøyene til Claude Code- og Codex-økter som startes i cmux. Den første funksjonelle cmux Computer Use-forespørselen åpner oppsettet automatisk når det trengs. Du kan fortsette oppsettet i Settings > cmux Computer Use. Les `cmux-cua`-ferdigheten for agentens metoder: se app- eller vindustilstand, klikk eller skriv, og kontroller på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Obsługa okien aplikacji\n\nUżywaj narzędzi computer-use do aplikacji natywnych lub elementów wizualnych. cmux udostępnia te narzędzia sesjom Claude Code i Codex uruchomionym w cmux. Pierwsze funkcjonalne żądanie cmux Computer Use automatycznie otwiera konfigurację, gdy jest potrzebna. Możesz wznowić konfigurację w Settings > cmux Computer Use. Przeczytaj umiejętność `cmux-cua`, aby poznać metody agenta: sprawdź stan aplikacji lub okna, kliknij albo wpisz tekst, a następnie sprawdź ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usar janelas de aplicativos\n\nUse ferramentas de computer-use para aplicativos nativos ou controles visuais. O cmux fornece essas ferramentas às sessões do Claude Code e do Codex iniciadas no cmux. A primeira solicitação funcional do cmux Computer Use abre a configuração automaticamente quando necessário. Você pode retomar a configuração em Settings > cmux Computer Use. Leia a skill `cmux-cua` para conhecer os métodos do agente: inspecione o estado do aplicativo ou da janela, clique ou digite e inspecione novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Работа с окнами приложений\n\nИспользуйте инструменты computer-use для нативных приложений или визуальных элементов. cmux предоставляет эти инструменты сеансам Claude Code и Codex, запущенным в cmux. Первый функциональный запрос cmux Computer Use автоматически открывает настройку при необходимости. Продолжить настройку можно в Settings > cmux Computer Use. Прочитайте навык `cmux-cua`, чтобы узнать методы агента: проверьте состояние приложения или окна, нажмите или введите текст, затем проверьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## ใช้หน้าต่างแอป\n\nใช้เครื่องมือ computer-use กับแอปเนทีฟหรือการควบคุมแบบภาพ cmux ให้เครื่องมือเหล่านี้แก่เซสชัน Claude Code และ Codex ที่เปิดใน cmux คำขอ cmux Computer Use ครั้งแรกที่ใช้งานได้จะเปิดการตั้งค่าโดยอัตโนมัติเมื่อจำเป็น คุณสามารถดำเนินการตั้งค่าต่อใน Settings > cmux Computer Use อ่านสกิล `cmux-cua` เพื่อดูวิธีของเอเจนต์: ตรวจสอบสถานะแอปหรือหน้าต่าง คลิกหรือพิมพ์ แล้วตรวจสอบอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Uygulama pencerelerini kullanma\n\nYerel uygulamalar veya görsel denetimler için computer-use araçlarını kullanın. cmux, bu araçları cmux içinde başlatılan Claude Code ve Codex oturumlarına sağlar. İlk işlevsel cmux Computer Use isteği gerektiğinde kurulumu otomatik olarak açar. Kuruluma Settings > cmux Computer Use bölümünden devam edebilirsiniz. Ajan yöntemleri için `cmux-cua` becerisini okuyun: uygulama veya pencere durumunu inceleyin, tıklayın ya da yazın ve yeniden inceleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Робота з вікнами програм\n\nВикористовуйте інструменти computer-use для нативних програм або візуальних елементів. cmux надає ці інструменти сеансам Claude Code і Codex, запущеним у cmux. Перший функціональний запит cmux Computer Use автоматично відкриває налаштування, коли це потрібно. Продовжити налаштування можна в Settings > cmux Computer Use. Прочитайте навичку `cmux-cua`, щоб дізнатися методи агента: перевірте стан програми або вікна, натисніть чи введіть текст, а потім перевірте ще раз."
           }
         }
       }
@@ -7449,55 +7515,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus Computer Use"
+            "value": "Focus cmux Computer Use"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ操作にフォーカス"
+            "value": "cmux コンピュータ操作にフォーカス"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "聚焦 Computer Use"
+            "value": "聚焦 cmux Computer Use"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use fokussieren"
+            "value": "cmux Computer Use fokussieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focaliser sur Computer Use"
+            "value": "Focaliser sur cmux Computer Use"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "التركيز على استخدام الكمبيوتر"
+            "value": "cmux التركيز على استخدام الكمبيوتر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enfocar Computer Use"
+            "value": "Enfocar cmux Computer Use"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "聚焦電腦操作"
+            "value": "cmux 聚焦電腦操作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴퓨터 사용 포커스"
+            "value": "cmux 컴퓨터 사용 포커스"
           }
         }
       }
@@ -7979,55 +8045,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "View Computer Use"
+            "value": "View cmux Computer Use"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ操作を表示"
+            "value": "cmux コンピュータ操作を表示"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查看 Computer Use"
+            "value": "查看 cmux Computer Use"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use anzeigen"
+            "value": "cmux Computer Use anzeigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher l’utilisation de l’ordinateur"
+            "value": "cmux Afficher l’utilisation de l’ordinateur"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض استخدام الكمبيوتر"
+            "value": "cmux عرض استخدام الكمبيوتر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ver Computer Use"
+            "value": "Ver cmux Computer Use"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢視電腦操作"
+            "value": "cmux 檢視電腦操作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴퓨터 사용 보기"
+            "value": "cmux 컴퓨터 사용 보기"
           }
         }
       }
@@ -9454,55 +9520,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permissions belong to a separate Computer Use helper. You can quit or reopen it without closing cmux or your terminal sessions."
+            "value": "cmux Computer Use runs independently from cmux. You can quit or reopen it without closing cmux or your terminal sessions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "権限は独立したComputer Useヘルパーに付与されます。ヘルパーを終了して再度開いても、cmuxやターミナルセッションは終了しません。"
+            "value": "権限は独立した cmux Computer Use ヘルパーに付与されます。cmux やターミナルセッションを閉じずに、ヘルパーを終了または再度開くことができます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "权限授予的是独立的 cmux Computer Use 助手 —— cmux 终端本身永远不会获得这些权限。"
+            "value": "权限属于独立的 cmux Computer Use 助手。你可以退出或重新打开它，而无需关闭 cmux 或终端会话。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Berechtigungen gehen an den separaten cmux-Computer-Use-Helfer — das cmux-Terminal selbst erhält sie nie."
+            "value": "Die Berechtigungen gehören zu einem separaten Computer-Use-Helfer. Sie können ihn beenden oder erneut öffnen, ohne cmux oder Ihre Terminalsitzungen zu schließen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les autorisations sont accordées à l’assistant distinct cmux Computer Use — le terminal cmux lui-même ne les reçoit jamais."
+            "value": "Les autorisations appartiennent à un assistant cmux Computer Use distinct. Vous pouvez le quitter ou le rouvrir sans fermer cmux ni vos sessions de terminal."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تذهب الأذونات إلى مساعد استخدام الكمبيوتر المنفصل لـ cmux — بينما لا تتلقاها طرفية cmux نفسها أبداً."
+            "value": "تتبع الأذونات لمساعد cmux Computer Use منفصل. يمكنك إنهاؤه أو فتحه مجددًا دون إغلاق cmux أو جلساتك الطرفية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los permisos se conceden al asistente independiente cmux Computer Use; la propia terminal de cmux nunca los recibe."
+            "value": "Los permisos pertenecen a un asistente independiente de cmux Computer Use. Puedes cerrarlo o volver a abrirlo sin cerrar cmux ni tus sesiones de terminal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "權限會授與獨立的 cmux 電腦操作協助程式 — cmux 終端機本身絕不會取得 these 權限。"
+            "value": "權限屬於獨立的 cmux Computer Use 協助程式。您可以結束或重新開啟它，而不必關閉 cmux 或終端機工作階段。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "권한은 별도의 cmux 컴퓨터 사용 도우미로 부여되며, cmux 터미널 자체는 권한을 받지 않습니다."
+            "value": "권한은 별도의 cmux Computer Use 도우미에 부여됩니다. cmux나 터미널 세션을 닫지 않고 도우미를 종료하거나 다시 열 수 있습니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvole pripadaju zasebnom cmux Computer Use pomoćniku. Možete ga zatvoriti ili ponovo otvoriti bez zatvaranja cmuxa ili terminalskih sesija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelserne tilhører en separat cmux Computer Use-hjælper. Du kan afslutte eller genåbne den uden at lukke cmux eller dine terminalsessioner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le autorizzazioni appartengono a un assistente cmux Computer Use separato. Puoi chiuderlo o riaprirlo senza chiudere cmux o le sessioni del terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិទ្ធិជាកម្មសិទ្ធិរបស់ជំនួយការ cmux Computer Use ដាច់ដោយឡែក។ អ្នកអាចបិទ ឬបើកវាឡើងវិញ ដោយមិនបិទ cmux ឬសម័យស្ថានីយរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelsene tilhører en separat cmux Computer Use-hjelper. Du kan avslutte eller åpne den på nytt uten å lukke cmux eller terminaløktene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uprawnienia należą do osobnego asystenta cmux Computer Use. Możesz go zamknąć lub ponownie otworzyć bez zamykania cmux ani sesji terminala."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As permissões pertencem a um auxiliar separado do cmux Computer Use. Você pode encerrá-lo ou reabri-lo sem fechar o cmux ou suas sessões de terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешения принадлежат отдельному помощнику cmux Computer Use. Его можно закрыть или открыть снова, не закрывая cmux или терминальные сеансы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิทธิ์เป็นของตัวช่วย cmux Computer Use แยกต่างหาก คุณสามารถปิดหรือเปิดใหม่ได้โดยไม่ต้องปิด cmux หรือเซสชันเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzinler ayrı bir cmux Computer Use yardımcısına aittir. cmux veya terminal oturumlarınızı kapatmadan yardımcıyı kapatabilir ya da yeniden açabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволи належать окремому помічнику cmux Computer Use. Ви можете закрити або знову відкрити його, не закриваючи cmux чи термінальні сеанси."
           }
         }
       }
@@ -11224,55 +11356,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use Setup"
+            "value": "cmux Computer Use Setup"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ操作の設定"
+            "value": "cmux コンピュータ操作の設定"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use 设置"
+            "value": "cmux Computer Use 设置"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use-Einrichtung"
+            "value": "cmux Computer Use-Einrichtung"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configuration de Computer Use"
+            "value": "Configuration de cmux Computer Use"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعداد استخدام الكمبيوتر"
+            "value": "إعداد cmux Computer Use"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configuración de Computer Use"
+            "value": "Configuración de cmux Computer Use"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "電腦操作設定"
+            "value": "cmux 電腦操作設定"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴퓨터 사용 설정"
+            "value": "cmux 컴퓨터 사용 설정"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavljanje cmux Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opsætning af cmux Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurazione di cmux Computer Use"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរៀបចំ cmux Computer Use"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppsett av cmux Computer Use"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracja cmux Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuração do cmux Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка cmux Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่า cmux Computer Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use kurulumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування cmux Computer Use"
           }
         }
       }
@@ -11342,55 +11540,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use UX"
+            "value": "cmux Computer Use UX"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ操作UX"
+            "value": "cmux コンピュータ操作UX"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use 体验"
+            "value": "cmux Computer Use 体验"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use-UX"
+            "value": "cmux Computer Use-UX"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "UX de Computer Use"
+            "value": "cmux UX de Computer Use"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واجهة مستخدم استخدام الكمبيوتر"
+            "value": "cmux واجهة مستخدم استخدام الكمبيوتر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "UX de Computer Use"
+            "value": "cmux UX de Computer Use"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "電腦操作 UX"
+            "value": "cmux 電腦操作 UX"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴퓨터 사용 UX"
+            "value": "cmux 컴퓨터 사용 UX"
           }
         }
       }
@@ -11401,55 +11599,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable Computer Use"
+            "value": "Enable cmux Computer Use"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ操作を有効にする"
+            "value": "cmux コンピュータ操作を有効にする"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "启用 Computer Use"
+            "value": "启用 cmux Computer Use"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use aktivieren"
+            "value": "cmux Computer Use aktivieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer Computer Use"
+            "value": "Activer cmux Computer Use"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تمكين استخدام الكمبيوتر"
+            "value": "تمكين cmux Computer Use"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Habilitar Computer Use"
+            "value": "Habilitar cmux Computer Use"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "啟用電腦操作"
+            "value": "啟用 cmux 電腦操作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴퓨터 사용 활성화"
+            "value": "cmux 컴퓨터 사용 활성화"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogući cmux Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér cmux Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abilita cmux Computer Use"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក cmux Computer Use"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå på cmux Computer Use"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz cmux Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar cmux Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить cmux Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้ cmux Computer Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use özelliğini etkinleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнути cmux Computer Use"
           }
         }
       }
@@ -11460,31 +11724,31 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled."
+            "value": "cmux Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Useは、cmuxに同梱されたcmux Computer Useアプリでローカル実行されます。権限と再起動のライフサイクルはcmuxから独立しています。テレメトリと更新確認は無効です。"
+            "value": "cmux Computer Useは、cmuxに同梱されたcmux Computer Useアプリでローカル実行されます。権限と再起動のライフサイクルはcmuxから独立しています。テレメトリと更新確認は無効です。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use 在内置的 cmux Computer Use 应用中本地运行。它的权限与重启生命周期都独立于 cmux。遥测与更新检查均已禁用。"
+            "value": "cmux Computer Use 在内置的 cmux Computer Use 应用中本地运行。它的权限与重启生命周期都独立于 cmux。遥测与更新检查均已禁用。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use läuft lokal in der mitgelieferten cmux Computer Use-App. Ihre Berechtigungen und ihr Neustart-Lebenszyklus sind unabhängig von cmux. Telemetrie und Update-Prüfungen sind deaktiviert."
+            "value": "cmux Computer Use läuft lokal in der mitgelieferten cmux Computer Use-App. Ihre Berechtigungen und ihr Neustart-Lebenszyklus sind unabhängig von cmux. Telemetrie und Update-Prüfungen sind deaktiviert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use s’exécute localement dans l’application cmux Computer Use intégrée. Ses autorisations et son cycle de vie de redémarrage sont indépendants de cmux. La télémétrie et les vérifications de mise à jour sont désactivées."
+            "value": "cmux Computer Use s’exécute localement dans l’application cmux Computer Use intégrée. Ses autorisations et son cycle de vie de redémarrage sont indépendants de cmux. La télémétrie et les vérifications de mise à jour sont désactivées."
           }
         },
         "ar": {
@@ -11496,7 +11760,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use se ejecuta localmente en la aplicación integrada cmux Computer Use. Sus permisos y ciclo de vida de reinicio son independientes de cmux. La telemetría y las comprobaciones de actualizaciones están desactivadas."
+            "value": "cmux Computer Use se ejecuta localmente en la aplicación integrada cmux Computer Use. Sus permisos y ciclo de vida de reinicio son independientes de cmux. La telemetría y las comprobaciones de actualizaciones están desactivadas."
           }
         },
         "zh-Hant": {
@@ -11519,55 +11783,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New agent launches start without the computer-use tools, including in terminals that are already open."
+            "value": "The first functional cmux Computer Use request starts setup automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すでに開いているターミナルも含め、新しく起動するエージェントはコンピュータ操作ツールなしで開始されます。"
+            "value": "最初の機能的な cmux Computer Use リクエストで設定が自動的に開始されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新启动的代理不再带 Computer Use 工具，已经打开的终端同样如此。"
+            "value": "首次功能性 cmux Computer Use 请求会自动开始设置。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neue Agenten-Starts erfolgen ohne die Computer-Use-Tools, auch in bereits geöffneten Terminals."
+            "value": "Die Einrichtung startet automatisch bei der ersten funktionalen cmux Computer Use-Anfrage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les lancements de nouveaux agents démarrent sans les outils computer-use, y compris dans les terminaux déjà ouverts."
+            "value": "La configuration démarre automatiquement à la première demande fonctionnelle de cmux Computer Use."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبدأ عمليات إطلاق العميل الجديدة بدون أدوات استخدام الكمبيوتر، بما في ذلك الطرفيات المفتوحة بالفعل."
+            "value": "يبدأ الإعداد تلقائيًا عند أول طلب وظيفي لـ cmux Computer Use."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los nuevos inicios de agentes se iniciarán sin las herramientas de uso de computadora, incluso en las terminales que ya estén abiertas."
+            "value": "La configuración comienza automáticamente con la primera solicitud funcional de cmux Computer Use."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新啟動的代理程式將不包含電腦操作工具，這也包括已開啟的終端機。"
+            "value": "第一次功能性 cmux Computer Use 要求會自動開始設定。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 열려 있는 터미널을 포함하여 새로 시작하는 에이전트는 컴퓨터 사용 도구 없이 시작됩니다."
+            "value": "첫 번째 기능적 cmux Computer Use 요청 시 설정이 자동으로 시작됩니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvi funkcionalni zahtjev za cmux Computer Use automatski pokreće postavljanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den første funktionelle cmux Computer Use-anmodning starter automatisk opsætningen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La prima richiesta funzionale di cmux Computer Use avvia automaticamente la configurazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើ cmux Computer Use ដែលដំណើរការដំបូងនឹងចាប់ផ្តើមការរៀបចំដោយស្វ័យប្រវត្តិ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den første funksjonelle cmux Computer Use-forespørselen starter oppsettet automatisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pierwsze funkcjonalne żądanie cmux Computer Use automatycznie rozpoczyna konfigurację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A primeira solicitação funcional do cmux Computer Use inicia a configuração automaticamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Первый функциональный запрос cmux Computer Use автоматически запускает настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอ cmux Computer Use ครั้งแรกที่ใช้งานได้จะเริ่มการตั้งค่าโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İlk işlevsel cmux Computer Use isteği kurulumu otomatik olarak başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перший функціональний запит cmux Computer Use автоматично запускає налаштування."
           }
         }
       }
@@ -12227,55 +12557,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Computer Use in Menu Bar"
+            "value": "Show cmux Computer Use in Menu Bar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メニューバーにコンピュータ操作を表示"
+            "value": "cmux メニューバーにコンピュータ操作を表示"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在菜单栏中显示 Computer Use"
+            "value": "在菜单栏中显示 cmux Computer Use"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use in der Menüleiste anzeigen"
+            "value": "cmux Computer Use in der Menüleiste anzeigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher Computer Use dans la barre de menus"
+            "value": "Afficher cmux Computer Use dans la barre de menus"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار Computer Use في شريط القوائم"
+            "value": "إظهار cmux Computer Use في شريط القوائم"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar uso de la computadora en la barra de menús"
+            "value": "cmux Mostrar uso de la computadora en la barra de menús"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在選單列中顯示 Computer Use"
+            "value": "在選單列中顯示 cmux Computer Use"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메뉴 막대에 컴퓨터 사용 표시"
+            "value": "cmux 메뉴 막대에 컴퓨터 사용 표시"
           }
         }
       }
@@ -12640,25 +12970,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use"
+            "value": "cmux Computer Use"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ操作"
+            "value": "cmux コンピュータ操作"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use"
+            "value": "cmux Computersteuerung"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use"
+            "value": "cmux contrôle informatique"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux استخدام الكمبيوتر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux control del ordenador"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 電腦操作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 电脑操作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 컴퓨터 사용"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use"
           }
         }
       }
@@ -43276,7 +43702,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK"
+            "value": "Bestätigen"
           }
         },
         "en": {
@@ -43306,7 +43732,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK"
+            "value": "完了"
           }
         },
         "ko": {
@@ -84279,7 +84705,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nاعكس جلسات tmux للمضيف البعيد داخل نافذة cmux الحالية عبر وضع تحكم tmux بواسطة SSH. تصبح كل جلسة مساحة عمل، وكل نافذة علامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب ذلك تفعيل الإصدار التجريبي \"Remote tmux\".\n\nعند الحاجة إلى مصادقة تفاعلية، يشغّل cmux أمر ssh في هذه الطرفية ثم يعيد المحاولة عبر الاتصال المشترك. تُحترم الأسماء المستعارة وإعدادات ~/.ssh/config.\n\nFlags:\n  --port <n>          منفذ SSH\n  --identity <path>   مسار ملف هوية SSH\n  --no-focus          عدم تحديد مساحة العمل المعكوسة أو تنشيط نافذتها\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nاعكس جلسات tmux للمضيف البعيد داخل نافذة cmux الحالية عبر وضع تحكم tmux بواسطة SSH. تصبح كل جلسة مساحة عمل، وكل نافذة علامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب ذلك تفعيل الإصدار التجريبي \"Remote tmux\".\n\nعند الحاجة إلى مصادقة تفاعلية، يشغّل cmux أمر ssh في هذه الطرفية ثم يعيد المحاولة عبر الاتصال المشترك. تُحترم الأسماء المستعارة وإعدادات ~/.ssh/config.\n\nFlags:\n  --port <n>          منفذ SSH\n  --identity <path>   مسار ملف هوية SSH\n  --name <title>       عنوان عرض محلي لأول مساحة عمل معكوسة (لا يعيد تسمية جلسة tmux البعيدة)\n  --no-focus          عدم تحديد مساحة العمل المعكوسة أو تنشيط نافذتها\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "bs": {
@@ -84297,25 +84723,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts per SSH-tmux-Steuermodus in das aktuelle cmux-Fenster. Jede Sitzung wird zu einem Arbeitsbereich, jedes Fenster zu einem Tab und jedes Fenster mit mehreren Bereichen zu einer nativen Teilung. Erfordert die aktivierte Betaoption \"Remote tmux\".\n\nWenn eine interaktive Authentifizierung nötig ist, führt cmux ssh in diesem Terminal aus und versucht es anschließend über die gemeinsame Verbindung erneut. Aliase und Einstellungen aus ~/.ssh/config werden berücksichtigt.\n\nFlags:\n  --port <n>          SSH-Port\n  --identity <path>   Pfad zur SSH-Identitätsdatei\n  --no-focus          Spiegel-Arbeitsbereich nicht auswählen und Fenster nicht aktivieren\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts per SSH-tmux-Steuermodus in das aktuelle cmux-Fenster. Jede Sitzung wird zu einem Arbeitsbereich, jedes Fenster zu einem Tab und jedes Fenster mit mehreren Bereichen zu einer nativen Teilung. Erfordert die aktivierte Betaoption \"Remote tmux\".\n\nWenn eine interaktive Authentifizierung nötig ist, führt cmux ssh in diesem Terminal aus und versucht es anschließend über die gemeinsame Verbindung erneut. Aliase und Einstellungen aus ~/.ssh/config werden berücksichtigt.\n\nFlags:\n  --port <n>          SSH-Port\n  --identity <path>   Pfad zur SSH-Identitätsdatei\n  --name <title>      Lokaler Anzeigetitel für den ersten gespiegelten Arbeitsbereich (benennt die entfernte tmux-Sitzung nicht um)\n  --no-focus          Spiegel-Arbeitsbereich nicht auswählen und Fenster nicht aktivieren\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current cmux window over SSH tmux control mode. Each session becomes a workspace, each window a tab, and each multi-pane window a native split. Requires the \"Remote tmux\" beta setting.\n\nIf interactive authentication is needed, cmux runs ssh in this terminal and then retries over the shared connection. ~/.ssh/config aliases and settings are honored.\n\nFlags:\n  --port <n>          SSH port\n  --identity <path>   SSH identity file path\n  --no-focus          Do not select the mirror workspace or activate its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current cmux window over SSH tmux control mode. Each session becomes a workspace, each window a tab, and each multi-pane window a native split. Requires the \"Remote tmux\" beta setting.\n\nIf interactive authentication is needed, cmux runs ssh in this terminal and then retries over the shared connection. ~/.ssh/config aliases and settings are honored.\n\nFlags:\n  --port <n>          SSH port\n  --identity <path>   SSH identity file path\n  --name <title>      Local display title for the first mirrored workspace (does not rename the remote tmux session)\n  --no-focus          Do not select the mirror workspace or activate its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nRefleja las sesiones tmux de un host remoto en la ventana actual de cmux mediante el modo de control tmux por SSH. Cada sesión se convierte en un espacio de trabajo, cada ventana en una pestaña y cada ventana con varios paneles en una división nativa. Requiere activar la función beta \"Remote tmux\".\n\nSi se necesita autenticación interactiva, cmux ejecuta ssh en este terminal y luego reintenta mediante la conexión compartida. Se respetan los alias y ajustes de ~/.ssh/config.\n\nFlags:\n  --port <n>          puerto SSH\n  --identity <path>   ruta del archivo de identidad SSH\n  --no-focus          no seleccionar el espacio reflejado ni activar su ventana\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nRefleja las sesiones tmux de un host remoto en la ventana actual de cmux mediante el modo de control tmux por SSH. Cada sesión se convierte en un espacio de trabajo, cada ventana en una pestaña y cada ventana con varios paneles en una división nativa. Requiere activar la función beta \"Remote tmux\".\n\nSi se necesita autenticación interactiva, cmux ejecuta ssh en este terminal y luego reintenta mediante la conexión compartida. Se respetan los alias y ajustes de ~/.ssh/config.\n\nFlags:\n  --port <n>          puerto SSH\n  --identity <path>   ruta del archivo de identidad SSH\n  --name <title>      título de visualización local del primer espacio reflejado (no cambia el nombre de la sesión tmux remota)\n  --no-focus          no seleccionar el espacio reflejado ni activar su ventana\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nReproduit les sessions tmux d’un hôte distant dans la fenêtre cmux actuelle via le mode de contrôle tmux sur SSH. Chaque session devient un espace de travail, chaque fenêtre un onglet et chaque fenêtre à plusieurs volets une division native. Nécessite l’option bêta \"Remote tmux\".\n\nSi une authentification interactive est nécessaire, cmux exécute ssh dans ce terminal puis réessaie via la connexion partagée. Les alias et réglages de ~/.ssh/config sont respectés.\n\nFlags:\n  --port <n>          port SSH\n  --identity <path>   chemin du fichier d’identité SSH\n  --no-focus          ne pas sélectionner l’espace miroir ni activer sa fenêtre\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nReproduit les sessions tmux d’un hôte distant dans la fenêtre cmux actuelle via le mode de contrôle tmux sur SSH. Chaque session devient un espace de travail, chaque fenêtre un onglet et chaque fenêtre à plusieurs volets une division native. Nécessite l’option bêta \"Remote tmux\".\n\nSi une authentification interactive est nécessaire, cmux exécute ssh dans ce terminal puis réessaie via la connexion partagée. Les alias et réglages de ~/.ssh/config sont respectés.\n\nFlags:\n  --port <n>          port SSH\n  --identity <path>   chemin du fichier d’identité SSH\n  --name <title>      titre d’affichage local du premier espace miroir (ne renomme pas la session tmux distante)\n  --no-focus          ne pas sélectionner l’espace miroir ni activer sa fenêtre\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "it": {
@@ -84327,7 +84753,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH の tmux コントロールモードで、リモートホストの tmux セッションを現在の cmux ウィンドウにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。「Remote tmux」ベータ設定を有効にする必要があります。\n\n対話型認証が必要な場合、cmux はこのターミナルで ssh を実行し、共有接続を使って再試行します。~/.ssh/config のエイリアスと設定も使用されます。\n\nFlags:\n  --port <n>          SSH ポート\n  --identity <path>   SSH 識別ファイルのパス\n  --no-focus          ミラーワークスペースを選択せず、ウィンドウもアクティブにしない\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nSSH の tmux コントロールモードで、リモートホストの tmux セッションを現在の cmux ウィンドウにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。「Remote tmux」ベータ設定を有効にする必要があります。\n\n対話型認証が必要な場合、cmux はこのターミナルで ssh を実行し、共有接続を使って再試行します。~/.ssh/config のエイリアスと設定も使用されます。\n\nFlags:\n  --port <n>          SSH ポート\n  --identity <path>   SSH 識別ファイルのパス\n  --name <title>      最初のミラーワークスペースのローカル表示タイトル（リモートの tmux セッション名は変更しません）\n  --no-focus          ミラーワークスペースを選択せず、ウィンドウもアクティブにしない\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "km": {
@@ -84339,7 +84765,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH tmux 제어 모드로 원격 호스트의 tmux 세션을 현재 cmux 창에 미러링합니다. 각 세션은 작업 공간이 되고, 각 창은 탭이 되며, 여러 패널이 있는 창은 네이티브 분할이 됩니다. \"Remote tmux\" 베타 설정을 켜야 합니다.\n\n대화형 인증이 필요하면 cmux가 이 터미널에서 ssh를 실행한 뒤 공유 연결을 통해 다시 시도합니다. ~/.ssh/config의 별칭과 설정도 적용됩니다.\n\nFlags:\n  --port <n>          SSH 포트\n  --identity <path>   SSH ID 파일 경로\n  --no-focus          미러 작업 공간을 선택하거나 창을 활성화하지 않음\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\nSSH tmux 제어 모드로 원격 호스트의 tmux 세션을 현재 cmux 창에 미러링합니다. 각 세션은 작업 공간이 되고, 각 창은 탭이 되며, 여러 패널이 있는 창은 네이티브 분할이 됩니다. \"Remote tmux\" 베타 설정을 켜야 합니다.\n\n대화형 인증이 필요하면 cmux가 이 터미널에서 ssh를 실행한 뒤 공유 연결을 통해 다시 시도합니다. ~/.ssh/config의 별칭과 설정도 적용됩니다.\n\nFlags:\n  --port <n>          SSH 포트\n  --identity <path>   SSH ID 파일 경로\n  --name <title>      첫 번째 미러 작업 공간의 로컬 표시 제목(원격 tmux 세션 이름은 변경하지 않음)\n  --no-focus          미러 작업 공간을 선택하거나 창을 활성화하지 않음\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "nb": {
@@ -84387,13 +84813,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n通过 SSH tmux 控制模式，将远程主机的 tmux 会话镜像到当前 cmux 窗口中。每个会话成为一个工作区，每个窗口成为一个标签页，多窗格窗口则成为原生分栏。需要启用“Remote tmux”测试功能。\n\n如果需要交互式身份验证，cmux 会在此终端中运行 ssh，然后通过共享连接重试。系统会采用 ~/.ssh/config 中的别名和设置。\n\nFlags:\n  --port <n>          SSH 端口\n  --identity <path>   SSH 身份文件路径\n  --no-focus          不选择镜像工作区，也不激活其窗口\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\n通过 SSH tmux 控制模式，将远程主机的 tmux 会话镜像到当前 cmux 窗口中。每个会话成为一个工作区，每个窗口成为一个标签页，多窗格窗口则成为原生分栏。需要启用“Remote tmux”测试功能。\n\n如果需要交互式身份验证，cmux 会在此终端中运行 ssh，然后通过共享连接重试。系统会采用 ~/.ssh/config 中的别名和设置。\n\nFlags:\n  --port <n>          SSH 端口\n  --identity <path>   SSH 身份文件路径\n  --name <title>      第一个镜像工作区的本地显示标题（不会重命名远程 tmux 会话）\n  --no-focus          不选择镜像工作区，也不激活其窗口\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n透過 SSH tmux 控制模式，將遠端主機的 tmux 工作階段鏡像到目前的 cmux 視窗。每個工作階段會成為工作區，每個視窗會成為標籤頁，多窗格視窗則會成為原生分割。需要啟用「Remote tmux」測試功能。\n\n若需要互動式驗證，cmux 會在此終端機中執行 ssh，然後透過共用連線重試。系統會採用 ~/.ssh/config 中的別名與設定。\n\nFlags:\n  --port <n>          SSH 連接埠\n  --identity <path>   SSH 身分檔案路徑\n  --no-focus          不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]\n\n透過 SSH tmux 控制模式，將遠端主機的 tmux 工作階段鏡像到目前的 cmux 視窗。每個工作階段會成為工作區，每個視窗會成為標籤頁，多窗格視窗則會成為原生分割。需要啟用「Remote tmux」測試功能。\n\n若需要互動式驗證，cmux 會在此終端機中執行 ssh，然後透過共用連線重試。系統會採用 ~/.ssh/config 中的別名與設定。\n\nFlags:\n  --port <n>          SSH 連接埠\n  --identity <path>   SSH 身分檔案路徑\n  --name <title>      第一個鏡像工作區的本機顯示標題（不會重新命名遠端 tmux 工作階段）\n  --no-focus          不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --name \"prod db\""
           }
         }
       }
@@ -99642,6 +100068,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices 또는 custom [sidebar-name]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices ili custom [naziv bočne trake]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidepanel]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices o custom [nome barra laterale]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices ឬ custom [ឈ្មោះរបារចំហៀង]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidestolpe]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices lub custom [nazwa paska bocznego]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices ou custom [nome da barra lateral]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices или custom [имя боковой панели]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices หรือ custom [ชื่อแถบด้านข้าง]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices veya custom [kenar çubuğu adı]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices або custom [назва бічної панелі]"
           }
         }
       }
@@ -260643,37 +261135,37 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die iOS-Kopplung ist auf diesem Mac deaktiviert. Öffne die Einstellungen und aktiviere die iOS-Kopplung, damit du diesen Mac in cmux auf deinem iPhone finden kannst."
+            "value": "Die iOS-Kopplung ist auf diesem Mac deaktiviert. Öffne die Einstellungen und aktiviere die iOS-Kopplung, damit cmux auf deinem iPhone diesen Mac finden kann."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le jumelage iOS est désactivé sur ce Mac. Ouvrez les réglages et activez le jumelage iOS pour détecter ce Mac depuis cmux sur votre iPhone."
+            "value": "Le jumelage iOS est désactivé sur ce Mac. Ouvrez les réglages et activez le jumelage iOS pour que cmux sur votre iPhone puisse trouver ce Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاقتران مع iOS متوقف على هذا الـ Mac. افتح الإعدادات وفعّل الاقتران مع iOS لاكتشاف هذا الـ Mac من cmux على iPhone."
+            "value": "الاقتران مع iOS معطل على هذا الـ Mac. افتح الإعدادات وفعّل الاقتران مع iOS ليتمكن cmux على iPhone من العثور على هذا الـ Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El enlace con iOS está desactivado en este Mac. Abre Ajustes y activa el enlace con iOS para detectar este Mac desde cmux en tu iPhone."
+            "value": "El enlace con iOS está desactivado en este Mac. Abre Ajustes y activa el enlace con iOS para que cmux en tu iPhone pueda encontrar este Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這部 Mac 已關閉 iOS 配對。請開啟設定並啟用 iOS 配對，即可從 iPhone 上的 cmux 尋找這部 Mac。"
+            "value": "此 Mac 已關閉 iOS 配對。請開啟設定並啟用 iOS 配對，讓 iPhone 上的 cmux 能找到此 Mac。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac 已关闭 iOS 配对。请打开设置并启用 iOS 配对，即可从 iPhone 上的 cmux 发现这台 Mac。"
+            "value": "此 Mac 已关闭 iOS 配对。请打开设置并启用 iOS 配对，让 iPhone 上的 cmux 能找到此 Mac。"
           }
         },
         "ko": {
@@ -539850,6 +540342,72 @@
             "state": "translated",
             "value": "マシンをピン留め"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakači mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør maskine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទម៉ាស៊ីន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij maszynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุดเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineyi sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити машину"
+          }
         }
       }
     },
@@ -551554,55 +552112,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A different Mac answered at this address. Pair it again from Settings › Computers."
+            "value": "A different Mac answered at this address. Pair it again from Settings › Mobile › Computers."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجاب جهاز Mac آخر على هذا العنوان. أعد إقرانه من الإعدادات › أجهزة الكمبيوتر."
+            "value": "استجاب جهاز Mac مختلف على هذا العنوان. أعد إقرانه من الإعدادات › المحمول › أجهزة الكمبيوتر."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unter dieser Adresse hat ein anderer Mac geantwortet. Kopple ihn erneut unter Einstellungen › Computer."
+            "value": "Ein anderer Mac hat unter dieser Adresse geantwortet. Kopple ihn erneut unter Einstellungen › Mobil › Computer."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otro Mac respondió en esta dirección. Vuelve a emparejarlo desde Ajustes › Ordenadores."
+            "value": "Otro Mac ha respondido en esta dirección. Vuelve a enlazarlo desde Ajustes › Móvil › Ordenadores."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un autre Mac a répondu à cette adresse. Jumelez-le à nouveau depuis Réglages › Ordinateurs."
+            "value": "Un autre Mac a répondu à cette adresse. Associez-le à nouveau dans Réglages › Mobile › Ordinateurs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアドレスでは別の Mac が応答しました。設定 › コンピュータから再度ペアリングしてください。"
+            "value": "このアドレスでは別のMacが応答しました。設定 › モバイル › コンピュータから再度ペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 주소에서 다른 Mac이 응답했습니다. 설정 › 컴퓨터에서 다시 페어링하세요."
+            "value": "이 주소에서 다른 Mac이 응답했습니다. 설정 › 모바일 › 컴퓨터에서 다시 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此地址由另一台 Mac 响应。请在“设置 › 电脑”中重新配对。"
+            "value": "另一台 Mac 响应了此地址。请前往设置 › 移动端 › 电脑重新配对。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此位址由另一台 Mac 回應。請在「設定 › 電腦」中重新配對。"
+            "value": "另一部 Mac 回應了此位址。請前往設定 › 行動裝置 › 電腦重新配對。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drugi Mac je odgovorio na ovoj adresi. Ponovo ga uparite u Postavke › Mobile › Računari."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En anden Mac svarede på denne adresse. Dan par med den igen under Indstillinger › Mobile › Computere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un altro Mac ha risposto a questo indirizzo. Abbinalo di nuovo da Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ផ្សេងបានឆ្លើយតបនៅអាសយដ្ឋាននេះ។ សូមផ្គូផ្គងវាម្តងទៀតពី Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En annen Mac svarte på denne adressen. Koble den sammen på nytt under Innstillinger › Mobile › Datamaskiner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inny Mac odpowiedział pod tym adresem. Sparuj go ponownie w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro Mac respondeu neste endereço. Emparelhe-o novamente em Ajustes › Mobile › Computadores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По этому адресу ответил другой Mac. Повторно создайте пару с ним в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องอื่นตอบกลับที่ที่อยู่นี้ ให้จับคู่เครื่องนั้นอีกครั้งใน การตั้งค่า › Mobile › คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu adreste farklı bir Mac yanıt verdi. Ayarlar › Mobile › Bilgisayarlar bölümünden yeniden eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За цією адресою відповів інший Mac. Знову створіть із ним пару в розділі Налаштування › Mobile › Комп’ютери."
           }
         }
       }
@@ -551672,55 +552296,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair this Mac in Settings › Computers to connect."
+            "value": "Pair this Mac in Settings › Mobile › Computers to connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقرن هذا الجهاز Mac من الإعدادات › أجهزة الكمبيوتر للاتصال."
+            "value": "أقرن جهاز Mac هذا في الإعدادات › المحمول › أجهزة الكمبيوتر للاتصال."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopple diesen Mac unter Einstellungen › Computer, um eine Verbindung herzustellen."
+            "value": "Kopple diesen Mac unter Einstellungen › Mobil › Computer, um eine Verbindung herzustellen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Empareja este Mac en Ajustes › Ordenadores para conectarte."
+            "value": "Enlaza este Mac en Ajustes › Móvil › Ordenadores para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelez ce Mac dans Réglages › Ordinateurs pour vous connecter."
+            "value": "Associez ce Mac dans Réglages › Mobile › Ordinateurs pour vous connecter."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続するには、設定 › コンピュータでこの Mac をペアリングしてください。"
+            "value": "接続するには、設定 › モバイル › コンピュータでこのMacをペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하려면 설정 › 컴퓨터에서 이 Mac을 페어링하세요."
+            "value": "연결하려면 설정 › 모바일 › 컴퓨터에서 이 Mac을 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在“设置 › 电脑”中配对此 Mac 以进行连接。"
+            "value": "请在设置 › 移动端 › 电脑中配对这台 Mac 以连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在「設定 › 電腦」中配對此 Mac 以進行連線。"
+            "value": "請在設定 › 行動裝置 › 電腦中配對此 Mac 以連線。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparite ovaj Mac u Postavke › Mobile › Računari da biste se povezali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dan par med denne Mac under Indstillinger › Mobile › Computere for at oprette forbindelse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per connetterti, abbina questo Mac in Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble denne Macen sammen under Innstillinger › Mobile › Datamaskiner for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparelhe este Mac em Ajustes › Mobile › Computadores para se conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › Mobile › คอมพิวเตอร์ เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlanmak için bu Mac’i Ayarlar › Mobile › Bilgisayarlar bölümünde eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Mobile › Комп’ютери."
           }
         }
       }
@@ -551790,55 +552480,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair this Mac in Settings › Computers to connect."
+            "value": "Pair this Mac in Settings › Mobile › Computers to connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقرن هذا الجهاز Mac من الإعدادات › أجهزة الكمبيوتر للاتصال."
+            "value": "أقرن جهاز Mac هذا في الإعدادات › المحمول › أجهزة الكمبيوتر للاتصال."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopple diesen Mac unter Einstellungen › Computer, um eine Verbindung herzustellen."
+            "value": "Kopple diesen Mac unter Einstellungen › Mobil › Computer, um eine Verbindung herzustellen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Empareja este Mac en Ajustes › Ordenadores para conectarte."
+            "value": "Enlaza este Mac en Ajustes › Móvil › Ordenadores para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelez ce Mac dans Réglages › Ordinateurs pour vous connecter."
+            "value": "Associez ce Mac dans Réglages › Mobile › Ordinateurs pour vous connecter."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続するには、設定 › コンピュータでこの Mac をペアリングしてください。"
+            "value": "接続するには、設定 › モバイル › コンピュータでこのMacをペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하려면 설정 › 컴퓨터에서 이 Mac을 페어링하세요."
+            "value": "연결하려면 설정 › 모바일 › 컴퓨터에서 이 Mac을 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在“设置 › 电脑”中配对此 Mac 以进行连接。"
+            "value": "请在设置 › 移动端 › 电脑中配对这台 Mac 以连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在「設定 › 電腦」中配對此 Mac 以進行連線。"
+            "value": "請在設定 › 行動裝置 › 電腦中配對此 Mac 以連線。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparite ovaj Mac u Postavke › Mobile › Računari da biste se povezali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dan par med denne Mac under Indstillinger › Mobile › Computere for at oprette forbindelse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per connetterti, abbina questo Mac in Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble denne Macen sammen under Innstillinger › Mobile › Datamaskiner for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparelhe este Mac em Ajustes › Mobile › Computadores para se conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › Mobile › คอมพิวเตอร์ เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlanmak için bu Mac’i Ayarlar › Mobile › Bilgisayarlar bölümünde eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Mobile › Комп’ютери."
           }
         }
       }
@@ -552989,6 +553745,2976 @@
           }
         }
       }
+    },
+    "cli.sshTmux.error.nameRequiresTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: يتطلب --name عنوانًا لمساحة العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --name erfordert einen Arbeitsbereichstitel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --name requires a workspace title"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --name requiere un título para el espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux : --name nécessite un titre d’espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --name にはワークスペースのタイトルが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: --name에는 작업 공간 제목이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：--name 需要工作区标题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：--name 需要工作區標題"
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possible owners: %1$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mögliche Besitzer: %1$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propriétaires possibles : %1$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المالكون المحتملون: %1$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posibles propietarios: %1$@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的擁有者：%1$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的所有者：%1$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가능한 소유자: %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者の候補: %1$@。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogući vlasnici: %1$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige ejere: %1$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possibili proprietari: %1$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ចាស់ដែលអាចមាន៖ %1$@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige eiere: %1$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Możliwi właściciele: %1$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possíveis proprietários: %1$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возможные владельцы: %1$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เจ้าของที่เป็นไปได้: %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olası sahipler: %1$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можливі власники: %1$@."
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.held": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation is in use by another process. Continue there or close it normally, then retry restoring it here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Unterhaltung wird von einem anderen Prozess verwendet. Setzen Sie sie dort fort oder schließen Sie sie regulär und versuchen Sie dann erneut, sie hier wiederherzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation est utilisée par un autre processus. Continuez là-bas ou fermez-la normalement, puis réessayez de la restaurer ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم عملية أخرى هذه المحادثة. تابع هناك أو أغلقها بالطريقة المعتادة، ثم أعد محاولة استعادتها هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro proceso está usando esta conversación. Continúa allí o ciérrala normalmente y vuelve a intentar restaurarla aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個程序正在使用此對話。請在該處繼續，或正常關閉後再嘗試於此處還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个进程正在使用此对话。请在该处继续，或正常关闭后再尝试在此处恢复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 프로세스가 이 대화를 사용 중입니다. 해당 프로세스에서 계속하거나 정상적으로 닫은 후 여기에서 다시 복원하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のプロセスがこの会話を使用しています。そちらで続けるか、通常の手順で閉じてから、ここでの復元を再試行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor koristi drugi proces. Nastavite tamo ili ga zatvorite na uobičajen način, a zatim ponovo pokušajte vratiti razgovor ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtale bruges af en anden proces. Fortsæt dér, eller luk den på normal vis, og prøv derefter at gendanne den her igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa conversazione è in uso da un altro processo. Continua lì oppure chiudila normalmente, quindi riprova a ripristinarla qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសន្ទនានេះកំពុងត្រូវបានប្រើដោយដំណើរការមួយផ្សេងទៀត។ បន្តនៅទីនោះ ឬបិទវាតាមធម្មតា រួចព្យាយាមស្ដារវានៅទីនេះម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtalen brukes av en annen prosess. Fortsett der, eller lukk den på vanlig måte, og prøv deretter å gjenopprette den her igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta rozmowa jest używana przez inny proces. Kontynuuj tam lub zamknij ją w zwykły sposób, a następnie spróbuj ponownie ją tutaj przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conversa está em uso por outro processo. Continue lá ou feche-a normalmente e tente restaurá-la aqui novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот разговор используется другим процессом. Продолжите там или закройте его обычным способом, затем попробуйте восстановить его здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสนทนานี้กำลังใช้งานอยู่ในอีกกระบวนการหนึ่ง ให้ดำเนินการต่อที่นั่นหรือปิดตามปกติ แล้วลองกู้คืนการสนทนาที่นี่อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu konuşma başka bir işlem tarafından kullanılıyor. Orada devam edin veya normal şekilde kapatın, ardından burada geri yüklemeyi yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю розмову використовує інший процес. Продовжте там або закрийте її звичайним способом, а потім спробуйте відновити її тут."
+          }
+        }
+      }
+    },
+    "rightSidebar.presence.anonymous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonymous collaborator"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متعاون مجهول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonymer Mitwirkender"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colaborador anónimo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collaborateur anonyme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の共同作業者"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "익명 협업자"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名协作者"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名協作者"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonimni saradnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonym samarbejdspartner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collaboratore anonimo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកសហការអនាមិក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonym samarbeidspartner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonimowy współpracownik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colaborador anônimo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анонимный соавтор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ทำงานร่วมกันที่ไม่ระบุชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonim işbirlikçi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анонімний співробітник"
+          }
+        }
+      }
+    },
+    "rightSidebar.presence.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewing this workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشاهدون مساحة العمل هذه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Arbeitsbereich ansehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Están viendo este espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consultation de cet espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースを表示中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업 공간을 보고 있음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查看此工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查看此工作區"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledava ovaj radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ser dette arbejdsområde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sta visualizzando questo spazio di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងមើល workspace នេះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ser på dette arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogląda ten obszar roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizando este espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просматривает это рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังดูพื้นที่ทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanını görüntülüyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переглядає цей робочий простір"
+          }
+        }
+      }
+    },
+    "machines.menu.defaultMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトマシン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaschine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine par défaut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina predeterminada"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macchina predefinita"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 머신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設機器"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина по умолчанию"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجهاز الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podrazumijevana mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaskine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនលំនាំដើម"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyna domyślna"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина за замовчуванням"
+          }
+        }
+      }
+    },
+    "machines.menu.setDefaultMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set as Default Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトマシンに設定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Standardmaschine festlegen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définir comme machine par défaut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Establecer como máquina predeterminada"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imposta come macchina predefinita"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 머신으로 설정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为默认机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設為預設機器"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Definir como máquina padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сделать машиной по умолчанию"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيين كجهاز افتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavi kao podrazumijevanu mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstil som standardmaskine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ជាម៉ាស៊ីនលំនាំដើម"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi som standardmaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ustaw jako maszynę domyślną"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งเป็นเครื่องเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan makine olarak ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зробити машиною за замовчуванням"
+          }
+        }
+      }
+    },
+    "machines.row.default.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default machine for New Cloud Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規クラウドワークスペースのデフォルトマシン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaschine für neuen Cloud-Arbeitsbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine par défaut du nouvel espace cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina del espacio cloud predeterminado"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macchina predefinita del nuovo spazio cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 클라우드 워크스페이스의 기본 머신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建云工作区的默认机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增雲端工作區的預設機器"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina padrão do novo espaço na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина по умолчанию для нового облачного пространства"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجهاز الافتراضي لمساحة عمل سحابية جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podrazumijevana mašina za novi radni prostor u oblaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaskine til nyt cloud-arbejdsområde"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនលំនាំដើមសម្រាប់កន្លែងធ្វើការលើពពកថ្មី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaskin for nytt skyarbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślna maszyna dla nowego obszaru roboczego w chmurze"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเริ่มต้นสำหรับเวิร์กสเปซคลาวด์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bulut çalışma alanı için varsayılan makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина за замовчуванням для нового хмарного робочого простору"
+          }
+        }
+      }
+    },
+    "machines.row.default.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトマシン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaschine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine par défaut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina predeterminada"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macchina predefinita"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 머신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設機器"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина по умолчанию"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجهاز الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podrazumijevana mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaskine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនលំនាំដើម"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyna domyślna"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина за замовчуванням"
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichtung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعداد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップ"
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.finish": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish Setup…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichtung abschließen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer la configuration…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إكمال الإعداد…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finalizar configuración…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成設定…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成设置…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 완료…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップを完了…"
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable cmux Computer Use to finish setup."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere cmux Computer Use, um die Einrichtung abzuschließen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez cmux Computer Use pour terminer la configuration."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل cmux Computer Use لإكمال الإعداد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa cmux Computer Use para finalizar la configuración."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 cmux Computer Use 以完成設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 cmux Computer Use 以完成设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 완료하려면 cmux Computer Use를 활성화하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use を有効にしてセットアップを完了してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogućite cmux Computer Use da završite postavljanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér cmux Computer Use for at færdiggøre opsætningen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abilita cmux Computer Use per completare la configurazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក cmux Computer Use ដើម្បីបញ្ចប់ការរៀបចំ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå på cmux Computer Use for å fullføre oppsettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz cmux Computer Use, aby dokończyć konfigurację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative o cmux Computer Use para concluir a configuração."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите cmux Computer Use, чтобы завершить настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้ cmux Computer Use เพื่อเสร็จสิ้นการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulumu tamamlamak için cmux Computer Use özelliğini etkinleştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкніть cmux Computer Use, щоб завершити налаштування."
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use is unavailable. Retry setup."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use ist nicht verfügbar. Versuche die Einrichtung erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use est indisponible. Réessayez la configuration."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use غير متاح. أعد محاولة الإعداد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use no está disponible. Vuelve a intentar la configuración."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用 cmux Computer Use。請重試設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use 不可用。请重试设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use를 사용할 수 없습니다. 설정을 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use を利用できません。セットアップを再試行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use nije dostupan. Pokušajte ponovo postaviti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use er ikke tilgængelig. Prøv opsætningen igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use non è disponibile. Riprova la configurazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use មិនអាចប្រើបានទេ។ ព្យាយាមរៀបចំម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use er utilgjengelig. Prøv oppsettet på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use jest niedostępny. Spróbuj ponownie skonfigurować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Computer Use está indisponível. Tente configurar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use недоступен. Повторите настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use ไม่พร้อมใช้งาน ลองตั้งค่าอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use kullanılamıyor. Kurulumu yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Use недоступний. Повторіть налаштування."
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessibility permission is required."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Berechtigung für Bedienungshilfen ist erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’autorisation d’accessibilité est requise."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يلزم إذن تسهيلات الاستخدام."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere el permiso de accesibilidad."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要輔助使用權限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要辅助功能权限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손쉬운 사용 권한이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティの権限が必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebna je dozvola za pristupačnost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelse til Tilgængelighed er påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È necessaria l’autorizzazione per Accessibilità."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការសិទ្ធិភាពងាយស្រួលប្រើ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgjengelighetstillatelse kreves."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagane jest pozwolenie na dostępność."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É necessária a permissão de Acessibilidade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется разрешение на Универсальный доступ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมีสิทธิ์การช่วยการเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişilebilirlik izni gerekiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен дозвіл на доступність."
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.screenRecording": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording permission is required."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Berechtigung zur Bildschirmaufnahme ist erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’autorisation d’enregistrement de l’écran est requise."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يلزم إذن تسجيل الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere el permiso de grabación de pantalla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要螢幕錄製權限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要屏幕录制权限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록 권한이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面収録の権限が必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebna je dozvola za snimanje ekrana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelse til Skærmoptagelse er påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È necessaria l’autorizzazione per Registrazione schermo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការសិទ្ធិថតអេក្រង់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelse til skjermopptak kreves."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagane jest pozwolenie na nagrywanie ekranu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É necessária a permissão de Gravação de Tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется разрешение на запись экрана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมีสิทธิ์บันทึกหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Kaydı izni gerekiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен дозвіл на запис екрана."
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.capture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissions are granted. Finish setup to confirm screen capture with macOS."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Berechtigungen wurden erteilt. Schließe die Einrichtung ab, um die Bildschirmaufnahme in macOS zu bestätigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les autorisations sont accordées. Terminez la configuration pour confirmer la capture d’écran auprès de macOS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم منح الأذونات. أكمل الإعداد لتأكيد التقاط الشاشة في macOS."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los permisos están concedidos. Finaliza la configuración para confirmar la captura de pantalla con macOS."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授予權限。請完成設定以在 macOS 中確認螢幕擷取。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授予权限。请完成设置以在 macOS 中确认屏幕捕获。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한이 부여되었습니다. 설정을 완료하여 macOS에서 화면 캡처를 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限は付与されています。セットアップを完了し、macOS で画面キャプチャを確認してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvole su odobrene. Završite postavljanje da potvrdite snimanje ekrana u macOS-u."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelserne er givet. Færdiggør opsætningen for at bekræfte skærmoptagelse med macOS."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le autorizzazioni sono concesse. Completa la configurazione per confermare l’acquisizione dello schermo con macOS."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិទ្ធិត្រូវបានផ្តល់។ បញ្ចប់ការរៀបចំ ដើម្បីបញ្ជាក់ការចាប់យកអេក្រង់ជាមួយ macOS។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelsene er gitt. Fullfør oppsettet for å bekrefte skjermopptak med macOS."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uprawnienia zostały przyznane. Dokończ konfigurację, aby potwierdzić przechwytywanie ekranu w macOS."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As permissões foram concedidas. Conclua a configuração para confirmar a captura de tela no macOS."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешения предоставлены. Завершите настройку, чтобы подтвердить захват экрана в macOS."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้สิทธิ์แล้ว ตั้งค่าให้เสร็จเพื่อยืนยันการจับภาพหน้าจอกับ macOS"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzinler verildi. macOS ile ekran yakalamayı doğrulamak için kurulumu tamamlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволи надано. Завершіть налаштування, щоб підтвердити захоплення екрана в macOS."
+          }
+        }
+      }
+    },
+    "settings.computerUse.setup.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup is complete. cmux Computer Use is ready."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einrichtung ist abgeschlossen. cmux Computer Use ist bereit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration est terminée. cmux Computer Use est prêt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتمل الإعداد. cmux Computer Use جاهز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración está completa. cmux Computer Use está listo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定已完成。cmux Computer Use 已就緒。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置已完成。cmux Computer Use 已就绪。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정이 완료되었습니다. cmux Computer Use를 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップが完了しました。cmux Computer Use を利用できます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavljanje je završeno. cmux Computer Use je spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opsætningen er færdig. cmux Computer Use er klar."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configurazione è completa. cmux Computer Use è pronto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរៀបចំបានបញ្ចប់។ cmux Computer Use រួចរាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppsettet er fullført. cmux Computer Use er klart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracja jest ukończona. cmux Computer Use jest gotowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A configuração foi concluída. O cmux Computer Use está pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка завершена. cmux Computer Use готов к работе."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่าเสร็จแล้ว cmux Computer Use พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulum tamamlandı. cmux Computer Use hazır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування завершено. cmux Computer Use готовий."
+          }
+        }
+      }
+    },
+    "fileExplorer.error.cloudPreviewTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud file previews are limited to 1 MB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイルのプレビューは 1 MB に制限されています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 文件预览限制为 1 MB。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Dateivorschauen sind auf 1 MB begrenzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les aperçus de fichiers Cloud sont limités à 1 Mo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقتصر معاينات ملفات Cloud على 1 ميجابايت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las vistas previas de archivos de Cloud están limitadas a 1 MB."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 檔案預覽限制為 1 MB。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 파일 미리보기는 1MB로 제한됩니다."
+          }
+        }
+      }
+    },
+    "fileExplorer.error.remoteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote command failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートコマンドに失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程命令失败"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Befehl fehlgeschlagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La commande distante a échoué"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل الأمر البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El comando remoto falló"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端指令失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 명령에 실패했습니다"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteUnavailableWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote files unavailable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルを利用できません: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件不可用：%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Dateien nicht verfügbar: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichiers distants indisponibles : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملفات البعيدة غير متوفرة: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos remotos no disponibles: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用遠端檔案：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 사용할 수 없음: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote files unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルを利用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件不可用"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Dateien nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichiers distants indisponibles"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملفات البعيدة غير متوفرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos remotos no disponibles"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用遠端檔案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 사용할 수 없음"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteResolvingHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolving remote home..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームを解決中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在解析远程主目录..."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Home-Verzeichnis wird aufgelöst..."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résolution du répertoire personnel distant..."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جاري تحديد المجلد الرئيسي البعيد..."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolviendo el directorio de inicio remoto..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在解析遠端家目錄..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 홈 확인 중..."
+          }
+        }
+      }
+    },
+    "fileExplorer.status.remoteHomeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to resolve remote home: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームを解決できません: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解析远程主目录：%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Home-Verzeichnis konnte nicht aufgelöst werden: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de résoudre le répertoire personnel distant : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحديد المجلد الرئيسي البعيد: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo resolver el directorio de inicio remoto: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法解析遠端家目錄：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 홈을 확인할 수 없음: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.cloudDisconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine is not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンに接続されていません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 机器未连接"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Maschine ist nicht verbunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine Cloud n’est pas connectée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلة Cloud غير متصلة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina de Cloud no está conectada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器未連線"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신이 연결되지 않았습니다"
+          }
+        }
+      }
+    },
+    "command.workspaceColor.named": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Color: %@"
+          }
+        },
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+      }
+    },
+    "fileExplorer.preview.failedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to open remote file"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Datei konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le fichier distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر فتح الملف البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el archivo remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟遠端檔案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开远程文件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルを開けません"
+          }
+        }
+      }
+    },
+    "fileExplorer.preview.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestätigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valider"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موافق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aceptar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "fileExplorer.preview.genericFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote file could not be downloaded. Reconnect and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Remote-Datei konnte nicht heruntergeladen werden. Verbinden Sie sich erneut und versuchen Sie es wieder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier distant n’a pas pu être téléchargé. Reconnectez-vous et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تنزيل الملف البعيد. أعد الاتصال وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descargar el archivo remoto. Vuelve a conectar e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法下載遠端檔案。請重新連線後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载远程文件。请重新连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 파일을 다운로드할 수 없습니다. 다시 연결한 후 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルをダウンロードできませんでした。再接続してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "fileExplorer.preview.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close a Cloud file preview and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen Sie eine Cloud-Dateivorschau und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermez un aperçu de fichier Cloud et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أغلق معاينة ملف سحابي وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra una vista previa de archivo de Cloud e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請關閉一個雲端檔案預覽後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请关闭一个云端文件预览后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 파일 미리보기를 닫고 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイルのプレビューを閉じてもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.section.computers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة الكمبيوتر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinateurs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računari"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computere"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំព្យូទ័រ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datamaskiner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komputery"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютеры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilgisayarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютери"
+          }
+        }
+      }
+    },
+    "devices.empty.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux على جهاز Mac آخر واجعله قابلاً للاكتشاف في الإعدادات › المحمول › أجهزة الكمبيوتر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich auf einem anderen Mac bei cmux an und mache ihn unter Einstellungen › Mobil › Computer auffindbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en cmux en otro Mac y haz que sea detectable en Ajustes › Móvil › Ordenadores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à cmux sur un autre Mac et rendez-le détectable dans Réglages › Mobile › Ordinateurs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のMacでcmuxにサインインし、設定 › モバイル › コンピュータで検出可能にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에서 cmux에 로그인한 후 설정 › 모바일 › 컴퓨터에서 다른 기기가 검색할 수 있도록 설정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一台 Mac 上登录 cmux，并在设置 › 移动端 › 电脑中将其设为可被发现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在另一部 Mac 登入 cmux，並在設定 › 行動裝置 › 電腦中將其設為可被發現。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavite se u cmux na drugom Macu i omogućite njegovo otkrivanje u Postavke › Mobile › Računari."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på cmux på en anden Mac, og gør den synlig under Indstillinger › Mobile › Computere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a cmux su un altro Mac e rendilo individuabile in Impostazioni › Mobile › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលគណនី cmux នៅលើ Mac មួយទៀត ហើយអនុញ្ញាតឱ្យឧបករណ៍ផ្សេងរកឃើញវានៅ Settings › Mobile › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på cmux på en annen Mac, og gjør den synlig under Innstillinger › Mobile › Datamaskiner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do cmux na innym Macu i włącz jego wykrywanie w Ustawienia › Mobile › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no cmux em outro Mac e torne-o detectável em Ajustes › Mobile › Computadores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите в cmux на другом Mac и включите его обнаружение в разделе Настройки › Mobile › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ cmux บน Mac อีกเครื่อง แล้วเปิดให้ค้นพบเครื่องนั้นได้ใน การตั้งค่า › Mobile › คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir Mac’te cmux’a giriş yapın ve Ayarlar › Mobile › Bilgisayarlar bölümünden o Mac’i keşfedilebilir hâle getirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть у cmux на іншому Mac і зробіть його доступним для виявлення в розділі Налаштування › Mobile › Комп’ютери."
+          }
+        }
+      }
+    },
+    "devices.options.hint": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Change these options in the ⋯ menu next to My Devices."
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+                }
+            },
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
+                }
+            }
+        }
     }
   },
   "version": "1.0"

@@ -485,8 +485,9 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
-    // identity on the platform instance id, rotating auth/connection state on
-    // a clone while preserving the warm journal, and holds the daemon on the builder.
+    // identity on the platform instance id and holds the daemon on the
+    // builder. A fork or checkpoint of a running machine carries its parent's
+    // remote identity, so a clone drops auth and connection state.
     expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
     expect(devboxBoot).toContain("/latest/meta-data/instance-id");
     expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");

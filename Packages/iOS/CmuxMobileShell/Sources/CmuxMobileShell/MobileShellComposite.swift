@@ -913,7 +913,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // restore so the synchronizer below (and later data-arrival
                 // syncs) put back the tab this device last showed there.
                 pendingLastTabRestoreWorkspaceID = selectedWorkspaceID
-                pendingLocalBrowserTabRestoreWorkspaceID = nil
+                pendingLocalBrowserTabRestoreWorkspaceID = nil; announceWorkspaceScopeForSelection()
             }
             syncSelectedTerminalForWorkspace()
         }
@@ -1098,7 +1098,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Live presence subscription (the `workers/presence` Durable Object edge).
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
-    private let presence: (any PresenceSubscribing)?
+    private let presence: (any PresenceSubscribing)?; let workspacePresenceAnnouncer: (any WorkspacePresenceAnnouncing)?
     let identityProvider: (any MobileIdentityProviding)?
     let phonePushKeyExchangeHooks: MobilePhonePushKeyExchangeHooks?
     let teamIDProvider: @Sendable () async -> String?
@@ -1847,7 +1847,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
-        presence: (any PresenceSubscribing)? = nil,
+        presence: (any PresenceSubscribing)? = nil, workspacePresenceAnnouncer: (any WorkspacePresenceAnnouncing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         phonePushKeyExchangeHooks: MobilePhonePushKeyExchangeHooks? = nil,
@@ -1911,7 +1911,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deviceRegistry = deviceRegistry
         self.personalIrohDiscovery = personalIrohDiscovery
         self.personalIrohForget = personalIrohForget
-        self.presence = presence
+        self.presence = presence; self.workspacePresenceAnnouncer = workspacePresenceAnnouncer
         self.identityProvider = identityProvider
         self.phonePushKeyExchangeHooks = phonePushKeyExchangeHooks
         self.teamIDProvider = teamIDProvider
@@ -4000,11 +4000,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if isSignedIn, presence != nil {
             startPresenceSubscription()
-        } else {
+        } else if !isSignedIn {
             presenceTask?.cancel()
             presenceTask = nil
             presenceMap = PresenceMap()
-        }
+        }; if isSignedIn { announceWorkspaceScopeForSelection() } else { clearWorkspacePresenceScope() }
     }
 
     /// Run the subscribe stream with exponential backoff (1s..60s, reset on
@@ -6329,6 +6329,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let outcome: SecondaryMacEstablishmentOutcome?
         if allowsNewConnections {
+            // A replacement pairing on this device cannot dial until the
+            // retired owner's transport closes. That owner may have been
+            // retired without a retry (its refresh read the claimed row as
+            // revoked), so make its drain completion dial the replacement.
+            if let drain = secondaryMacDrainReservation(onDeviceOf: ownerKey),
+               drain.ownerKey != ownerKey,
+               drain.postDrainAction == .none {
+                drain.postDrainAction = .retry
+            }
             outcome = await establishSecondaryMacSubscription(
                 for: mac,
                 scope: scope,

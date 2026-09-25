@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxMobileHost
 import CmuxSettingsUI
 import AppKit
@@ -242,8 +243,6 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
@@ -4139,6 +4138,14 @@ class TerminalController {
     func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
+        // #2751: skip the pre-mint pass until session restore has settled.
+        // Refreshing here is only an optimization (refs otherwise mint lazily
+        // on the first list/create); iterating the half-built window/tab tree
+        // while restore is pending or in flight faults (EXC_BAD_ACCESS / arm64e
+        // ptrauth). A v2 socket command arriving within ~1s of launch can
+        // re-enter this on the main actor mid-restore, so degrade gracefully.
+        guard app.didCompleteInitialSessionRestore else { return }
+
         let windows = app.listMainWindowSummaries()
         for item in windows {
             _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
@@ -6066,7 +6073,6 @@ class TerminalController {
             )
         }
 
-        NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
         return v2IngestFeedEvent(
             event,
             waitTimeout: waitTimeout,
@@ -7736,6 +7742,10 @@ class TerminalController {
                 const labelledBy = __normalize(el.getAttribute('aria-labelledby') || '');
                 if (labelledBy) {
                   const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
+                  if (text) return text;
+                }
+                if (el.labels && el.labels.length) {
+                  const text = Array.from(el.labels).map((n) => __normalize(n.textContent || '')).join(' ').trim();
                   if (text) return text;
                 }
                 if (el.tagName && String(el.tagName).toLowerCase() === 'input') {
@@ -9784,13 +9794,16 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
+        // Shared with the CLI client, which sizes its socket response timeout
+        // from the same window and clamp.
+        let downloadWait = BrowserDownloadWaitTimeout.standard
         let requestedTimeoutMs = max(
             1,
             Self.v2WorkerInt(params, "timeout_ms") ??
                 Self.v2WorkerInt(params, "timeout") ??
-                Self.v2BrowserDownloadWaitDefaultTimeoutMs
+                downloadWait.defaultTimeoutMilliseconds
         )
-        let timeoutMs = min(requestedTimeoutMs, Self.v2BrowserDownloadWaitMaxTimeoutMs)
+        let timeoutMs = downloadWait.handlerTimeoutMilliseconds(requestedMilliseconds: requestedTimeoutMs)
         let timeout = Double(timeoutMs) / 1000.0
         let path = Self.v2WorkerString(params, "path")
 
