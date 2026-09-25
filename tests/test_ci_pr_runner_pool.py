@@ -415,9 +415,12 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job("glaeda-std-xcode-26.6", "queued")]))
         # swift-package-tests sits on Blacksmith beside a full-suite run on an owned pool.
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job(OLD, "queued")]))
+        # Attempt 2 only while CI_OWNED_LIGHT_RETRY is on (the light tier).
+        self.assertFalse(janitor.may_hold_owned_pool({**run, "run_attempt": 2}, []))
+        self.assertTrue(janitor.may_hold_owned_pool({**run, "run_attempt": 2}, [], light_retry=True))
         for change in ({"event": "push"}, {"run_attempt": 3}, {"head_repository": {"id": 8}},
                        {"path": ".github/workflows/nightly.yml"}):
-            self.assertFalse(janitor.may_hold_owned_pool({**run, **change}, []), change)
+            self.assertFalse(janitor.may_hold_owned_pool({**run, **change}, [], light_retry=True), change)
 
     def test_workflow_publishes_the_snapshot(self):
         workflow = yaml.safe_load((WORKFLOWS / "ci-queue-janitor.yml").read_text())
@@ -815,9 +818,9 @@ class OwnedPools(unittest.TestCase):
             "/actions/runs/5/jobs?filter=latest&per_page=100": {"jobs": [
                 {"name": "changes", "status": "completed",
                  "steps": [{"name": pool.MARKER_STEP, "conclusion": "success"}]}]},
-            # Run 6's lookup fails, and so does run 8's: attempt 2 may hold the
-            # fleet (a refused job's retry, or the light tier), so it is looked
-            # up and replayed when unknown. Run 7 (fork) is never looked up.
+            # Run 6's lookup fails. Run 7 (fork) is never looked up. Run 8
+            # (attempt 2) is looked up only with CI_OWNED_LIGHT_RETRY on, when
+            # it may hold the light tier; its lookup fails, so it is replayed.
         }
 
         def get(path):
@@ -829,7 +832,9 @@ class OwnedPools(unittest.TestCase):
         with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
                 unittest.mock.patch.object(client, "get", side_effect=get):
             routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9)
-        self.assertEqual(routed, pool.Routed(unknown=4, owned={MINI: pool.MAX_RUN_JOBS}, ephemeral=2))
+            light = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9, light_retry=True)
+        self.assertEqual(routed, pool.Routed(unknown=3, owned={MINI: pool.MAX_RUN_JOBS}, ephemeral=3))
+        self.assertEqual(light, pool.Routed(unknown=4, owned={MINI: pool.MAX_RUN_JOBS}, ephemeral=2))
 
     def test_marker_step_and_routing_job_names_match_ci_yml(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()

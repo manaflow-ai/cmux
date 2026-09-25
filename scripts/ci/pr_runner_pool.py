@@ -1006,15 +1006,17 @@ def choose(
     return choice, snapshot
 
 
-def may_hold_owned_pool(run: Mapping[str, Any]) -> bool:
-    """Only attempts 1 and 2 of a same-repository pull request run can take an owned pool.
+def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) -> bool:
+    """Only attempt 1 of a same-repository pull request run can take an owned pool,
+    and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
 
-    Attempt 2 does after a refusal (pr_refused_retry_runner) or on the light
-    tier (CI_OWNED_LIGHT_RETRY). The same rule as
+    Attempt 2 then may hold the light tier, or a refused job's retry
+    (pr_refused_retry_runner); with the variable off it is not looked up,
+    so no request is spent on it. The same rule as
     queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
     upload any marker, so its markers are never read.
     """
-    if int(run.get("run_attempt") or 1) > LIGHT_RETRY_ATTEMPT:
+    if int(run.get("run_attempt") or 1) > (LIGHT_RETRY_ATTEMPT if light_retry else 1):
         return False
     head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
     return head is not None and head == base
@@ -1111,7 +1113,8 @@ class GitHub:
         runs = self.get(f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or []
         return [run for run in runs if isinstance(run, Mapping)]
 
-    def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None) -> Routed:
+    def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None,
+                                  light_retry: bool = False) -> Routed:
         """Where the pull request runs since `since` went, so they are not all guessed.
 
         A fork run or a retry attempt never takes an owned pool, so it is off
@@ -1126,7 +1129,7 @@ class GitHub:
         owned: dict[str, int] = {}
         ephemeral = unknown = looked_up = 0
         for run in runs:
-            if not may_hold_owned_pool(run):
+            if not may_hold_owned_pool(run, light_retry=light_retry):
                 ephemeral += 1
                 continue
             if looked_up >= ROUTE_LOOKUPS:
@@ -1231,7 +1234,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def count_routed(since: str) -> int:
         if args.snapshot:
             return 0
-        return client().pull_request_routes_since(since, exclude_run_id=int(run_id) if run_id.isdigit() else None)
+        return client().pull_request_routes_since(
+            since, exclude_run_id=int(run_id) if run_id.isdigit() else None,
+            light_retry=(env.get("OWNED_LIGHT_RETRY") or "").strip() == "1")
 
     # The changes job's routing, when the step runs after it; without it every
     # run is charged the most machines any run can hold.
