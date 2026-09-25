@@ -48,6 +48,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: nil
             ),
             GenericHookPersistenceScenario(
+                agent: "aemeath",
+                subcommand: "session-start",
+                sessionId: "aemeath-session-123",
+                executable: "/Users/example/.local/bin/aemeath",
+                launchArguments: [
+                    "/Users/example/.local/bin/aemeath",
+                    "--model",
+                    "Zhipu/glm-5.3",
+                    "--resume",
+                    "old-session",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [:],
+                expectedArguments: [
+                    "/Users/example/.local/bin/aemeath",
+                    "--model",
+                    "Zhipu/glm-5.3"
+                ],
+                expectedEnvironment: nil
+            ),
+            GenericHookPersistenceScenario(
                 agent: "gemini",
                 subcommand: "session-start",
                 sessionId: "gemini-session-123",

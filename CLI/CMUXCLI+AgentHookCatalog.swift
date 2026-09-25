@@ -257,6 +257,18 @@ extension CMUXCLI {
             ],
             feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
+        AgentHookDef(
+            name: "aemeath", displayName: "Aemeath", statusKey: "aemeath",
+            configDir: ".agents", configFile: "aemeath.json", configDirEnvOverride: "AEMEATH_AGENTS_DIR",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "aemeath", disableEnvVar: "CMUX_AEMEATH_HOOKS_DISABLED",
+            hookMarker: "cmux hooks aemeath", format: .flat,
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+            ],
+            feedHookEvents: ["PreToolUse"]
+        ),
     ]
 
     static func agentDef(named name: String) -> AgentHookDef? {

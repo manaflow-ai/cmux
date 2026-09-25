@@ -16,6 +16,7 @@ struct AgentResumeArgvTests {
         ("codebuddy", "codebuddy", ["codebuddy", "--resume", "SID"]),
         ("factory", "droid", ["droid", "--resume", "SID"]),
         ("qoder", "qodercli", ["qodercli", "--resume", "SID"]),
+        ("aemeath", "aemeath", ["aemeath", "--resume", "SID"]),
     ])
     func builtInWithOptionKinds(kind: String, executable: String, expected: [String]) {
         #expect(
