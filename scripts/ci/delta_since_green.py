@@ -296,7 +296,9 @@ def github_verdicts(repository: str, token: str, api_url: str, number: int, base
                 raise ValueError(f"not a sha: {oid!r}")
         fields = " ".join(f'c{index}: object(oid: "{oid}") {{ ...Verdict }}' for index, oid in enumerate(oids))
         query = (
-            "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { "
+            "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { "
+            "pullRequest(number: $number) { timelineItems(itemTypes: [BASE_REF_CHANGED_EVENT], first: 1) "
+            "{ filteredCount nodes { __typename } } } "
             + fields + " } } "
             "fragment Verdict on Commit { "
             f"checkSuites(first: 100, filterBy: {{appId: {ACTIONS_APP_ID}}}) {{ nodes {{ "
@@ -304,10 +306,21 @@ def github_verdicts(repository: str, token: str, api_url: str, number: int, base
             f'checkRuns(first: 20, filterBy: {{checkName: "{CI_STATUS}", checkType: ALL}}) '
             "{ nodes { conclusion startedAt } } } } }"
         )
-        payload = call(api_url, {"query": query, "variables": {"owner": owner, "name": name}})
+        payload = call(api_url, {"query": query, "variables": {"owner": owner, "name": name, "number": number}})
         if payload.get("errors"):
             raise RuntimeError(f"GraphQL errors: {payload['errors']}")
         repo = payload["data"]["repository"]
+        # The runs API fills a run's pull_requests[].base.ref in when asked,
+        # not when the run happened, so after a retarget an old run on another
+        # base would read as this base. Any retarget keeps the whole diff.
+        # totalCount ignores itemTypes (it counts the whole timeline);
+        # filteredCount and nodes honour it.
+        timeline = (repo.get("pullRequest") or {}).get("timelineItems") or {}
+        retargets = timeline.get("filteredCount")
+        if not isinstance(retargets, int) or not isinstance(timeline.get("nodes"), list):
+            raise Skip("could not read whether the pull request changed its base branch")
+        if retargets or timeline["nodes"]:
+            raise Skip("the pull request changed its base branch, so earlier runs cannot be tied to this base")
         results: dict[str, Optional[str]] = {oid: None for oid in oids}
         for index, oid in enumerate(oids):
             suites = ((repo.get(f"c{index}") or {}).get("checkSuites") or {}).get("nodes") or []

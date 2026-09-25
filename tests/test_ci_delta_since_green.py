@@ -305,10 +305,45 @@ class VerdictTests(unittest.TestCase):
         self.assertIsNone(delta.verdict({2: "success", 3: "success", 4: "success"}, bound))
         self.assertEqual(delta.verdict({1: "success", 2: "failure"}, bound), "success")
 
+    @classmethod
+    def graphql(cls, retargets: object = 0) -> dict:
+        repository = {"c0": {"checkSuites": {"nodes": [
+            cls.suite("SUCCESS", "2026-09-25T01:00:00Z", run_id=11)]}}}
+        if retargets is not None:
+            # totalCount is the whole timeline whatever itemTypes says (seen live).
+            repository["pullRequest"] = {"timelineItems": {
+                "totalCount": 7, "filteredCount": retargets,
+                "nodes": [{"__typename": "BaseRefChangedEvent"}] * retargets}}
+        return {"data": {"repository": repository}}
+
+    def lookup_with(self, graphql: dict, runs: list[dict], calls: list[str]):
+        import io
+        import json
+
+        def fake_urlopen(request, timeout=0):
+            calls.append(request.full_url)
+            body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
+            return io.BytesIO(json.dumps(body).encode())
+
+        original = delta.urllib.request.urlopen
+        delta.urllib.request.urlopen = fake_urlopen
+        self.addCleanup(setattr, delta.urllib.request, "urlopen", original)
+        return delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
+
+    def test_a_retargeted_pull_request_keeps_its_whole_diff(self) -> None:
+        # feature-x -> main: H1's old run now reports base main through the runs API.
+        for retargets, reason in ((1, "changed its base branch"), (None, "could not read")):
+            with self.subTest(retargets=retargets):
+                calls: list[str] = []
+                lookup = self.lookup_with(self.graphql(retargets), [self.pr_run(11)], calls)
+                with self.assertRaises(delta.Skip) as caught:
+                    lookup(["a" * 40])
+                self.assertIn(reason, str(caught.exception))
+                self.assertEqual(len(calls), 1, "no runs API call once the retarget rules it out")
+
     def test_lookup_binds_the_nearest_judged_commit_to_this_pull_request(self) -> None:
         oid = "a" * 40
-        graphql = {"data": {"repository": {"c0": {"checkSuites": {"nodes": [
-            self.suite("SUCCESS", "2026-09-25T01:00:00Z", run_id=11)]}}}}}
+        graphql = self.graphql()
         cases = {
             "this pull request": ([self.pr_run(11)], "success"),
             "another base": ([self.pr_run(11, base_ref="feature")], None),
