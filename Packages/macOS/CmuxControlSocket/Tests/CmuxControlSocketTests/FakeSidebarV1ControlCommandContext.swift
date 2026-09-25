@@ -6,7 +6,7 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
     var workspaceLoadingResult: ControlSidebarWorkspaceLoadingState?
     var workspaceLoadingCall: (tabArg: String?, key: String, on: Bool)?
     // Test-only synchronous seam: calls and reads are serial within each test.
-    nonisolated(unsafe) var manualPullRequestAvailable = true
+    var manualPullRequestAvailable = true
     nonisolated(unsafe) var manualPullRequestCall: (
         tabArg: String?, number: Int, label: String, url: URL, state: String, branch: String?
     )?
@@ -42,21 +42,23 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         ["open", "merged", "closed"].contains(raw)
     }
 
-    nonisolated func controlSidebarScheduleManualPullRequest(
+    func controlSidebarAttachManualPullRequest(
         tabArg: String?,
         number: Int,
         label: String,
         url: URL,
         statusRawValue: String,
         branch: String?
-    ) {
-        guard manualPullRequestAvailable else { return }
+    ) -> Bool {
+        guard manualPullRequestAvailable else { return false }
         manualPullRequestCall = (tabArg, number, label, url, statusRawValue, branch)
+        return true
     }
 
-    nonisolated func controlSidebarScheduleManualPullRequestClear(tabArg: String?) {
-        guard manualPullRequestAvailable else { return }
+    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool {
+        guard manualPullRequestAvailable else { return false }
         manualPullRequestClearTab = tabArg
+        return true
     }
 
     nonisolated func controlSidebarScheduleStatusClear(

@@ -1,10 +1,10 @@
 internal import Foundation
 
-/// Explicit workspace handoffs parse on the worker and enqueue their state
-/// transition on the main-actor mutation bus. The socket worker never blocks
-/// on UI state; the response acknowledges that the mutation was accepted.
+/// Explicit workspace handoffs apply their state before replying. Socket
+/// connections await the main actor through the standard asynchronous
+/// dispatcher, so the worker is suspendable and `OK` means the target exists.
 extension ControlCommandCoordinator {
-    nonisolated func sidebarReportWorkspacePullRequest(
+    func sidebarReportWorkspacePullRequest(
         _ args: String,
         context: (any ControlCommandContext)?
     ) -> String {
@@ -27,7 +27,7 @@ extension ControlCommandCoordinator {
         guard context.controlSidebarIsValidPullRequestState(status), !label.isEmpty else {
             return context.controlSidebarManualPullRequestError(invalidTarget: false)
         }
-        context.controlSidebarScheduleManualPullRequest(
+        let applied = context.controlSidebarAttachManualPullRequest(
             tabArg: tabArg,
             number: number,
             label: String(label.prefix(16)),
@@ -35,10 +35,10 @@ extension ControlCommandCoordinator {
             statusRawValue: status,
             branch: sidebarNormalizedOptionValue(parsed.options["branch"])
         )
-        return "OK"
+        return applied ? "OK" : context.controlSidebarManualPullRequestError(invalidTarget: true)
     }
 
-    nonisolated func sidebarClearWorkspacePullRequest(
+    func sidebarClearWorkspacePullRequest(
         _ args: String,
         context: (any ControlCommandContext)?
     ) -> String {
@@ -48,7 +48,7 @@ extension ControlCommandCoordinator {
               let context else {
             return context?.controlSidebarManualPullRequestError(invalidTarget: false) ?? "ERROR"
         }
-        context.controlSidebarScheduleManualPullRequestClear(tabArg: tabArg)
-        return "OK"
+        let applied = context.controlSidebarClearManualPullRequest(tabArg: tabArg)
+        return applied ? "OK" : context.controlSidebarManualPullRequestError(invalidTarget: true)
     }
 }

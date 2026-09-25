@@ -121,44 +121,6 @@ extension TerminalController {
         }
     }
 
-    /// Enqueues the workspace-scoped manual PR handoff without synchronously
-    /// hopping the socket worker to the main actor. Workspace resolution is
-    /// intentionally repeated at drain time so a closed or moved workspace
-    /// cannot be mutated through a stale reference.
-    nonisolated func controlSidebarScheduleManualPullRequest(
-        tabArg: String?,
-        number: Int,
-        label: String,
-        url: URL,
-        statusRawValue: String,
-        branch: String?
-    ) {
-        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
-            guard let self,
-                  let status = SidebarPullRequestStatus(rawValue: statusRawValue),
-                  let tab = self.controlSidebarResolveTabForReport(tabArg: tabArg) else {
-                return
-            }
-            tab.attachManualPullRequest(
-                number: number,
-                label: label,
-                url: url,
-                status: status,
-                branch: branch
-            )
-        }
-    }
-
-    nonisolated func controlSidebarScheduleManualPullRequestClear(tabArg: String?) {
-        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
-            guard let self,
-                  let tab = self.controlSidebarResolveTabForReport(tabArg: tabArg) else {
-                return
-            }
-            tab.clearManualPullRequest()
-        }
-    }
-
     /// Resolves a UUID-addressed panel's current owner. Callers that schedule
     /// mutations invoke this at drain time so updates follow a moved pane.
     func controlSidebarResolvePanelOwner(
