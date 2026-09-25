@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           mkdir -p ios/verification/empty-state/Production evidence
           git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
-          for name in MobileWorkspaceListEmptyRow MobilePairingCopy; do
+          for name in MobileWorkspaceListEmptyRow MobilePairingCopy WorkspaceListUITableView; do
             git show "$SOURCE_SHA:Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/$name.swift" > "ios/verification/empty-state/Production/$name.swift"
           done
           printf '%s\n' "$SOURCE_SHA" > evidence/source-sha.txt

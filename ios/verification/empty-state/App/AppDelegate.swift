@@ -39,6 +39,13 @@ final class EmptyStateController: UITableViewController {
     private let countLabel = UILabel()
     private var refreshCount = 0
 
+    override func loadView() {
+        // Use the production table class, including disabled self-sizing
+        // invalidation and zero estimated heights. UIKit's defaults can hide
+        // the empty-row defect by resizing a row after its initial measurement.
+        tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "All Computers"

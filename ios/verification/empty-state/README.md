@@ -1,9 +1,11 @@
 # Empty workspace layout proof
 
 The hosted `ios-empty-state-proof.yml` workflow compiles the unmodified production
-`MobileWorkspaceListEmptyRow.swift` and `MobilePairingCopy.swift` at two pinned
+`MobileWorkspaceListEmptyRow.swift`, `MobilePairingCopy.swift`, and
+`WorkspaceListUITableView.swift` at two pinned
 commits. It links the real `CmuxMobileSupport` package, uses the workspace table's
-hosting margins and sizing proposal, and executes the same XCUITest on an
+hosting margins and sizing proposal, including disabled self-sizing
+invalidation and zero estimated heights, and executes the same XCUITest on an
 isolated iPhone simulator for each version.
 
 The original version must fail the compact-button geometry assertion. The fixed
