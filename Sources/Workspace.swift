@@ -2585,34 +2585,6 @@ extension Workspace {
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
 
-/// A cloud machine bound to a workspace through the cmux-tui remote daemon
-/// (`cmux vm shell`/`vm new`/`vm base open`). See `Workspace.cloudVMBinding`.
-struct WorkspaceCloudVMBinding: Equatable, Sendable {
-    let vmID: String
-    /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
-    let isBase: Bool
-    /// The cmux-tui workspace on the machine this local workspace stands for (`ws_…`),
-    /// recorded when a remote workspace is opened locally. Local workspace renames
-    /// write through to it (`CloudWorkspaceRenameService`).
-    let remoteWorkspaceID: String?
-
-    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
-        self.vmID = vmID
-        self.isBase = isBase
-        self.remoteWorkspaceID = remoteWorkspaceID
-    }
-
-    /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
-    static func normalizedVMID(_ raw: String?) -> String? {
-        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty,
-              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
-            return nil
-        }
-        return trimmed
-    }
-}
-
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
