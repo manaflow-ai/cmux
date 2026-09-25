@@ -7,13 +7,13 @@ extension GhosttyNSView {
 
         switch terminalSurface.focusPlacement {
         case .workspace:
-        case .pictureInPicture:
-            return true
             AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
                 workspaceId: terminalSurface.tabId,
                 panelId: terminalSurface.id,
                 in: window
             )
+        case .pictureInPicture:
+            break
         case .rightSidebarDock:
             DockSplitStore.focusPanelFromDockPointer(terminalSurface.id, window: window)
         }
@@ -32,6 +32,8 @@ extension GhosttyNSView {
             case .workspace:
                 wasFocusedBeforePointerDown = terminalSurface.owningWorkspace()?
                     .isFocusedTerminalInputSurface(terminalSurface.id) == true
+            case .pictureInPicture:
+                return true
             case .rightSidebarDock:
                 wasFocusedBeforePointerDown = TerminalPointerFocusActivationPolicy()
                     .shouldForwardToTerminal(

@@ -556728,43 +556728,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Surface als Bild-in-Bild öffnen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Détacher la surface (image dans l’image)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "إخراج السطح (صورة داخل صورة)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Separar superficie (imagen en imagen)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "以子母畫面分離表面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "以画中画分離表面"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "화면을 PIP로 분리"
           }
         },
         "ja": {
@@ -556787,43 +556787,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return Surface from Picture in Picture"
+            "value": "Surface aus Bild-in-Bild zurückholen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return Surface from Picture in Picture"
+            "value": "Rapatrier la surface depuis l’image dans l’image"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return Surface from Picture in Picture"
+            "value": "إعادة السطح من وضع صورة داخل صورة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return Surface from Picture in Picture"
+            "value": "Devolver superficie desde imagen en imagen"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return Surface from Picture in Picture"
+            "value": "從子母畫面返回表面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return Surface from Picture in Picture"
+            "value": "从画中画返回表面"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return Surface from Picture in Picture"
+            "value": "PIP에서 화면 되돌리기"
           }
         },
         "ja": {
@@ -556846,43 +556846,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "Bild-in-Bild"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "Image dans l’image"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "صورة داخل صورة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "Imagen en imagen"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "子母畫面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "画中画"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "화면 속 화면"
           }
         },
         "ja": {
@@ -556905,43 +556905,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Surface Picture in Picture"
+            "value": "Surface-Bild-in-Bild umschalten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Surface Picture in Picture"
+            "value": "Activer ou désactiver l’image dans l’image de la surface"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Surface Picture in Picture"
+            "value": "تبديل صورة داخل صورة للسطح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Surface Picture in Picture"
+            "value": "Alternar imagen en imagen de la superficie"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Surface Picture in Picture"
+            "value": "切換表面子母畫面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Surface Picture in Picture"
+            "value": "切换表面画中画"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Surface Picture in Picture"
+            "value": "화면 PIP 전환"
           }
         },
         "ja": {
@@ -556964,43 +556964,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "Bild-in-Bild"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "Image dans l’image"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "صورة داخل صورة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "Imagen en imagen"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "子母畫面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "画中画"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picture in Picture"
+            "value": "화면 속 화면"
           }
         },
         "ja": {
@@ -557023,43 +557023,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Surface als Bild-in-Bild öffnen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Détacher la surface (image dans l’image)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "إخراج السطح (صورة داخل صورة)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Separar superficie (imagen en imagen)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "以子母畫面分離表面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "以画中画分离表面"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "화면을 PIP로 분리"
           }
         },
         "ja": {
@@ -557082,43 +557082,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Surface als Bild-in-Bild öffnen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Détacher la surface (image dans l’image)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "إخراج السطح (صورة داخل صورة)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "Separar superficie (imagen en imagen)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "以子母畫面分離表面"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "以画中画分离表面"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pop Out Surface (Picture in Picture)"
+            "value": "화면을 PIP로 분리"
           }
         },
         "ja": {
@@ -557141,43 +557141,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return from Picture in Picture"
+            "value": "Aus Bild-in-Bild zurückkehren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return from Picture in Picture"
+            "value": "Revenir depuis l’image dans l’image"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return from Picture in Picture"
+            "value": "العودة من وضع صورة داخل صورة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return from Picture in Picture"
+            "value": "Volver desde imagen en imagen"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return from Picture in Picture"
+            "value": "從子母畫面返回"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return from Picture in Picture"
+            "value": "从画中画返回"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Return from Picture in Picture"
+            "value": "PIP에서 돌아가기"
           }
         },
         "ja": {
