@@ -107,10 +107,8 @@ struct RawOutput {
 
 impl RawOutput {
     fn set_callback(&self, callback: Option<TerminalOutputCallback>, context: *mut c_void) {
-        *self.callback.lock().unwrap() = callback.map(|callback| OutputCallbackRegistration {
-            callback,
-            context: context as usize,
-        });
+        *self.callback.lock().unwrap() = callback
+            .map(|callback| OutputCallbackRegistration { callback, context: context as usize });
     }
 
     fn is_installed(&self) -> bool {
@@ -147,16 +145,9 @@ impl RawOutput {
 
 #[derive(Debug)]
 enum RawEvent {
-    Snapshot {
-        cols: u16,
-        rows: u16,
-        replay: Vec<u8>,
-    },
+    Snapshot { cols: u16, rows: u16, replay: Vec<u8> },
     Output(Bytes),
-    Resized {
-        cols: u16,
-        rows: u16,
-    },
+    Resized { cols: u16, rows: u16 },
     Exit,
 }
 
@@ -176,10 +167,8 @@ struct ClientUpdates {
 impl ClientUpdates {
     fn set_callback(&self, callback: Option<TerminalUpdateCallback>, context: *mut c_void) {
         let mut registered = self.callback.lock().unwrap();
-        *registered = callback.map(|callback| UpdateCallbackRegistration {
-            callback,
-            context: context as usize,
-        });
+        *registered = callback
+            .map(|callback| UpdateCallbackRegistration { callback, context: context as usize });
         if let Some(registered) = *registered {
             // SAFETY: the FFI caller owns the callback context and the callback
             // mutex makes replacement/removal wait for any invocation to finish.
@@ -230,8 +219,7 @@ impl ResizeDelivery {
     }
 
     fn acknowledge(&self, request_id: u64) {
-        self.acknowledged_request
-            .store(request_id, Ordering::Release);
+        self.acknowledged_request.store(request_id, Ordering::Release);
         self.changed.notify_one();
     }
 
@@ -415,9 +403,7 @@ impl ClientState {
             .ok_or_else(|| "terminal keyboard state is not ready".to_string())?;
         self.key_encoder.sync_from_terminal(terminal);
         let mut encoded = Vec::new();
-        self.key_encoder
-            .encode(&input, &mut encoded)
-            .map_err(|error| error.to_string())?;
+        self.key_encoder.encode(&input, &mut encoded).map_err(|error| error.to_string())?;
         Ok(encoded)
     }
 
@@ -539,12 +525,7 @@ impl ClientState {
                     self.terminal
                         .as_mut()
                         .ok_or_else(|| "resize arrived before snapshot".to_string())?
-                        .resize(
-                            cols,
-                            rows,
-                            u32::from(cell_pixels.0),
-                            u32::from(cell_pixels.1),
-                        )
+                        .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
                         .map_err(|error| error.to_string())?;
                 }
                 self.cols = cols;
@@ -613,9 +594,7 @@ impl ClientState {
             .expected_sequence
             .ok_or_else(|| "live frame arrived before snapshot".to_string())?;
         if sequence != expected {
-            return Err(format!(
-                "terminal sequence gap: expected {expected}, received {sequence}"
-            ));
+            return Err(format!("terminal sequence gap: expected {expected}, received {sequence}"));
         }
         self.expected_sequence = sequence.checked_add(1);
         self.source_cursor = sequence;
@@ -634,17 +613,10 @@ impl ClientState {
         if !self.bootstrap_committed || !self.render_dirty {
             return Ok(());
         }
-        let terminal = self
-            .terminal
-            .as_mut()
-            .ok_or_else(|| "terminal is not initialized".to_string())?;
-        self.render
-            .update(terminal)
-            .map_err(|error| error.to_string())?;
-        let frame = self
-            .render
-            .build_frame()
-            .map_err(|error| error.to_string())?;
+        let terminal =
+            self.terminal.as_mut().ok_or_else(|| "terminal is not initialized".to_string())?;
+        self.render.update(terminal).map_err(|error| error.to_string())?;
+        let frame = self.render.build_frame().map_err(|error| error.to_string())?;
         let mut text = String::new();
         let mut rows = Vec::with_capacity(frame.styled_rows().len());
         // The UI polls at a bounded cadence. Only the visible viewport is
@@ -707,10 +679,8 @@ fn resolve_iroh_route(route: &str) -> Result<(Url, BTreeMap<String, String>), St
     if endpoint.scheme() != "iroh" {
         return Err("route is not an Iroh URL".into());
     }
-    let node_id = endpoint
-        .host_str()
-        .ok_or_else(|| "Iroh route has no node id".to_string())?
-        .to_string();
+    let node_id =
+        endpoint.host_str().ok_or_else(|| "Iroh route has no node id".to_string())?.to_string();
     let query = endpoint.query_pairs().into_owned().collect::<Vec<_>>();
     endpoint.set_query(None);
     let mut routing = BTreeMap::from([(ROUTING_NODE_ID.into(), node_id)]);
@@ -761,10 +731,7 @@ async fn open_terminal_stream_with_timeout(
         let control: ServiceControl =
             serde_json::from_slice(&opened.payload).map_err(|error| error.to_string())?;
         if opened.lane != Lane::Interactive
-            || control
-                != (ServiceControl::Opened {
-                    service: Service::TerminalBytes,
-                })
+            || control != (ServiceControl::Opened { service: Service::TerminalBytes })
         {
             return Err("terminal service returned an invalid Opened acknowledgement".into());
         }
@@ -815,12 +782,7 @@ async fn connect_client(
         .map_err(|error| error.to_string())?,
     );
     let group = provider
-        .connect(ConnectRequest {
-            endpoint,
-            session,
-            lane_policy: LanePolicy::Isolated,
-            routing,
-        })
+        .connect(ConnectRequest { endpoint, session, lane_policy: LanePolicy::Isolated, routing })
         .await
         .map_err(|error| format!("Iroh connect: {error}"))?;
     let daemon_key = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -828,9 +790,7 @@ async fn connect_client(
         .map_err(|error| format!("daemon key: {error}"))?
         .try_into()
         .map_err(|bytes: Vec<u8>| format!("daemon key is {} bytes", bytes.len()))?;
-    let invitation_secret = invitation
-        .secret_bytes()
-        .map_err(|error| error.to_string())?;
+    let invitation_secret = invitation.secret_bytes().map_err(|error| error.to_string())?;
     let connection = ClientConnection::connect(
         group,
         ClientConnectionConfig {
@@ -955,12 +915,7 @@ async fn receive_frames(
                         set_client_status(
                             &state,
                             &updates,
-                            if chunk.reset {
-                                "stream-reset"
-                            } else {
-                                "stream-closed"
-                            }
-                            .into(),
+                            if chunk.reset { "stream-reset" } else { "stream-closed" }.into(),
                         );
                     }
                     return StreamOutcome::Restart;
@@ -1009,13 +964,9 @@ impl TerminalStreamSupervisor {
         } = self;
         let mut stream = initial_stream;
         loop {
-            let outcome = receive_frames(
-                stream.clone(),
-                state.clone(),
-                updates.clone(),
-                raw_output.clone(),
-            )
-            .await;
+            let outcome =
+                receive_frames(stream.clone(), state.clone(), updates.clone(), raw_output.clone())
+                    .await;
             let current = streams.send_replace(None);
             if let Some(current) = current {
                 let _ = current.close().await;
@@ -1075,19 +1026,14 @@ impl TerminalStreamSupervisor {
 }
 
 fn terminal_reconnect_delay(terminal_id: &TerminalPublicId, attempt: u32) -> StdDuration {
-    let multiplier = 1_u32
-        .checked_shl(attempt.saturating_sub(1).min(16))
-        .unwrap_or(u32::MAX);
+    let multiplier = 1_u32.checked_shl(attempt.saturating_sub(1).min(16)).unwrap_or(u32::MAX);
     let base = TERMINAL_RECONNECT_INITIAL_DELAY
         .saturating_mul(multiplier)
         .min(TERMINAL_RECONNECT_MAX_DELAY);
-    let identity_jitter = terminal_id
-        .as_str()
-        .bytes()
-        .fold(u64::from(attempt), |hash, byte| {
+    let identity_jitter =
+        terminal_id.as_str().bytes().fold(u64::from(attempt), |hash, byte| {
             hash.wrapping_mul(33).wrapping_add(u64::from(byte))
-        })
-        % 101;
+        }) % 101;
     base.saturating_add(StdDuration::from_millis(identity_jitter))
 }
 
@@ -1150,10 +1096,7 @@ async fn supervise_resizes(
                 if closed.load(Ordering::Acquire) {
                     return;
                 }
-                let replaced = streams
-                    .borrow()
-                    .as_ref()
-                    .is_none_or(|stream| stream.id() != failed);
+                let replaced = streams.borrow().as_ref().is_none_or(|stream| stream.id() != failed);
                 if replaced {
                     break;
                 }
@@ -1382,9 +1325,7 @@ fn attach_target_already_satisfied(
     if attached == requested {
         return Ok(!closed);
     }
-    Err(format!(
-        "terminal {attached} is already attached; detach it before attaching {requested}"
-    ))
+    Err(format!("terminal {attached} is already attached; detach it before attaching {requested}"))
 }
 
 fn copy_utf8(value: &str, buffer: *mut c_char, capacity: usize) -> usize {
@@ -1414,10 +1355,7 @@ fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     if terminal.closed.load(Ordering::Acquire) {
         return false;
     }
-    terminal
-        .command_sender
-        .try_send(Bytes::from(encoded))
-        .is_ok()
+    terminal.command_sender.try_send(Bytes::from(encoded)).is_ok()
 }
 
 unsafe fn terminal_id_from_ffi(terminal_id: *const c_char) -> Result<TerminalPublicId, String> {
@@ -1436,9 +1374,7 @@ async fn connect_with_timeout<T>(
     future: impl Future<Output = Result<T, String>>,
     timeout: StdDuration,
 ) -> Result<T, String> {
-    tokio::time::timeout(timeout, future)
-        .await
-        .map_err(|_| CONNECTION_TIMEOUT_ERROR.to_string())?
+    tokio::time::timeout(timeout, future).await.map_err(|_| CONNECTION_TIMEOUT_ERROR.to_string())?
 }
 
 unsafe fn connect_terminal_client(
@@ -1538,13 +1474,7 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
 ) -> *mut CmuxTerminalClient {
     // SAFETY: this function forwards its documented pointer contract unchanged.
     unsafe {
-        connect_terminal_client(
-            invitation_uri,
-            terminal_id,
-            error_buffer,
-            error_capacity,
-            None,
-        )
+        connect_terminal_client(invitation_uri, terminal_id, error_buffer, error_capacity, None)
     }
 }
 
@@ -1699,22 +1629,20 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     client.raw_output.set_callback(None, std::ptr::null_mut());
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
-    let _ = std::thread::Builder::new()
-        .name("cmux-terminal-disconnect".into())
-        .spawn(move || {
-            let terminal = client.terminal.lock().unwrap().take();
-            client.runtime.block_on(async {
-                if let Some(terminal) = terminal {
-                    terminal.close().await;
-                }
-                if let Some(mux) = client.mux.lock().await.take() {
-                    let _ = mux.close().await;
-                }
-                client.multiplexer.shutdown().await;
-                let _ = client.connection.close().await;
-                client.transport.close().await;
-            });
+    let _ = std::thread::Builder::new().name("cmux-terminal-disconnect".into()).spawn(move || {
+        let terminal = client.terminal.lock().unwrap().take();
+        client.runtime.block_on(async {
+            if let Some(terminal) = terminal {
+                terminal.close().await;
+            }
+            if let Some(mux) = client.mux.lock().await.take() {
+                let _ = mux.close().await;
+            }
+            client.multiplexer.shutdown().await;
+            let _ = client.connection.close().await;
+            client.transport.close().await;
         });
+    });
 }
 
 unsafe fn bytes_from_ffi<'a>(bytes: *const u8, length: usize) -> Option<&'a [u8]> {
@@ -2025,11 +1953,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
-    state
-        .frame_rows
-        .get(row as usize)
-        .map(|value| copy_utf8(value, buffer, capacity))
-        .unwrap_or(0)
+    state.frame_rows.get(row as usize).map(|value| copy_utf8(value, buffer, capacity)).unwrap_or(0)
 }
 
 /// Copies current client diagnostics as a NUL-terminated UTF-8 string.
@@ -2050,11 +1974,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    copy_utf8(
-        &client.state.lock().unwrap().diagnostics(),
-        buffer,
-        capacity,
-    )
+    copy_utf8(&client.state.lock().unwrap().diagnostics(), buffer, capacity)
 }
 
 /// Returns whether the attached PTY has exited.
@@ -2218,11 +2138,7 @@ async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteC
                     DIRECT_ROUTE_MAX_FRAME_BYTES,
                     dialer,
                 ));
-                (
-                    ClientTransport::Direct(provider),
-                    parsed.clone(),
-                    BTreeMap::new(),
-                )
+                (ClientTransport::Direct(provider), parsed.clone(), BTreeMap::new())
             }
             other => return Err(format!("unsupported route scheme {other:?}")),
         };
@@ -2234,9 +2150,7 @@ async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteC
                 .map_err(|error| format!("daemon key: {error}"))?
                 .try_into()
                 .map_err(|bytes: Vec<u8>| format!("daemon key is {} bytes", bytes.len()))?;
-            let secret = invitation
-                .secret_bytes()
-                .map_err(|error| error.to_string())?;
+            let secret = invitation.secret_bytes().map_err(|error| error.to_string())?;
             (
                 ClientAuthMode::Invitation {
                     id: invitation.id.clone(),
@@ -2307,18 +2221,13 @@ async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteC
                 }
             }
             store
-                .pin_daemon(
-                    invitation.daemon_name.clone(),
-                    connection.daemon_public_key(),
-                    hints,
-                )
+                .pin_daemon(invitation.daemon_name.clone(), connection.daemon_public_key(), hints)
                 .await
                 .map(|_| ())
         }
-        (None, Some(known)) => store
-            .remember_verified_route(&known.fingerprint, route)
-            .await
-            .map(|_| ()),
+        (None, Some(known)) => {
+            store.remember_verified_route(&known.fingerprint, route).await.map(|_| ())
+        }
         (None, None) if trusted_carrier => store
             .pin_carrier_daemon(
                 "Cloud machine".into(),
@@ -2351,12 +2260,7 @@ async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteC
         .map_err(|error| format!("libghostty: {error}"))?,
     ));
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    Ok(RouteConnection {
-        transport,
-        connection,
-        multiplexer,
-        state,
-    })
+    Ok(RouteConnection { transport, connection, multiplexer, state })
 }
 
 unsafe fn optional_str_from_ffi<'a>(
@@ -2508,18 +2412,11 @@ unsafe fn connect_route_from_ffi(
     let connected = if timeout_milliseconds == 0 {
         runtime.block_on(connect)
     } else {
-        runtime.block_on(connect_with_timeout(
-            connect,
-            StdDuration::from_millis(timeout_milliseconds),
-        ))
+        runtime
+            .block_on(connect_with_timeout(connect, StdDuration::from_millis(timeout_milliseconds)))
     };
     match connected {
-        Ok(RouteConnection {
-            transport,
-            connection,
-            multiplexer,
-            state,
-        }) => {
+        Ok(RouteConnection { transport, connection, multiplexer, state }) => {
             let updates = Arc::new(ClientUpdates::default());
             spawn_diagnostics(&runtime, &connection, &state, &updates);
             Box::into_raw(Box::new(CmuxTerminalClient {
@@ -2579,10 +2476,9 @@ pub unsafe extern "C" fn cmux_wireguard_net_start(
         Err(error) => return fail(error.to_string()),
     };
     match runtime.block_on(WgNet::start_with_new_socket(parsed)) {
-        Ok(net) => Box::into_raw(Box::new(CmuxWireGuardNet {
-            _runtime: runtime,
-            net: Arc::new(net),
-        })),
+        Ok(net) => {
+            Box::into_raw(Box::new(CmuxWireGuardNet { _runtime: runtime, net: Arc::new(net) }))
+        }
         Err(error) => fail(format!("wireguard: {error}")),
     }
 }
@@ -2602,9 +2498,7 @@ pub unsafe extern "C" fn cmux_wireguard_net_free(net: *mut CmuxWireGuardNet) {
     let net = unsafe { Box::from_raw(net) };
     // The driver task lives on this runtime; drop it off the caller's thread so
     // an AppKit or UIKit caller never blocks on socket teardown.
-    let _ = std::thread::Builder::new()
-        .name("cmux-wireguard-free".into())
-        .spawn(move || drop(net));
+    let _ = std::thread::Builder::new().name("cmux-wireguard-free".into()).spawn(move || drop(net));
 }
 
 /// Installs the raw output callback, or clears it with NULL.
@@ -2687,34 +2581,28 @@ impl CmuxTerminalClient {
             }
         };
         let reply = match timeout {
-            Some(timeout) => match self
-                .runtime
-                .block_on(async { tokio::time::timeout(timeout, call).await })
-            {
-                Ok(reply) => reply?,
-                Err(_) => {
-                    // The reply may still arrive later on this stream and would
-                    // be mistaken for nothing, but a stale reply must never be
-                    // matched to a future request; drop the stream instead.
-                    if let Some(mux) = self.runtime.block_on(self.mux.lock()).take() {
-                        self.runtime.block_on(mux.close()).ok();
+            Some(timeout) => {
+                match self.runtime.block_on(async { tokio::time::timeout(timeout, call).await }) {
+                    Ok(reply) => reply?,
+                    Err(_) => {
+                        // The reply may still arrive later on this stream and would
+                        // be mistaken for nothing, but a stale reply must never be
+                        // matched to a future request; drop the stream instead.
+                        if let Some(mux) = self.runtime.block_on(self.mux.lock()).take() {
+                            self.runtime.block_on(mux.close()).ok();
+                        }
+                        return Err(format!("{operation}: {CONNECTION_TIMEOUT_ERROR}"));
                     }
-                    return Err(format!("{operation}: {CONNECTION_TIMEOUT_ERROR}"));
                 }
-            },
+            }
             None => self.runtime.block_on(call)?,
         };
         if reply.get("ok").and_then(Value::as_bool) == Some(true) {
-            return reply
-                .get("result")
-                .cloned()
-                .ok_or_else(|| format!("{operation}: no result"));
+            return reply.get("result").cloned().ok_or_else(|| format!("{operation}: no result"));
         }
         let error = reply.get("error");
-        let code = error
-            .and_then(|error| error.get("code"))
-            .and_then(Value::as_str)
-            .unwrap_or("error");
+        let code =
+            error.and_then(|error| error.get("code")).and_then(Value::as_str).unwrap_or("error");
         let message = error
             .and_then(|error| error.get("message"))
             .and_then(Value::as_str)
@@ -2725,9 +2613,7 @@ impl CmuxTerminalClient {
 
 fn json_to_c_string(value: &Value) -> Result<*mut c_char, String> {
     let text = serde_json::to_string(value).map_err(|error| error.to_string())?;
-    CString::new(text)
-        .map(CString::into_raw)
-        .map_err(|error| error.to_string())
+    CString::new(text).map(CString::into_raw).map_err(|error| error.to_string())
 }
 
 fn timeout_from_millis(milliseconds: u64) -> Option<StdDuration> {
@@ -2887,7 +2773,12 @@ pub unsafe extern "C" fn cmux_terminal_client_create_workspace(
         params.insert("name".into(), json!(name));
     }
     let result = client
-        .resource_operation("workspace.create", params, true, timeout_from_millis(timeout_milliseconds))
+        .resource_operation(
+            "workspace.create",
+            params,
+            true,
+            timeout_from_millis(timeout_milliseconds),
+        )
         .and_then(|value| json_to_c_string(&value));
     match result {
         Ok(text) => text,
@@ -2960,10 +2851,7 @@ mod tests {
         ));
 
         assert_eq!(result.unwrap_err(), CONNECTION_TIMEOUT_ERROR);
-        assert!(
-            dropped.load(Ordering::Acquire),
-            "timed-out enrollment future remained live"
-        );
+        assert!(dropped.load(Ordering::Acquire), "timed-out enrollment future remained live");
     }
 
     #[test]
@@ -2973,18 +2861,10 @@ mod tests {
         let context = (&count as *const AtomicU64).cast_mut().cast::<c_void>();
 
         updates.set_callback(Some(count_update), context);
-        assert_eq!(
-            count.load(Ordering::Relaxed),
-            1,
-            "registration omitted initial state"
-        );
+        assert_eq!(count.load(Ordering::Relaxed), 1, "registration omitted initial state");
 
         updates.notify();
-        assert_eq!(
-            count.load(Ordering::Relaxed),
-            2,
-            "state change omitted its callback"
-        );
+        assert_eq!(count.load(Ordering::Relaxed), 2, "state change omitted its callback");
 
         updates.set_callback(None, std::ptr::null_mut());
         updates.notify();
@@ -2998,16 +2878,8 @@ mod tests {
     #[test]
     fn resize_delivery_coalesces_to_the_latest_request_until_it_is_acknowledged() {
         let delivery = ResizeDelivery::default();
-        let first = ResizeRequest {
-            request_id: 1,
-            cols: 80,
-            rows: 24,
-        };
-        let latest = ResizeRequest {
-            request_id: 2,
-            cols: 120,
-            rows: 40,
-        };
+        let first = ResizeRequest { request_id: 1, cols: 80, rows: 24 };
+        let latest = ResizeRequest { request_id: 2, cols: 120, rows: 40 };
 
         delivery.request(first);
         delivery.request(latest);
@@ -3025,11 +2897,7 @@ mod tests {
     #[test]
     fn resize_acknowledgement_is_validated_and_releases_its_delivery_waiter() {
         let delivery = Arc::new(ResizeDelivery::default());
-        let request = ResizeRequest {
-            request_id: 17,
-            cols: 101,
-            rows: 33,
-        };
+        let request = ResizeRequest { request_id: 17, cols: 101, rows: 33 };
         delivery.request(request);
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
@@ -3041,10 +2909,7 @@ mod tests {
         payload.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
         let mut acknowledgement = Frame::new(MessageKind::ResizeAck, payload);
         acknowledgement.request_id = request.request_id;
-        assert_eq!(
-            state.apply(acknowledgement).unwrap().0,
-            FrameEffect::Continue
-        );
+        assert_eq!(state.apply(acknowledgement).unwrap().0, FrameEffect::Continue);
         assert!(delivery.is_acknowledged(request.request_id));
         assert_eq!(
             state.resize_acknowledgement,
@@ -3059,12 +2924,7 @@ mod tests {
         let mut malformed = Frame::new(MessageKind::ResizeAck, vec![0; 8]);
         malformed.request_id = 18;
         malformed.payload[4..8].copy_from_slice(&2_u32.to_le_bytes());
-        assert!(
-            state
-                .apply(malformed)
-                .unwrap_err()
-                .contains("unknown flags")
-        );
+        assert!(state.apply(malformed).unwrap_err().contains("unknown flags"));
     }
 
     #[test]
@@ -3088,11 +2948,7 @@ mod tests {
         assert_eq!(state.apply(exit).unwrap().0, FrameEffect::Stop);
         state.materialize_frame().unwrap();
 
-        assert!(
-            state.frame_text.contains("final output"),
-            "{}",
-            state.frame_text
-        );
+        assert!(state.frame_text.contains("final output"), "{}", state.frame_text);
         assert!(!state.ready);
         assert!(state.bootstrap_committed);
     }
@@ -3125,10 +2981,7 @@ mod tests {
         let value = "aé";
         let mut buffer = [0_i8; 3];
 
-        assert_eq!(
-            copy_utf8(value, buffer.as_mut_ptr(), buffer.len()),
-            value.len()
-        );
+        assert_eq!(copy_utf8(value, buffer.as_mut_ptr(), buffer.len()), value.len());
         // SAFETY: copy_utf8 always terminates a nonempty destination.
         let copied = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_str().unwrap();
         assert_eq!(copied, "a");
@@ -3168,14 +3021,7 @@ mod tests {
         ) -> Result<u64, ServiceError> {
             let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
             self.outgoing
-                .send(ReceivedFrame {
-                    generation: 0,
-                    lane,
-                    stream,
-                    sequence,
-                    flags,
-                    payload,
-                })
+                .send(ReceivedFrame { generation: 0, lane, stream, sequence, flags, payload })
                 .await
                 .map_err(|_| ServiceError::Closed)?;
             Ok(sequence)
@@ -3231,10 +3077,7 @@ mod tests {
             }
             _ => panic!("snapshot did not surface replay bytes"),
         }
-        assert!(
-            state.terminal.is_none(),
-            "raw mode must not build a libghostty terminal"
-        );
+        assert!(state.terminal.is_none(), "raw mode must not build a libghostty terminal");
         assert!(state.snapshot_applied);
 
         let mut ready = Frame::new(MessageKind::Ready, Vec::new());
@@ -3305,11 +3148,7 @@ mod tests {
             CALLS.fetch_add(1, Ordering::Relaxed);
         }
         let output = RawOutput::default();
-        let event = RawEvent::Snapshot {
-            cols: 3,
-            rows: 1,
-            replay: b"abc".to_vec(),
-        };
+        let event = RawEvent::Snapshot { cols: 3, rows: 1, replay: b"abc".to_vec() };
         output.emit(&event);
         assert_eq!(CALLS.load(Ordering::Relaxed), 0);
         output.set_callback(Some(record), 0x1234 as *mut c_void);
@@ -3338,60 +3177,31 @@ mod tests {
         };
         let route = "ws://[fd7a::10]:1337/v1/link";
         let a = daemon("a", &[route], KnownDaemonAuth::Enrolled);
-        let b = daemon(
-            "b",
-            &["ws://[fd7a::11]:1337/v1/link"],
-            KnownDaemonAuth::Enrolled,
-        );
+        let b = daemon("b", &["ws://[fd7a::11]:1337/v1/link"], KnownDaemonAuth::Enrolled);
         assert_eq!(
-            select_enrolled_daemon(vec![a.clone(), b.clone()], route)
-                .unwrap()
-                .fingerprint,
+            select_enrolled_daemon(vec![a.clone(), b.clone()], route).unwrap().fingerprint,
             "a"
         );
-        assert_eq!(
-            select_enrolled_daemon(vec![b.clone()], route)
-                .unwrap()
-                .fingerprint,
-            "b"
+        assert_eq!(select_enrolled_daemon(vec![b.clone()], route).unwrap().fingerprint, "b");
+        assert!(
+            select_enrolled_daemon(vec![a.clone(), a], route).unwrap_err().contains("multiple")
         );
         assert!(
-            select_enrolled_daemon(vec![a.clone(), a], route)
-                .unwrap_err()
-                .contains("multiple")
+            select_enrolled_daemon(vec![b.clone(), b], route).unwrap_err().contains("invitation")
         );
-        assert!(
-            select_enrolled_daemon(vec![b.clone(), b], route)
-                .unwrap_err()
-                .contains("invitation")
-        );
-        assert!(
-            select_enrolled_daemon(Vec::new(), route)
-                .unwrap_err()
-                .contains("invitation")
-        );
+        assert!(select_enrolled_daemon(Vec::new(), route).unwrap_err().contains("invitation"));
         let carrier = daemon("c", &[route], KnownDaemonAuth::Carrier);
-        assert!(
-            select_enrolled_daemon(vec![carrier], route)
-                .unwrap_err()
-                .contains("carrier")
-        );
+        assert!(select_enrolled_daemon(vec![carrier], route).unwrap_err().contains("carrier"));
     }
 
     #[test]
     fn trusted_cloud_route_requires_a_tunneled_literal() {
-        let routes: Vec<IpNetwork> = vec![
-            "fdcc::/64".parse().unwrap(),
-            "10.200.0.0/24".parse().unwrap(),
-        ];
+        let routes: Vec<IpNetwork> =
+            vec!["fdcc::/64".parse().unwrap(), "10.200.0.0/24".parse().unwrap()];
         for route in ["ws://[fdcc::2]:1337/v1/link", "wss://10.200.0.2/v1/link"] {
             let route = Url::parse(route).unwrap();
             assert!(validate_trusted_route(&route, Some(&routes)).is_ok());
-            assert!(
-                validate_trusted_route(&route, None)
-                    .unwrap_err()
-                    .contains("requires")
-            );
+            assert!(validate_trusted_route(&route, None).unwrap_err().contains("requires"));
             assert!(validate_trusted_route(&route, Some(&[])).is_err());
         }
         for route in [
@@ -3458,10 +3268,7 @@ mod tests {
 
     async fn send_test_terminal_frame(stream: &ServiceStream, frame: Frame) {
         stream
-            .send_on(
-                Lane::Interactive,
-                Bytes::from(encode_frame(&frame).unwrap()),
-            )
+            .send_on(Lane::Interactive, Bytes::from(encode_frame(&frame).unwrap()))
             .await
             .unwrap();
     }
@@ -3478,9 +3285,7 @@ mod tests {
         assert!(sender.try_send(first.clone()).is_ok());
         assert!(sender.try_send(second.clone()).is_ok());
         assert!(
-            sender
-                .try_send(encode(MessageKind::Input, b"overflow"))
-                .is_err(),
+            sender.try_send(encode(MessageKind::Input, b"overflow")).is_err(),
             "a full writer queue must return backpressure instead of blocking"
         );
         runtime.block_on(async {
@@ -3496,18 +3301,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(endpoint.as_str(), "iroh://node-id");
-        assert_eq!(
-            routing.get(ROUTING_NODE_ID).map(String::as_str),
-            Some("node-id")
-        );
+        assert_eq!(routing.get(ROUTING_NODE_ID).map(String::as_str), Some("node-id"));
         assert_eq!(
             routing.get(ROUTING_RELAY_URL).map(String::as_str),
             Some("https://relay.example")
         );
-        assert_eq!(
-            routing.get(ROUTING_DIRECT_ADDRS).map(String::as_str),
-            Some("127.0.0.1:9000")
-        );
+        assert_eq!(routing.get(ROUTING_DIRECT_ADDRS).map(String::as_str), Some("127.0.0.1:9000"));
     }
 
     #[test]
@@ -3545,10 +3344,7 @@ mod tests {
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
         let ready = Frame::new(MessageKind::Ready, Vec::new());
 
-        assert_eq!(
-            state.apply(ready).unwrap_err(),
-            "unexpected smart terminal frame Ready"
-        );
+        assert_eq!(state.apply(ready).unwrap_err(), "unexpected smart terminal frame Ready");
         assert!(!state.ready);
         assert!(!state.snapshot_applied);
     }
@@ -3615,11 +3411,7 @@ mod tests {
             let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
             let (owned_multiplexer, stream) = open_owned(client).await;
             let incoming = daemon.accept().await.unwrap().unwrap();
-            incoming
-                .stream
-                .send(Bytes::from_static(b"after-return"))
-                .await
-                .unwrap();
+            incoming.stream.send(Bytes::from_static(b"after-return")).await.unwrap();
             let received =
                 tokio::time::timeout(std::time::Duration::from_secs(1), stream.receive())
                     .await
@@ -3658,13 +3450,9 @@ mod tests {
                 }
             });
 
-            let first = open_terminal_stream(&client, &test_terminal_id())
-                .await
-                .unwrap();
+            let first = open_terminal_stream(&client, &test_terminal_id()).await.unwrap();
             first.close().await.unwrap();
-            let second = open_terminal_stream(&client, &test_terminal_id())
-                .await
-                .unwrap();
+            let second = open_terminal_stream(&client, &test_terminal_id()).await.unwrap();
             assert_ne!(first.id(), second.id());
             second.close().await.unwrap();
 
@@ -3689,11 +3477,7 @@ mod tests {
                         service: Service::MuxControl,
                     })
                     .unwrap();
-                    incoming
-                        .stream
-                        .send_on(Lane::Interactive, Bytes::from(invalid))
-                        .await
-                        .unwrap();
+                    incoming.stream.send_on(Lane::Interactive, Bytes::from(invalid)).await.unwrap();
                     let closed = tokio::time::timeout(
                         std::time::Duration::from_secs(1),
                         incoming.stream.receive(),
@@ -3702,19 +3486,12 @@ mod tests {
                     .expect("failed handshake left the service registered")
                     .unwrap()
                     .unwrap();
-                    assert!(
-                        closed.finished,
-                        "failed handshake reset instead of closing cleanly"
-                    );
+                    assert!(closed.finished, "failed handshake reset instead of closing cleanly");
                     assert!(!closed.reset);
                 }
             });
 
-            assert!(
-                open_terminal_stream(&client, &test_terminal_id())
-                    .await
-                    .is_err()
-            );
+            assert!(open_terminal_stream(&client, &test_terminal_id()).await.is_err());
             daemon_task.await.unwrap();
             client.shutdown().await;
             daemon.shutdown().await;
@@ -3749,10 +3526,7 @@ mod tests {
             .unwrap_err();
             assert_eq!(error, CONNECTION_TIMEOUT_ERROR);
             let closed = daemon_task.await.unwrap();
-            assert!(
-                closed.finished,
-                "timed-out handshake reset instead of closing cleanly"
-            );
+            assert!(closed.finished, "timed-out handshake reset instead of closing cleanly");
             assert!(!closed.reset);
             client.shutdown().await;
             daemon.shutdown().await;
@@ -3838,10 +3612,7 @@ mod tests {
                     sequence: boundary,
                     ..Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"snapshot"))
                 },
-                Frame {
-                    sequence: boundary,
-                    ..Frame::new(MessageKind::Ready, Vec::new())
-                },
+                Frame { sequence: boundary, ..Frame::new(MessageKind::Ready, Vec::new()) },
                 Frame {
                     sequence: boundary + 1,
                     ..Frame::new(MessageKind::ResyncRequired, Vec::new())
@@ -3855,11 +3626,7 @@ mod tests {
             for frame in frames {
                 chunk.extend_from_slice(&encode_frame(&frame).unwrap());
             }
-            incoming
-                .stream
-                .send_on(Lane::Interactive, Bytes::from(chunk))
-                .await
-                .unwrap();
+            incoming.stream.send_on(Lane::Interactive, Bytes::from(chunk)).await.unwrap();
 
             assert_eq!(receiver.await.unwrap(), StreamOutcome::Restart);
             {
@@ -3994,11 +3761,7 @@ mod tests {
                         service: Service::TerminalBytes,
                     })
                     .unwrap();
-                    incoming
-                        .stream
-                        .send_on(Lane::Interactive, Bytes::from(opened))
-                        .await
-                        .unwrap();
+                    incoming.stream.send_on(Lane::Interactive, Bytes::from(opened)).await.unwrap();
 
                     let boundary = 10;
                     let mut snapshot =
@@ -4042,10 +3805,7 @@ mod tests {
             {
                 let state = state.lock().unwrap();
                 assert_eq!(state.status, "exited");
-                assert!(
-                    !state.ready,
-                    "an exited terminal must not remain input-ready"
-                );
+                assert!(!state.ready, "an exited terminal must not remain input-ready");
             }
 
             active.close().await;

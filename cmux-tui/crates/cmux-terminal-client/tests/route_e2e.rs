@@ -28,7 +28,9 @@ use cmux_terminal_client::{
     cmux_terminal_client_set_output_callback, cmux_terminal_client_string_free,
     cmux_wireguard_net_free, cmux_wireguard_net_start,
 };
-use cmux_tui_core::terminal_host_protocol::{Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, encode_frame};
+use cmux_tui_core::terminal_host_protocol::{
+    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, encode_frame,
+};
 use cmux_tui_core::terminal_host_runtime::{HostSnapshot, encode_host_snapshot_payload};
 use cmux_wg::testing::{LoopbackPair, loopback_pair};
 use cmux_wg::{WgConfig, WgNet};
@@ -108,12 +110,21 @@ async fn serve_phone_services(daemon: Arc<ServiceMultiplexer>) {
                         .unwrap();
                 stream.send_on(Lane::Interactive, Bytes::from(opened)).await.unwrap();
                 stream
-                    .send_on(Lane::Interactive, frame(MessageKind::Snapshot, snapshot_payload(b"$ "), 7))
+                    .send_on(
+                        Lane::Interactive,
+                        frame(MessageKind::Snapshot, snapshot_payload(b"$ "), 7),
+                    )
                     .await
                     .unwrap();
-                stream.send_on(Lane::Interactive, frame(MessageKind::Ready, Vec::new(), 7)).await.unwrap();
                 stream
-                    .send_on(Lane::Interactive, frame(MessageKind::Output, b"hello from vm\r\n".to_vec(), 8))
+                    .send_on(Lane::Interactive, frame(MessageKind::Ready, Vec::new(), 7))
+                    .await
+                    .unwrap();
+                stream
+                    .send_on(
+                        Lane::Interactive,
+                        frame(MessageKind::Output, b"hello from vm\r\n".to_vec(), 8),
+                    )
                     .await
                     .unwrap();
                 // Echo typed input back as output so the input path is proven too.
@@ -131,7 +142,10 @@ async fn serve_phone_services(daemon: Arc<ServiceMultiplexer>) {
                                 continue;
                             }
                             let _ = echo
-                                .send_on(Lane::Interactive, frame(MessageKind::Output, input.payload, sequence))
+                                .send_on(
+                                    Lane::Interactive,
+                                    frame(MessageKind::Output, input.payload, sequence),
+                                )
                                 .await;
                             sequence += 1;
                         }
@@ -283,7 +297,14 @@ fn phone_path_over_wireguard_with_persistent_identity() {
         });
         let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
         let uri = invitation.to_uri().unwrap();
-        (auth, server, network, uri, format!("ws://[{server_v6}]:1337/v1/link"), wg_quick_text(&client))
+        (
+            auth,
+            server,
+            network,
+            uri,
+            format!("ws://[{server_v6}]:1337/v1/link"),
+            wg_quick_text(&client),
+        )
     });
     // Approve the first (invitation) enrollment as the control plane would.
     let approver = runtime.spawn({
@@ -321,7 +342,8 @@ fn phone_path_over_wireguard_with_persistent_identity() {
     assert!(!client.is_null(), "invitation connect failed: {}", error_text(&error));
     runtime.block_on(approver).unwrap();
 
-    let captured = Arc::new(Captured { events: Mutex::new(Vec::new()), saw_hello: AtomicBool::new(false) });
+    let captured =
+        Arc::new(Captured { events: Mutex::new(Vec::new()), saw_hello: AtomicBool::new(false) });
     // SAFETY: the context outlives the client; cleared before it is dropped.
     unsafe {
         cmux_terminal_client_set_output_callback(
@@ -339,7 +361,13 @@ fn phone_path_over_wireguard_with_persistent_identity() {
     assert_eq!(listed[0]["id"], TERMINAL_ID);
     let name = c("phone");
     let created = take_string(unsafe {
-        cmux_terminal_client_create_terminal(client, name.as_ptr(), error.as_mut_ptr(), error.len(), TIMEOUT_MS)
+        cmux_terminal_client_create_terminal(
+            client,
+            name.as_ptr(),
+            error.as_mut_ptr(),
+            error.len(),
+            TIMEOUT_MS,
+        )
     });
     let created: serde_json::Value = serde_json::from_str(&created).unwrap();
     assert_eq!(created["value"]["kind"], "terminal");
@@ -349,12 +377,22 @@ fn phone_path_over_wireguard_with_persistent_identity() {
     let terminal_c = c(TERMINAL_ID);
     // SAFETY: live handle and NUL-terminated id.
     let attached = unsafe {
-        cmux_terminal_client_attach_with_timeout(client, terminal_c.as_ptr(), error.as_mut_ptr(), error.len(), TIMEOUT_MS)
+        cmux_terminal_client_attach_with_timeout(
+            client,
+            terminal_c.as_ptr(),
+            error.as_mut_ptr(),
+            error.len(),
+            TIMEOUT_MS,
+        )
     };
     assert!(attached, "attach failed: {}", error_text(&error));
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while !captured.saw_hello.load(Ordering::Acquire) {
-        assert!(std::time::Instant::now() < deadline, "no raw output arrived: {:?}", captured.events.lock().unwrap());
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no raw output arrived: {:?}",
+            captured.events.lock().unwrap()
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     {
@@ -362,13 +400,23 @@ fn phone_path_over_wireguard_with_persistent_identity() {
         assert_eq!(events[0].0, 1, "first event is the snapshot");
         assert_eq!(&events[0].1, b"$ ");
         assert_eq!((events[0].2, events[0].3), (80, 24));
-        assert!(events.iter().any(|(kind, bytes, _, _)| *kind == 2 && bytes == b"hello from vm\r\n"));
+        assert!(
+            events.iter().any(|(kind, bytes, _, _)| *kind == 2 && bytes == b"hello from vm\r\n")
+        );
     }
     // SAFETY: live handle; bytes are copied before return.
-    assert!(unsafe { cmux_terminal_client::cmux_terminal_client_send(client, b"ls\n".as_ptr(), 3) });
+    assert!(unsafe {
+        cmux_terminal_client::cmux_terminal_client_send(client, b"ls\n".as_ptr(), 3)
+    });
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
-        if captured.events.lock().unwrap().iter().any(|(kind, bytes, _, _)| *kind == 2 && bytes == b"ls\n") {
+        if captured
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(kind, bytes, _, _)| *kind == 2 && bytes == b"ls\n")
+        {
             break;
         }
         assert!(std::time::Instant::now() < deadline, "typed input was not echoed");
@@ -397,7 +445,8 @@ fn phone_path_over_wireguard_with_persistent_identity() {
         )
     };
     assert!(!client.is_null(), "enrolled reconnect failed: {}", error_text(&error));
-    let identity = std::fs::read_to_string(client_state.path().join("client-identity.json")).unwrap();
+    let identity =
+        std::fs::read_to_string(client_state.path().join("client-identity.json")).unwrap();
     assert!(!identity.is_empty(), "device identity persisted in the state dir");
     let known = std::fs::read_dir(client_state.path()).unwrap().count();
     assert!(known >= 2, "identity and known-daemon state both persisted");
