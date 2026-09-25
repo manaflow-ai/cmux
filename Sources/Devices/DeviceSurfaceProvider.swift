@@ -256,12 +256,11 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             }
             if let reservation,
                let adopted = workspace.adoptPendingDeviceTerminalPane(
-                   reservation, machine: machine, remoteWorkspaceID: workspaceID
+                   reservation, machine: machine, remoteWorkspaceID: workspaceID, resource: resource
                ) {
                 // The reservation was created before the Device provider had
                 // a session. Hand its queued/next input to the real device
                 // router before the pane becomes interactive.
-                reservation.inputRelay.attach(session.inputRouter)
                 created = adopted
             } else {
                 created = try workspace.performRemoteTmuxMirrorMutation {
@@ -293,6 +292,11 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             }
         }
         session.bind(surface: created.surface)
+        if let reservation = adopting {
+            session.onAttached = { [weak reservation] in
+                reservation?.inputRelay.attach(session.inputRouter)
+            }
+        }
         sessions[created.panelID] = session
         session.start()
         Self.setInitialTitle(resource.title, panelID: created.panelID, workspaceID: created.workspaceID)

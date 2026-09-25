@@ -663,6 +663,10 @@ final class MobileHostService {
                 )
             }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
+            if result.overflowed {
+                Task { await connection.close(reason: "event queue overflow") }
+                continue
+            }
             if result.startDrain {
                 Task { await connection.drainQueuedEvents() }
             }
@@ -2214,6 +2218,10 @@ actor MobileHostConnection {
                 panelIDStrings: result.simulatorFrameShedPanelIDs,
                 shedByteCount: result.shedByteCount
             )
+        }
+        if result.overflowed {
+            await close(reason: "event queue overflow")
+            return false
         }
         if result.startDrain {
             Task { await self.drainQueuedEvents() }

@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxCore
 import CmuxMobileRPC
+import CmuxMobileHost
 import CmuxSurfaceCatalogModel
 import Foundation
 import OSLog

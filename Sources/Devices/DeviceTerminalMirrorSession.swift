@@ -37,6 +37,7 @@ final class DeviceTerminalMirrorSession {
         }
     }
     private(set) var assignedGrid: (columns: Int, rows: Int)?
+    var onAttached: (@MainActor () -> Void)?
 
     private weak var surface: TerminalSurface?
     private var eventTask: Task<Void, Never>?
@@ -123,6 +124,7 @@ final class DeviceTerminalMirrorSession {
         eventTask?.cancel()
         eventTask = nil
         inputRouter.invalidate()
+        onAttached = nil
         surface?.clearAssignedGrid()
         surface = nil
     }
@@ -227,6 +229,7 @@ final class DeviceTerminalMirrorSession {
             surface?.processRemoteOutput(replay.bytes)
             expectedSequence = replay.sequence
             phase = .attached
+            onAttached?()
             let buffered = attachingBytes
             attachingBytes.removeAll(keepingCapacity: true)
             attachingByteCount = 0

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileHost
 import Foundation
 
 /// Per-topic shedding policy for server-pushed mobile events.
@@ -66,6 +67,9 @@ struct MobileHostEventEnqueueResult: Sendable {
     let shedByteCount: Int
     /// Simulator panel IDs whose queued frame snapshots were superseded.
     let simulatorFrameShedPanelIDs: Set<String>
+    /// A non-droppable event could not fit after eligible shedding. The
+    /// owning connection must close rather than allowing the mailbox to grow.
+    let overflowed: Bool
 
     static let rejected = MobileHostEventEnqueueResult(
         admitted: false,
@@ -74,7 +78,19 @@ struct MobileHostEventEnqueueResult: Sendable {
         depthAfterEnqueue: nil,
         shedEventCount: 0,
         shedByteCount: 0,
-        simulatorFrameShedPanelIDs: []
+        simulatorFrameShedPanelIDs: [],
+        overflowed: false
+    )
+
+    static let overflow = MobileHostEventEnqueueResult(
+        admitted: false,
+        startDrain: false,
+        renderGridResyncSurfaceIDs: [],
+        depthAfterEnqueue: nil,
+        shedEventCount: 0,
+        shedByteCount: 0,
+        simulatorFrameShedPanelIDs: [],
+        overflowed: true
     )
 }
 
@@ -114,7 +130,9 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     private let maximumEventCount: Int
     private let maximumByteCount: Int
     private var subscribedTopics: Set<String> = []
-    private var queuedEvents: [QueuedEvent] = []
+    private var queuedEvents: [UUID: QueuedEvent] = [:]
+    private var queuedOrder: [UUID] = []
+    private var gridEventIDs: [String: UUID] = [:]
     private var queuedByteCount = 0
     private var drainActive = false
     private var isClosed = false
@@ -141,7 +159,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     var count: Int {
         lock.lock()
         defer { lock.unlock() }
-        return queuedEvents.count
+        return queuedOrder.count
     }
 
     var byteCount: Int {
@@ -178,14 +196,23 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             lock.unlock()
             return .rejected
         }
-        if topic == DeviceTerminalGridPublisher.eventTopic, let coalesceKey {
-            // A Mac grid is an absolute snapshot. Keep its newest dimensions
-            // per surface while a slow peer drains, never one entry per drag tick.
-            queuedEvents.removeAll { event in
-                guard event.topic == topic, event.coalesceKey == coalesceKey else { return false }
-                queuedByteCount -= event.frame.count
-                return true
+        if topic == DeviceTerminalGridPublisher.eventTopic, let coalesceKey,
+           let eventID = gridEventIDs[coalesceKey], let previous = queuedEvents[eventID] {
+            // A Mac grid is an absolute snapshot. Replace the indexed entry
+            // in place, preserving order without scanning the socket queue.
+            let nextByteCount = queuedByteCount - previous.frame.count + frame.count
+            guard nextByteCount <= maximumByteCount else {
+                lock.unlock()
+                return .overflow
             }
+            queuedEvents[eventID] = QueuedEvent(topic: topic, coalesceKey: coalesceKey, frame: frame, stateSeq: stateSeq)
+            queuedByteCount = nextByteCount
+            let startDrain = !drainActive
+            if startDrain { drainActive = true }
+            lock.unlock()
+            return MobileHostEventEnqueueResult(admitted: true, startDrain: startDrain,
+                renderGridResyncSurfaceIDs: [], depthAfterEnqueue: queuedOrder.count,
+                shedEventCount: 0, shedByteCount: 0, simulatorFrameShedPanelIDs: [], overflowed: false)
         }
         let isRenderGrid = topic == MobileHostEventTopicPolicy.renderGridTopic
         if isRenderGrid,
@@ -217,7 +244,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 depthAfterEnqueue: nil,
                 shedEventCount: shedSummary.eventCount,
                 shedByteCount: shedSummary.byteCount,
-                simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs
+                simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs,
+                overflowed: false
             )
         }
         if !hasRoomLocked(for: frame),
@@ -239,19 +267,25 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 depthAfterEnqueue: nil,
                 shedEventCount: shedSummary.eventCount,
                 shedByteCount: shedSummary.byteCount,
-                simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs
+                simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs,
+                overflowed: false
             )
         }
-        queuedEvents.append(
-            QueuedEvent(
+        if !hasRoomLocked(for: frame), topic == DeviceTerminalGridPublisher.eventTopic {
+            lock.unlock()
+            return .overflow
+        }
+        let eventID = UUID()
+        queuedEvents[eventID] = QueuedEvent(
                 topic: topic,
                 coalesceKey: coalesceKey,
                 frame: frame,
                 stateSeq: stateSeq
             )
-        )
+        queuedOrder.append(eventID)
+        if topic == DeviceTerminalGridPublisher.eventTopic, let coalesceKey { gridEventIDs[coalesceKey] = eventID }
         queuedByteCount += frame.count
-        let depthAfterEnqueue = queuedEvents.count
+        let depthAfterEnqueue = queuedOrder.count
         if isRenderGrid, isFullRenderGridFrame, let coalesceKey {
             poisonedRenderGridSurfaceIDs.remove(coalesceKey)
             resyncAfterDrainSurfaceIDs.remove(coalesceKey)
@@ -268,15 +302,18 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             depthAfterEnqueue: depthAfterEnqueue,
             shedEventCount: shedSummary.eventCount,
             shedByteCount: shedSummary.byteCount,
-            simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs
+            simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs,
+            overflowed: false
         )
     }
 
     func dequeue() -> QueuedEvent? {
         lock.lock()
         defer { lock.unlock() }
-        guard !queuedEvents.isEmpty else { return nil }
-        let event = queuedEvents.removeFirst()
+        guard let eventID = queuedOrder.first, let event = queuedEvents.removeValue(forKey: eventID) else { return nil }
+        queuedOrder.removeFirst()
+        if event.topic == DeviceTerminalGridPublisher.eventTopic, let key = event.coalesceKey,
+           gridEventIDs[key] == eventID { gridEventIDs.removeValue(forKey: key) }
         queuedByteCount -= event.frame.count
         return event
     }
@@ -287,7 +324,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     func finishDrain() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        if queuedEvents.isEmpty || isClosed {
+        if queuedOrder.isEmpty || isClosed {
             drainActive = false
             return false
         }
@@ -307,7 +344,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     func claimDrain() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard !isClosed, !drainActive, !queuedEvents.isEmpty else { return false }
+        guard !isClosed, !drainActive, !queuedOrder.isEmpty else { return false }
         drainActive = true
         return true
     }
@@ -350,6 +387,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         lock.lock()
         isClosed = true
         queuedEvents.removeAll(keepingCapacity: false)
+        queuedOrder.removeAll(keepingCapacity: false)
+        gridEventIDs.removeAll(keepingCapacity: false)
         queuedByteCount = 0
         poisonedRenderGridSurfaceIDs.removeAll()
         resyncAfterDrainSurfaceIDs.removeAll()
@@ -359,7 +398,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     }
 
     private func hasRoomLocked(for frame: Data) -> Bool {
-        queuedEvents.count < maximumEventCount
+        queuedOrder.count < maximumEventCount
             && queuedByteCount + frame.count <= maximumByteCount
     }
 
@@ -369,8 +408,9 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     ) -> MobileHostEventShedSummary {
         var summary = MobileHostEventShedSummary()
         var index = 0
-        while !hasRoomLocked(for: frame), index < queuedEvents.count {
-            let event = queuedEvents[index]
+        while !hasRoomLocked(for: frame), index < queuedOrder.count {
+            let eventID = queuedOrder[index]
+            guard let event = queuedEvents[eventID] else { index += 1; continue }
             guard MobileHostEventTopicPolicy.isDroppable(
                 topic: event.topic,
                 coalesceKey: event.coalesceKey
@@ -378,7 +418,10 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 index += 1
                 continue
             }
-            queuedEvents.remove(at: index)
+            queuedOrder.remove(at: index)
+            queuedEvents.removeValue(forKey: eventID)
+            if event.topic == DeviceTerminalGridPublisher.eventTopic, let key = event.coalesceKey,
+               gridEventIDs[key] == eventID { gridEventIDs.removeValue(forKey: key) }
             queuedByteCount -= event.frame.count
             summary.record(event)
             if event.topic == MobileHostEventTopicPolicy.renderGridTopic,
@@ -394,16 +437,20 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         guard !resyncSurfaceIDs.isEmpty else { return summary }
         let brokenSurfaceIDs = resyncSurfaceIDs
         var cascadeByteCount = 0
-        queuedEvents.removeAll { event in
+        var retained: [UUID] = []
+        for eventID in queuedOrder {
+            guard let event = queuedEvents[eventID] else { continue }
             guard event.topic == MobileHostEventTopicPolicy.renderGridTopic,
                   let surfaceID = event.coalesceKey,
                   brokenSurfaceIDs.contains(surfaceID) else {
-                return false
+                retained.append(eventID); continue
             }
             summary.record(event)
             cascadeByteCount += event.frame.count
-            return true
+            queuedEvents.removeValue(forKey: eventID)
         }
+        queuedOrder = retained
+        for key in brokenSurfaceIDs { gridEventIDs.removeValue(forKey: key) }
         queuedByteCount -= cascadeByteCount
         return summary
     }

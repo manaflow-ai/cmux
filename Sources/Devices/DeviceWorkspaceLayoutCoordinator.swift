@@ -392,6 +392,18 @@ final class DeviceWorkspaceLayoutCoordinator {
         return (remoteID, mapping, Array(projections))
     }
 
+    /// Establishes the exact terminal identity before its authoritative layout
+    /// snapshot is accepted. This closes the reservation-to-resource race.
+    func bindCreatedTerminal(requestID: UUID, remoteWorkspaceID: String, resource: SurfaceResource) -> Bool {
+        let workspaceIDs = Set(catalog?.projections.filter { $0.resource.machine == machine }.map(\.workspaceID) ?? [])
+        for workspaceID in workspaceIDs {
+            if workspace(workspaceID)?.bindPendingDeviceTerminal(
+                requestID: requestID, remoteWorkspaceID: remoteWorkspaceID, resource: resource
+            ) == true { return true }
+        }
+        return false
+    }
+
     private func scheduleReconcile() {
         guard !stopped, isConnected() else { return }
         reconcileRequested = true
@@ -458,8 +470,8 @@ final class DeviceWorkspaceLayoutCoordinator {
                     let destination: SurfaceDestination = pane.map {
                         .tab(workspaceID: id, paneID: $0.id.uuidString, index: location?.tabIndex)
                     } ?? .workspace(id: id, placement: .tab)
-                    let adopting = pendingReservation?.remoteTabID == nil
-                        || pendingReservation?.remoteTabID == view.tabID
+                    let adopting = pendingReservation?.resourceID == resourceID
+                        && pendingReservation?.remoteTabID == view.tabID
                         ? pendingReservation : nil
                     _ = try await catalog.project(resourceID, into: destination,
                         focus: false, reuseExisting: true, reuseInWorkspace: id,

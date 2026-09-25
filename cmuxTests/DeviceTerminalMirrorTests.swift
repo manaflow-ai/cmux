@@ -1,4 +1,5 @@
 import CmuxMobileRPC
+import CmuxMobileHost
 import CmuxTerminal
 import Foundation
 import GhosttyKit
@@ -26,12 +27,13 @@ struct DeviceTerminalMirrorTests {
         for value in 0..<100 {
             _ = queue.enqueue(topic: topic, coalesceKey: "first", isFullRenderGridFrame: false, frame: Data([UInt8(value)]))
         }
-        _ = queue.enqueue(topic: topic, coalesceKey: "second", isFullRenderGridFrame: false, frame: Data([200]))
+        let second = queue.enqueue(topic: topic, coalesceKey: "second", isFullRenderGridFrame: false, frame: Data([200]))
         _ = queue.enqueue(topic: "terminal.bytes", coalesceKey: "first", isFullRenderGridFrame: false, frame: Data([0]))
+        #expect(!second.admitted, "A distinct Mac grid must close the connection instead of growing the queue")
         #expect(queue.count == 2, "Other event pressure cannot discard a surface's last known dimensions")
         #expect(queue.byteCount == 2)
         #expect(queue.dequeue()?.frame == Data([99]))
-        #expect(queue.dequeue()?.frame == Data([200]))
+        #expect(queue.dequeue()?.frame == Data([0]))
         #expect(queue.byteCount == 0)
         let phone = MobileHostConnectionEventQueue()
         phone.updateSubscribedTopics(["terminal.updated", "terminal.render_grid"])

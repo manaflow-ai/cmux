@@ -45,15 +45,41 @@ extension Workspace {
     func adoptPendingDeviceTerminalPane(
         _ reservation: CloudTerminalPaneReservation,
         machine: SurfaceMachineID,
-        remoteWorkspaceID: String
+        remoteWorkspaceID: String,
+        resource: SurfaceResource
     ) -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)? {
         guard reservation.machine == machine,
               reservation.remoteWorkspaceID == remoteWorkspaceID,
+              reservation.attachmentPlacement?.resource == resource.id
+                || reservation.sourcePlacement.resource?.id == resource.id,
               cloudPendingCreations[reservation.panelID] === reservation,
               let panel = panels[reservation.panelID] as? TerminalPanel,
               panel.surface.ioMode == .manualMirror else { return nil }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
         return (id, panel.id, panel.surface)
+    }
+
+    /// Binds a device create receipt to the reservation that owns its pane.
+    /// This identity is established before layout reconciliation can adopt the
+    /// pane, so a different terminal can never claim its queued input.
+    func bindPendingDeviceTerminal(
+        requestID: UUID,
+        remoteWorkspaceID: String,
+        resource: SurfaceResource
+    ) -> Bool {
+        guard let reservation = cloudPendingCreations.values.first(where: {
+            $0.requestID == requestID && $0.machine == resource.machine
+                && $0.remoteWorkspaceID == remoteWorkspaceID
+        }) else { return false }
+        let tabID = resource.remoteViews?.first(where: { $0.workspace.id == remoteWorkspaceID })?.tabID
+        reservation.sourcePlacement = CloudTerminalSourcePlacement(
+            machine: reservation.machine,
+            resource: resource,
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteTabID: tabID,
+            pendingCreation: reservation.sourcePlacement.pendingCreation
+        )
+        return true
     }
 
     func reserveRestoredCloudTerminalPane(
@@ -101,7 +127,8 @@ extension Workspace {
         at destination: SurfaceDestination,
         focus: Bool,
         sourcePlacement: CloudTerminalSourcePlacement? = nil,
-        attachmentPlacement: SurfaceResourcePlacement? = nil
+        attachmentPlacement: SurfaceResourcePlacement? = nil,
+        requestID: UUID? = nil
     ) -> CloudTerminalPaneReservation? {
         guard !isRetiredFromOwningTabManager,
               sourcePlacement.map({ $0.machine == machine }) ?? true,
@@ -115,7 +142,8 @@ extension Workspace {
         panel.surface.setManualIONoReflow(false)
         let reservation = CloudTerminalPaneReservation(
             workspaceID: id, panelID: panel.id, machine: machine,
-            sourcePlacement: sourcePlacement, attachmentPlacement: attachmentPlacement, inputRelay: relay
+            sourcePlacement: sourcePlacement, attachmentPlacement: attachmentPlacement,
+            inputRelay: relay, requestID: requestID
         )
         // Insertion can synchronously publish focus/selection. Establish Cloud
         // identity first so a reentrant action cannot observe a local surface.

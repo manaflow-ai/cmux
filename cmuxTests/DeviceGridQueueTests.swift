@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMobileHost
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -41,8 +42,8 @@ struct DeviceGridQueueTests {
                 frame: Data([3, 4])).admitted)
         }
         #expect(queue.count == 2 && queue.byteCount == 3)
-        #expect(queue.dequeue()?.frame == Data([2]))
         #expect(queue.dequeue()?.frame == Data([3, 4]))
+        #expect(queue.dequeue()?.frame == Data([2]))
         #expect(queue.byteCount == 0)
         #expect(queue.enqueue(topic: topic, coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([5])).admitted)
         #expect(queue.dequeue()?.frame == Data([5]))

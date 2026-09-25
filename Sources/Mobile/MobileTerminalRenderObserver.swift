@@ -175,6 +175,15 @@ final class MobileTerminalRenderObserver {
     private func refreshNotificationDemand() {
         let shouldRetainDemand = hasAnyRenderEventSubscribers
         let hasRenderGridSubscribers = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+        let hasDeviceTerminalGridSubscribers = MobileHostService.hasEventSubscribers(
+            topic: DeviceTerminalGridPublisher.eventTopic
+        )
+        if hasDeviceTerminalGridSubscribers {
+            hasPendingGlobalUpdate = true
+            scheduleTerminalUpdateFlush()
+        } else {
+            deviceTerminalGrids.reset()
+        }
         if hasRenderGridSubscribers, !hasLoadedTerminalTheme {
             refreshTerminalTheme()
         } else if !hasRenderGridSubscribers {

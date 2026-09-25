@@ -1,4 +1,5 @@
 import CmuxMobileRPC
+import CmuxMobileHost
 import CoreFoundation
 import Foundation
 
