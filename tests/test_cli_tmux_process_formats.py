@@ -78,6 +78,9 @@ def read_until(master: int, pattern: bytes) -> re.Match[bytes]:
 def wait_for_sleep(master: int, shell_pid: int) -> int:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
+        # A real terminal consumes shell output while the job is starting.
+        if select.select([master], [], [], 0)[0]:
+            os.read(master, 8192)
         pid = os.tcgetpgrp(master)
         if pid != shell_pid:
             command = subprocess.run(
@@ -94,7 +97,9 @@ def main() -> None:
     cli = resolve_cmux_cli()
     pid, master = pty.fork()
     if pid == 0:
-        os.execve("/bin/zsh", ["zsh", "-f", "-i"], {"PATH": "/usr/bin:/bin", "PS1": "test> "})
+        os.execve("/bin/zsh", ["zsh", "-f", "-i"], {
+            "PATH": "/usr/bin:/bin", "PS1": "test> ", "TERM": "xterm-256color",
+        })
     try:
         os.write(master, b"printf 'PROCESS_READY %s %s\\n' $$ \"$(tty)\"\n")
         ready = read_until(master, rb"PROCESS_READY (\d+) (/dev/[^\s]+)")
