@@ -103,6 +103,20 @@ path = "tests/test_cmux_cua_helper_identity.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_cua_drag_cursor_harness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_cua_drag_cursor.py"
+lane = "manual"
+reason = "Requires an isolated macOS GUI session, a running cmux-cua helper with capture/input permissions, and observed window/divider coordinates."
+
+[[test]]
+path = "tests/test_cmux_cua_divider_drags.py"
+lane = "manual"
+reason = "Requires an isolated tagged cmux app and helper, two prepared split workspaces, and a plan with observed divider coordinates for native drags."
+
+[[test]]
 path = "tests/test_hermes_wrapper_hooks.py"
 lane = "macos-cli-no-socket"
 
@@ -1134,6 +1148,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_update_release_tag.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publication_marker.py"
 lane = "linux-guard"
 
 [[test]]

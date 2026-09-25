@@ -14,6 +14,7 @@ struct FileExplorerNativeDragOwnershipTests {
     func searchResultsContainerSurvivesDismantleUntilNativeEndedAt() throws {
         let searchController = SearchResultsDragTestSearchController()
         let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let state = FileExplorerState()
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -99,6 +100,7 @@ struct FileExplorerNativeDragOwnershipTests {
     func newerSearchDragReclaimsSupersededSource() throws {
         let searchController = SearchResultsDragTestSearchController()
         let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let state = FileExplorerState()
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -203,8 +205,10 @@ struct FileExplorerNativeDragOwnershipTests {
     @Test("A multi-row search drag revokes sibling provisional capabilities")
     func multiRowSearchDragRevokesSiblingProvisionalCapabilities() throws {
         let searchController = SearchResultsDragTestSearchController()
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let coordinator = FileExplorerPanelView.Coordinator(
-            store: FileExplorerStore(),
+            store: store,
             state: FileExplorerState(),
             onOpenFilePreview: { _ in }
         )
@@ -277,8 +281,10 @@ struct FileExplorerNativeDragOwnershipTests {
     @Test("A pointer boundary reclaims a search drag that lost endedAt")
     func pointerBoundaryReclaimsSearchDragAfterDismantle() async throws {
         let searchController = SearchResultsDragTestSearchController()
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let coordinator = FileExplorerPanelView.Coordinator(
-            store: FileExplorerStore(),
+            store: store,
             state: FileExplorerState(),
             onOpenFilePreview: { _ in }
         )
