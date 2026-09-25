@@ -977,10 +977,37 @@ jobs:
       # e2e_sibling_build.py and reuse_app_host_products.py), and the `test`
       # job reads it when this job does not test. CI_E2E_TEST_IN_BUILD=0 hands
       # the tests back to that job.
+      #
+      # On an owned Mac the tests share its one console session with every
+      # other GUI job, so they need glaeda's gui token, which this step takes
+      # (glaeda-canonical-root take-gui) for the rest of the job. Taking it
+      # here rather than at job start leaves the console to other GUI jobs
+      # while this one compiles. take-gui gives way (exit 3) when a GUI job
+      # holding the token waits for this job's canonical root: waiting there
+      # would deadlock, so the `test` job runs the tests instead, as it does
+      # when the token stays taken past the wait (exit 1). A hook without
+      # take-gui (exit 2) still gives this job the token at job start.
       - name: Run the selected tests here
         id: test-here
         if: ${{ (vars.CI_E2E_TEST_IN_BUILD || '1') != '0' }}
-        run: echo "tested=true" >> "$GITHUB_OUTPUT"
+        env:
+          OWNED: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          if [ "$OWNED" = true ] && [ -x "$helper" ]; then
+            "$helper" take-gui --wait 300
+            status=$?
+            case "$status" in
+              0|2) ;;
+              *)
+                echo "::notice::The console session is busy (take-gui exited $status); the test job runs the tests."
+                echo "tested=false" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+            esac
+          fi
+          echo "tested=true" >> "$GITHUB_OUTPUT"
 
       # The steps come from this workflow's revision, not the tested one, which
       # may predate them. The scripts they call are the tested revision's, as
@@ -1029,8 +1056,8 @@ jobs:
       # as done once either upload step succeeded (step names must stay
       # unique for product_input_identity.py). It runs whatever the tests
       # did, so a failing test still publishes an intact product for later
-      # dispatches; the fallback `test` job never needs it, since this job
-      # tested. It also runs when the job is cancelled, so a superseded
+      # dispatches, and the `test` job reads it when the console session was
+      # busy and this job left the tests to it. It also runs when the job is cancelled, so a superseded
       # dispatch still publishes what it compiled. The tested revision's test
       # code ran between packaging and here, so the archive must still hash
       # to what the package step sealed.

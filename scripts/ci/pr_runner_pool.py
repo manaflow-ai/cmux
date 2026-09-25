@@ -153,7 +153,8 @@ each root runner, the main commits its kept build starts from cheaply
 When `vars.CI_OWNED_WARM == '1'`, admission is placed on a pool with a root
 count and the runners were read live, the picker looks for an idle runner of
 that root label that the snapshot calls warm for this run's merge base
-(MERGED_ONTO, the merge commit's first parent) and that carries its own
+(MERGED_ONTO, the merge commit's first parent), or failing that for this
+pull request (`pr-<PR_NUMBER>`, a re-push), and that carries its own
 static label, `glaeda-runner-<runner name>` (glaeda-cmux-runner gives every
 root runner one at install). If one does, it writes `admission_runner`, the
 JSON array `["<root label>", "glaeda-runner-<name>"]`, which admission's
@@ -167,11 +168,12 @@ ci-owned-pool-rescue.yml moves it to Blacksmith.
 Spread-first admission (`vars.CI_OWNED_SPREAD == '1'`, off by default): a
 std mini has two root runners and a compile takes either free root, so two
 compiles (8 to 10 of the mini's 14 cores each) can share a mini while another
-mini's root runners sit idle. This picker only names the warm runners
-(`admission_warm`); ci-macos.yml's admission-placement job, which admission
-waits for, re-reads the runners just before admission queues and pins it to
-an idle root runner on a mini none of whose root runners is busy
-(spread_admission_runner(), admission_placement.py), preferring a warm one.
+mini's root runners sit idle. This picker only names the warm runners, by
+tier (`admission_warm`, warm_tiers(): the merge base's, then the pull
+request's); ci-macos.yml's admission-placement job, which admission waits
+for, re-reads the runners just before admission queues and pins it to an
+idle root runner on a mini none of whose root runners is busy
+(spread_admission_runner(), admission_placement.py), preferring a warm mini.
 With no such mini it takes an idle warm runner, then the root label. Picking
 there instead of here keeps other runs' late placement from taking the pinned
 runner between the pick and the queue.
@@ -290,8 +292,9 @@ SIDE_PREFIX = "glaeda-side-"
 # pools: slots() leaves them out, and capability_slots() reads their count
 # (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
 CAPABILITY_LABELS = ("glaeda-ios-sim",)
-# A main commit's warm key: its first 12 hex digits (owned_warm_state.py).
-WARM_KEY = re.compile(r"[0-9a-f]{12}")
+# A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
+# `pr-<number>` for a kept build of that pull request.
+WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
 # `glaeda-runner-<runner name>`: the static label naming one root runner
 # (glaeda-cmux-runner runner_label()), which warm affinity puts in runs-on.
 RUNNER_LABEL_PREFIX = "glaeda-runner-"
@@ -970,9 +973,15 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
 
 
 def warm_key(commit: str | None) -> str:
-    """A commit's warm key (its first 12 hex digits), or "" for anything else."""
-    key = (commit or "").strip().lower()[:12]
+    """A commit's warm key (its first 12 hex digits), a `pr-<n>` key as is, or "" for anything else."""
+    key = (commit or "").strip().lower()
+    key = key if key.startswith("pr-") else key[:12]
     return key if WARM_KEY.fullmatch(key) else ""
+
+
+def pr_warm_key(number: str | None) -> str:
+    """The warm key of pull request NUMBER, or ""."""
+    return warm_key(f"pr-{(number or '').strip()}")
 
 
 def runner_label(name: str) -> str:
@@ -980,14 +989,28 @@ def runner_label(name: str) -> str:
     return RUNNER_LABEL_PREFIX + re.sub(r"[^a-z0-9._-]+", "-", name.lower())
 
 
-def warm_runners(merged_onto: str | None, warm: Any) -> set[str]:
-    """The runners the snapshot's `warm` (owned_warm_state.py) calls warm for `merged_onto`."""
-    key = warm_key(merged_onto)
+def warm_tiers(merged_onto: str | None, warm: Any, pr_number: str | None = None) -> list[list[str]]:
+    """The runners the snapshot's `warm` (owned_warm_state.py) calls warm for this run, best first.
+
+    One tier per key, in warm affinity's order: those whose keys hold
+    `merged_onto`'s key, then those holding this pull request's `pr-<n>` (a
+    re-push starts from the previous push's build). A runner is listed once,
+    in its best tier; empty tiers are dropped.
+    """
     kept = warm.get("runners") if isinstance(warm, Mapping) else None
-    if not key or not isinstance(kept, Mapping):
-        return set()
-    return {str(name) for name, entry in kept.items()
-            if isinstance(entry, Mapping) and key in (entry.get("keys") or [])}
+    if not isinstance(kept, Mapping):
+        return []
+    tiers: list[list[str]] = []
+    seen: set[str] = set()
+    for key in (warm_key(merged_onto), pr_warm_key(pr_number)):
+        if not key:
+            continue
+        tier = sorted(str(name) for name, entry in kept.items()
+                      if isinstance(entry, Mapping) and key in (entry.get("keys") or []) and str(name) not in seen)
+        seen.update(tier)
+        if tier:
+            tiers.append(tier)
+    return tiers
 
 
 def runner_labels(runner: Mapping[str, Any]) -> set[str]:
@@ -999,28 +1022,31 @@ def pinned_admission(root: str, name: str) -> str:
     return json.dumps([root, runner_label(name)], separators=(",", ":"))
 
 
-def idle_warm_runner(runners: Sequence[Mapping[str, Any]], root: str, hot: Collection[str]) -> str:
-    """The first online, idle `root` runner named in `hot` that carries its own runner_label(), or ""."""
-    if not hot or not root.startswith(ROOT_PREFIX):
+def idle_warm_runner(runners: Sequence[Mapping[str, Any]], root: str, tiers: Sequence[Collection[str]]) -> str:
+    """The first online, idle `root` runner of the best tier (warm_tiers()) with its own runner_label(), or ""."""
+    if not root.startswith(ROOT_PREFIX):
         return ""
-    for runner in runners:
-        if runner.get("status") != "online" or runner.get("busy"):
-            continue
-        name = str(runner.get("name") or "")
-        names = runner_labels(runner)
-        if name in hot and root in names and runner_label(name) in names:
-            return name
+    for tier in tiers:
+        for runner in runners:
+            if runner.get("status") != "online" or runner.get("busy"):
+                continue
+            name = str(runner.get("name") or "")
+            names = runner_labels(runner)
+            if name in tier and root in names and runner_label(name) in names:
+                return name
     return ""
 
 
 def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
-                          warm: Any) -> str:
-    """Admission's runs-on labels as JSON when an idle `root` runner is warm for `merged_onto`, else "".
+                          warm: Any, pr_number: str | None = None) -> str:
+    """Admission's runs-on labels as JSON when an idle `root` runner is warm for this run, else "".
 
+    Warm for this run: its keys hold `merged_onto`'s key, or else this pull
+    request's `pr-<n>` key (a re-push starts from the previous push's build).
     `warm` is the snapshot's `warm` (owned_warm_state.py). The runner must
     carry its own runner_label(), or a job naming it would wait forever.
     """
-    name = idle_warm_runner(runners, root, warm_runners(merged_onto, warm))
+    name = idle_warm_runner(runners, root, warm_tiers(merged_onto, warm, pr_number))
     return pinned_admission(root, name) if name else ""
 
 
@@ -1030,29 +1056,40 @@ def runner_member(name: str) -> str:
     return match.group("member") if match else ""
 
 
-def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, hot: Collection[str] = (),
-                            *, seed: str = "") -> tuple[str, bool]:
+def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str,
+                            tiers: Sequence[Collection[str]] = (), *, seed: str = "") -> tuple[str, bool]:
     """Admission's runs-on labels as JSON for an idle `root` runner on a mini running no `root` job.
 
     A std mini has two root runners, and a compile takes either free root, so
     two compiles (8 to 10 of the mini's 14 cores each) can share a mini while
     another mini's root runners sit idle. This picks an empty mini, one none
     of whose online `root` runners is busy, then an idle root runner on it
-    that carries its own runner_label(). Minis with a runner in `hot` (warm
-    for the run's merge base) come first. Among the candidate minis `seed`
-    (the run ID) picks, so runs picking at once land on different minis and
-    a mini with more root runners is not favored. Returns the labels ("" when
-    no mini is empty) and whether the runner is warm.
+    that carries its own runner_label().
+
+    Warmth is the mini's: a runner's warm keys cover every root of its mini
+    (owned_build_state.py warm-keys), and glaeda's job-started hook gives an
+    admission the free root whose stamp is warm for it, whichever root runner
+    took the job. So an empty mini with any root runner in the best tier of
+    `tiers` (warm_tiers()) comes first, then the next tier's, then any; that
+    runner itself when it is idle, else another idle root runner there.
+    Among the candidate minis `seed` (the run ID) picks, so runs picking at
+    once land on different minis and a mini with more root runners is not
+    favored. Returns the labels ("" when no mini is empty) and whether the
+    mini is warm.
     """
     if not root.startswith(ROOT_PREFIX):
         return "", False
     busy: set[str] = set()
     idle: dict[str, list[str]] = {}
+    listed: dict[str, set[str]] = {}
     for runner in runners:
         name = str(runner.get("name") or "")
         member = runner_member(name)
         names = runner_labels(runner)
-        if runner.get("status") != "online" or not member or root not in names:
+        if not member or root not in names:
+            continue
+        listed.setdefault(member, set()).add(name)
+        if runner.get("status") != "online":
             continue
         if runner.get("busy"):
             busy.add(member)
@@ -1061,10 +1098,17 @@ def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, hot
     empty = {member: sorted(names) for member, names in idle.items() if member not in busy}
     if not empty:
         return "", False
-    members = sorted(member for member, names in empty.items() if set(names) & set(hot)) or sorted(empty)
+    tier: Collection[str] = ()
+    members: list[str] = []
+    for tier in tiers:
+        members = sorted(member for member in empty if listed[member] & set(tier))
+        if members:
+            break
+    warm = bool(members)
+    members = members or sorted(empty)
     member = members[int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(members) if seed else 0]
-    name = next((name for name in empty[member] if name in hot), empty[member][0])
-    return pinned_admission(root, name), name in hot
+    name = next((name for name in empty[member] if warm and name in tier), empty[member][0])
+    return pinned_admission(root, name), warm
 
 
 def live_online(runners: Sequence[Mapping[str, Any]], labels: Sequence[str]) -> dict[str, int]:
@@ -1934,17 +1978,19 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # Admission on a root runner whose kept build is of this run's merge base
     # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
     # ci-macos.yml reads both outputs on attempt 1 only.
-    admission_runner, admission_warm = "", []
+    admission_runner = ""
+    admission_warm: list[list[str]] = []
     # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
     # turns affinity off.
     if (attempt in ("", "1") and env.get("OWNED_WARM") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
             and snapshot):
-        # The warm runners' names, for ci-macos.yml's admission-placement,
-        # which re-reads the runners just before admission queues.
-        admission_warm = sorted(warm_runners(env.get("MERGED_ONTO"), snapshot.get("warm")))
+        # The warm runners' names by tier (merge base, then this pull request),
+        # for ci-macos.yml's admission-placement, which re-reads the runners
+        # just before admission queues.
+        admission_warm = warm_tiers(env.get("MERGED_ONTO"), snapshot.get("warm"), env.get("PR_NUMBER"))
         if live_runners is not None:
             admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
-                                                     snapshot.get("warm"))
+                                                     snapshot.get("warm"), env.get("PR_NUMBER"))
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
@@ -1972,8 +2018,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # and the static label of the runner warm for this
                          # run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
-                         # JSON names of the root runners warm for this run's
-                         # merge base, or "" (admission_placement.py).
+                         # JSON tiers of the names of the root runners warm for
+                         # this run's merge base, then its pull request, or ""
+                         # (admission_placement.py).
                          f"admission_warm={json.dumps(admission_warm, separators=(',', ':')) if admission_warm else ''}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.

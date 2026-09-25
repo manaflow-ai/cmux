@@ -10,9 +10,11 @@ admission uploads the `owned-warm-keys` artifact on an owned Mac: the output
 of `owned_build_state.py warm-keys`,
 
     {"runner": "<runner name>", "pool": "glaeda-root-std-xcode-26.6",
-     "keys": ["<sha12>", ...]}
+     "keys": ["<sha12>", "pr-<n>", ...]}
 
-with the kept build's merge base first.
+with the kept build's merge base and pull request first, then the mini's
+other roots', then the local seeds' on a mini with one root
+(owned_build_state.py `warm-keys`).
 
 The queue janitor folds those artifacts into its `macos-pool-load` snapshot
 as `warm` (sweep()), and pr_runner_pool.py reads it: when an idle root runner
@@ -34,7 +36,7 @@ folds at most MAX_NEW. An entry older than MAX_AGE_HOURS is dropped.
 The runner is the one the jobs API says ran admission, never the name in the
 artifact, which the pull request's own code wrote: an artifact naming another
 runner changes nothing, and so does one from a fork's run. A key that is not
-12 hex digits is dropped. A wrong key only sends an admission to a Mac whose
+12 hex digits or `pr-<n>` is dropped. A wrong key only sends an admission to a Mac whose
 build is further away, which compiles as it would elsewhere.
 
 The artifact name is fixed because this repository's unfiltered artifact
@@ -62,9 +64,9 @@ ARTIFACT_NAME = "owned-warm-keys"
 KEYS_FILE = "warm-keys.json"
 # ci-macos.yml's compile admission job; the jobs API prefixes the caller's job name.
 ADMISSION_JOB = "macOS compile admission"
-# Keys one runner keeps at most: its kept build's merge base and a few
-# commits past it that still build cheaply from it.
-MAX_KEYS = 4
+# Keys one runner keeps at most (owned_build_state.MAX_WARM_KEYS): each of
+# its mini's roots' kept merge base and `pr-<n>`, then its local seeds (one-root minis).
+MAX_KEYS = 8
 # ci.yml's display name: admission of any other workflow proves nothing.
 CI_WORKFLOW = "CI"
 # Artifacts folded per sweep, oldest first; the rest wait for the next one.

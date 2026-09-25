@@ -197,7 +197,7 @@ jobs:
           # owned Mac, holding it for this job.
           test -n "$root"
           COMPILE_DERIVED_DATA="$root/derived-data-compile-admission"
-          rm -rf "$COMPILE_DERIVED_DATA"
+          "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/clear-dirs.sh" "$COMPILE_DERIVED_DATA"
           mkdir -p "$root"
           mv "$staged" "$COMPILE_DERIVED_DATA"
           {

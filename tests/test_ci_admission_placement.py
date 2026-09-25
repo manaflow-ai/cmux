@@ -59,9 +59,19 @@ class Decide(unittest.TestCase):
         self.assertEqual(placement.decide(warm, runners)[:2],
                          ('["glaeda-root-std-xcode-26.6","glaeda-runner-mini-a-glaeda-1"]', "warm"))
         self.assertEqual(placement.decide(ENV, runners)[:2], (json.dumps([ROOT_STD]), "root"))
+        # The pull request's tier after the merge base's.
+        tiers = dict(ENV, ADMISSION_WARM='[["mini-z-glaeda"],["mini-a-glaeda-1"]]')
+        self.assertEqual(placement.decide(tiers, runners)[1], "warm")
         # Garbage in ADMISSION_WARM names no runner.
         for raw in ("not json", '{"a": 1}', "[1, 2]"):
             self.assertEqual(placement.decide(dict(ENV, ADMISSION_WARM=raw), runners)[1], "root", raw)
+
+    def test_admission_warm_is_tiers_of_names(self):
+        self.assertEqual(placement.warm_tiers('[["a", "b"], ["c"]]'), [["a", "b"], ["c"]])
+        self.assertEqual(placement.warm_tiers('["a", "b"]'), [["a", "b"]])
+        for raw in ("", "[]", "not json", '{"a": 1}', "7"):
+            self.assertEqual(placement.warm_tiers(raw), [], raw)
+        self.assertEqual(placement.warm_tiers('[["a", 1], "b"]'), [["a"]])
 
     def test_unreadable_runners_or_no_root_label_keep_the_pickers_choice(self):
         self.assertEqual(placement.decide(ENV, None)[:2], ("", ""))

@@ -264,21 +264,26 @@ With 8 std minis (two root runners each) and 2 light ones (one each):
 `{"std": 32, "light": 4, "root-std": 16, "root-light": 2}`.
 
 Warm affinity (`CI_OWNED_WARM=1`, off by default): an owned Mac keeps
-compile admission's DerivedData, and admission uploads the main commits that
-build starts from cheaply (`owned_build_state.py warm-keys`) as the
-`owned-warm-keys` artifact. The queue janitor folds new ones into its
-snapshot's `warm` (`owned_warm_state.py`): for each root runner, the keys of
-its newest admission, at most 4, with the runner taken from the jobs API
-rather than the artifact. With live runners, the picker sends a run's
-admission to `["<root label>", "glaeda-runner-<runner name>"]` when an idle
-root runner is warm for the merge base and carries that static label, which
-glaeda-cmux-runner gives every root runner at install (the `admission_runner`
-output, attempt 1 only); otherwise admission takes the root label as before.
-No job writes a runner label, so the routing App needs only the organization
-permission "Self-hosted runners: Read-only". v1 matches the merge base
-exactly; it does not rank runners by commit distance. A warm runner taken
-between the pick and the queue leaves admission waiting, and the rescue moves
-it to Blacksmith like any other stuck owned job.
+compile admission's DerivedData, stamped with the merge base and the pull
+request it built, and admission uploads the keys its mini starts from cheaply
+(`owned_build_state.py warm-keys`: the merge base's sha12 and `pr-<n>` of
+every canonical root, then kept seeds on a mini with one root, at most 8) as the `owned-warm-keys`
+artifact. The queue janitor folds new ones into its snapshot's `warm`
+(`owned_warm_state.py`): for each root runner, the keys of its newest
+admission, with the runner taken from the jobs API rather than the artifact.
+With live runners, the picker sends a run's admission to
+`["<root label>", "glaeda-runner-<runner name>"]` when an idle root runner is
+warm for the merge base, or failing that for the same pull request (a
+re-push), and carries that static label, which glaeda-cmux-runner gives every
+root runner at install (the `admission_runner` output, attempt 1 only);
+otherwise admission takes the root label as before. A job's root follows the
+free token, not the runner, so glaeda's job-started hook gives such an
+admission the root whose stamp is warm for it. No job writes a runner label,
+so the routing App needs only the organization permission "Self-hosted
+runners: Read-only"; without it the picker cannot list live runners and
+never routes by warmth. Keys match exactly; runners are not ranked by commit
+distance. A warm runner taken between the pick and the queue leaves
+admission waiting, and the rescue moves it to Blacksmith like any other stuck owned job.
 
 Spread-first admission (`CI_OWNED_SPREAD=1`, off by default): two compiles
 (8 to 10 of a mini's 14 cores each) could take both roots of one mini while
@@ -287,13 +292,16 @@ a root count, `ci-macos.yml`'s `admission-placement` job, which admission
 waits for on attempt 1, lists the runners with the routing App just before
 admission queues (`scripts/ci/admission_placement.py`). It groups the pool's
 online root runners by mini (the runner name less `-glaeda` or
-`-glaeda-<K>`), picks a mini none of whose root runners is busy (a mini with a
-root runner warm for the merge base first, else by run ID, so concurrent runs
-land on different minis and a mini with more root runners is not favored),
-and pins admission to an idle root runner there that carries its
-`glaeda-runner-` label. With no such mini it takes an idle warm runner, then
-the root label, so two compiles share a mini only under pressure. The picker
-in `changes` only names the warm runners (`admission_warm`): picking there
+`-glaeda-<K>`), picks a mini none of whose root runners is busy, and pins
+admission to an idle root runner there that carries its `glaeda-runner-`
+label. Warmth is the mini's, since warm-keys covers every root of a mini and
+glaeda's hook gives admission the warm root: a mini with any root runner warm
+for the merge base comes first, then one warm for the pull request, else the
+run ID picks, so concurrent runs land on different minis and a mini with more
+root runners is not favored. With no such mini it takes an idle warm runner
+(merge base, then pull request), then the root label, so two compiles share a
+mini only under pressure. The picker in `changes` only names the warm runners,
+by tier (`admission_warm`): picking there
 would leave the gap until admission queues for other runs' late placement to
 take the pinned runner.
 A pinned runner taken in the seconds before admission queues leaves it
