@@ -32,32 +32,14 @@ extension CmuxConfigExecutor {
             ? workspace.focusedTerminalInputTarget()?.panel
             : panelID.flatMap { workspace.terminalPanel(for: $0) }
         if target == .currentTerminal, terminal == nil { return false }
-        let localPanelDirectory: String? = {
-            guard target == .background, let panelID,
-                  workspace.allowsLocalDirectoryFallback(panelId: panelID) else { return nil }
-            return workspace.owningTabManager?.gitProbeDirectory(for: workspace, panelId: panelID)
-                ?? workspace.panelDirectories[panelID]
-        }()
-        let requestedDirectory: String? = {
-            guard let panelID = panelID,
-                  target != .background || workspace.allowsLocalDirectoryFallback(panelId: panelID) else {
-                return nil
-            }
-            return workspace.terminalPanel(for: panelID)?.requestedWorkingDirectory
-        }()
-        let fallbackDirectory: String? = {
-            guard target == .background else { return baseCwd }
-            guard let panelID else { return baseCwd }
-            guard workspace.allowsLocalDirectoryFallback(panelId: panelID) else {
-                return nil
-            }
-            return baseCwd
-        }()
-        let directory = [
-            target == .background ? localPanelDirectory : panelID.flatMap { workspace.panelDirectories[$0] },
-            requestedDirectory,
-            fallbackDirectory,
-        ].compactMap { candidate in
+        let canUseLocalDirectory = target != .background || (panelID.map {
+            workspace.allowsLocalDirectoryFallback(panelId: $0)
+        } ?? !workspace.usesRemoteDirectoryProvenance)
+        let directory = (canUseLocalDirectory ? [
+            panelID.flatMap { workspace.panelDirectories[$0] },
+            panelID.flatMap { workspace.terminalPanel(for: $0)?.requestedWorkingDirectory },
+            baseCwd,
+        ] : []).compactMap { candidate in
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmed.isEmpty ? nil : trimmed
         }.first ?? FileManager.default.homeDirectoryForCurrentUser.path
@@ -98,13 +80,11 @@ extension CmuxConfigExecutor {
                 }
             case .background:
                 Task {
-                    guard await runner?.run(command: shellInput, directory: directory, environment: environment) == true else {
-                        return
-                    }
-                    onExecuted?()
+                    await runner?.run(command: shellInput, directory: directory, environment: environment)
                 }
-                return
             }
+            // This completes dispatch and restores temporary group-menu selection;
+            // it does not report a shell command's admission or exit status.
             onExecuted?()
         }
     }
