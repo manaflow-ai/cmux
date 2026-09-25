@@ -146,6 +146,12 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
+    @Test(arguments: ["local tmux", "session persistence", "keep local sessions alive", "reattach"])
+    func localTmuxQueriesFindSessionPersistenceRow(query: String) {
+        let result = SettingsSearchIndex(catalog: SettingCatalog()).match(query)
+        #expect(result.contains { $0.id == "setting:terminal:session-persistence" })
+    }
+
     @Test(arguments: ["push", "notifications", "iphone"])
     func pushNotificationQueriesFindTheMobileForwardingRow(query: String) {
         let result = SettingsSearchIndex(catalog: SettingCatalog()).match(
