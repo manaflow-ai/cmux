@@ -403,7 +403,12 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
         "head": head_sha,
         "base": base_sha,
         "seconds": round(seconds, 1),
-        "units": [{"label": unit.label, "job": unit.job, "group": unit.group} for unit in units],
+        "units": [{"label": unit.label, "job": unit.job, "group": unit.group, "stateful": is_stateful(unit)}
+                  for unit in units],
+        # Every step the plan held, run or not: a step missing from "steps"
+        # but planned was not reached (an earlier step of its stateful group
+        # failed); one missing from both does not exist in this checkout.
+        "planned": [{"unit": unit.label, "name": step.name} for unit in units for step in unit.steps],
         "steps": [
             {
                 "unit": r.unit.label,
@@ -473,6 +478,10 @@ def main(argv: list[str]) -> int:
         units = [u for u in units if u.group in wanted or u.job in wanted]
         if not units:
             print(f"no guard group matches {sorted(wanted)}", file=sys.stderr)
+            if args.json_path:
+                # An empty plan is an answer for a caller comparing checkouts:
+                # this one has none of those groups.
+                write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
             return 2
     if args.step:
         units = select_steps(units, set(args.step))

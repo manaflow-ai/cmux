@@ -20,10 +20,13 @@ green one does not say main's guards pass at that commit. A commit is
 - missing: no run (a commit from before #14757, or a cancelled/skipped run).
 
 Candidates are main's first-parent commits the branch does not have yet,
-newest first, at most `limit` of them. The newest success wins; every newer
-commit is reported as skipped with its verdict. All verdicts come from one
-REST request (the workflow's last 100 runs on main, cached by gh for a minute),
-never a per-commit call or a polling loop.
+newest first, at most `limit` (capped at 100) of them. The newest success
+wins; every newer commit is reported as skipped with its verdict. All verdicts
+come from one REST request (the workflow's last 100 push runs on main, cached
+by gh for a minute), never a per-commit call or a polling loop. Only push runs
+count: the workflow also runs on pull requests, and a fork's pull request from
+its own `main` reports head_branch `main`, which would both crowd main's runs
+out of the one page and attach a pull request's verdict to a sha.
 
 Stdlib only, so pr-catch-up.yml can run the trusted copy with `python3 -I`.
 
@@ -42,11 +45,15 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
+from urllib.parse import quote
 
 GITHUB_REPOSITORY = "manaflow-ai/cmux"
 GUARD_WORKFLOW = "ci-fast-guards.yml"
 GUARD_CHECK = "CI fast guards"
 DEFAULT_LIMIT = 40
+# One page of runs; one push to main starts at most one run, so the page covers
+# at least this many first-parent commits.
+RUNS_PER_PAGE = 100
 FAILED = frozenset({"failure", "timed_out", "startup_failure", "action_required"})
 PENDING = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
 
@@ -97,6 +104,8 @@ def verdicts_from_runs(runs: Iterable[dict], shas: Iterable[str]) -> Verdicts:
     """Each sha's verdict from its newest workflow run; a rerun updates the same run."""
     newest: dict[str, dict] = {}
     for run in runs:
+        if run.get("event", "push") != "push":
+            continue
         sha = run.get("head_sha")
         if sha and (sha not in newest or str(run.get("created_at")) > str(newest[sha].get("created_at"))):
             newest[sha] = run
@@ -125,6 +134,7 @@ def git(repo: Path, *args: str) -> str:
 def candidates(repo: Path, ref: str, limit: int = DEFAULT_LIMIT, head: str = "HEAD") -> tuple[str, list[str]]:
     """The base tip and its first-parent commits not yet in `head`, newest first."""
     tip = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    limit = max(1, min(limit, RUNS_PER_PAGE))
     listed = git(repo, "rev-list", "--first-parent", f"--max-count={limit}", tip, "--not", head)
     return tip, listed.split()
 
@@ -135,7 +145,8 @@ def github_verdicts(repository: str = GITHUB_REPOSITORY, branch: str = "main") -
             return {}
         completed = subprocess.run(
             ["gh", "api", "--cache", "60s",
-             f"repos/{repository}/actions/workflows/{GUARD_WORKFLOW}/runs?branch={branch}&per_page=100"],
+             f"repos/{repository}/actions/workflows/{GUARD_WORKFLOW}/runs"
+             f"?branch={quote(branch, safe='')}&event=push&per_page={RUNS_PER_PAGE}"],
             capture_output=True, text=True,
         )
         if completed.returncode != 0:

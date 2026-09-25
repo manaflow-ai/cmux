@@ -145,6 +145,9 @@ class VerdictTests(unittest.TestCase):
             {"head_sha": "b", "status": "in_progress", "conclusion": None, "created_at": "2026-09-25T11:00:00Z"},
             {"head_sha": "c", "status": "completed", "conclusion": "timed_out", "created_at": "2026-09-25T11:00:00Z"},
             {"head_sha": "d", "status": "completed", "conclusion": "cancelled", "created_at": "2026-09-25T11:00:00Z"},
+            # A fork's pull request from its own `main` is not a verdict on main.
+            {"head_sha": "e", "event": "pull_request", "status": "completed", "conclusion": "success",
+             "created_at": "2026-09-25T12:00:00Z"},
         ]
         self.assertEqual(
             last_green_base.verdicts_from_runs(runs, ["a", "b", "c", "d", "e"]),
@@ -214,7 +217,7 @@ class SelectionTests(TempRepoCase):
         self.assertEqual(json.loads(code.stdout)["skipped"], [{"sha": tip, "verdict": "failure"}])
         logged = calls.read_text().splitlines()
         self.assertEqual(len(logged), 1, "one request for every candidate")
-        self.assertIn("actions/workflows/ci-fast-guards.yml/runs?branch=main", logged[0])
+        self.assertIn("actions/workflows/ci-fast-guards.yml/runs?branch=main&event=push", logged[0])
 
 
 class MergeTests(TempRepoCase):
@@ -265,6 +268,17 @@ class MergeTests(TempRepoCase):
         self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
+    def test_an_interrupt_mid_merge_leaves_no_half_merge(self) -> None:
+        commit(self.repo, "branch readme", {"README": "branch\n"})
+        green = self.main_commit("main readme", {"README": "main\n"})
+        head = git(self.repo, "rev-parse", "HEAD")
+        with mock.patch.object(merge_main.catch_up_pr.Repo, "unmerged", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_merge({green: "success"})
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+        self.assertFalse((self.repo / ".git/MERGE_HEAD").exists())
+
 
 class ClassificationTests(TempRepoCase):
     def test_inherited_and_introduced_failures_are_told_apart(self) -> None:
@@ -296,7 +310,8 @@ class ClassificationTests(TempRepoCase):
         git(self.repo, "fetch", "-q", "origin")
         stamps = self.scratch / "stamps"
         stamps.mkdir()
-        (stamps / green).write_text(json.dumps({"sha": green, "groups": ["ci"]}))
+        (stamps / green).write_text(json.dumps({"sha": green, "groups": ["ci"], "platform": sys.platform,
+                                                "skipped_steps": []}))
         failure = merge_main.GuardFailure(unit="workflow-guard-tests / ci", job="workflow-guard-tests",
                                           group="ci", name="Guard beta", output_tail="")
         merge_main.classify(self.repo, [failure], green, ["false"], stamps)
@@ -305,9 +320,62 @@ class ClassificationTests(TempRepoCase):
         # A stamp for a narrower set of groups does not cover another group.
         other = merge_main.GuardFailure(unit="workflow-guard-tests / preflight", job="workflow-guard-tests",
                                         group="preflight", name="Guard beta", output_tail="")
-        self.assertFalse(merge_main.stamp_covers(stamps, green, "no-tree", {"preflight"}))
+        self.assertFalse(merge_main.stamp_covers(stamps, green, "no-tree", {"preflight"}, {"Guard beta"}))
         merge_main.classify(self.repo, [other], green, [*RUN_CI_GUARDS], stamps)
         self.assertNotIn("pass stamp", other.why)
+
+    def test_a_stamp_from_another_platform_or_that_skipped_the_step_does_not_settle_it(self) -> None:
+        stamps = self.scratch / "stamps"
+        stamps.mkdir()
+        (stamps / self.base).write_text(json.dumps({"groups": ["ci"], "platform": "not-" + sys.platform,
+                                                    "skipped_steps": []}))
+        self.assertFalse(merge_main.stamp_covers(stamps, self.base, "t", {"ci"}, {"Guard beta"}))
+        (stamps / self.base).write_text(json.dumps({"groups": ["ci"], "platform": sys.platform,
+                                                    "skipped_steps": ["Guard beta"]}))
+        self.assertFalse(merge_main.stamp_covers(stamps, self.base, "t", {"ci"}, {"Guard beta"}))
+        self.assertTrue(merge_main.stamp_covers(stamps, self.base, "t", {"ci"}, {"Guard alpha"}))
+
+    def test_a_step_main_never_reached_is_unknown_not_introduced(self) -> None:
+        # main's plan holds both steps of a stateful group; setup failed there,
+        # so the lint result after it (or its absence) says nothing.
+        results = {
+            "units": [{"label": "j / a", "stateful": True}],
+            "planned": [{"unit": "j / a", "name": "Setup"}, {"unit": "j / a", "name": "Lint"},
+                        {"unit": "j / a", "name": "Later"}],
+            "steps": [{"unit": "j / a", "name": "Setup", "status": "fail"},
+                      {"unit": "j / a", "name": "Lint", "status": "fail"}],
+        }
+        statuses, planned = merge_main.base_statuses(results)
+        self.assertEqual(statuses[("j / a", "Lint")], "tainted")
+        failures = [merge_main.GuardFailure(unit="j / a", job="j", group="a", name=name, output_tail="")
+                    for name in ("Lint", "Later", "New")]
+        with mock.patch.object(merge_main, "rerun_on_base", return_value=results):
+            merge_main.classify(self.repo, failures, self.base, ["false"], self.scratch / "no-stamps")
+        self.assertEqual([item.origin for item in failures], ["unknown", "unknown", "introduced"])
+        self.assertIn("earlier step", failures[0].why)
+        self.assertIn("not reached", failures[1].why)
+        self.assertIn("no such step", failures[2].why)
+
+    def test_a_git_error_while_comparing_leaves_failures_unknown(self) -> None:
+        failure = merge_main.GuardFailure(unit="u", job="j", group="ci", name="Guard beta", output_tail="")
+        merge_main.classify(self.repo, [failure], "0" * 40, ["false"], self.scratch / "no-stamps")
+        self.assertEqual(failure.origin, "unknown")
+        self.assertIn("could not rerun", failure.why)
+
+    def test_a_guard_run_without_results_is_not_a_pass(self) -> None:
+        self.main_commit("main breaks alpha", {"guards/alpha": "bad\n"})
+        git(self.repo, "fetch", "-q", "origin")
+        tip = git(self.repo, "rev-parse", "origin/main")
+        opts = merge_main.Options(repo=self.repo, remote="origin", strict=True)
+        lines: list[str] = []
+        code = merge_main.merge_main(opts, source=lambda shas: {s: "success" for s in shas},
+                                     guard_command=[sys.executable, "-c", "raise SystemExit(2)"],
+                                     output=lines.append, stamps=self.scratch / "stamps")
+        output = "\n".join(lines)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD^2"), tip)
+        self.assertIn("did not run to completion (exit 2)", output)
+        self.assertNotIn("passed on the merge", output)
+        self.assertEqual(code, 2, "--strict does not pass a guard run that never reported")
 
     def test_step_selection_keeps_stateful_groups_whole(self) -> None:
         setup = run_ci_guards.Step(name="Init submodule", run="git submodule update --init x", env={},

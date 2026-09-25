@@ -24,7 +24,9 @@ Guard failures do not fail the command: the merge is done either way, and the
 labels say what to fix. `--strict` exits 3 when the branch introduced one.
 
 Exit codes: 0 merged or already up to date, 1 conflicts or no green main
-commit, 2 error, 3 (--strict) guard failure introduced by this branch.
+commit, 2 error (with --strict, also a guard failure whose origin could not be
+told, or a guard run that ended without step results), 3 (--strict) guard
+failure introduced by this branch, 130 interrupted.
 """
 
 from __future__ import annotations
@@ -98,6 +100,9 @@ class GuardRun:
     returncode: int = 0
     passed: int = 0
     failures: list[GuardFailure] = field(default_factory=list)
+    # False when the runner exited without writing step results (a plan
+    # error, a crash, Ctrl-C): nothing can be said about the merge's guards.
+    complete: bool = True
 
     @property
     def introduced(self) -> list[GuardFailure]:
@@ -127,7 +132,7 @@ def run_guards(repo: Path, command: GuardCommand, base: str, all_groups: bool,
         env = {**os.environ, "CMUX_GUARDS_BASE_SHA": base}
         completed = subprocess.run(args, cwd=repo, env=env, stdin=subprocess.DEVNULL)
         results = read_results(results_path)
-    run = GuardRun(ran=True, returncode=completed.returncode)
+    run = GuardRun(ran=True, returncode=completed.returncode, complete=bool(results))
     for step in results.get("steps", []):
         if step.get("status") == "pass":
             run.passed += 1
@@ -137,19 +142,23 @@ def run_guards(repo: Path, command: GuardCommand, base: str, all_groups: bool,
                 name=step.get("name", ""), output_tail=step.get("output_tail", ""),
             ))
     if completed.returncode != 0 and not run.failures:
-        output(f"merge-main: the guard runner exited {completed.returncode} without a step result;"
-               " see its output above")
+        # Exit 1 always comes with a failed step; anything else without one
+        # means the run did not finish, so its pass count vouches for nothing.
+        run.complete = False
     return run
 
 
-def stamp_covers(stamp_dir: Path, base: str, tree: str, groups: set[str]) -> bool:
-    """A local full pass on this main commit (or its exact tree) that covered these groups."""
+def stamp_covers(stamp_dir: Path, base: str, tree: str, groups: set[str], steps: set[str]) -> bool:
+    """A local full pass on this main commit (or its exact tree), on this platform,
+    that covered these groups and ran these steps (not skipped them)."""
     for name in (base, f"tree-{tree}"):
         try:
             stamp = json.loads((stamp_dir / name).read_text())
         except (OSError, ValueError):
             continue
-        if groups <= set(stamp.get("groups") or []):
+        if not isinstance(stamp, dict) or stamp.get("platform") != sys.platform:
+            continue
+        if groups <= set(stamp.get("groups") or []) and not steps & set(stamp.get("skipped_steps") or []):
             return True
     return False
 
@@ -159,49 +168,90 @@ def stamp_dir() -> Path:
     return Path(cache) / "cmux-guards" / "pass"
 
 
-def classify(repo: Path, failures: list[GuardFailure], base: str, command: GuardCommand,
-             stamps: Path | None = None) -> None:
-    """Label each failure inherited (fails on `base` alone) or introduced (passes there)."""
-    if not failures:
-        return
-    stamps = stamp_dir() if stamps is None else stamps
-    tree = git(repo, "rev-parse", f"{base}^{{tree}}")
-    groups = {item.group or item.job for item in failures}
-    if stamp_covers(stamps, base, tree, groups):
-        for item in failures:
-            item.origin = "introduced"
-            item.why = f"main {base[:11]} has a local guard pass stamp"
-        return
+def rerun_on_base(repo: Path, failures: list[GuardFailure], base: str, command: GuardCommand) -> dict:
+    """The failed steps' results on `base` alone, from a temporary worktree of it."""
     parent = Path(tempfile.mkdtemp(prefix="merge-main-base-"))
     tree_path = parent / "tree"
     try:
         git(repo, "worktree", "add", "--detach", "--quiet", str(tree_path), base)
         results_path = parent / "base.json"
-        args = [*command, "--root", str(tree_path), "--no-stamp", "--json", str(results_path)]
-        for group in sorted(groups):
+        # --keep-going: a stateful group keeps every step (select_steps), and
+        # an unrelated earlier step failing on main must not hide the one asked about.
+        args = [*command, "--root", str(tree_path), "--no-stamp", "--keep-going", "--json", str(results_path)]
+        for group in sorted({item.group or item.job for item in failures}):
             args += ["--group", group]
         for name in sorted({item.name for item in failures}):
             args += ["--step", name]
         env = {**os.environ, "CMUX_GUARDS_BASE_SHA": base}
         subprocess.run(args, cwd=repo, env=env, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        base_results = read_results(results_path)
+        return read_results(results_path)
     finally:
-        git(repo, "worktree", "remove", "--force", str(tree_path), check=False)
+        removed = subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(tree_path)],
+                                 capture_output=True)
         shutil.rmtree(parent, ignore_errors=True)
+        if removed.returncode != 0:
+            # The directory is gone either way; drop its administrative entry.
+            subprocess.run(["git", "-C", str(repo), "worktree", "prune"], capture_output=True)
+
+
+def base_statuses(base_results: dict) -> tuple[dict[tuple[str, str], str], set[tuple[str, str]]]:
+    """(unit, step) -> status on main, and the (unit, step) pairs main's plan held.
+
+    In a stateful group a result after an earlier failed step is "tainted": it
+    ran on state the failed step did not set up, so it says nothing."""
+    stateful = {unit.get("label") for unit in base_results.get("units", []) if unit.get("stateful")}
+    statuses: dict[tuple[str, str], str] = {}
+    broken: set[str] = set()
+    for step in base_results.get("steps", []):
+        unit, status = step.get("unit"), step.get("status")
+        statuses[(unit, step.get("name"))] = "tainted" if unit in broken else status
+        if status == "fail" and unit in stateful:
+            broken.add(unit)
+    planned = {(item.get("unit"), item.get("name")) for item in base_results.get("planned", [])}
+    return statuses, planned
+
+
+def classify(repo: Path, failures: list[GuardFailure], base: str, command: GuardCommand,
+             stamps: Path | None = None) -> None:
+    """Label each failure inherited (fails on `base` alone) or introduced (passes there).
+
+    Never raises for git trouble: the merge is already committed, so a failure
+    to compare leaves the items "unknown" with the reason."""
+    if not failures:
+        return
+    stamps = stamp_dir() if stamps is None else stamps
+    try:
+        tree = git(repo, "rev-parse", f"{base}^{{tree}}")
+        groups = {item.group or item.job for item in failures}
+        if stamp_covers(stamps, base, tree, groups, {item.name for item in failures}):
+            for item in failures:
+                item.origin = "introduced"
+                item.why = f"main {base[:11]} has a local guard pass stamp"
+            return
+        base_results = rerun_on_base(repo, failures, base, command)
+    except MergeMainError as error:
+        for item in failures:
+            item.why = f"could not rerun on main {base[:11]}: {error}"
+        return
     if not base_results:
         for item in failures:
             item.why = f"the rerun on main {base[:11]} produced no result"
         return
-    on_base = {(step.get("unit"), step.get("name")): step.get("status") for step in base_results.get("steps", [])}
+    statuses, planned = base_statuses(base_results)
     for item in failures:
-        status = on_base.get((item.unit, item.name))
+        key = (item.unit, item.name)
+        status = statuses.get(key)
         if status == "fail":
             item.origin, item.why = "inherited", f"fails on main {base[:11]} alone too"
         elif status == "pass":
             item.origin, item.why = "introduced", f"passes on main {base[:11]} alone"
-        elif status is None:
+        elif status == "tainted":
+            item.why = f"an earlier step of its group failed on main {base[:11]}"
+        elif status is None and key not in planned:
             item.origin, item.why = "introduced", f"main {base[:11]} has no such step"
+        elif status is None:
+            item.why = f"not reached on main {base[:11]}"
         else:
             item.why = f"main {base[:11]} {status} this step here"
 
@@ -209,6 +259,9 @@ def classify(repo: Path, failures: list[GuardFailure], base: str, command: Guard
 def guard_report(run: GuardRun, base: str, base_verdict: str) -> list[str]:
     if not run.ran:
         return []
+    if not run.complete:
+        return [f"guards: did not run to completion (exit {run.returncode}); see the runner's output above."
+                " Nothing is labeled; rerun scripts/ci/guards-local.sh"]
     if not run.failures:
         return [f"guards: {run.passed} step(s) passed on the merge"]
     lines = [f"guards: {len(run.failures)} step(s) failed after merging main {base[:11]}"]
@@ -219,11 +272,12 @@ def guard_report(run: GuardRun, base: str, base_verdict: str) -> list[str]:
         if item.origin == "inherited" and base_verdict == "success" and (item.group or item.job) in {"ci"}:
             lines.append("    main's CI fast guards passed on that commit, so this machine likely differs"
                          " from the Linux runner; not this branch's problem")
-    introduced = [item for item in run.failures if item.origin != "inherited"]
-    if introduced:
-        groups = " ".join(f"--group {group}" for group in sorted({i.group or i.job for i in introduced}))
-        lines.append(f"next: fix the failure(s) this branch introduced, then rerun"
-                     f" scripts/ci/guards-local.sh {groups}")
+    open_items = [item for item in run.failures if item.origin != "inherited"]
+    if open_items:
+        groups = " ".join(f"--group {group}" for group in sorted({i.group or i.job for i in open_items}))
+        what = ("the failure(s) this branch introduced" if all(i.origin == "introduced" for i in open_items)
+                else "the failure(s) not shown to come from main")
+        lines.append(f"next: fix {what}, then rerun scripts/ci/guards-local.sh {groups}")
     else:
         lines.append("next: nothing to fix on this branch; the failures come from main and CI will show them"
                      " there too")
@@ -314,8 +368,11 @@ def merge_main(options: Options, source: last_green_base.VerdictSource | None = 
     classify(repo, run.failures, base, command, stamps)
     for line in guard_report(run, base, base_verdict):
         output(line)
-    if options.strict and any(item.origin != "inherited" for item in run.failures):
-        return 3
+    if options.strict:
+        if run.introduced:
+            return 3
+        if not run.complete or any(item.origin != "inherited" for item in run.failures):
+            return 2
     return 0
 
 
@@ -340,6 +397,10 @@ def main(argv: list[str]) -> int:
     except (MergeMainError, catch_up_pr.CatchUpError) as error:
         print(f"merge-main: {error}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        # catch_up aborts an unfinished merge itself; a finished one stands.
+        print("merge-main: interrupted", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

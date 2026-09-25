@@ -484,18 +484,19 @@ def catch_up(repo_path: Path, base_ref: str, tools_root: Path, note: str = "", t
         result.message = f"HEAD already contains {base_ref}"
         return result
 
-    merge = repo.run("merge", "--no-ff", "--no-commit", "--no-edit", result.base, check=False)
-    in_merge = repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0
-    unmerged = repo.unmerged() if in_merge else {}
-    if merge.returncode != 0 and not unmerged:
-        if in_merge:
-            repo.run("merge", "--abort", check=False)
-        raise CatchUpError(f"git merge failed: {tail(merge.stderr.decode(errors='replace'))}")
-
+    # One guard from the moment git starts merging: an interrupt (Ctrl-C in
+    # scripts/merge-main.sh) or any error before the commit leaves no half
+    # merge behind. No merge was in progress before this point (checked above).
     try:
+        merge = repo.run("merge", "--no-ff", "--no-commit", "--no-edit", result.base, check=False)
+        in_merge = repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0
+        unmerged = repo.unmerged() if in_merge else {}
+        if merge.returncode != 0 and not unmerged:
+            raise CatchUpError(f"git merge failed: {tail(merge.stderr.decode(errors='replace'))}")
         return finish(repo, result, Resolver(repo, tools_root), unmerged, base_ref, note, title)
     except BaseException:
-        repo.run("merge", "--abort", check=False)
+        if repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0:
+            repo.run("merge", "--abort", check=False)
         raise
 
 
