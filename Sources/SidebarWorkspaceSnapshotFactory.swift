@@ -128,19 +128,14 @@ struct SidebarWorkspaceSnapshotFactory {
 
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool,
-        todoControlsEnabled: Bool = false
+        showsAgentActivity: Bool
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        // This first-pass projection intentionally retains the old cache key;
-        // the regression test must fail before the repair wires the gate in.
-        _ = todoControlsEnabled
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
             usesVerticalBranchLayout: settings.branchDirectory.branchLayout == .vertical,
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
-            todoControlsEnabled: false,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
     }
