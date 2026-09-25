@@ -141,7 +141,7 @@ extension AgentResumeCommandPolicyTests {
         )
     }
 
-    func testAdditionalHookAgentResumeCommandsUseVerifiedCLIResumeFlags() {
+    func testAdditionalHookAgentResumeCommandsUseVerifiedCLIResumeFlags() throws {
         let cursor = SessionRestorableAgentSnapshot(
             kind: .cursor,
             sessionId: "cursor-chat-123",
@@ -275,10 +275,20 @@ extension AgentResumeCommandPolicyTests {
                 source: "process"
             )
         )
+        // Keep this fixture out of the shared /tmp namespace. Other tests exercise
+        // project Vault registrations, and a fixed working directory can make this
+        // native Kiro assertion depend on which suite ran first.
+        let kiroRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kiro-resume-\(UUID().uuidString)", isDirectory: true)
+        let kiroWorkingDirectory = kiroRoot.appendingPathComponent("repo", isDirectory: true)
+        let kiroHome = kiroRoot.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: kiroWorkingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: kiroRoot) }
+
         let kiro = SessionRestorableAgentSnapshot(
             kind: .kiro,
             sessionId: "kiro-session-123",
-            workingDirectory: "/tmp/kiro repo",
+            workingDirectory: kiroWorkingDirectory.path,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "kiro",
                 executablePath: "/Users/example/.cargo/bin/kiro-cli",
@@ -293,9 +303,9 @@ extension AgentResumeCommandPolicyTests {
                     "fs_read,fs_write",
                     "initial prompt should not replay"
                 ],
-                workingDirectory: "/tmp/kiro repo",
+                workingDirectory: kiroWorkingDirectory.path,
                 environment: [
-                    "KIRO_HOME": "/tmp/kiro home",
+                    "KIRO_HOME": kiroHome.path,
                     "AWS_SECRET_ACCESS_KEY": "secret"
                 ],
                 capturedAt: 123,
@@ -386,7 +396,7 @@ extension AgentResumeCommandPolicyTests {
         )
         XCTAssertEqual(
             kiro.resumeCommand,
-            "cd -- '/tmp/kiro repo' 2>/dev/null || [ ! -d '/tmp/kiro repo' ] && 'env' 'KIRO_HOME=/tmp/kiro home' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+            "cd -- '\(kiroWorkingDirectory.path)' 2>/dev/null || [ ! -d '\(kiroWorkingDirectory.path)' ] && 'env' 'KIRO_HOME=\(kiroHome.path)' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
         )
         XCTAssertEqual(
             grok.resumeCommand,
