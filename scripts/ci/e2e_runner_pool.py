@@ -198,8 +198,12 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
 
 
 def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.datetime,
-           owned_slots: Mapping[str, int] | None = None) -> pr_runner_pool.Choice:
-    """The pull request rule over the macOS 26 and owned pools. An empty runner keeps the default."""
+           owned_slots: Mapping[str, int] | None = None, jobs: int = E2E_JOBS) -> pr_runner_pool.Choice:
+    """The pull request rule over the macOS 26 and owned pools. An empty runner keeps the default.
+
+    `jobs` is the most machines one run holds at once (E2E_JOBS for an E2E
+    run); ios_runner_pool.py passes its own lane's peak.
+    """
     if load is None:
         return pr_runner_pool.Choice("", "", "no readable pool snapshot")
     pools = [label for label in limits.order if e2e_pool(label)]
@@ -219,7 +223,7 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
         load.snapshot, limits, now=now, xcode_pins={},
         routed_since=routed, auto_xcode=True,
         placed=placed, choose_from=pools,
-        owned_slots=owned_slots or {}, jobs=E2E_JOBS, root_jobs=E2E_JOBS,
+        owned_slots=owned_slots or {}, jobs=jobs, root_jobs=jobs,
     )
 
 

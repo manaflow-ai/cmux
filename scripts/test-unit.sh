@@ -28,6 +28,8 @@ no_module_settings=(
   CMUX_TEST_INTEGRATED_DRIVER_cmuxTests=NO
   'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_TEST_SWIFT_FLAGS_$(TARGET_NAME))'
   CMUX_TEST_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately
+  'SWIFT_INSTALL_MODULE=$(CMUX_TEST_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
+  CMUX_TEST_INSTALL_MODULE_cmuxTests=NO
 )
 if [ "${CMUX_TEST_EMIT_MODULE:-0}" = 1 ]; then
   no_module_settings=()

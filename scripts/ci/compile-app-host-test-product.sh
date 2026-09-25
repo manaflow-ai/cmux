@@ -198,6 +198,9 @@ build() {
     CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
     'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
     CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately
+    # A clean build has no module for Xcode's Copy tasks to install (#14371).
+    'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
+    CMUX_CI_INSTALL_MODULE_cmuxTests=NO
   )
   # Before Xcode 26.6 the app target has the same defect: under the cache the
   # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH

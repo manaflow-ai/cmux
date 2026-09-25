@@ -347,6 +347,7 @@ def expect_scrubbed_mcp_env(
     context: str,
     *,
     helper_owned: bool,
+    state_scope: str = "default",
 ) -> None:
     embedded = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_EMBEDDED=")
     daemon_app = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_DAEMON_APP=")
@@ -415,7 +416,9 @@ def expect_scrubbed_mcp_env(
         expect(json.loads(cursor_label) == "cmux", f"{context}: unexpected cursor label {cursor_label}", failures)
     if state_dir is not None:
         expect(
-            json.loads(state_dir).endswith("/Library/Application Support/cmux/cmux-cua/runtime/default/state"),
+            json.loads(state_dir).endswith(
+                f"/Library/Application Support/cmux/cmux-cua/runtime/{state_scope}/state"
+            ),
             f"{context}: unexpected state dir {state_dir}",
             failures,
         )
@@ -455,6 +458,7 @@ def run_wrapper(
     mcp_handshake: bool = False,
     diagnostics: bool = False,
     non_cmux: bool = False,
+    dev_tag: str | None = None,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -548,7 +552,9 @@ exit 1
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             test_socket.bind(str(socket_path))
         try:
-            env = os.environ.copy()
+            # A test launched inside cmux must not inherit the real app's
+            # runtime paths or capabilities into this synthetic installation.
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
             codex_home = sandbox_home / ".codex"
@@ -564,6 +570,9 @@ exit 1
             env["CMUX_CUA_SOCKET_PATH"] = str(tmp / "cmux-cua.sock")
             env["CMUX_CUA_CODEX_SOCKET_PATH"] = str(tmp / "cmux-cua-codex.sock")
             env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
+            if dev_tag is not None:
+                env["CMUX_TAG"] = dev_tag
+                env["CMUX_BUNDLE_ID"] = f"com.cmuxterm.app.debug.{dev_tag}"
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["FAKE_MCP_TRACE_LOG"] = str(mcp_trace_log)
             env["FAKE_MCP_HANDSHAKE"] = "1" if mcp_handshake else "0"
@@ -796,6 +805,23 @@ def args_config(args: list[str]) -> str | None:
     return arg_value(args, "mcp_servers.cmux-cua.args=")
 
 
+def expect_native_computer_use_disabled(
+    args: list[str],
+    context: str,
+    failures: list[str],
+) -> None:
+    try:
+        disable_index = args.index("--disable")
+    except ValueError:
+        expect(False, f"{context}: cmux Codex must disable native computer_use, got {args}", failures)
+        return
+    expect(
+        disable_index + 1 < len(args) and args[disable_index + 1] == "computer_use",
+        f"{context}: expected --disable computer_use, got {args}",
+        failures,
+    )
+
+
 def configured_skill_path(args: list[str]) -> Path | None:
     raw = arg_value(args, "skills.config=")
     prefix = '[{path="'
@@ -953,6 +979,7 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    expect_native_computer_use_disabled(args, "cmux-cua attach", failures)
     expect("skill-install=" not in stderr and "managed-link-retired" not in stderr,
            f"ordinary Codex launch must keep diagnostics quiet, got {stderr!r}", failures)
     # Codex CLI does not discover skills from skills.config session flags; the
@@ -1003,6 +1030,11 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
                 failures,
             )
     expect_scrubbed_mcp_env(args, failures, "bundled cmux-cua", helper_owned=True)
+    expect(
+        arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT=") is None,
+        f"stable launches must retain the signed Codex parent gate, got {args}",
+        failures,
+    )
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
@@ -1010,6 +1042,23 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         0 <= computer_use_command_index < prompt_index,
         f"expected computer-use config before user argv, got {args}",
         failures,
+    )
+
+
+def test_codex_tagged_dev_build_allows_unverified_parent(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], dev_tag="fixture")
+    expect(code == 0, f"tagged dev wrapper exited {code}: {stderr}", failures)
+    expect(
+        arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT=") == '"1"',
+        f"tagged dev launches must allow the local ad-hoc Codex parent, got {args}",
+        failures,
+    )
+    expect_scrubbed_mcp_env(
+        args,
+        failures,
+        "tagged dev cmux-cua",
+        helper_owned=True,
+        state_scope="fixture",
     )
 
 
@@ -1385,6 +1434,7 @@ def test_codex_fork_gets_hooks_and_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("fork" in args, f"expected fork subcommand to survive, got {args}", failures)
+    expect_native_computer_use_disabled(args, "fork", failures)
     cmd = command_config(args)
     expect(cmd is not None, f"missing computer-use command config for fork in {args}", failures)
     if cmd is not None:
@@ -1443,6 +1493,7 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
         f"missing broker must not emit unsupported session discovery, got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "missing broker", failures)
 
 
 def test_codex_skips_when_disabled(failures: list[str]) -> None:
@@ -1457,10 +1508,11 @@ def test_codex_skips_when_live_app_setting_is_disabled(failures: list[str]) -> N
     code, args, stderr, _ = run_wrapper(["hello"], live_app_enabled=False)
     expect(code == 0, f"live-disabled wrapper exited {code}: {stderr}", failures)
     expect(
-        command_config(args) is None,
-        f"expected no injection when the live app setting is disabled, got {args}",
+        command_config(args) is not None,
+        f"explicit cmux-cua must remain attachable when the saved toggle is off, got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "disabled cmux Computer Use", failures)
 
 
 def test_codex_skips_when_daemon_credential_is_missing(failures: list[str]) -> None:
@@ -1501,6 +1553,7 @@ def test_codex_fails_closed_for_computer_use_when_socket_dead(failures: list[str
         f"expected NO computer-use attach with dead socket (fail closed), got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "dead cmux socket", failures)
 
 
 def test_codex_rejects_cmux_cua_override_under_group_writable_ancestor(failures: list[str]) -> None:
@@ -1566,6 +1619,7 @@ def main() -> int:
     test_codex_disabled_hooks_reports_inert_attachment(failures)
     test_codex_outside_cmux_reports_fail_closed_attachment(failures)
     test_codex_gets_cmux_cua(failures)
+    test_codex_tagged_dev_build_allows_unverified_parent(failures)
     test_codex_default_does_not_mutate_global_or_fake_session_discovery(failures)
     test_codex_default_skill_path_is_picker_safe(failures)
     test_codex_preserves_unverified_dangling_link_by_default(failures)
