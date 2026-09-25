@@ -71,7 +71,7 @@ an edit already crosses it; see [the migration mapping](references/swift-testing
 
 An app build does not compile test targets. Package/refactor and public API changes
 need the relevant test target compiled, then the selected tests actually executed.
-Follow [build-for-testing and execution guidance](references/local-vs-ci-validation.md)
-and the current native capacity owner; report skipped/unsupported checks explicitly.
+Follow [build-for-testing and execution guidance](references/local-vs-ci-validation.md);
+report skipped/unsupported checks explicitly.
 
 For remote tmux sizing changes, use the [E2E recipe](references/remote-tmux-sizing-e2e.md).

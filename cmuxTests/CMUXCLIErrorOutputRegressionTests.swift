@@ -1208,11 +1208,25 @@ import Testing
 
     @Test func testRestorePositionalFormRequiresSurfaceContext() throws {
         let cliPath = try bundledCLIPath()
+        // Answer on a socket this test owns. Without one, implicit discovery
+        // depends on whether the app host happens to be listening, and with no
+        // live listener restore deliberately waits for a launching app (see
+        // testLaunchCapableCommandsReachTheirDispatchPathWithoutLiveImplicitSocket).
+        let socketPath = "/tmp/cmux-restore-no-ctx-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: try jsonErrorResponse(
+                code: "not_found",
+                message: "No caller surface"
+            )
+        )
+        defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1230,6 +1244,14 @@ import Testing
             ),
             result.diagnostics
         )
+        let methods = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: data) as? [String: Any]
+            )
+            return object["method"] as? String
+        }
+        #expect(methods == ["system.identify"], Comment(rawValue: result.diagnostics))
     }
 
     @Test func testRestorePositionalFormFailsClosedWhenBindingIdentityDrifts() throws {
