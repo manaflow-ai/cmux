@@ -45,8 +45,9 @@ jobs:
     if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.path == '.github/workflows/test-e2e.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
     # The watch limit is 60 minutes (150 for an E2E run), reads may retry, and
-    # a rescue waits up to 3 more for the cancel to settle.
-    timeout-minutes: 160
+    # a rescue may run 25 more for a cancel to settle and the re-run
+    # (JOB_TIMEOUT_SECONDS in the script).
+    timeout-minutes: 180
     permissions:
       actions: write
       contents: read
