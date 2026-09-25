@@ -3953,7 +3953,7 @@ final class SocketClient {
             let reason = String(cString: strerror(errorCode))
             throw CLIError(
                 message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))",
-                socketFailureKind: .receiveTimeoutConfiguration
+                socketFailureKind: errorCode == EINVAL ? .receiveTimeoutConfiguration : nil
             )
         }
         lastConfiguredReceiveTimeout = timeout
@@ -4113,7 +4113,15 @@ final class SocketClient {
         deadline: Date? = nil
     ) throws -> String {
         if deadline == nil {
-            try configureReceiveTimeout(45)
+            do {
+                try configureReceiveTimeout(45)
+            } catch let error as CLIError where error.socketFailureKind == .receiveTimeoutConfiguration {
+                // macOS rejects SO_RCVTIMEO with EINVAL once the peer has shut
+                // the socket down, e.g. right after a backlog replay (#12756).
+                // Frames sent before the close are still buffered, so keep
+                // reading: the reads below return them, then report
+                // "Event stream closed", which --reconnect retries.
+            }
         }
         while true {
             if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {

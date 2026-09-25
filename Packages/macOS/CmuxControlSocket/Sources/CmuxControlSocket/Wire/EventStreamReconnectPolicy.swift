@@ -5,8 +5,8 @@
 /// keeping the decision input small lets the policy stay unit-testable without
 /// the CLI target.
 public enum EventStreamSocketFailureKind: Equatable, Sendable {
-    /// The socket's receive timeout could not be configured (for example the
-    /// EINVAL on the replay→live transition in #12756).
+    /// Setting the socket's receive timeout failed with EINVAL, which macOS
+    /// returns once the peer has closed the connection (#12756).
     case receiveTimeoutConfiguration
 }
 

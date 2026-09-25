@@ -7,7 +7,8 @@ struct CLIError: Error, CustomStringConvertible {
         case pathTypeConflict
         case pathOwnershipConflict
         case startupTimeout
-        /// The socket's receive timeout could not be configured.
+        /// SO_RCVTIMEO was rejected with EINVAL, which macOS returns once the
+        /// peer has shut the socket down. Other setsockopt failures stay untyped.
         case receiveTimeoutConfiguration
     }
 
