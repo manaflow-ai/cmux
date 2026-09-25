@@ -39,17 +39,23 @@ extension Workspace {
                 continue
             }
             let currentResumeBinding: SurfaceResumeBindingSnapshot?
+            let observedResumeBinding: SurfaceResumeBindingSnapshot?
             if let capturedBinding = restore.resumeBinding {
                 guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
                       currentBinding.isAgentHookBinding,
-                      currentBinding.isSameManagedSession(as: capturedBinding),
-                      currentBinding.autoResume == true else {
+                      currentBinding.isSameManagedSession(as: capturedBinding) else {
                     cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                     continue
                 }
-                currentResumeBinding = currentBinding
+                observedResumeBinding = currentBinding
+                // The staged snapshot owns this launch. A late SessionEnd from
+                // the previous cmux can retire the live binding in place while
+                // leaving the same session identity; do not turn that race into
+                // a silent shell or rebuild the launch from autoResume=false.
+                currentResumeBinding = capturedBinding
             } else {
                 currentResumeBinding = nil
+                observedResumeBinding = nil
             }
             if restore.remoteResumeCommandEmbedded {
                 // The attach command was embedded in the terminal's initial
@@ -58,8 +64,8 @@ extension Workspace {
                 // cwd, and launch flavor) so a changed resume payload can
                 // never execute from the stale terminal configuration.
                 guard let capturedBinding = restore.resumeBinding,
-                      let currentResumeBinding,
-                      capturedBinding == currentResumeBinding else {
+                      let observedResumeBinding,
+                      capturedBinding == observedResumeBinding else {
                     cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                     continue
                 }

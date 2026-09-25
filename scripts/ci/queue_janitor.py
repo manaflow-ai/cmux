@@ -380,6 +380,7 @@ POOL_SETTINGS_ENV = {
     "PR_POOL_OVERFLOW": "overflow",
     "PR_POOL_ORDER": "order",
     "PR_POOL_MAX_QUEUED": "max_queued",
+    "PR_POOL_QUEUE_ROUNDS": "queue_rounds",
 }
 
 
@@ -416,23 +417,30 @@ def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str
     return None
 
 
-def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
+def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]], *,
+                        light_retry: bool = False) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI, or of an E2E
-    or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
-    ios-screenshots.yml uploads the same marker), can (a
-    retry never takes one). Its other macOS jobs say nothing:
+    Only attempt 1 of a same-repository pull request run of CI, of main's
+    full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
+    E2E or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
+    ios-screenshots.yml uploads the same marker), can. While
+    CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
+    rescue's full re-run picks again and may take the light tier
+    (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
+    of failed jobs publishes none, so with the variable off attempt 2 costs
+    no listing. Later attempts never hold one. Its other macOS jobs say nothing:
     swift-package-tests always runs on a Blacksmith pool beside a run on an
     owned one.
     """
-    if (run.get("run_attempt") or 1) != 1:
+    if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
     path = str(run.get("path") or "")
     if run.get("event") == "workflow_dispatch":
-        return path.endswith(OWNED_DISPATCH_WORKFLOWS)
+        return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
+            path.endswith("/ci.yml") and run.get("head_branch") == "main")
     return run.get("event") == "pull_request" and path.endswith("/ci.yml")
 
 
@@ -1406,8 +1414,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         markers: dict[int, tuple[str, int]] = {}
         capability_markers: dict[int, tuple[str, int]] = {}
         if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
+            light_retry = os.environ.get("OWNED_LIGHT_RETRY", "").strip() == "1"
             for run in runs:
-                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
+                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]],
+                                                                        light_retry=light_retry):
                     try:
                         names = github.artifact_names(
                             run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-")

@@ -4413,10 +4413,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let model = cloudAccess.model,
            let cloudURL = restoreURL ?? cloudAccess.remoteURL,
            cloudAccess.owns(cloudURL) {
-            cloudAccess.configure(model: model, url: cloudURL)
-            if let readyURL = cloudAccess.nextURL() {
-                _ = navigate(to: readyURL)
-            }
+            configureCloudBrowser(model: model, url: cloudURL)
         } else if shouldRestoreURL, let restoreURL {
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,

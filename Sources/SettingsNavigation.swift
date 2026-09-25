@@ -2,12 +2,12 @@ import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
-    case computers
     case app
     case terminal
     case textBox
     case sleepyMode
     case mobile
+    case computers
     case cloudMachines
     case networking
     case sidebarAppearance

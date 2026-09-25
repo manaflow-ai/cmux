@@ -794,6 +794,62 @@ class Wiring(unittest.TestCase):
         # Never the product publisher.
         self.assertNotIn("TRUSTED", seed_pools()[0])
 
+    def test_the_trusted_pool_seeds_each_extra_root_as_its_own_lane(self):
+        """An owned Mac's second compile slot builds in /private/tmp/cmux-ci-2,
+        which is part of the seed key (cmuxterm-hq#590). CI_SEED_TRUSTED_ROOTS
+        adds a trusted lane per extra root, and only the trusted pool may
+        build outside /private/tmp/cmux-ci."""
+        import subprocess
+        import tempfile
+        workflow = load("seed-derived-data.yml")
+        inputs = next(step for step in workflow["jobs"]["decide"]["steps"] if step.get("id") == "inputs")
+        self.assertEqual(inputs["env"]["SEED_TRUSTED_ROOTS"], "${{ vars.CI_SEED_TRUSTED_ROOTS || '1' }}")
+        label = "glaeda-trusted-std-xcode-26.6"
+        script = inputs["run"].replace("python3 scripts/ci/seed_decide.py", "printf '%s\\n'")
+
+        def pools(trusted, roots):
+            env = {"PATH": "/usr/bin:/bin", "SEED_POOL_1": "a", "SEED_POOL_2": "a", "SEED_POOL_3": "c-vcpu-macos-15",
+                   "SEED_TRUSTED_POOL": trusted, "SEED_TRUSTED_ROOTS": roots, "XCODE_APP": "X",
+                   "XCODE_APP_MACOS_15": "Y", "EVENT_NAME": "push", "GITHUB_OUTPUT": "/dev/null",
+                   "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+            out = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+            args = out.stdout.split()
+            # seed_decide.py drops an empty pool.
+            return out.returncode, [args[i + 1] for i, arg in enumerate(args)
+                                    if arg == "--pool" and not args[i + 1].startswith("=")]
+
+        self.assertEqual(pools("", "2"), (0, ["a=X", "a=X", "c-vcpu-macos-15=Y"]))
+        self.assertEqual(pools(label, "1")[1][-1], f"{label}=X")
+        self.assertEqual(pools(label, "2")[1][-2:], [f"{label}=X", f"{label}@2=X"])
+        self.assertNotEqual(pools(label, "x")[0], 0)
+
+        job = workflow["jobs"]["seed"]
+        self.assertEqual(job["env"]["CMUX_SEED_ROOT"], "${{ matrix.root }}")
+        self.assertIn("matrix.root", job["concurrency"]["group"])
+        _, prepare = named(job["steps"], "Prepare admission build paths")
+
+        def prepare_root(pool, root):
+            with tempfile.TemporaryDirectory() as tmp:
+                env_file = Path(tmp, "env")
+                env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(env_file), "MATRIX_POOL": pool,
+                       "TRUSTED_POOL": label, "CMUX_SEED_ROOT": root,
+                       "CMUX_CI_CANONICAL_ROOT": str(Path(tmp, "root1"))}
+                # Keep the step off the real /private/tmp.
+                text = prepare["run"].replace('root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"',
+                                              f'root="{tmp}/cmux-ci-$CMUX_SEED_ROOT"')
+                out = subprocess.run(["bash", "-c", text], env=env, capture_output=True, text=True)
+                lines = env_file.read_text().splitlines() if env_file.exists() else []
+                return out.returncode, [line.replace(tmp, "") for line in lines]
+
+        code, lines = prepare_root(label, "2")
+        self.assertEqual(code, 0)
+        self.assertEqual(lines[0], "CMUX_CI_CANONICAL_ROOT=/cmux-ci-2")
+        self.assertIn("CMUX_COMPILE_ADMISSION_DERIVED_DATA=/cmux-ci-2/derived-data-compile-admission", lines)
+        self.assertNotEqual(prepare_root("blacksmith-12vcpu-macos-26", "2")[0], 0)
+        self.assertNotEqual(prepare_root(label, "1")[0], 0)
+        code, lines = prepare_root("blacksmith-12vcpu-macos-26", "")
+        self.assertEqual((code, lines[0]), (0, "CMUX_COMPILE_ADMISSION_DERIVED_DATA=/root1/derived-data-compile-admission"))
+
     def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
         import sys as _sys
         _sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -1116,6 +1172,66 @@ class Wiring(unittest.TestCase):
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": product_runner}}}
                 shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
                 self.assertEqual(evaluate(shard, context), product_runner)
+
+    def test_main_full_suite_dispatch_takes_the_owned_pool_the_picker_names(self):
+        # pr_runner_pool.py may put main's full-suite dispatch on an owned
+        # pool; every job of it reads the same inputs a pull request's do.
+        macos = load("ci-macos.yml")["jobs"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"
+        owned_jobs = " admission shard-1 shard-2 lag cli-product "
+        for attempt, actor, runner in (("1", "github-actions[bot]", root),
+                                       ("2", "github-actions[bot]", root),
+                                       ("2", "someone", retry)):
+            context = github_context("workflow_dispatch")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                     sha="head")
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+                                     pr_root_runner=root, pr_owned_jobs=owned_jobs, source_parent1="parent")
+            with self.subTest(attempt=attempt, actor=actor):
+                admission = macos["macos-compile-admission"]
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-pr.app")
+                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
+                context["needs"] = {"macos-compile-admission": {"outputs": {"runner": runner}}}
+                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                self.assertEqual(evaluate(shard, context), runner)
+                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
+                # An owned Mac's kept build is reused on main too, starting at main's own commit.
+                context["env"] = {"CMUX_PRODUCT_RUNNER": runner}
+                context["steps"] = {"reuse-products": {"outputs": {"hit": "false"}},
+                                    "owned-state": {"outputs": {"warm": "true"}}}
+                _, state = named(steps("ci-macos.yml", "macos-compile-admission"), "Reuse this owned Mac's build state")
+                self.assertIs(evaluate(state["if"], context), runner.startswith("glaeda-"))
+                _, prefer = named(steps("ci-macos.yml", "macos-compile-admission"),
+                                  "Prefer a near seed over this owned Mac's DerivedData")
+                self.assertEqual(evaluate(prefer["env"]["MERGED_ONTO"], context), "head")
+        # A dispatch on another branch never reads the owned state.
+        topic = github_context("workflow_dispatch", ref="refs/heads/topic")
+        topic["env"] = {"CMUX_PRODUCT_RUNNER": mini}
+        topic["steps"] = {"reuse-products": {"outputs": {"hit": "false"}}}
+        _, state = named(steps("ci-macos.yml", "macos-compile-admission"), "Reuse this owned Mac's build state")
+        self.assertIs(evaluate(state["if"], topic), False)
+
+    def test_main_full_suite_dispatch_reads_the_route_token_and_the_lane_pin(self):
+        changes = load("ci.yml")["jobs"]["changes"]["steps"]
+        mint = next(step for step in changes if step.get("id") == "route-token")
+        picker = next(step for step in changes if step.get("id") == "macos-pool")
+        for event_name, ref, head, minted, pin in (
+            ("workflow_dispatch", "refs/heads/main", None, True, "/Applications/Xcode-pr.app"),
+            ("workflow_dispatch", "refs/heads/topic", None, False, ""),
+            ("merge_group", "refs/heads/gh-readonly-queue/main/x", None, False, ""),
+            ("pull_request", "refs/pull/1/merge", "manaflow-ai/cmux", True, "/Applications/Xcode-pr.app"),
+            ("pull_request", "refs/pull/1/merge", "someone/cmux", False, ""),
+        ):
+            context = github_context(event_name, ref=ref, CI_PR_POOL_OWNED="1", GLAEDA_ROUTE_APP_ID="42")
+            context["github"].update(repository="manaflow-ai/cmux",
+                                     event={"pull_request": {"head": {"repo": {"full_name": head}}}} if head else {})
+            with self.subTest(event_name=event_name, ref=ref, head=head):
+                self.assertIs(evaluate("${{ " + mint["if"] + " }}", context), minted)
+                self.assertEqual(evaluate(picker["env"]["CMUX_CI_XCODE_APP_PR"], context), pin)
+        off = github_context("workflow_dispatch", CI_PR_POOL_OWNED="", GLAEDA_ROUTE_APP_ID="42")
+        self.assertIs(evaluate("${{ " + mint["if"] + " }}", off), False)
 
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}
