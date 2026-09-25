@@ -9,6 +9,7 @@ import "testing"
 func TestDefaultWebSocketPTYEnvForcesTerminalIdentity(t *testing.T) {
 	t.Setenv("TERM_PROGRAM", "iTerm.app")
 	t.Setenv("COLORTERM", "24bit")
+	t.Setenv("TERM_PROGRAM_VERSION", "3.5.0")
 
 	env, _ := envMapWithOrder(defaultWebSocketPTYEnv("/bin/zsh"))
 
@@ -19,5 +20,8 @@ func TestDefaultWebSocketPTYEnvForcesTerminalIdentity(t *testing.T) {
 		if got := env[tc.key]; got != tc.want {
 			t.Errorf("%s = %q, want %q (host value must not leak into the remote PTY)", tc.key, got, tc.want)
 		}
+	}
+	if got, ok := env["TERM_PROGRAM_VERSION"]; ok {
+		t.Errorf("TERM_PROGRAM_VERSION = %q, want unset (host terminal version must not leak)", got)
 	}
 }

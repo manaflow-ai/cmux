@@ -753,6 +753,9 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 	// rather than only setting them when absent.
 	set("COLORTERM", "truecolor")
 	set("TERM_PROGRAM", "ghostty")
+	// The host's TERM_PROGRAM_VERSION describes the host terminal, not the
+	// ghostty identity set above, so drop it rather than pair them.
+	delete(env, "TERM_PROGRAM_VERSION")
 	setIfMissing("SHELL", shellPath)
 	set("CMUX_REMOTE_TRANSPORT", "ws")
 	if !envHasUTF8Locale(env) {
@@ -768,7 +771,11 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, key+"="+env[key])
+		value, ok := env[key]
+		if !ok {
+			continue
+		}
+		out = append(out, key+"="+value)
 	}
 	return out
 }
