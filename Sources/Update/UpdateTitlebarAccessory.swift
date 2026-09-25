@@ -283,6 +283,8 @@ final class NotificationsAnchorRegistry {
     func visibleAnchor(in window: NSWindow) -> NSView? {
         anchors.allObjects.first { view in
             view.window === window
+                && !view.bounds.isEmpty
+                && notificationsPopoverAnchorIsVisible(view)
         }
     }
 
@@ -2290,7 +2292,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             }
         }
 
-        if let anchorView = viewModel.notificationsAnchorView, anchorView.window != nil, !isHidden {
+        if let anchorView = NotificationsAnchorRegistry.shared.visibleAnchor(in: window) {
             anchorView.superview?.layoutSubtreeIfNeeded()
             let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
             if !anchorRect.isEmpty {
