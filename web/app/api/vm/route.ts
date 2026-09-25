@@ -147,15 +147,11 @@ export async function GET(request: Request): Promise<Response> {
         ? vmFreeAccessWindowDays()
         : 0;
       const vms = entries.map((entry) => {
-        // A paid personal plan unlocks that user's personal rows even when a
-        // different paid team is the implicit list scope. Team rows use their
-        // recorded plan; legacy rows fall back to the list-level policy.
-        const entryIsPaid = entry.ownerTeamId === user.id
-          ? isPaidVmPlan(user.userBillingPlanId ?? "")
-          : isPaidVmPlan(entry.billingPlanId ?? "");
         const entryFreeAccessWindowDays = entry.billingPlanId === undefined
           ? freeAccessWindowDays
-          : entryIsPaid ? 0 : vmFreeAccessWindowDays();
+          : !entry.billingPlanId || !isPaidVmPlan(entry.billingPlanId)
+          ? vmFreeAccessWindowDays()
+          : 0;
         return {
           id: entry.providerVmId,
           provider: entry.provider,
