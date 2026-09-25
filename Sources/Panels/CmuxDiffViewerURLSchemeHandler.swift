@@ -153,7 +153,18 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
-        guard let file = registeredFile(for: requestURL) else {
+        var file = registeredFile(for: requestURL)
+        if file == nil {
+            // Typed sidecar sessions append their generated patch after the
+            // page's manifest has already been installed. Refresh only for an
+            // unknown path so the in-memory allowlist sees that new entry.
+            guard await registerFromManifest(token: token) else {
+                failSchemeTask(taskID, generation: generation, code: NSURLErrorFileDoesNotExist)
+                return
+            }
+            file = registeredFile(for: requestURL)
+        }
+        guard let file else {
             failSchemeTask(taskID, generation: generation, code: NSURLErrorFileDoesNotExist)
             return
         }
