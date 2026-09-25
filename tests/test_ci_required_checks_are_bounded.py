@@ -125,7 +125,7 @@ def check_macos_15_pull_request_lane() -> str | None:
     if lane.get("with", {}).get("skip_ui_tests") is not True:
         return "macos-15-unit-tests must skip UI tests"
     if lane.get("with", {}).get("runner") != (
-        "${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}"
+        "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}"
     ):
         return "macos-15-unit-tests must select the macOS 15 runner"
     if "macos-15-unit-tests" not in (jobs.get("ci-status", {}).get("needs") or []):
