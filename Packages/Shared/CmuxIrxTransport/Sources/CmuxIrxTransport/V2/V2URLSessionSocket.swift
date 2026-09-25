@@ -50,17 +50,76 @@ public actor V2URLSessionSocket: V2ControlSocket {
     static func ping(
         using sendPing: (@escaping @Sendable ((any Error)?) -> Void) -> Void
     ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            // lint:allow lock -- URLSession can repeat a ping callback during
-            // network teardown. Claim completion synchronously before any actor hop.
-            let pending = OSAllocatedUnfairLock(initialState: Optional(continuation))
-            sendPing { error in
-                guard let continuation = pending.withLock({ pending in
-                    defer { pending = nil }
-                    return pending
-                }) else { return }
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume() }
+        let completion = V2URLSessionPingCompletion()
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                guard completion.install(continuation) else { return }
+                guard !Task.isCancelled else {
+                    completion.cancel()
+                    return
+                }
+                sendPing { error in completion.callback(error) }
+            }
+        }, onCancel: {
+            completion.cancel()
+        })
+    }
+
+    /// Serializes the synchronous callback/cancellation race at the URLSession seam.
+    private final class V2URLSessionPingCompletion: @unchecked Sendable {
+        deinit {}
+
+        private struct State: Sendable {
+            var continuation: CheckedContinuation<Void, any Error>?
+            var result: Result<Void, any Error>?
+        }
+
+        // lint:allow lock -- URLSession callbacks and task cancellation can race synchronously;
+        // an actor would add an async hop between claiming and resuming a continuation.
+        private let state = OSAllocatedUnfairLock(initialState: State())
+
+        func install(_ continuation: CheckedContinuation<Void, any Error>) -> Bool {
+            enum Action {
+                case installed
+                case completed(Result<Void, any Error>)
+            }
+
+            let action = state.withLock { state -> Action in
+                guard let result = state.result else {
+                    state.continuation = continuation
+                    return .installed
+                }
+                return .completed(result)
+            }
+
+            switch action {
+            case .installed:
+                return true
+            case .completed(let result):
+                continuation.resume(with: result)
+            }
+            return false
+        }
+
+        func callback(_ error: (any Error)?) {
+            let result: Result<Void, any Error> = error.map { .failure($0) } ?? .success(())
+            let claimed = claim(result)
+            claimed?.resume(with: result)
+        }
+
+        func cancel() {
+            let result: Result<Void, any Error> = .failure(CancellationError())
+            let claimed = claim(result)
+            claimed?.resume(with: result)
+        }
+
+        private func claim(_ result: Result<Void, any Error>) -> CheckedContinuation<Void, any Error>? {
+            state.withLock { state in
+                guard state.result == nil else { return nil }
+                state.result = result
+                let continuation = state.continuation
+                state.continuation = nil
+                return continuation
             }
         }
     }

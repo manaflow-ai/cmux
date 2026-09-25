@@ -10,6 +10,8 @@ struct CloudManualMirrorFixtureCommand: Sendable {
     let expectedTerminalID: String?
     let id: UInt64
     let surface: UInt64?
+    let columns: Int?
+    let rows: Int?
     let capabilities: [String]
     let hasInitialSize: Bool
     let imageOperation: String?
@@ -28,6 +30,8 @@ struct CloudManualMirrorFixtureCommand: Sendable {
         inputBytes = (object["bytes"] as? String).flatMap { Data(base64Encoded: $0) }
         id = (object["id"] as? NSNumber)?.uint64Value ?? 0
         surface = (object["surface"] as? NSNumber)?.uint64Value
+        columns = object["cols"] as? Int
+        rows = object["rows"] as? Int
         capabilities = object["capabilities"] as? [String] ?? []
         hasInitialSize = object["cols"] != nil || object["rows"] != nil
         imageOperation = object["op"] as? String

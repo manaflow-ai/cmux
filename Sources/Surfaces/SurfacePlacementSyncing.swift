@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The machine-layout mutations the sync service asks a provider for. Only providers

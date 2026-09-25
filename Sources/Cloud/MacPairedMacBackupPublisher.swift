@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
@@ -32,6 +33,8 @@ final class MacPairedMacBackupPublisher {
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
+    private var teamScopeObserver: NSObjectProtocol?
+    private var latestRoutes: [CmxAttachRoute] = []
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
@@ -80,6 +83,21 @@ final class MacPairedMacBackupPublisher {
                 }
             }
         }
+        if teamScopeObserver == nil {
+            teamScopeObserver = NotificationCenter.default.addObserver(
+                forName: .cmuxCloudTeamScopeDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.lastPublishedRoutes = []
+                    let routes = self.latestRoutes
+                    guard !routes.isEmpty else { return }
+                    Task { await self.publish(routes: routes) }
+                }
+            }
+        }
         evaluate()
     }
 
@@ -98,6 +116,7 @@ final class MacPairedMacBackupPublisher {
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 guard let self, !Task.isCancelled else { break }
+                self.latestRoutes = status.routes
                 guard MobileHostService.isListeningEnabled else {
                     self.lastPublishedRoutes = []
                     continue
@@ -172,10 +191,10 @@ final class MacPairedMacBackupPublisher {
             let (_, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { return }
             if http.statusCode == 429 {
-                let seconds = CmxRetryAfterPolicy.seconds(
+                let seconds = CmxRetryAfterPolicy().seconds(
                     from: http,
-                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                    defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                 await retryAfterGate.extend(by: seconds)
                 return
             }

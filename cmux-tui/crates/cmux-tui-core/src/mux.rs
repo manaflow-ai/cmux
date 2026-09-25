@@ -4,6 +4,7 @@
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod terminal_directory;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 
@@ -907,6 +908,7 @@ pub enum MuxEvent {
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,
+        agent: Option<Arc<str>>,
         updated_at_ms: u64,
     },
     Bell(SurfaceId),
@@ -1154,6 +1156,11 @@ impl Direction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentSource {
+    /// An installed userland agent plugin wrote the observation.
+    Plugin,
+    /// Legacy source value emitted by pre-userland screen detection. Current
+    /// core code never emits it; the reducer keeps it so old journals replay
+    /// after screen detection moves to a userland plugin.
     Detected,
     Socket,
     Hook,
@@ -1162,6 +1169,7 @@ pub enum AgentSource {
 impl AgentSource {
     pub fn as_str(self) -> &'static str {
         match self {
+            AgentSource::Plugin => "plugin",
             AgentSource::Detected => "detected",
             AgentSource::Socket => "socket",
             AgentSource::Hook => "hook",
@@ -1230,6 +1238,103 @@ fn agent_hook_notification(
     Some((format!("{agent} {verb}"), body, level))
 }
 
+/// A stored projection state string as its typed form; unknown spellings
+/// degrade to `Unknown`, which every agents view hides.
+fn parse_projection_agent_state(value: &str) -> AgentState {
+    match value {
+        "working" => AgentState::Working,
+        "blocked" => AgentState::Blocked,
+        "idle" => AgentState::Idle,
+        "done" => AgentState::Done,
+        _ => AgentState::Unknown,
+    }
+}
+
+/// The agent roster host: reducer state plus its journal fold cursor.
+/// Lock ordering rule: never acquire another `Mux` lock while holding this
+/// one - fold paths release it before persisting, and commit paths only
+/// take a read after their registry/state locks, so `registry -> roster`
+/// is the single global order.
+#[derive(Debug, Default)]
+struct AgentRosterHost {
+    roster: crate::journal_reducers::AgentRoster,
+    cursor: u64,
+}
+
+/// Restore the roster from its persisted snapshot and fold the journal tail
+/// committed after the cursor. A reducer-version mismatch discards the
+/// snapshot and re-folds from the journal head. Deltas produced here are
+/// dropped deliberately: their projection commits and change broadcasts
+/// already happened when the events first committed, and the durable
+/// projection restores itself independently.
+fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
+    use crate::journal_reducers::{
+        AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
+    };
+    let (mut host, mut needs_repair) =
+        match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
+            Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
+                match AgentRoster::restore(&snapshot) {
+                    Some(roster) => (AgentRosterHost { roster, cursor }, false),
+                    // The cursor is meaningful only with the snapshot that was
+                    // captured at the same fold boundary. Replaying from zero
+                    // is the safe recovery path for malformed persisted state.
+                    None => (AgentRosterHost::default(), true),
+                }
+            }
+            Some(_) => (AgentRosterHost::default(), true),
+            None => (AgentRosterHost::default(), false),
+        };
+    // A cursor beyond the current journal head cannot describe a retained
+    // snapshot boundary. Treat it like any other rejected checkpoint so a
+    // metadata write or journal repair cannot make startup fail permanently.
+    if host.cursor > 0 {
+        let journal_head = registry.session_journal_head()?;
+        if host.cursor > journal_head {
+            host = AgentRosterHost::default();
+            needs_repair = true;
+        }
+    }
+    let started_at = host.cursor;
+    loop {
+        let page = registry.session_journal_after(host.cursor, 512)?;
+        if page.records.is_empty() {
+            break;
+        }
+        for record in &page.records {
+            host.roster.apply(&RosterEvent::from_record(record));
+            host.cursor = host.cursor.max(record.sequence);
+        }
+    }
+    if needs_repair || host.cursor != started_at {
+        registry.put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION,
+            host.cursor,
+            &host.roster.snapshot().to_string(),
+        )?;
+    }
+    Ok(host)
+}
+
+fn agent_provider_identity(ingress: &crate::JournalIngress) -> Option<String> {
+    ingress
+        .payload
+        .get("normalized")
+        .and_then(|normalized| normalized.get("agent_type"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            ingress
+                .payload
+                .get("adapter")
+                .and_then(|adapter| adapter.get("id"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentRecord {
     pub surface: SurfaceId,
@@ -1237,6 +1342,9 @@ pub struct AgentRecord {
     pub state: AgentState,
     pub source: AgentSource,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...) when a hook has
+    /// claimed the terminal; absent for socket-only reports.
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -1315,14 +1423,6 @@ impl HookFence {
     }
 }
 
-/// Durable hook projection carried by a hook-sourced agent report. Socket
-/// reports carry none; hook reports carry the fence state and the journal
-/// sequence that produced it.
-struct DurableHookReport {
-    state: crate::workspace_registry::AgentHookProjectionState,
-    journal_sequence: u64,
-}
-
 /// Session-less adapters get a local generation token. The journal sequence
 /// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
 /// the previous fence identity after restart.
@@ -1385,7 +1485,18 @@ struct TerminalAgentRecord {
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
+    agent: Option<String>,
     updated_at_ms: u64,
+}
+
+/// Who initiated an agent projection commit: a direct socket/SDK report
+/// (which must echo its intent into the journal so the roster fold sees
+/// it), or the roster fold itself applying a journal-derived delta (which
+/// must not echo, or every hook event would append a second record).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentReportOrigin {
+    Direct,
+    RosterFold,
 }
 
 enum AgentReportTarget<'a> {
@@ -2299,9 +2410,12 @@ pub struct Mux {
     default_colors: Mutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
+    journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
+    agent_roster: Mutex<AgentRosterHost>,
+    agent_roster_fold: Mutex<()>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -2355,6 +2469,7 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
+    template_completion_failures: AtomicU64,
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
@@ -2607,6 +2722,7 @@ impl Mux {
             notification_ledger,
             notification_reads,
         } = restore_public_projections(&state, registry.public_projections()?)?;
+        let agent_roster = restore_agent_roster(&registry)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let machine_public_id = registry.machine_id().clone();
@@ -2718,9 +2834,12 @@ impl Mux {
             default_colors: Mutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
+            journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
+            agent_roster: Mutex::new(agent_roster),
+            agent_roster_fold: Mutex::new(()),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -2753,6 +2872,12 @@ impl Mux {
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             ),
+            template_completion_failures: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
@@ -2766,6 +2891,13 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        let weak_mux = Arc::downgrade(&mux);
+        mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
+            let Some(mux) = weak_mux.upgrade() else { return };
+            // Do not drop a late exit callback here. The reducer uses the
+            // child generation to fence a replacement process.
+            mux.record_journal_plugin_exit(plugin_id, generation);
+        })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
@@ -2780,6 +2912,12 @@ impl Mux {
                 }
             }
         }
+        // The roster reducer and the public projection are durable in
+        // separate transactions. A crash can therefore leave a plugin row in
+        // the roster while dropping the projection side effect. Reconcile
+        // after restored surfaces exist, and repeat at the end of asynchronous
+        // terminal adoption for hosts that were not available yet.
+        mux.reconcile_agent_roster_projections();
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
             if Instant::now() >= recovery_deadline {
@@ -3081,6 +3219,9 @@ impl Mux {
             None => Vec::new(),
         };
         let mut handled_terminals = HashSet::new();
+        // At most one warm snapshot host becomes the first terminal of a
+        // fresh registry (SurfaceOptions::adopt_template_terminal).
+        let mut template_claimed = false;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3127,13 +3268,24 @@ impl Mux {
             }
             let mut terminal =
                 self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+            if terminal.is_none()
+                && !template_claimed
+                && options.adopt_template_terminal
+                && !record.workspace_key.is_empty()
+                && self.state.lock().unwrap().workspaces.is_empty()
+                && terminal_host_record_liveness(&record_path, &record)
+                    == TerminalHostLiveness::Live
+            {
+                terminal = Some(self.claim_template_terminal(&options, &record)?);
+                template_claimed = true;
+            }
             if terminal.is_none() {
                 // One-release migration path for hosts launched before SQLite
                 // became placement authority. Never trust the JSON hint when
                 // its workspace no longer exists.
-                let can_import = !record.workspace_key.is_empty()
+                let workspace_exists = !record.workspace_key.is_empty()
                     && self.state.lock().unwrap().workspace_by_key(&record.workspace_key).is_some();
-                if can_import {
+                if workspace_exists {
                     let imported = RegistryTerminal {
                         terminal_id: terminal_id.clone(),
                         workspace_key: record.workspace_key.clone(),
@@ -3294,6 +3446,7 @@ impl Mux {
                 }
                 continue;
             }
+            self.ensure_template_adoption_completed(&terminal_id);
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
         }
@@ -3319,6 +3472,155 @@ impl Mux {
                 &options,
             )?;
         }
+        Ok(())
+    }
+
+    /// Complete an adopted template terminal (complete_template_adoption),
+    /// retrying in the background until it succeeds or the daemon shuts down.
+    /// Adoption itself has already committed, so a failure here must neither
+    /// abort startup nor leave the terminal without its public placement and
+    /// binding.
+    #[cfg(unix)]
+    fn ensure_template_adoption_completed(self: &Arc<Self>, terminal_id: &str) {
+        let Err(error) = self.complete_template_adoption(terminal_id) else {
+            return;
+        };
+        eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error:#}");
+        let mux = Arc::clone(self);
+        let terminal_id = terminal_id.to_string();
+        let spawned = std::thread::Builder::new()
+            .name(format!("template-complete-{terminal_id}"))
+            .spawn(move || {
+                let mut delay = Duration::from_millis(100);
+                loop {
+                    std::thread::sleep(delay);
+                    if mux.shutting_down.load(Ordering::Acquire) {
+                        break;
+                    }
+                    match mux.complete_template_adoption(&terminal_id) {
+                        Ok(()) => break,
+                        Err(error) => {
+                            eprintln!(
+                                "cmux-tui: template terminal {terminal_id} not published yet: \
+                                 {error:#}"
+                            );
+                            delay = (delay * 2).min(Duration::from_secs(5));
+                        }
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: could not schedule template completion: {error}");
+        }
+    }
+
+    /// Finish a template terminal once its host is adopted, on the startup
+    /// pass or the asynchronous retry: commit its new placement to the public
+    /// topology, then tell the template shell its new identity. The binding is
+    /// written only after the commit, so the first `terminal.list` after it
+    /// appears includes the terminal it names.
+    #[cfg(unix)]
+    fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
+        let is_template = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(terminal_id)?
+            .is_some_and(|terminal| is_template_terminal(&terminal));
+        if !is_template {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            !self.consume_template_completion_failure(),
+            "injected template completion failure"
+        );
+        self.commit_ordinary_full_resource_projection(
+            "terminal.adopt-template",
+            serde_json::json!({}),
+        )?;
+        let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
+        if let Some(path) = bound_file {
+            self.publish_template_binding(terminal_id, &path)?;
+        }
+        Ok(())
+    }
+
+    /// Claim a Cloud snapshot's warm terminal host as the first terminal of
+    /// this fresh registry (SurfaceOptions::adopt_template_terminal). The
+    /// host's workspace is recreated under its recorded key and named from
+    /// the options; the durable row is marked as a template terminal so
+    /// finish_terminal_adoption gives it a new placement with fresh public
+    /// ids. The ordinary adoption handshake follows.
+    #[cfg(unix)]
+    fn claim_template_terminal(
+        &self,
+        options: &SurfaceOptions,
+        record: &crate::terminal_host_runtime::TerminalHostRecord,
+    ) -> anyhow::Result<RegistryTerminal> {
+        self.create_empty_workspace(
+            options.template_workspace_name.clone(),
+            Some(record.workspace_key.clone()),
+            None,
+        )?;
+        let claimed = RegistryTerminal {
+            terminal_id: record.terminal_id.clone(),
+            workspace_key: record.workspace_key.clone(),
+            incarnation: None,
+            lifecycle: TerminalLifecycle::Launching,
+            launch_spec: template_terminal_launch_spec(),
+            exit: None,
+            on_exit: TerminalOnExit::Close,
+        };
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let revision = commit_terminal_transition(
+            &mut registry,
+            "terminal-template-claimed",
+            "claim-template-terminal",
+            &claimed,
+        )?;
+        self.emit_terminal_registry_changed(&registry, revision);
+        Ok(claimed)
+    }
+
+    /// Tell the warm template shell its new identity. The shell was spawned
+    /// by the snapshot builder's daemon, so its CMUX_TUI_SESSION_ID and
+    /// CMUX_TUI_TERMINAL_ID name the builder's session and terminal. Its
+    /// first prompt waits for this file and re-exports both before any user
+    /// command (or agent hook) runs. Written only after the adoption above
+    /// committed, and atomically, so its presence means the clone is bound.
+    #[cfg(unix)]
+    fn publish_template_binding(&self, terminal_id: &str, path: &Path) -> anyhow::Result<()> {
+        let session_id = self.session_public_id();
+        let terminal_public_id = {
+            let state = self.state.lock().unwrap();
+            state
+                .surfaces
+                .iter()
+                .find(|(_, surface)| {
+                    surface
+                        .terminal_host_identity()
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                })
+                .and_then(|(surface_id, _)| state.resource_indexes.content_ids.get(surface_id))
+                .and_then(|content| match content {
+                    ContentPublicId::Terminal(id) => Some(id.clone()),
+                    _ => None,
+                })
+        };
+        // Adoption may have fallen back to the asynchronous retry loop; the
+        // shell's bounded wait then clears the builder's values instead.
+        let Some(terminal_public_id) = terminal_public_id else { return Ok(()) };
+        let contents = format!(
+            "CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={}\n",
+            session_id.as_str(),
+            terminal_public_id.as_str()
+        );
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, contents)?;
+        std::fs::rename(&temporary, path)?;
         Ok(())
     }
 
@@ -3412,7 +3714,15 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if has_restored_placements || surface.resource_identity().is_none() {
+        if is_template_terminal(&terminal) {
+            // Cloud snapshot template: its builder's placement was wiped with
+            // the builder's registry, so it always gets a new one here.
+            self.place_adopted_terminal_in_new_screen(
+                &mut state,
+                &terminal.workspace_key,
+                surface,
+            )?;
+        } else if has_restored_placements || surface.resource_identity().is_none() {
             anyhow::ensure!(
                 !self.consume_terminal_adoption_insert_failure(),
                 "injected terminal adoption topology failure"
@@ -3422,42 +3732,11 @@ impl Mux {
             // One-release import path for a host that predates public content
             // identities. Give it a real initial placement so the normal
             // resource projection can persist its generated identities.
-            let workspace_index = state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.key == terminal.workspace_key)
-                .ok_or_else(|| anyhow::anyhow!("terminal workspace disappeared during adoption"))?;
-            let (pane_id, pane) = self.make_pane(surface.id)?;
-            let screen_id = self.next_id();
-            let screen_public_id = ScreenPublicId::random()?;
-            anyhow::ensure!(
-                !self.consume_terminal_adoption_insert_failure(),
-                "injected terminal adoption topology failure"
-            );
-            insert_surface_checked(&mut state, surface)?;
-            {
-                let workspace = &mut state.workspaces[workspace_index];
-                workspace.screens.push(Screen {
-                    id: screen_id,
-                    public_id: screen_public_id,
-                    name: None,
-                    root: Node::Leaf(pane_id),
-                    active_pane: pane_id,
-                    zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane_id]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
-                workspace.active_screen = workspace.screens.len() - 1;
-            }
-            // Adoption materializes a live pane without stealing focus, but it
-            // must still advance the pane-set revision used by frontend focus
-            // history pruning.
-            state.insert_pane(pane);
-            state.rebuild_resource_indexes();
+            self.place_adopted_terminal_in_new_screen(
+                &mut state,
+                &terminal.workspace_key,
+                surface,
+            )?;
         }
 
         let revision = match commit_terminal_lifecycle(
@@ -3482,8 +3761,65 @@ impl Mux {
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
             let _ = self.retry_pending_agent_hooks_for_terminal(&terminal_id);
+            self.reconcile_agent_roster_projections_for_terminal(&terminal_id);
         }
         Ok(())
+    }
+
+    /// Give an adopted terminal host a new screen and pane in the workspace
+    /// with `workspace_key`, without stealing focus. The resource projection
+    /// then generates and persists its public ids.
+    #[cfg(unix)]
+    fn place_adopted_terminal_in_new_screen(
+        &self,
+        state: &mut State,
+        workspace_key: &str,
+        surface: Arc<Surface>,
+    ) -> anyhow::Result<()> {
+        let workspace_index = state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.key == workspace_key)
+            .ok_or_else(|| anyhow::anyhow!("terminal workspace disappeared during adoption"))?;
+        let (pane_id, pane) = self.make_pane(surface.id)?;
+        let screen_id = self.next_id();
+        let screen_public_id = ScreenPublicId::random()?;
+        anyhow::ensure!(
+            !self.consume_terminal_adoption_insert_failure(),
+            "injected terminal adoption topology failure"
+        );
+        insert_surface_checked(state, surface)?;
+        {
+            let workspace = &mut state.workspaces[workspace_index];
+            workspace.screens.push(Screen {
+                id: screen_id,
+                public_id: screen_public_id,
+                name: None,
+                root: Node::Leaf(pane_id),
+                active_pane: pane_id,
+                zoomed_pane: None,
+                zellij_auto_layout: Some(vec![pane_id]),
+                viewport_splits: Default::default(),
+                viewport_base_width: None,
+                layout_columns: Vec::new(),
+                layout_revision: 0,
+                layout_undo: Default::default(),
+            });
+            workspace.active_screen = workspace.screens.len() - 1;
+        }
+        // Adoption materializes a live pane without stealing focus, but it
+        // must still advance the pane-set revision used by frontend focus
+        // history pruning.
+        state.insert_pane(pane);
+        state.rebuild_resource_indexes();
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn consume_template_completion_failure(&self) -> bool {
+        self.template_completion_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .is_ok()
     }
 
     #[cfg(unix)]
@@ -3642,6 +3978,7 @@ impl Mux {
                             )
                             .is_ok()
                         {
+                            mux.ensure_template_adoption_completed(&terminal_id);
                             mux.reap_if_dead(&surface);
                             break;
                         }
@@ -5673,6 +6010,12 @@ impl Mux {
         self.workspace_registry.lock().unwrap().journal_producer_manifests()
     }
 
+    pub(crate) fn userland_journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
+        self.workspace_registry.lock().unwrap().userland_journal_producer_manifests()
+    }
+
     pub(crate) fn put_journal_producer(
         &self,
         manifest: &crate::JournalProducerManifest,
@@ -5700,7 +6043,22 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
-        let validated = self.journal_kernel.validate_ingress(ingress)?;
+        let validated = match self.journal_kernel.validate_ingress(ingress) {
+            Ok(validated) => validated,
+            Err(validation_error) => {
+                // A receipt is authoritative for an exact retry. Its ingress
+                // may name a superseded manifest after a producer upgrade,
+                // while a new ingress must still pass current validation.
+                let replay = {
+                    let registry = self.workspace_registry.lock().unwrap();
+                    registry.replay_journal_ingress(ingress, origin, idempotency_key)?
+                };
+                if let Some(commit) = replay {
+                    return self.finish_journal_ingress(ingress, origin, idempotency_key, commit);
+                }
+                return Err(validation_error);
+            }
+        };
         let commit = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
@@ -5720,6 +6078,16 @@ impl Mux {
             }
             commit
         };
+        self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
+    }
+
+    fn finish_journal_ingress(
+        &self,
+        ingress: &crate::JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+        commit: crate::JournalAppendCommit,
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
         // Replayed journal commits still need projection reconciliation. A
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
@@ -5763,6 +6131,23 @@ impl Mux {
                 "agent hook projection applied; retry bookkeeping cleanup deferred",
             );
         }
+        // A replayed plugin event can repair a projection after a process
+        // crash between the durable journal commit and the in-memory fold.
+        // Hook replay remains owned by its durable retry projector, while the
+        // generic plugin envelope is safe to fold repeatedly because the
+        // reducer fences by journal sequence and observed timestamp.
+        let is_plugin_event = ingress.payload.get("format").and_then(Value::as_str)
+            == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT);
+        // A replay can follow a crash before either projection or reducer
+        // side effects. The reducer cursor makes folding an already-applied
+        // sequence a no-op, so replay every agent event and repair a missing
+        // roster fold without duplicating live deltas.
+        if !commit.replayed
+            || is_plugin_event
+            || ingress.producer_id == crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
+        {
+            self.fold_agent_roster(ingress, &commit);
+        }
         Ok(commit)
     }
 
@@ -5779,6 +6164,16 @@ impl Mux {
         sequence: u64,
     ) -> anyhow::Result<()> {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+            return Ok(());
+        }
+        // Screen-detection events reuse the agent-hook envelope and the
+        // `agent.session.ended` kind for process exits. They are owned by
+        // the roster reducer, not the hook fence projector; otherwise a
+        // detected process exit would create a Hook `Done` fence and could
+        // suppress a later real hook lifecycle.
+        if ingress.payload.get("native_event").and_then(Value::as_str)
+            == Some(crate::journal_reducers::LEGACY_SCREEN_DETECT_NATIVE_EVENT)
+        {
             return Ok(());
         }
         let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
@@ -5862,7 +6257,10 @@ impl Mux {
             AgentSource::Hook,
             Some(marker),
             true,
-            Some(DurableHookReport { state: hook_state, journal_sequence: sequence }),
+            Some(hook_state),
+            Some(sequence),
+            AgentReportOrigin::RosterFold,
+            agent_provider_identity(ingress),
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -5884,6 +6282,260 @@ impl Mux {
             }
         }
         Ok(())
+    }
+
+    /// Fold one fresh `agent.*` journal commit into the roster reducer and
+    /// apply the resulting deltas (projection commits, change broadcasts).
+    /// The roster is derived state: this fold plus the startup tail replay
+    /// are its only writers, so the journal fully determines it. Best
+    /// effort by design: a hook may outlive its terminal, and a journal
+    /// append must never start failing because a view cannot update.
+    fn fold_agent_roster(
+        &self,
+        ingress: &crate::JournalIngress,
+        commit: &crate::JournalAppendCommit,
+    ) {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
+        };
+        if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
+            && ingress.payload.get("format").and_then(Value::as_str)
+                != Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
+        {
+            return;
+        }
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        // Consume every intervening committed record under registry -> roster
+        // lock order. Concurrent appends and delayed hook retries cannot jump
+        // the cursor over a record that startup replay would have consumed.
+        let (deltas, cursor, snapshot) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let mut host = self.agent_roster.lock().unwrap();
+            if commit.sequence <= host.cursor {
+                return;
+            }
+            let mut deltas = Vec::new();
+            while host.cursor < commit.sequence {
+                let page = match registry.session_journal_after(host.cursor, 512) {
+                    Ok(page) => page,
+                    Err(error) => {
+                        eprintln!("cmux-tui: reading agent journal tail failed: {error}");
+                        return;
+                    }
+                };
+                if page.records.is_empty() {
+                    break;
+                }
+                for record in
+                    page.records.iter().take_while(|record| record.sequence <= commit.sequence)
+                {
+                    let changes = host.roster.apply(&RosterEvent::from_record(record));
+                    // Hooks already use the durable, session-fenced projector.
+                    // Applying their reducer delta again would bypass its
+                    // stale-session checks and create duplicate mutations.
+                    if record.payload.get("format").and_then(Value::as_str)
+                        == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
+                    {
+                        deltas.extend(changes);
+                    }
+                    host.cursor = record.sequence;
+                }
+            }
+            (deltas, host.cursor, host.roster.snapshot().to_string())
+        };
+        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION,
+            cursor,
+            &snapshot,
+        ) {
+            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+        }
+        for delta in deltas {
+            self.apply_roster_delta(delta, &ingress.kind);
+        }
+    }
+
+    /// Repair public projections whose plugin roster event was folded before
+    /// the daemon stopped. The roster is the canonical live view; the
+    /// projection is a separately committed compatibility view for clients.
+    /// Compare durable values first so a healthy restart emits no mutations.
+    fn reconcile_agent_roster_projections(&self) {
+        let entries = self
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.agent_source() == AgentSource::Plugin)
+            .map(|(terminal_id, entry)| (terminal_id.clone(), entry.clone()))
+            .collect::<Vec<_>>();
+        for (terminal_id, entry) in entries {
+            let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
+            self.reconcile_agent_roster_projection_for_entry(&terminal_id, entry);
+        }
+    }
+
+    fn reconcile_agent_roster_projections_for_terminal(&self, terminal_id: &TerminalPublicId) {
+        let entry = self
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .filter(|entry| entry.agent_source() == AgentSource::Plugin)
+            .cloned();
+        if let Some(entry) = entry {
+            self.reconcile_agent_roster_projection_for_entry(terminal_id, entry);
+        }
+    }
+
+    fn reconcile_agent_roster_projection_for_entry(
+        &self,
+        terminal_id: &TerminalPublicId,
+        entry: crate::journal_reducers::RosterEntry,
+    ) {
+        let registry = match self.workspace_registry.lock() {
+            Ok(registry) => registry,
+            Err(_) => {
+                eprintln!(
+                    "cmux-tui: could not inspect agent projection for {terminal_id} during startup reconciliation: workspace registry mutex is poisoned"
+                );
+                return;
+            }
+        };
+        let projection = match registry.public_agent_projections(Some(terminal_id), None) {
+            Ok(projections) => projections.into_iter().next(),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not inspect agent projection for {terminal_id} during startup reconciliation: {error}"
+                );
+                return;
+            }
+        };
+        drop(registry);
+        let matches = projection.as_ref().is_some_and(|projection| {
+            projection.state == entry.state
+                && projection.source == entry.source
+                && projection.source_session == entry.session
+                && projection.agent == entry.agent
+        });
+        if matches {
+            return;
+        }
+        self.apply_roster_delta(
+            crate::journal_reducers::RosterDelta::Upsert {
+                terminal_id: terminal_id.to_string(),
+                entry,
+            },
+            "startup-reconcile",
+        );
+    }
+
+    /// Apply one roster delta's side effects: the durable agent projection
+    /// commit and the agent-changed broadcast remote frontends converge on.
+    /// A removal commits the done state (history keeps the exit; the roster
+    /// already dropped the live entry).
+    fn apply_roster_delta(&self, delta: crate::journal_reducers::RosterDelta, kind: &str) {
+        use crate::journal_reducers::RosterDelta;
+        let (terminal_id, state, source, session, agent_adapter) = match delta {
+            RosterDelta::Upsert { terminal_id, entry } => (
+                terminal_id,
+                entry.agent_state(),
+                entry.agent_source(),
+                entry.session.clone(),
+                entry.agent,
+            ),
+            RosterDelta::Remove { terminal_id, source } => {
+                (terminal_id, AgentState::Done, source, None, None)
+            }
+        };
+        let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let mutation = match WorkspaceMutation::new(
+            format!("roster-{}", crate::workspace_registry::new_uuid_v4()),
+            "journal-reducer",
+        ) {
+            Ok(mutation) => mutation,
+            Err(_) => return,
+        };
+        let fingerprint = serde_json::json!({
+            "operation":"agent.report",
+            "surface":surface,
+            "state":state.as_str(),
+            "source":source.as_str(),
+            "source_session":session,
+        });
+        if let Err(error) = self.commit_agent_report(
+            AgentReportTarget::Surface(surface),
+            state,
+            source,
+            session,
+            None,
+            &mutation,
+            &fingerprint,
+            false,
+            None,
+            None,
+            AgentReportOrigin::RosterFold,
+            agent_adapter,
+        ) {
+            eprintln!(
+                "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
+            );
+        }
+    }
+
+    /// Record a direct socket/SDK agent report in the journal so the roster
+    /// reducer (and any future reducer) sees every agent intent in one log.
+    /// The event wears the agent-hook payload shape with a dedicated
+    /// adapter, and the fold recognizes that adapter as an echo whose
+    /// projection commit already happened.
+    fn append_agent_report_echo(
+        &self,
+        terminal_id: &TerminalPublicId,
+        state: AgentState,
+        source: AgentSource,
+        session: Option<&str>,
+        updated_at_ms: u64,
+    ) {
+        use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
+        let ingress = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: "agent.state.changed".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![crate::JournalSubject {
+                kind: "terminal".into(),
+                id: terminal_id.to_string(),
+            }],
+            sensitivity: Some(crate::JournalSensitivity::Sensitive),
+            payload: serde_json::json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+                "native_event": SOCKET_REPORT_NATIVE_EVENT,
+                "normalized": {
+                    "state": state.as_str(),
+                    "source": source.as_str(),
+                    "source_session": session,
+                    // The direct commit's timestamp, so the roster mirrors
+                    // the projection exactly instead of stamping fold time.
+                    "updated_at_ms": updated_at_ms.to_string(),
+                },
+                "native": {},
+            }),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let idempotency_key =
+            format!("agent-report-echo-{}", crate::workspace_registry::new_uuid_v4());
+        if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
+        {
+            eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
+        }
     }
 
     pub(crate) fn journal_hook_states(
@@ -9700,9 +10352,23 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        self.report_agent_with_sequence_lock(surface, state, source, session, false, None)
+        self.report_agent_with_sequence_lock(
+            surface,
+            state,
+            source,
+            session,
+            false,
+            None,
+            None,
+            AgentReportOrigin::Direct,
+            None,
+        )
     }
 
+    // Keep the sequence lock, hook fence, and origin explicit at this
+    // internal transaction boundary. Grouping them into a bag would hide the
+    // lock-order contract that protects journal replay.
+    #[allow(clippy::too_many_arguments)]
     fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,
@@ -9710,7 +10376,10 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
         sequence_lock_held: bool,
-        hook: Option<DurableHookReport>,
+        hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
+        origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -9732,8 +10401,10 @@ impl Mux {
             &mutation,
             &fingerprint,
             sequence_lock_held,
-            hook.as_ref().map(|hook| &hook.state),
-            hook.as_ref().map(|hook| hook.journal_sequence),
+            hook_state.as_ref(),
+            journal_sequence,
+            origin,
+            agent_adapter,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9774,6 +10445,8 @@ impl Mux {
             false,
             None,
             None,
+            AgentReportOrigin::Direct,
+            None,
         );
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
@@ -9794,6 +10467,8 @@ impl Mux {
         sequence_lock_held: bool,
         hook_state: Option<&crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
+        origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
@@ -9893,17 +10568,57 @@ impl Mux {
         });
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
-        let socket_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
-            existing.source == AgentSource::Hook
-                && source == AgentSource::Socket
-                && !effective_hook_state.is_some_and(|state| state.ended)
-        });
+        // Hook and plugin observations are stronger agent truth than a direct
+        // socket report. Check the durable projection as well as the
+        // in-memory cache so arbitration survives a restart.
+        let durable_stronger =
+            registry.public_agent_projections(Some(&terminal_id), None)?.into_iter().next().filter(
+                |projection| {
+                    (projection.source == AgentSource::Hook.as_str()
+                        || projection.source == AgentSource::Plugin.as_str()
+                        || projection.source == AgentSource::Detected.as_str())
+                        && projection.state != AgentState::Done.as_str()
+                        && source == AgentSource::Socket
+                },
+            );
+        let socket_report_ignored = source == AgentSource::Socket
+            && !effective_hook_state.is_some_and(|state| state.ended)
+            && (records.get(&terminal_id).is_some_and(|existing| {
+                existing.source == AgentSource::Hook
+                    || existing.source == AgentSource::Detected
+                    || existing.source == AgentSource::Plugin
+            }) || durable_stronger.is_some());
+        let agent_adapter = agent_adapter
+            .or_else(|| records.get(&terminal_id).and_then(|record| record.agent.clone()));
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
+            None if socket_report_ignored => match durable_stronger {
+                Some(existing) => TerminalAgentRecord {
+                    state: parse_projection_agent_state(&existing.state),
+                    source: if existing.source == AgentSource::Plugin.as_str() {
+                        AgentSource::Plugin
+                    } else if existing.source == AgentSource::Detected.as_str() {
+                        AgentSource::Detected
+                    } else {
+                        AgentSource::Hook
+                    },
+                    session: existing.source_session,
+                    agent: existing.agent,
+                    updated_at_ms: existing.updated_at_ms,
+                },
+                None => TerminalAgentRecord {
+                    state: agent_state,
+                    source,
+                    session: source_session,
+                    agent: agent_adapter,
+                    updated_at_ms: now,
+                },
+            },
             _ => TerminalAgentRecord {
                 state: agent_state,
                 source,
                 session: source_session,
+                agent: agent_adapter,
                 updated_at_ms: now,
             },
         };
@@ -9924,10 +10639,11 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":persisted_source_session.or(record.session.clone()),
+            "source_session":persisted_source_session.as_deref().or(record.session.as_deref()),
+            "extra":{"agent":record.agent},
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session);
+        public_value["source_session"] = serde_json::json!(record.session.as_deref());
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -9967,19 +10683,19 @@ impl Mux {
                 },
             );
         }
-        state.resource_revision = commit.revision;
-        if !commit.replayed {
-            records.insert(terminal_id.clone(), record.clone());
-        }
+        records.insert(terminal_id.clone(), record.clone());
         drop(records);
+        state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
+        drop(sequence_guard);
         let agent = AgentRecord {
             surface,
             terminal_id,
             state: record.state,
             source: record.source,
             session: record.session,
+            agent: record.agent,
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -9989,8 +10705,21 @@ impl Mux {
                 state: Arc::from(agent.state.as_str()),
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
+                agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
+            if origin == AgentReportOrigin::Direct {
+                // The roster only folds journal events, so a direct report
+                // records its intent in the log; the fold recognizes the
+                // echo adapter and applies it roster-only.
+                self.append_agent_report_echo(
+                    &agent.terminal_id,
+                    agent.state,
+                    agent.source,
+                    agent.session.as_deref(),
+                    agent.updated_at_ms,
+                );
+            }
         }
         Ok((commit, Some(agent)))
     }
@@ -10022,6 +10751,26 @@ impl Mux {
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
+        // Terminal lifecycle does not flow through `agent.*` journal events
+        // yet, so a closed terminal retires its roster entry explicitly.
+        // The snapshot persists so a restart does not resurrect the entry;
+        // the roster lock is released before the registry lock per the
+        // host's lock-ordering rule.
+        let retired = {
+            let mut host = self.agent_roster.lock().unwrap();
+            let retired = host.roster.retire_terminal(terminal_id.as_str());
+            retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
+        };
+        if let Some((cursor, snapshot)) = retired
+            && let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                &snapshot,
+            )
+        {
+            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+        }
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
 
@@ -10051,7 +10800,7 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let records = self.agent_records.lock().unwrap().clone();
+        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
@@ -10060,9 +10809,10 @@ impl Mux {
                 .or_else(|| state_snapshot.terminal_runtime_by_id(surface))
                 .and_then(|surface| surface.terminal_public_id().cloned())
         });
-        let mut records = records
+        let mut records = entries
             .into_iter()
-            .filter_map(|(terminal_id, record)| {
+            .filter_map(|(terminal_id, entry)| {
+                let terminal_id = TerminalPublicId::parse(terminal_id).ok()?;
                 let representative = state_snapshot
                     .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
                     .first()
@@ -10073,10 +10823,11 @@ impl Mux {
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
-                    state: record.state,
-                    source: record.source,
-                    session: record.session,
-                    updated_at_ms: record.updated_at_ms,
+                    state: entry.agent_state(),
+                    source: entry.agent_source(),
+                    session: entry.session,
+                    agent: entry.agent,
+                    updated_at_ms: entry.updated_at_ms,
                 })
             })
             .collect::<Vec<_>>();
@@ -10095,6 +10846,7 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
+        self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
@@ -10268,6 +11020,50 @@ impl Mux {
         {
             surface.kill();
             self.emit(MuxEvent::SurfaceExited(surface.id));
+        }
+    }
+
+    /// Configure the optional userland agent plugin. The process starts only
+    /// after the local resource socket has been bound.
+    pub fn configure_journal_plugin(&self, options: Option<crate::JournalPluginOptions>) {
+        self.journal_plugin.configure(options);
+    }
+
+    /// Start the configured journal plugin against the bound local socket.
+    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
+        let generation = match self.workspace_registry.lock() {
+            Ok(registry) => registry.reserve_journal_plugin_generation(),
+            Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
+        };
+        match generation {
+            Ok(generation) => self.journal_plugin.start_with_generation_seed(
+                socket,
+                self.session.clone(),
+                generation,
+            ),
+            Err(error) => eprintln!(
+                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
+            ),
+        }
+    }
+
+    /// Journal a supervisor-observed plugin exit. The roster reducer removes
+    /// only entries owned by this producer, so a crash cannot leave stale
+    /// rows until the next terminal scan and the cleanup remains replayable.
+    fn record_journal_plugin_exit(&self, plugin_id: &str, generation: u64) {
+        let ingress =
+            match crate::agent_hooks::journal_plugin_exit_journal_ingress(plugin_id, generation) {
+                Ok(ingress) => ingress,
+                Err(error) => {
+                    eprintln!("cmux-tui: invalid journal plugin exit id {plugin_id:?}: {error}");
+                    return;
+                }
+            };
+        let key =
+            format!("journal-plugin-exit-{plugin_id}-{}", crate::workspace_registry::new_uuid_v4());
+        if let Err(error) = self.append_journal_ingress(&ingress, "journal-plugin-supervisor", &key)
+        {
+            eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
         }
     }
 
@@ -16590,7 +17386,7 @@ fn terminal_exit_snapshot_in_state(
         "rows": rows.max(1),
         "running": false,
     });
-    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
+    if let Some(cwd) = surface.and_then(|surface| surface.published_directory()) {
         snapshot["cwd"] = serde_json::json!(cwd);
     }
     Ok(snapshot)
@@ -16617,6 +17413,16 @@ fn restore_focus_identity(state: &mut State, focus: Option<FocusIdentity>) {
     if state.workspaces[workspace_index].screens[screen_index].root.contains(pane_id) {
         state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
     }
+}
+
+/// Launch spec of a Cloud snapshot's warm terminal host claimed by a fresh
+/// registry (Mux::claim_template_terminal).
+fn template_terminal_launch_spec() -> Value {
+    serde_json::json!({"template_terminal": true})
+}
+
+fn is_template_terminal(terminal: &RegistryTerminal) -> bool {
+    terminal.launch_spec == template_terminal_launch_spec()
 }
 
 fn commit_terminal_transition(
@@ -17122,6 +17928,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
@@ -22921,17 +23728,20 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
-        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        // The late socket report is a replay-equivalent no-op because the
+        // hook projection already owns this terminal.
+        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 2);
+        // Each fresh direct report publishes twice on the shared change
+        // epoch: its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 4);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let resource_events = mux.resource_events_after(initial_revision).unwrap();
-        assert_eq!(resource_events.batches.len(), 3);
+        assert_eq!(resource_events.batches.len(), 2);
         assert_eq!(resource_events.batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
+        assert_eq!(resource_events.batches[1].changes[0]["value"]["state"], "blocked");
         assert_eq!(
-            resource_events.batches[2].changes[0]["value"]["source_session"],
+            resource_events.batches[1].changes[0]["value"]["source_session"],
             "hook-session"
         );
         assert!(matches!(
@@ -23025,19 +23835,22 @@ mod tests {
         assert_eq!(ignored.state, AgentState::Blocked);
         assert_eq!(ignored.source, AgentSource::Hook);
         assert_eq!(ignored.session.as_deref(), Some("hook-session"));
-        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        // The late socket report is a replay-equivalent no-op because the
+        // hook projection already owns this terminal.
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
+        // Each fresh direct report publishes twice on the shared change
+        // epoch: its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 4);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
         assert_eq!(
             batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(),
-            vec![created_revision + 1, created_revision + 2, created_revision + 3]
+            vec![created_revision + 1, created_revision + 2]
         );
         assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
         assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
-        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
         assert_eq!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
             serde_json::json!([hook["result"]["value"].clone()])
@@ -23259,7 +24072,7 @@ mod tests {
             "claude",
             "UserPromptSubmit",
             Some(&terminal_id.to_string()),
-            serde_json::json!({}),
+            serde_json::json!({"agent_type":"claude"}),
         )
         .unwrap();
 
@@ -23269,6 +24082,9 @@ mod tests {
         mux.apply_agent_hook_record(&hook, 1).unwrap();
 
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("claude"));
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["agents"][0]["extra"]["agent"], serde_json::json!("claude"));
         assert_eq!(
             mux.agent_hook_fences.lock().unwrap().get(&terminal_id).map(|fence| fence.sequence),
             Some(1)
@@ -23740,6 +24556,147 @@ mod tests {
     }
 
     #[test]
+    fn replay_of_an_old_plugin_receipt_survives_manifest_upgrade() {
+        let mux = test_mux();
+        let manifest = |manifest_version| crate::JournalProducerManifest {
+            producer_id: "screen_test".into(),
+            namespace: "plugin.screen_test".into(),
+            manifest_version,
+            max_sensitivity: crate::JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.screen_test".into()],
+            events: vec![crate::JournalEventSchema {
+                kind: "plugin.screen_test.observation".into(),
+                schema_version: 1,
+                class: crate::JournalClass::Observation,
+                replay: crate::JournalReplayPolicy::Advisory,
+                sensitivity: crate::JournalSensitivity::Metadata,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        };
+        mux.put_journal_producer(&manifest(1), "test", "producer-v1").unwrap();
+        let ingress = crate::JournalIngress {
+            producer_id: "screen_test".into(),
+            manifest_version: 1,
+            kind: "plugin.screen_test.observation".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: Vec::new(),
+            sensitivity: None,
+            payload: serde_json::json!({"state":"idle"}),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let first = mux.append_journal_ingress(&ingress, "screen", "observation-1").unwrap();
+        assert!(!first.replayed);
+
+        mux.put_journal_producer(&manifest(2), "test", "producer-v2").unwrap();
+
+        let replay = mux.append_journal_ingress(&ingress, "screen", "observation-1");
+        assert!(replay.is_ok(), "an old receipt must remain replayable: {replay:?}");
+        assert!(replay.unwrap().replayed);
+    }
+
+    #[test]
+    fn startup_repairs_a_plugin_projection_lost_after_journal_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-plugin-reconcile-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "plugin-reconcile";
+        let terminal_id;
+        {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+            let manifest = crate::JournalProducerManifest {
+                producer_id: "screen_test".into(),
+                namespace: "plugin.screen_test".into(),
+                manifest_version: 1,
+                max_sensitivity: crate::JournalSensitivity::Metadata,
+                permissions: vec!["journal.append.plugin.screen_test".into()],
+                events: vec![crate::JournalEventSchema {
+                    kind: "plugin.screen_test.agent.state.changed".into(),
+                    schema_version: 1,
+                    class: crate::JournalClass::State,
+                    replay: crate::JournalReplayPolicy::Advisory,
+                    sensitivity: crate::JournalSensitivity::Metadata,
+                    payload_schema: serde_json::json!({"type":"object"}),
+                }],
+            };
+            mux.put_journal_producer(&manifest, "test", "plugin-reconcile-manifest").unwrap();
+            let ingress = crate::JournalIngress {
+                producer_id: "screen_test".into(),
+                manifest_version: 1,
+                kind: "plugin.screen_test.agent.state.changed".into(),
+                schema_version: 1,
+                occurred_at_ms: None,
+                subjects: vec![crate::JournalSubject {
+                    kind: "terminal".into(),
+                    id: terminal_id.to_string(),
+                }],
+                sensitivity: None,
+                payload: serde_json::json!({
+                    "format": crate::journal_reducers::AGENT_PLUGIN_FORMAT,
+                    "plugin": {"id":"screen_test", "version":1},
+                    "adapter": {"id":"codex", "version":1},
+                    "event": "state.changed",
+                    "normalized": {
+                        "state":"working",
+                        "source_session":"pid:42",
+                        "observed_at_ms":"100"
+                    }
+                }),
+                causation_id: None,
+                correlation_id: None,
+            };
+            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+            let commit = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&ingress, &validated, "test", "plugin-reconcile-event")
+                .unwrap();
+
+            // The journal transaction has committed. Fail only the following
+            // projection transaction to model a daemon crash in that window.
+            mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+            mux.fold_agent_roster(&ingress, &commit);
+            assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+            assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+            mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+            mux.shutdown();
+        }
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let repaired = reopened.list_agents(None, None);
+        assert_eq!(repaired.len(), 1);
+        assert_eq!(repaired[0].state, AgentState::Working);
+        assert_eq!(repaired[0].source, AgentSource::Plugin);
+        assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
+        assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
+        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_agent_hook_projection_does_not_consume_sequence() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -23969,6 +24926,10 @@ mod tests {
             |surface: &Surface| surface.terminal_public_id().cloned().expect("workspace terminal");
         let first_terminal = terminal_id(&first);
         let second_terminal = terminal_id(&second);
+        // Drive these rows through the Mux ingress path. A direct registry
+        // append bypasses the roster fold and cannot model a real pending
+        // hook, because the roster is derived only from committed ingress.
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         let hook = |terminal_id: &TerminalPublicId, key: &str| {
             let ingress = crate::agent_hooks::agent_hook_journal_ingress(
                 "claude",
@@ -23977,16 +24938,12 @@ mod tests {
                 serde_json::json!({}),
             )
             .unwrap();
-            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .append_journal_ingress(&ingress, &validated, "test", key)
-                .unwrap();
+            mux.append_journal_ingress(&ingress, "test", key).unwrap();
         };
 
         hook(&first_terminal, "first-pending");
         hook(&second_terminal, "second-pending");
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
 
         mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         let pending =
@@ -24011,7 +24968,10 @@ mod tests {
             1
         );
         assert_eq!(mux.list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
-        assert!(mux.list_agents(Some(second.id), None).is_empty());
+        // The roster is journal-derived and folds the second hook even while
+        // its public resource projection waits in the retry queue. The
+        // terminal-scoped retry must still leave that second hook pending.
+        assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 
         mux.report_agent(second.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         assert!(
@@ -24685,6 +25645,335 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn raw_socket_report_reaches_the_roster_through_its_journal_echo() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("probe".into()),
+        )
+        .unwrap();
+        let records = mux.list_agents(Some(surface.id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Working);
+        assert_eq!(records[0].source, AgentSource::Socket);
+        assert_eq!(records[0].session.as_deref(), Some("probe"));
+        // The roster only folds journal events, so the record's presence
+        // proves the direct report echoed its intent into the journal.
+        let echoes = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 512)
+            .unwrap()
+            .records
+            .into_iter()
+            .filter(|record| record.kind == "agent.state.changed")
+            .count();
+        assert_eq!(echoes, 1);
+    }
+
+    #[test]
+    fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-rederive-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-rederive";
+        let (terminal_id, live_entries) = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let append = |event: &str, key: &str| {
+                let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                    "claude",
+                    event,
+                    Some(&terminal_id.to_string()),
+                    serde_json::json!({"session_id":"native-1"}),
+                )
+                .unwrap();
+                mux.append_journal_ingress(&ingress, "test", key).unwrap();
+            };
+            append("SessionStart", "rederive-1");
+            append("UserPromptSubmit", "rederive-2");
+            let entries = mux.agent_roster.lock().unwrap().roster.entries.clone();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[terminal_id.as_str()].state, "working");
+            mux.shutdown();
+            (terminal_id, entries)
+        };
+
+        // Wipe the persisted reducer state so the reopen cannot lean on the
+        // snapshot: an identical roster proves it derives from the journal.
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, 0, 0, "")
+            .unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let rederived = reopened.agent_roster.lock().unwrap().roster.entries.clone();
+        assert_eq!(rederived, live_entries);
+
+        // Folding the tail after an ended session removes the entry, and
+        // that removal survives the next reopen through the snapshot.
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionEnd",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"native-1"}),
+        )
+        .unwrap();
+        reopened.append_journal_ingress(&ingress, "test", "rederive-3").unwrap();
+        assert!(reopened.agent_roster.lock().unwrap().roster.entries.is_empty());
+        reopened.shutdown();
+        drop(reopened);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let final_mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        assert!(final_mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+        final_mux.shutdown();
+        drop(final_mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-invalid-snapshot";
+        let (terminal_id, cursor) = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(terminal_id.as_str()),
+                serde_json::json!({"session_id":"native-1"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "invalid-snapshot-1").unwrap();
+            let cursor = mux.agent_roster.lock().unwrap().cursor;
+            assert_eq!(
+                mux.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].state,
+                "working"
+            );
+            mux.shutdown();
+            drop(mux);
+            (terminal_id, cursor)
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                "not-json",
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let entry = reopened
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .cloned()
+            .expect("invalid snapshots must replay the retained journal");
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "hook");
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_empty_agent_roster_snapshot_is_repaired_on_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-empty-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-invalid-empty-snapshot";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                "not-json",
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        assert!(mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let (version, cursor, snapshot) = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .expect("startup must replace a rejected empty snapshot");
+        assert_eq!(version, crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION);
+        assert_eq!(cursor, 0);
+        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agent_roster_replays_when_persisted_cursor_is_ahead_of_journal() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-ahead-cursor-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-ahead-cursor";
+        let terminal_id = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(terminal_id.as_str()),
+                serde_json::json!({"session_id":"native-1"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "ahead-cursor-1").unwrap();
+            mux.shutdown();
+            drop(mux);
+            terminal_id
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let journal_head = registry.session_journal_head().unwrap();
+        assert!(journal_head > 0);
+        // Keep a valid snapshot, but move its cursor beyond the retained
+        // journal. Startup must reject that checkpoint and replay the journal
+        // instead of returning a cursor.invalid error.
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                journal_head.checked_add(1).expect("test journal head must not overflow"),
+                &crate::journal_reducers::AgentRoster::default().snapshot().to_string(),
+            )
+            .unwrap();
+        drop(registry);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let entry = reopened
+            .agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .cloned()
+            .expect("an ahead cursor must replay the retained journal");
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "hook");
+        let (live_head, cursor, snapshot) = {
+            let registry = reopened.workspace_registry.lock().unwrap();
+            let (_, cursor, snapshot) = registry
+                .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+                .unwrap()
+                .expect("startup must repair the rejected cursor");
+            (registry.session_journal_head().unwrap(), cursor, snapshot)
+        };
+        // Mux startup can append unrelated lifecycle records after the roster
+        // checkpoint is repaired. The durable cursor must reach the journal
+        // head that existed at reopen, while the live head may have advanced.
+        assert_eq!(cursor, journal_head);
+        assert!(live_head >= cursor);
+        assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -29907,6 +31196,54 @@ mod tests {
         assert_eq!(first_surface.spawn_cwd().as_deref(), Some("/tmp"));
         assert_eq!(second_surface.spawn_cwd().as_deref(), Some("/tmp"));
         mux.set_resource_terminal_reservation_hook_for_test(None);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn new_terminal_inherits_the_selected_hosted_terminals_reported_cwd() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(Some("cwd".into()), None, None).unwrap();
+        let (first, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                Some("/tmp".into()),
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert!(first.terminal_runtime_id().is_some(), "the selected terminal is hosted");
+
+        // The shell reported a `cd` on this host with OSC 7. A terminal created
+        // from the selected pane starts there, not in the launch directory.
+        first.set_test_pwd(Some("file://localhost/usr".into()));
+        let (second, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(second.spawn_cwd().as_deref(), Some("/usr"));
+
+        // A report naming another host cannot choose a spawn directory here;
+        // the selected terminal's authenticated launch directory stays the fallback.
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.focus_pane(pane);
+        mux.select_tab(Some(pane), Some(0), None);
+        first.set_test_pwd(Some("file://other-host/etc".into()));
+        let (third, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(third.spawn_cwd().as_deref(), Some("/tmp"));
         mux.shutdown();
     }
 

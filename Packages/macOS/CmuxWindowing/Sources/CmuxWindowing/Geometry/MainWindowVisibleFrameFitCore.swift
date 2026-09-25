@@ -1,5 +1,17 @@
 public import CoreGraphics
 
+/// The window presentation geometry that a repair operation must preserve.
+public enum MainWindowFrameFitMode: Sendable {
+    /// Recover a window whose visible frame is no longer reachable.
+    case visibleFrame
+    /// Restore an AppKit-zoomed window to the target display's visible frame.
+    case zoomed
+    /// Leave native fullscreen and Split View geometry under AppKit's control.
+    case nativeFullscreen
+    /// Repair full-width fullscreen geometry after a guarded display-topology change.
+    case nativeFullscreenTopologyChange
+}
+
 /// Pure decision core for fitting main-window frames into current visible displays.
 ///
 /// Callers use this after a real display-topology change, or while restoring
@@ -106,6 +118,49 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
         return rectApproximatelyEqual(fitted, standardizedFrame) ? nil : fitted
     }
 
+    /// Returns the frame required by the requested window presentation mode.
+    ///
+    /// `visibleFrame` retains the existing recoverable-window behavior, and
+    /// `zoomed` restores the target display's visible frame. Native fullscreen
+    /// normally returns no repair: AppKit uses the same fullscreen style for
+    /// exclusive fullscreen and Split View. Only `nativeFullscreenTopologyChange`
+    /// repairs stale full-width geometry after a guarded topology change; partial
+    /// display tiles remain under AppKit's control.
+    ///
+    /// - Parameters:
+    ///   - frame: Window frame in global screen coordinates.
+    ///   - displays: Current display geometry snapshots.
+    ///   - minimumWidth: Minimum width to enforce for ordinary-window repairs.
+    ///   - minimumHeight: Minimum height to enforce for ordinary-window repairs.
+    ///   - mode: The presentation whose geometry ownership must be respected.
+    /// - Returns: A repaired frame, or `nil` when no frame change is permitted or needed.
+    public func repairedFrame(
+        for frame: CGRect,
+        displays: [SessionDisplayGeometry],
+        minimumWidth: CGFloat,
+        minimumHeight: CGFloat,
+        mode: MainWindowFrameFitMode
+    ) -> CGRect? {
+        switch mode {
+        case .visibleFrame:
+            return fittedFrame(
+                for: frame,
+                displays: displays,
+                minimumWidth: minimumWidth,
+                minimumHeight: minimumHeight
+            )
+        case .zoomed:
+            return zoomedFrame(
+                for: frame,
+                displays: displays
+            )
+        case .nativeFullscreen:
+            return nil
+        case .nativeFullscreenTopologyChange:
+            return fittedFullscreenFrame(for: frame, displays: displays)
+        }
+    }
+
     /// Returns the display frame a native-fullscreen window should occupy after
     /// AppKit has moved it through a display-topology change.
     ///
@@ -166,6 +221,26 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             distanceSquared(from: center, to: lhs.visibleFrame)
                 < distanceSquared(from: center, to: rhs.visibleFrame)
         }
+    }
+
+    /// Restores zoomed geometry without applying ordinary-window size limits.
+    private func zoomedFrame(
+        for frame: CGRect,
+        displays: [SessionDisplayGeometry]
+    ) -> CGRect? {
+        let standardizedFrame = frame.standardized
+        guard isUsableRect(standardizedFrame) else { return nil }
+
+        let usableDisplays = displays.filter { isUsableRect($0.visibleFrame) }
+        guard let targetDisplay = targetDisplay(
+            for: standardizedFrame,
+            in: usableDisplays
+        ) else {
+            return nil
+        }
+
+        let targetBounds = targetDisplay.visibleFrame
+        return rectApproximatelyEqual(targetBounds, standardizedFrame) ? nil : targetBounds
     }
 
     private func fullscreenTargetDisplay(
