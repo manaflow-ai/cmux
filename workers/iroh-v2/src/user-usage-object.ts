@@ -54,7 +54,7 @@ export class UserUsage extends DurableObject<Environment> {
     return result(() => { this.assertUser(userId); return this.sockets.listSocketReservations(userId); }, this.report("listSocketReservations"));
   }
   private report(operation: string): (cause: string) => void {
-    return cause => observe(this.ctx, this.env, { event: "iroh.user_usage.unclassified", environment: this.env.ENVIRONMENT, operation, cause });
+    return cause => observe(this.ctx, this.env, { event: "iroh.user_usage.unclassified", status: 500, environment: this.env.ENVIRONMENT, operation, cause });
   }
   private assertUser(userId: string): void {
     identifier.parse(userId);

@@ -50,11 +50,12 @@ export class TeamControl extends DurableObject<Environment> {
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
     let requestId = "unidentified";
-    let route = "unknown", stage = "parse";
+    const pathname = new URL(request.url).pathname;
+    const route = ["/request", "/session", "/socket"].includes(pathname) ? pathname.slice(1) : "unknown";
+    let stage = "parse";
     try {
       const incoming = await readInternalRequest(request);
       requestId = incoming.setup.requestId;
-      route = incoming.path.slice(1);
       stage = incoming.path === "/request" ? "execute" : "open";
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
@@ -81,9 +82,10 @@ export class TeamControl extends DurableObject<Environment> {
         const client = pair[0], server = pair[1];
         this.ctx.acceptWebSocket(server, ["user:" + session.identity.userId, "device:" + deviceKey]);
         this.save(server, { version: 1, session, deviceKey, delivery: emptyDeliveryState(), outputRevision: 0, closed: false });
-        stage = "ready";
+        stage = "send";
         try { await this.enqueue(server, 0, () => this.send(server, result.response)); }
         catch (error) { this.close(server, "slow_consumer"); throw error; }
+        stage = "ready";
         // The replacement is accepted and ready before any previous socket closes.
         for (const old of this.ctx.getWebSockets("device:" + deviceKey)) if (old !== server) this.close(old, "session_replaced");
         return new Response(null, { status: 101, webSocket: client });
