@@ -72,6 +72,9 @@ import Testing
         // resent on the replacement and answered.
         _ = try await listed
         await typed
+        // The stranded read's answer can land before the verification probe
+        // is written: A, B, C, B resent, then the probe.
+        await transport.waitUntilSent(count: 5)
 
         #expect(await transport.closed() == false)
         #expect(await transport.repairCount == 1)
