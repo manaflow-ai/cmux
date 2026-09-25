@@ -155,6 +155,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     func dropSurface(surfaceID: UUID) {
         agentFooter?.retire(surfaceID: surfaceID)
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        TerminalPredictionCenter.shared.unregister(surfaceID: surfaceID)
     }
 }
 
