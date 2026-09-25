@@ -139,6 +139,23 @@ reminder_args "$out" "$args"
 has_arg "$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag" "$args" \
   || fail "the reminder must still remove a per-tag DerivedData: $out"
 
+# A live dev app keeps its bundle and DerivedData in use even when the cleanup
+# reminder is printed by a different tag. It must be reported as protected,
+# without offering a kill-and-remove recipe.
+live_tag="ddlive-$$"
+live_dir="/tmp/cmux-$live_tag"
+mkdir -p "$live_dir/Build/Products/Debug"
+trap 'kill "$server" 2>/dev/null || true; rm -f "$sock" "$link" "/tmp/cmux-ddstale-$$" "/tmp/cmux-ddevil-$$"; rm -rf "$live_dir" "$tmp" "${evil_tag_dir:-}"' EXIT
+pgrep() {
+  [[ "${1:-}" == "-f" ]] || return 2
+  [[ "${2:-}" == "cmux DEV $live_tag.app/Contents/MacOS/cmux DEV" ]]
+}
+out="$(HOME="$fake_home" print_tag_cleanup_reminder "$tag" "$tmp/dd")"
+[[ "$out" == *"still running, skipped: $live_tag"* ]] \
+  || fail "the reminder does not report a live tag as protected: $out"
+[[ "$out" != *"cmux DEV $live_tag.app/Contents/MacOS/cmux DEV"* ]] \
+  || fail "the reminder offers cleanup for a live tag: $out"
+
 # The reminder is pasted into a shell, so a path carrying shell syntax must come back out
 # as that literal path and must never run.
 evil_dd="$tmp/dd \"warm\" \$(touch pwned-subst) \`touch pwned-tick\`"
