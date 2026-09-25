@@ -14,8 +14,22 @@
 # https://github.com/manaflow-ai/cmux/pull/4536 looked like a clean two-commit
 # red/green test fix but never actually ran on CI.
 #
+# The same check covers app source directories: `--target cmux --tests-dir
+# Sources --recursive --allowlist scripts/pbxproj-sources-wiring-allowlist.txt`
+# fails when a Sources/**/*.swift file is not compiled into the app target.
+# That is how main stopped compiling on 2026-09-25: a merge dropped
+# AgentChatProseStreamWakeDriver.swift from the cmux target while code on main
+# still used its types.
+#
 # Usage:
 #   ./scripts/lint-pbxproj-test-wiring.sh [--repo-root <path>]
+#       [--target <name>] [--tests-dir <dir>] [--recursive]
+#       [--allowlist <file>]
+#
+#   --recursive   check *.swift in every subdirectory, not just the top level.
+#   --allowlist   file of repo-relative paths that are deliberately not target
+#                 members, one per line, `#` comments allowed. An entry whose
+#                 file is gone or is now wired fails, so the list cannot rot.
 #
 # Exit codes:
 #   0 — all test files wired correctly (or no test files present)
@@ -27,6 +41,8 @@ set -euo pipefail
 REPO_ROOT=""
 TARGET_NAME="cmuxTests"
 TESTS_DIR_ARG=""
+RECURSIVE=false
+ALLOWLIST=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo-root)
@@ -41,8 +57,16 @@ while [ "$#" -gt 0 ]; do
       TESTS_DIR_ARG="$2"
       shift 2
       ;;
+    --recursive)
+      RECURSIVE=true
+      shift
+      ;;
+    --allowlist)
+      ALLOWLIST="$2"
+      shift 2
+      ;;
     -h|--help)
-      sed -n '1,25p' "$0" | sed 's/^# *//'
+      sed -n '1,40p' "$0" | sed 's/^# *//'
       exit 0
       ;;
     *)
@@ -107,10 +131,10 @@ if [ -z "$tests_target_block" ]; then
 fi
 
 # Xcode UUIDs are conventionally 24 uppercase hex chars, but hand-edited
-# pbxprojs occasionally use 24-char identifiers that include other uppercase
-# letters or digits. Match both.
+# pbxprojs use other lengths too: the cmux app target's Sources phase is the
+# 8-char A5001051. Accept any alphanumeric identifier.
 tests_sources_uuid="$(printf '%s\n' "$tests_target_block" \
-  | grep -oE '[A-Z0-9]{24} /\* Sources \*/' \
+  | grep -oE '[A-Za-z0-9]+ /\* Sources \*/' \
   | head -n 1 \
   | awk '{print $1}')"
 
@@ -123,7 +147,7 @@ fi
 # target's Sources phase reference. The block begins with the UUID/Sources
 # header and ends at the next standalone "};" line.
 tests_sources_block="$(awk -v uuid="$tests_sources_uuid" '
-  $0 ~ uuid " /\\* Sources \\*/ = \\{" { capture = 1 }
+  $0 ~ "(^|[^A-Za-z0-9])" uuid " /\\* Sources \\*/ = \\{" { capture = 1 }
   capture { print }
   capture && /^[[:space:]]*\};[[:space:]]*$/ { exit }
 ' "$PBXPROJ")"
@@ -133,31 +157,106 @@ if [ -z "$tests_sources_block" ]; then
   exit 2
 fi
 
-missing=()
-checked=0
-
-while IFS= read -r -d '' file; do
-  base="$(basename "$file")"
-  checked=$((checked + 1))
-  # Look for the file's entry inside the cmuxTests Sources phase only.
-  #
-  # Match the full PBX comment `/* <base> in Sources */` as a fixed string
-  # (grep -F) so we don't get a false positive when `<base>` is a substring
-  # of another wired file. Example: `SearchIndexTests.swift` is a suffix of
-  # `SettingsSearchIndexTests.swift`; without these anchors, removing the
-  # former from the Sources phase would still match the latter and the lint
-  # would pass.
-  if ! grep -qF -- "/* $base in Sources */" <<<"$tests_sources_block"; then
-    missing+=("$base")
+allowed=()
+if [ -n "$ALLOWLIST" ]; then
+  allowlist_path="$ALLOWLIST"
+  case "$allowlist_path" in /*) ;; *) allowlist_path="$REPO_ROOT/$allowlist_path" ;; esac
+  if [ ! -f "$allowlist_path" ]; then
+    echo "lint-pbxproj-test-wiring: allowlist not found: $allowlist_path" >&2
+    exit 2
   fi
-done < <(find "$TESTS_DIR" -maxdepth 1 -type f -name '*.swift' -print0)
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -n "$line" ] && allowed+=("$line")
+  done < "$allowlist_path"
+fi
+
+is_allowed() {
+  local entry
+  for entry in ${allowed[@]+"${allowed[@]}"}; do
+    [ "$entry" = "$1" ] && return 0
+  done
+  return 1
+}
+
+find_depth=(-maxdepth 1)
+if [ "$RECURSIVE" = true ]; then
+  find_depth=()
+fi
+
+# Names compiled by this target, one per line, from each
+# `/* <base> in Sources */` entry in its Sources phase. grep -o, not a
+# per-line sed: merges have left two entries on one line. Comparing whole
+# names (not a substring grep) keeps `SearchIndexTests.swift` from matching
+# the wired `SettingsSearchIndexTests.swift`.
+wired_names="$(grep -oE '/\* [^*]+ in Sources \*/' <<<"$tests_sources_block" \
+  | sed -e 's#^/\* ##' -e 's# in Sources \*/$##' || true)"
+
+# Repo-relative paths of the Swift files to check. Plain command substitutions
+# so set -e and pipefail stop the lint if find or awk fails, instead of an
+# empty list reading as "all wired".
+all_files="$(find "$TESTS_DIR" ${find_depth[@]+"${find_depth[@]}"} -type f -name '*.swift' \
+  | ROOT_PREFIX="$REPO_ROOT/" awk '{ print substr($0, length(ENVIRON["ROOT_PREFIX"]) + 1) }' \
+  | LC_ALL=C sort)"
+checked=0
+[ -n "$all_files" ] && checked="$(printf '%s\n' "$all_files" | wc -l | tr -d ' ')"
+
+# Membership is by file name, which is exact only while names are unique: an
+# unwired Sources/B/Foo.swift would otherwise pass on a wired Sources/A/Foo.swift.
+duplicates="$(printf '%s\n' "$all_files" | awk -F/ 'NF { print $NF }' | LC_ALL=C sort | uniq -d)"
+if [ -n "$duplicates" ]; then
+  echo "lint-pbxproj-test-wiring: Swift file names under $TESTS_REL/ must be unique; target membership is checked by name:"
+  printf '%s\n' "$duplicates" | while IFS= read -r name; do
+    printf '%s\n' "$all_files" | awk -F/ -v n="$name" '$NF == n { print "  - " $0 }'
+  done
+  exit 1
+fi
+
+unwired="$(printf '%s\n' "$all_files" | awk '
+  NR == FNR { if ($0 != "") wired[$0] = 1; next }
+  $0 != "" { base = $0; sub(/.*\//, "", base); if (!(base in wired)) print }
+' <(printf '%s\n' "$wired_names") -)"
+
+missing=()
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  if is_allowed "$rel"; then
+    continue
+  fi
+  if [ "$RECURSIVE" = true ]; then
+    missing+=("$rel")
+  else
+    missing+=("${rel##*/}")
+  fi
+done <<<"$unwired"
+
+is_wired() {
+  grep -qxF -- "$1" <<<"$wired_names"
+}
+
+stale=()
+for entry in ${allowed[@]+"${allowed[@]}"}; do
+  if [ ! -f "$REPO_ROOT/$entry" ]; then
+    stale+=("$entry (file does not exist)")
+  elif is_wired "${entry##*/}"; then
+    stale+=("$entry (now a member of $TARGET_NAME)")
+  fi
+done
+if [ "${#stale[@]}" -gt 0 ]; then
+  echo "lint-pbxproj-test-wiring: ${#stale[@]} stale allowlist entr(y/ies) in $ALLOWLIST; remove them:"
+  for entry in "${stale[@]}"; do
+    echo "  - $entry"
+  done
+  exit 1
+fi
 
 if [ "${#missing[@]}" -eq 0 ]; then
-  echo "lint-pbxproj-test-wiring: ok (checked $checked test files)"
+  echo "lint-pbxproj-test-wiring: ok (checked $checked Swift files)"
   exit 0
 fi
 
-echo "lint-pbxproj-test-wiring: ${#missing[@]} test file(s) not a member of the $TARGET_NAME target's Sources build phase (uuid=$tests_sources_uuid) in cmux.xcodeproj/project.pbxproj"
+echo "lint-pbxproj-test-wiring: ${#missing[@]} Swift file(s) not a member of the $TARGET_NAME target's Sources build phase (uuid=$tests_sources_uuid) in cmux.xcodeproj/project.pbxproj"
 for entry in "${missing[@]}"; do
   echo "  - $entry"
 done
