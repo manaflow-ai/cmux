@@ -2265,6 +2265,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let socketPath = makeSocketPath("kiro-feed-mode")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let state = MockSocketServerState()
+            let workspaceId = "33333333-3333-3333-3333-333333333333"
+            let surfaceId = "44444444-4444-4444-4444-444444444444"
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-kiro-feed-mode-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -2274,17 +2276,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 try? FileManager.default.removeItem(at: root)
             }
             let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
                     return self.malformedRequestResponse(raw: line)
                 }
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "status": "resolved",
-                        "decision": ["kind": "permission", "mode": mode],
-                    ]
-                )
+                switch method {
+                case "agent.resolve_delivery_target":
+                    return self.v2Response(id: id, ok: true, result: [
+                        "source": "surface",
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ])
+                case "agent.hook.barrier":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                case "feed.push":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "status": "resolved",
+                            "decision": ["kind": "permission", "mode": mode],
+                        ]
+                    )
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected_method", "message": method])
+                }
             }
             let result = runProcess(
                 executablePath: cliPath,
@@ -2294,8 +2311,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                     "PWD": root.path,
                     "CMUX_SOCKET_PATH": socketPath,
-                    "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
-                    "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                    "CMUX_WORKSPACE_ID": workspaceId,
+                    "CMUX_SURFACE_ID": surfaceId,
                     "CMUX_KIRO_PID": "525252",
                     "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
                     "CMUX_CLI_SENTRY_DISABLED": "1",
@@ -2304,6 +2321,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 timeout: 5
             )
             wait(for: [serverHandled], timeout: 5)
+            let feedPushCount = state.commands.filter {
+                self.jsonObject($0)?["method"] as? String == "feed.push"
+            }.count
+            XCTAssertEqual(feedPushCount, 1, "Each mode must reach the permission decision: \(state.commands)")
             return result
         }
 
