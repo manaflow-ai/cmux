@@ -21,15 +21,20 @@ extension TerminalController {
             for: events,
             timeout: deliveryTimeout
         ) { result in
-            let authoritativeEvents: [WorkstreamEvent]? = self.v2MainSync {
-                switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
-                case .accepted(let events): return events
-                case .notFound, .unavailable: return nil
-                }
+            let targetResolution = self.v2MainSync {
+                FeedCoordinator.shared.resolveDeliveryTarget(for: events)
             }
             let ingestion: FeedBatchIngestion? = result.commit {
-                guard ContinuousClock.now < deliveryDeadline,
-                      let authoritativeEvents else { return .unavailable }
+                guard ContinuousClock.now < deliveryDeadline else { return .unavailable }
+                let authoritativeEvents: [WorkstreamEvent]
+                switch targetResolution {
+                case .accepted(let events):
+                    authoritativeEvents = events
+                case .notFound:
+                    return .notFound
+                case .unavailable:
+                    return .unavailable
+                }
                 var itemIds: [UUID] = []
                 itemIds.reserveCapacity(authoritativeEvents.count)
                 for event in authoritativeEvents {
@@ -45,6 +50,7 @@ extension TerminalController {
                case .accepted(let authoritativeEvents, _) = ingestion {
                 self.v2MainSync {
                     for event in authoritativeEvents {
+                        FeedCoordinator.shared.noteAcceptedIngress(event)
                         self.v2ApplyIMessageModeSideEffects(for: event)
                     }
                     self.v2NoteAcceptedFeedEvents(authoritativeEvents)

@@ -10,6 +10,7 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
     private enum State {
         case pending
         case running
+        case committing
         case committed(Value)
         case resolved(Value)
         case timedOut
@@ -33,18 +34,27 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
 
     /// Linearizes the bounded caller result with its synchronous mutation.
     ///
-    /// The operation must be a short, non-suspending mutation invoked only after
-    /// all queue or actor hops. Holding the lock makes timeout and commit mutually
-    /// exclusive. The ordered delivery lane normally resolves the caller only after
-    /// the delivery closure returns. If completion publication stalls through the
-    /// original caller deadline, the caller returns this committed value.
+    /// The operation runs outside the state lock so a stalled queue or actor hop
+    /// cannot hold a socket caller past its deadline. The state changes to
+    /// ``committing`` first; this reserves the operation's linearization point
+    /// while allowing the timeout path to return immediately if it fires while
+    /// the operation is waiting on another executor.
     func commit(_ operation: () -> Value) -> Value? {
         stateLock.lock()
         guard case .running = state else {
             stateLock.unlock()
             return nil
         }
+        state = .committing
+        stateLock.unlock()
+
         let value = operation()
+
+        stateLock.lock()
+        guard case .committing = state else {
+            stateLock.unlock()
+            return nil
+        }
         state = .committed(value)
         stateLock.unlock()
         return value
@@ -77,6 +87,10 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
             // The authoritative mutation happened within the deadline. Return it
             // even if its non-authoritative publication is still completing.
             return value
+        }
+        if case .committing = state {
+            stateLock.unlock()
+            return nil
         }
         if waitResult == .timedOut {
             state = .timedOut

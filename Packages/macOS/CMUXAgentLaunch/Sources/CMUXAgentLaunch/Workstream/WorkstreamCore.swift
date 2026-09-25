@@ -16,6 +16,8 @@ public let WorkstreamDefaultHistoryPageSize = 300
 /// persistence, and action ordering; the UI observes immutable snapshots.
 public actor WorkstreamCore {
     public private(set) var items: [WorkstreamItem] = []
+    public private(set) var pendingCount = 0
+    public private(set) var actionableCount = 0
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
 
@@ -85,6 +87,7 @@ public actor WorkstreamCore {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
                 items = page.items.map(normalizedWorkstreamItem)
+                recomputeCounts()
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
@@ -108,6 +111,8 @@ public actor WorkstreamCore {
     public func snapshot() -> WorkstreamStoreSnapshot {
         WorkstreamStoreSnapshot(
             items: items,
+            pendingCount: pendingCount,
+            actionableCount: actionableCount,
             hasMorePersistedItems: hasMorePersistedItems,
             isLoadingOlderItems: isLoadingOlderItems
         )
@@ -159,7 +164,11 @@ public actor WorkstreamCore {
         }
 
         isLoadingOlderItems = true
-        defer { isLoadingOlderItems = false }
+        scheduleSnapshot()
+        defer {
+            isLoadingOlderItems = false
+            scheduleSnapshot()
+        }
 
         guard let page = try? await persistence.loadPage(
             endingBefore: oldestLoadedPersistenceOffset,
@@ -175,6 +184,9 @@ public actor WorkstreamCore {
         }
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
+            for item in olderItems {
+                addCounts(for: item)
+            }
         }
         self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
         hasMorePersistedItems = page.hasMoreBefore
@@ -216,6 +228,7 @@ public actor WorkstreamCore {
         let now = clock()
         items[idx].status = .resolved(decision, at: now)
         items[idx].updatedAt = now
+        pendingCount -= 1
         scheduleSnapshot()
     }
 
@@ -231,6 +244,7 @@ public actor WorkstreamCore {
         let now = clock()
         items[idx].status = .expired(at: now)
         items[idx].updatedAt = now
+        pendingCount -= 1
         scheduleSnapshot()
     }
 
@@ -243,6 +257,7 @@ public actor WorkstreamCore {
             if now.timeIntervalSince(items[idx].createdAt) > threshold {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                pendingCount -= 1
             }
         }
         scheduleSnapshot()
@@ -252,9 +267,33 @@ public actor WorkstreamCore {
 
     private func insert(_ item: WorkstreamItem) {
         items.append(item)
+        addCounts(for: item)
         if items.count > ringCapacity {
             let overflow = items.count - ringCapacity
+            let evicted = Array(items.prefix(overflow))
             items.removeFirst(overflow)
+            for item in evicted {
+                removeCounts(for: item)
+            }
+        }
+    }
+
+    private func addCounts(for item: WorkstreamItem) {
+        if item.status.isPending { pendingCount += 1 }
+        if item.kind.isActionable { actionableCount += 1 }
+    }
+
+    private func removeCounts(for item: WorkstreamItem) {
+        if item.status.isPending { pendingCount -= 1 }
+        if item.kind.isActionable { actionableCount -= 1 }
+    }
+
+    private func recomputeCounts() {
+        pendingCount = items.reduce(into: 0) { count, item in
+            if item.status.isPending { count += 1 }
+        }
+        actionableCount = items.reduce(into: 0) { count, item in
+            if item.kind.isActionable { count += 1 }
         }
     }
 
@@ -309,6 +348,7 @@ public actor WorkstreamCore {
                   items[idx].ppid == ppid else { continue }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
+            pendingCount -= 1
         }
         scheduleSnapshot()
     }
@@ -329,6 +369,7 @@ public actor WorkstreamCore {
             if !isProcessAlive(ppid) {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                pendingCount -= 1
             }
         }
         scheduleSnapshot()

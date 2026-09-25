@@ -4,11 +4,21 @@ import Observation
 /// Immutable state emitted by ``WorkstreamCore`` for rendering on the main actor.
 public struct WorkstreamStoreSnapshot: Sendable, Equatable {
     public let items: [WorkstreamItem]
+    public let pendingCount: Int
+    public let actionableCount: Int
     public let hasMorePersistedItems: Bool
     public let isLoadingOlderItems: Bool
 
-    public init(items: [WorkstreamItem], hasMorePersistedItems: Bool, isLoadingOlderItems: Bool) {
+    public init(
+        items: [WorkstreamItem],
+        pendingCount: Int,
+        actionableCount: Int,
+        hasMorePersistedItems: Bool,
+        isLoadingOlderItems: Bool
+    ) {
         self.items = items
+        self.pendingCount = pendingCount
+        self.actionableCount = actionableCount
         self.hasMorePersistedItems = hasMorePersistedItems
         self.isLoadingOlderItems = isLoadingOlderItems
     }
@@ -22,6 +32,8 @@ public struct WorkstreamStoreSnapshot: Sendable, Equatable {
 @Observable
 public final class WorkstreamStore {
     public private(set) var items: [WorkstreamItem] = []
+    public private(set) var pendingCount = 0
+    public private(set) var actionableCount = 0
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
 
@@ -30,6 +42,8 @@ public final class WorkstreamStore {
 
     nonisolated let core: WorkstreamCore
     private var snapshotTask: Task<Void, Never>?
+    private var projectionVersion = 0
+    private var projectionWaiters: [UUID: (after: Int, continuation: CheckedContinuation<Void, Never>)] = [:]
 
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
@@ -41,7 +55,7 @@ public final class WorkstreamStore {
         workstreamIDNormalizer: @escaping @Sendable (String, String) -> String = { rawValue, _ in rawValue },
         titleProvider: @escaping @Sendable (WorkstreamEvent) -> String? = { _ in nil }
     ) {
-        core = WorkstreamCore(
+        let core = WorkstreamCore(
             transport: transport,
             persistence: persistence,
             ringCapacity: ringCapacity,
@@ -51,9 +65,10 @@ public final class WorkstreamStore {
             workstreamIDNormalizer: workstreamIDNormalizer,
             titleProvider: titleProvider
         )
-        snapshotTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await snapshot in await self.core.snapshots() {
+        self.core = core
+        snapshotTask = Task { @MainActor [weak self, core] in
+            for await snapshot in await core.snapshots() {
+                guard let self else { return }
                 self.apply(snapshot)
             }
         }
@@ -73,8 +88,12 @@ public final class WorkstreamStore {
     /// Ingests an event on ``WorkstreamCore`` and returns the authoritative item.
     @discardableResult
     public func ingestReturningItem(_ event: WorkstreamEvent) async -> WorkstreamItem? {
+        let version = projectionVersion
         let item = await core.ingestReturningItem(event)
-        apply(await core.snapshot())
+        guard let item else { return nil }
+        if !items.contains(where: { $0.id == item.id }) {
+            await waitForProjection(after: version)
+        }
         return item
     }
 
@@ -86,7 +105,9 @@ public final class WorkstreamStore {
     /// running decoding, indexing, or persistence on the main actor.
     ///
     /// This is called only by the ordered ingress worker, never by SwiftUI.
-    nonisolated func ingestFromIngress(_ event: WorkstreamEvent) -> WorkstreamItem? {
+    /// Performs ordered ingress without forcing a main-actor projection update.
+    /// The core's coalesced snapshot stream is the only firehose publication path.
+    public nonisolated func ingestFromIngress(_ event: WorkstreamEvent) -> WorkstreamItem? {
         let slot = IngressResultSlot()
         let semaphore = DispatchSemaphore(value: 0)
         Task {
@@ -94,10 +115,6 @@ public final class WorkstreamStore {
             semaphore.signal()
         }
         semaphore.wait()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.apply(await self.core.snapshot())
-        }
         return slot.value
     }
 
@@ -137,13 +154,42 @@ public final class WorkstreamStore {
     }
 
     public func snapshot() -> WorkstreamStoreSnapshot {
-        WorkstreamStoreSnapshot(items: items, hasMorePersistedItems: hasMorePersistedItems, isLoadingOlderItems: isLoadingOlderItems)
+        WorkstreamStoreSnapshot(
+            items: items,
+            pendingCount: pendingCount,
+            actionableCount: actionableCount,
+            hasMorePersistedItems: hasMorePersistedItems,
+            isLoadingOlderItems: isLoadingOlderItems
+        )
     }
 
     private func apply(_ snapshot: WorkstreamStoreSnapshot) {
         items = snapshot.items
+        pendingCount = snapshot.pendingCount
+        actionableCount = snapshot.actionableCount
         hasMorePersistedItems = snapshot.hasMorePersistedItems
         isLoadingOlderItems = snapshot.isLoadingOlderItems
+        projectionVersion += 1
+        let readyIDs = projectionWaiters.compactMap { id, waiter in
+            waiter.after < projectionVersion ? id : nil
+        }
+        let ready = readyIDs.compactMap { id in
+            projectionWaiters.removeValue(forKey: id)?.continuation
+        }
+        for continuation in ready {
+            continuation.resume()
+        }
+    }
+
+    private func waitForProjection(after version: Int) async {
+        guard projectionVersion <= version else { return }
+        await withCheckedContinuation { continuation in
+            guard projectionVersion <= version else {
+                continuation.resume()
+                return
+            }
+            projectionWaiters[UUID()] = (after: version, continuation: continuation)
+        }
     }
 }
 

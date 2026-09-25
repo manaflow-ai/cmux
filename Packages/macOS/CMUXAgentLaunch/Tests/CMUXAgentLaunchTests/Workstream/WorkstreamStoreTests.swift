@@ -11,6 +11,8 @@ struct WorkstreamStoreTests {
         await store.ingest(.permission("s1", requestId: "r1"))
         #expect(store.items.count == 1)
         #expect(store.pending.count == 1)
+        #expect(store.pendingCount == 1)
+        #expect(store.actionableCount == 1)
         #expect(store.items[0].kind == .permissionRequest)
     }
 
@@ -21,6 +23,7 @@ struct WorkstreamStoreTests {
         let itemId = store.items[0].id
         try await store.send(.approvePermission(itemId: itemId, mode: .once))
         #expect(store.pending.isEmpty)
+        #expect(store.pendingCount == 0)
         if case .resolved(let decision, _) = store.items[0].status {
             #expect(decision == .permission(.once))
         } else {
@@ -37,6 +40,8 @@ struct WorkstreamStoreTests {
         #expect(store.items.count == 3)
         #expect(store.items.first?.workstreamId == "s2")
         #expect(store.items.last?.workstreamId == "s4")
+        #expect(store.pendingCount == 3)
+        #expect(store.actionableCount == 3)
     }
 
     @Test("start loads a small recent slice and pages older persisted rows on demand")
@@ -62,14 +67,18 @@ struct WorkstreamStoreTests {
         )
         await store.start()
         #expect(store.items.map(\.workstreamId) == ["s3", "s4"])
+        #expect(store.pendingCount == 2)
+        #expect(store.actionableCount == 2)
         #expect(store.hasMorePersistedItems)
 
         await store.loadOlderItems()
         #expect(store.items.map(\.workstreamId) == ["s1", "s2", "s3", "s4"])
+        #expect(store.pendingCount == 4)
         #expect(store.hasMorePersistedItems)
 
         await store.loadOlderItems()
         #expect(store.items.map(\.workstreamId) == ["s0", "s1", "s2", "s3", "s4"])
+        #expect(store.pendingCount == 5)
         #expect(!store.hasMorePersistedItems)
     }
 
@@ -90,6 +99,7 @@ struct WorkstreamStoreTests {
         }
         // Item with no ppid: no change (we don't know liveness).
         #expect(store.items[2].status.isPending)
+        #expect(store.pendingCount == 2)
     }
 
     @Test("expirePending moves stale pending items to expired")
@@ -104,6 +114,7 @@ struct WorkstreamStoreTests {
         } else {
             Issue.record("expected .expired status after timeout")
         }
+        #expect(store.pendingCount == 0)
     }
 
     @Test("Telemetry items (toolUse) never enter pending")
@@ -117,6 +128,8 @@ struct WorkstreamStoreTests {
         ))
         #expect(store.items.count == 1)
         #expect(store.pending.isEmpty)
+        #expect(store.pendingCount == 0)
+        #expect(store.actionableCount == 0)
         #expect(store.items[0].kind == .toolUse)
     }
 

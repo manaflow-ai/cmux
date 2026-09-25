@@ -165,10 +165,7 @@ final class FeedCoordinator: @unchecked Sendable {
         }
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
-                observeSemanticLifecycle(validatedEvent)
-                if let ppid = validatedEvent.ppid, ppid > 0 {
-                    armPidWatcher(ppid: ppid)
-                }
+                noteAcceptedIngress(validatedEvent)
             }
         }
         return .accepted(event: validatedEvent, item: item)
@@ -186,7 +183,20 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> WorkstreamItem? {
         guard let store else { return nil }
-        return store.ingestFromIngress(event)
+        guard let item = store.ingestFromIngress(event) else { return nil }
+        noteAcceptedIngress(event)
+        return item
+    }
+
+    /// Applies main-actor lifecycle effects after actor-owned ingress commits.
+    /// The insertion itself stays on ``WorkstreamCore``; these effects remain
+    /// serialized with the app's journal and process-watcher state.
+    @MainActor
+    func noteAcceptedIngress(_ event: WorkstreamEvent) {
+        observeSemanticLifecycle(event)
+        if let ppid = event.ppid, ppid > 0 {
+            armPidWatcher(ppid: ppid)
+        }
     }
 
     /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.
