@@ -302,6 +302,18 @@ public protocol SettingsHostActions: AnyObject {
     /// Whether the displayed Computer Use permission values are authoritative.
     func computerUsePermissionStatusIsKnown() -> Bool
 
+    /// The remaining setup step, including capture confirmation beyond the TCC grants.
+    func computerUseSetupStatus() -> ComputerUseSetupStatus
+
+    /// One runtime-owned enablement, permission, and setup snapshot.
+    func computerUseSetupSnapshot() -> ComputerUseSettingsSnapshot
+
+    /// Emits coalesced invalidations of the host's cached permission and setup snapshot.
+    func computerUseSetupUpdates() -> AsyncStream<Void>
+
+    /// Opens the explicit setup flow, including when both TCC grants already exist.
+    func finishComputerUseSetup()
+
     /// Starts the helper-owned Accessibility permission flow.
     func requestComputerUseAccessibility()
 
@@ -502,22 +514,6 @@ public extension SettingsHostActions {
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
 
-    /// Default no-op for hosts without Computer Use permission reporting.
-    func refreshComputerUsePermissions() async {}
-    /// Default denied Accessibility status for hosts without Computer Use.
-    func computerUseAccessibilityGranted() -> Bool { false }
-    /// Default denied Screen Recording status for hosts without Computer Use.
-    func computerUseScreenRecordingGranted() -> Bool { false }
-    /// Default unknown status for hosts without Computer Use permission reporting.
-    func computerUsePermissionStatusIsKnown() -> Bool { false }
-    /// Default no-op for hosts that cannot request Computer Use Accessibility.
-    func requestComputerUseAccessibility() {}
-    /// Default no-op for hosts that cannot request Computer Use Screen Recording.
-    func requestComputerUseScreenRecording() {}
-    /// Default no-op for hosts without a Computer Use Accessibility settings route.
-    func openComputerUseAccessibilitySettings() {}
-    /// Default no-op for hosts without a Computer Use Screen Recording settings route.
-    func openComputerUseScreenRecordingSettings() {}
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

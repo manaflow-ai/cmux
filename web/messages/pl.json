@@ -424,6 +424,22 @@
       "savingRelaySettings": "Zapisywanie…"
     },
     "coderouterAccounts": {
+      "transferAction": "Przenieś",
+      "transferringAction": "Przenoszenie…",
+      "transferDialogTitle": "Przenieś konto do innego zespołu",
+      "transferChooseBody": "Wybierz zespół, który ma otrzymać {account}. Obecnie należy do {source}.",
+      "transferDestinationLabel": "Zespół docelowy",
+      "continueAction": "Dalej",
+      "backAction": "Wstecz",
+      "transferConfirmTitle": "Przenieść {account}?",
+      "transferConfirmBody": "{account} zostanie przeniesione z {source} do {destination}. Maszyny w chmurze i członkowie {source} od razu przestaną z niego korzystać. W {destination} zachowa obecne ustawienie udostępniania.",
+      "transferConfirmAction": "Przenieś konto",
+      "transferSuccess": "Przeniesiono {account} do {destination}.",
+      "transferError": "Nie udało się przenieść tego konta. Spróbuj ponownie.",
+      "transferForbiddenError": "Nie możesz już przenosić kont do tego zespołu.",
+      "transferNotFoundError": "To konto nie należy już do tego zespołu. Odśwież, aby zobaczyć, gdzie jest.",
+      "transferConflictError": "Konto zmieniło się podczas przenoszenia. Odśwież i spróbuj ponownie.",
+      "transferUnavailableError": "Przenoszenie jest chwilowo niedostępne albo konto jest odświeżane. Spróbuj ponownie za chwilę.",
       "shareWithTeam": "Udostępnij zespołowi",
       "makePrivate": "Ustaw jako prywatne",
       "privateImportHint": "Nowe konta są prywatne. Udostępnij konto, aby maszyny Cloud VM tego zespołu mogły z niego korzystać.",
@@ -1274,6 +1290,10 @@
       "schemaDescriptions": {
         "root": "Konfiguracja cmux. Globalny plik cmux.json obsługuje ustawienia aplikacji, skróty, akcje, niestandardowe polecenia, hooki powiadomień i układy obszarów roboczych. Plik .cmux/cmux.json lub cmux.json lokalny dla projektu obsługuje akcje, polecenia, hooki powiadomień, powiązania akcji interfejsu, nadpisania Agent Chat, agentów vault, nadpisania grup obszarów roboczych oraz konfigurację uruchamiania i przycisków obszaru roboczego.",
         "rightSidebar": "Starsza oraz należąca do rozszerzeń konfiguracja prawego paska bocznego zachowywana w cmux.json.",
+        "packs": {
+          "description": "Lokalne pliki lub katalogi pakietów cmux wczytywane przed tą konfiguracją. Katalogi wskazują na cmux.pack.json. Użyj ciągu ścieżki lub obiektu z polem path.",
+          "path": "Lokalna ścieżka pliku lub katalogu, względna wobec tego pliku konfiguracyjnego, jeśli nie jest bezwzględna."
+        },
         "paneBorderColor": "Zastępuje kolor separatora paneli cmux w podzielonych obszarach roboczych. Dotyczy granic paneli cmux, a nie wewnętrznych podziałów Ghostty.",
         "activePaneBorderColor": "Opcjonalny kolor obramowania rysowany wokół aktywnego panelu cmux w podzielonych obszarach roboczych.",
         "automation": {
@@ -1285,6 +1305,7 @@
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
           "windowTitleTemplate": "Opcjonalny szablon tytułu NSWindow. Pusta wartość zachowuje istniejące domyślne zachowanie tytułu cmux, w tym fallback do bieżącego katalogu. Obsługiwane symbole zastępcze: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nazwa ekranu używana tylko w kompilacjach DEBUG podczas otwierania nowych okien. Pusta wartość używa ustawienia domyślnego systemu.",
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
@@ -4052,5 +4073,15 @@
     "organization": "Organizacja",
     "personalAccount": "konto osobiste",
     "switchAccountButton": "Użyj innego konta"
+  },
+  "MobileRelease106": {
+    "title": "Co nowego w 1.0.6",
+    "releaseLabel": "1.0.6 · Wrzesień 2026",
+    "connectionTitle": "Zaktualizowane połączenia z Makiem",
+    "connectionDetail": "Ta aktualizacja korzysta z nowej usługi połączeń i transportu Iroh. Starsze kompilacje na Maca wymagają aktualizacji, aby się połączyć.",
+    "updateTitle": "Zaktualizuj cmux na Macu",
+    "updateDetail": "Wymaga cmux {stableVersion} lub nowszego albo NIGHTLY {nightlyVersion} lub nowszego. Włącz parowanie iOS w Ustawienia > Urządzenia mobilne na każdym Macu.",
+    "rollbackTitle": "Musisz zachować starszą kompilację na Macu?",
+    "rollbackDetail": "Użyj cmux BETA 1.0.5 ({rollbackBuild}) z TestFlight > Poprzednie kompilacje, dopóki jest dostępna. Wybierz dokładnie tę kompilację, ponieważ późniejsze korzystają z nowszej usługi połączeń."
   }
 }

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxMobileHost
 import CmuxSettingsUI
 import AppKit
 import CmuxRemoteSession
@@ -10,6 +12,7 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxSettings
 import CmuxSwiftRenderUI
@@ -38,8 +41,9 @@ private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
 }
-// Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
-// AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
+// Agent notification gating types (AgentTurnCompleteMode / AgentNotificationMeta /
+// agentNotificationShouldDeliver) live in AgentNotificationGate.swift;
+// AgentNotifyCategory lives in the CmuxSettings package.
 #if DEBUG
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
 /// currently executing on a worker thread. Confined to one thread: it lives in
@@ -239,8 +243,6 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
@@ -6063,7 +6065,6 @@ class TerminalController {
             )
         }
 
-        NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
         return v2IngestFeedEvent(
             event,
             waitTimeout: waitTimeout,
@@ -9781,13 +9782,16 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
+        // Shared with the CLI client, which sizes its socket response timeout
+        // from the same window and clamp.
+        let downloadWait = BrowserDownloadWaitTimeout.standard
         let requestedTimeoutMs = max(
             1,
             Self.v2WorkerInt(params, "timeout_ms") ??
                 Self.v2WorkerInt(params, "timeout") ??
-                Self.v2BrowserDownloadWaitDefaultTimeoutMs
+                downloadWait.defaultTimeoutMilliseconds
         )
-        let timeoutMs = min(requestedTimeoutMs, Self.v2BrowserDownloadWaitMaxTimeoutMs)
+        let timeoutMs = downloadWait.handlerTimeoutMilliseconds(requestedMilliseconds: requestedTimeoutMs)
         let timeout = Double(timeoutMs) / 1000.0
         let path = Self.v2WorkerString(params, "path")
 
@@ -15406,8 +15410,12 @@ class TerminalController {
 
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
+        // A client-backed clear can drop the final report and restore the
+        // uncapped surface size while returning no grid.
+        var clearedClientReport = false
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
+                clearedClientReport = true
                 reportedGrid = clearMobileViewportReport(
                     surfaceID: terminalTarget.surfaceID,
                     clientID: clientID, generation: v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }, requireGeneration: true,
@@ -15425,6 +15433,15 @@ class TerminalController {
                 reason: "mobile.terminal.viewport"
             )
             allowLiveSurfaceFallback = true
+        }
+        if reportedGrid != nil || clearedClientReport {
+            // The viewport resize is a geometry change without PTY bytes. The
+            // render-grid observer must discard its old emission baseline now,
+            // before the resize-triggered render notification is flushed, so
+            // the phone receives a full frame at the settled row count.
+            MobileTerminalRenderObserver.shared.noteTerminalViewportChanged(
+                surfaceID: surfaceId
+            )
         }
 
         var payload: [String: Any] = [

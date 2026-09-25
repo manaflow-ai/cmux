@@ -1,3 +1,5 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import Foundation
 import CmuxAppKitSupportUI
 import CmuxTerminal
@@ -353,6 +355,19 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+#if DEBUG
+    /// Installs `newConfig` as the app config and returns the previous one,
+    /// which the caller then owns. Tests change a setting on a clone through
+    /// this instead of re-loading into the live config, which is finalized.
+    func swapConfigForTesting(_ newConfig: ghostty_config_t) -> ghostty_config_t? {
+        if let app {
+            ghostty_app_update_config_without_surface_propagation(app, newConfig)
+        }
+        let previous = config
+        config = newConfig
+        return previous
+    }
+#endif
     /// Coalesce wakeup → tick dispatches.  The I/O thread may fire wakeup_cb
     /// thousands of times per second during bulk output.  We only need one
     /// pending tick on the main queue at any time.
@@ -6775,11 +6790,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyCode: event.keyCode
             ) ?? event
         }
-        // Ghostty's translation modifiers are the source of truth for both
-        // terminal encoding and AppKit text interpretation. Showing AppKit a
-        // second, Option-bearing event here reintroduces dead-key composition
-        // for keys that `macos-option-as-alt` intentionally claims.
-        let textInputEvent = translationEvent
+        let textInputEvent = KeyboardLayout.textInputEvent(
+            for: event,
+            translatedEvent: translationEvent,
+            config: GhosttyApp.shared.config
+        )
 
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
@@ -9249,9 +9264,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.viewDidChangeBackingProperties()
-        }
+        // Let AppKit's backing-properties callback own scale changes. A screen
+        // notification alone does not establish that backing geometry changed;
+        // replaying that callback schedules an extra settled geometry commit
+        // while display topology is still changing.
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {
@@ -11566,7 +11582,7 @@ final class GhosttySurfaceScrollView: NSView {
             // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
             // geometry-callback rebind), where a synchronous display can wedge the main
             // thread in Metal against the still-open window transaction.
-            scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition)
+            if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: surfaceView.terminalSurface?.hasPresentedFrame == true) { scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition) }
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
@@ -12219,6 +12235,17 @@ final class GhosttySurfaceScrollView: NSView {
     func debugHasPendingAutomaticFirstResponderApplyForTesting() -> Bool {
         pendingAutomaticFirstResponderApply
     }
+
+    /// Runs the body of the queued automatic first-responder apply now, so a
+    /// test can pin the geometry it sees. On the real queue a layout pass can
+    /// land between scheduling and running and restore the surface frame.
+    func debugApplyFirstResponderNowForTesting() {
+        applyFirstResponderIfNeeded()
+    }
+
+    func debugHasPendingSuppressedFirstResponderFocusReapplyForTesting() -> Bool {
+        pendingSuppressedFirstResponderFocusReapply
+    }
 #endif
 
     private func currentTerminalSurfaceOwnsFirstResponder() -> Bool {
@@ -12292,9 +12319,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func prepareTerminalSurfaceFocusReassertion(reason: String, force: Bool) -> Bool {
-        let requiresUsableGeometry = pendingSuppressedFirstResponderFocusReapply || force
-        guard requiresUsableGeometry else { return true }
-
+        // Every reassertion needs usable geometry, not only suppressed or forced ones: an
+        // automatic apply queued while the surface was usable can run after it went hidden
+        // or tiny (macOS 26 selects the first key view when the window orders in), and it
+        // must defer like any other hidden/tiny handoff.
         // `force` bypasses TerminalSurface focus coalescing, not AppKit geometry readiness.
         let portalSize = bounds.size
         let surfaceSize = surfaceView.bounds.size

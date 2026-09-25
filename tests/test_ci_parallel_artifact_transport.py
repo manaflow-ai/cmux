@@ -17,6 +17,8 @@ import tempfile
 import unittest
 import zipfile
 import zlib
+
+import yaml
 from unittest import mock
 from pathlib import Path
 
@@ -87,11 +89,6 @@ class WorkflowWiringTests(unittest.TestCase):
             ):
                 self.assertIn(guard, step, job)
 
-    def test_canonical_download_still_runs_when_the_fast_path_misses(self):
-        for job in CONSUMERS:
-            step = step_block(job_block(job), "Download compiled app-host test product")
-            self.assertIn("steps.parallel-products.outputs.hit != 'true'", step)
-
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
             step = step_block(job_block(job), "Restore compiled app-host test product")
@@ -99,6 +96,46 @@ class WorkflowWiringTests(unittest.TestCase):
         script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
         self.assertIn('"github-parallel" if parallel_hit else', script)
         self.assertIn('echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -', script)
+
+    def test_cli_product_lane_keeps_the_consumer_transport_chain(self):
+        # cli-product-tests restores the same compiled product without layers,
+        # so it must keep the same fast sources, route check and cache finalize.
+        block = job_block("cli-product-tests")
+        order = (
+            "Verify GitHub-hosted route",
+            "Checkout",
+            "Try node-local compiled product cache",
+            "Try trusted fleet peer artifact source",
+            "Try shared R2 artifact transport",
+            "Try parallel GitHub artifact transport",
+            "Download compiled test product",
+            "Restore compiled test product",
+            "Finalize node-local compiled product cache",
+        )
+        positions = [block.index(f"- name: {name}\n") for name in order]
+        self.assertEqual(positions, sorted(positions))
+        parallel = step_block(block, "Try parallel GitHub artifact transport")
+        self.assertIn("steps.r2-products.outputs.hit != 'true'", parallel)
+        download = step_block(block, "Download compiled test product")
+        self.assertIn("steps.parallel-products.outputs.hit != 'true'", download)
+        restore = step_block(block, "Restore compiled test product")
+        for key in ("CMUX_R2_PRODUCT_HIT", "CMUX_PARALLEL_PRODUCT_HIT", "CMUX_ARTIFACT_R2_RESULT"):
+            self.assertIn(f"{key}: ", restore)
+        finalize = step_block(block, "Finalize node-local compiled product cache")
+        self.assertIn("if: always()", finalize)
+        self.assertIn("CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}", finalize)
+        self.assertIn("node_product_cache.py finalize", finalize)
+        jobs = yaml.safe_load(WORKFLOW)["jobs"]
+        # Same permissions: the R2 transport needs id-token to mint its token.
+        self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
+        # The two routes differ only by the job's owned_jobs key (#14318) and
+        # the shards' pr_shard_runner branch (pr_runner_pool.spread_shards).
+        shard_route = step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route")
+        self.assertIn("inputs.pr_shard_runner || ", shard_route)
+        self.assertEqual(
+            step_block(block, "Verify GitHub-hosted route").replace("' cli-product '", "KEY"),
+            shard_route.replace("format(' shard-{0} ', matrix.shard)", "KEY").replace("inputs.pr_shard_runner || ", ""),
+        )
 
     def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):
         source = (ROOT / "scripts/ci/app_host_layer_transport.py").read_text(encoding="utf-8")

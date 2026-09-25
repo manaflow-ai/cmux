@@ -2,12 +2,12 @@ import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
-    case computers
     case app
     case terminal
     case textBox
     case sleepyMode
     case mobile
+    case computers
     case cloudMachines
     case networking
     case sidebarAppearance
@@ -56,7 +56,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .computerUse:
-            return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+            return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:

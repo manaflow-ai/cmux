@@ -1,7 +1,9 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 /// The Cloud catalog outline: local workspaces, then machine workspaces and resources. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
@@ -404,7 +406,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if case .devicesEmpty(let section) = node.kind {
                 let cell = (outlineView.makeView(withIdentifier: CloudTreeDevicesEmptyCell.identifier, owner: nil) as? CloudTreeDevicesEmptyCell)
                     ?? CloudTreeDevicesEmptyCell(frame: .zero)
-                cell.configure(section: section, actions: nodeActions, style: style)
+                cell.configure(section: section, actions: nodeActions, style: style, level: outlineView.level(forItem: node))
                 return cell
             }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)

@@ -79,7 +79,7 @@ env:
 
 jobs:
   decide:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -393,7 +393,7 @@ jobs:
     needs: decide
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
@@ -560,12 +560,25 @@ jobs:
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
-    # admission job picks for `pull_request`, not the merge-queue one.
-    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    # admission job picks for `pull_request`, not the merge-queue one. On the
+    # 6 vCPU macOS 26 pool, use its 12 vCPU sibling: same image and Xcode,
+    # no pull-request queue (see seed-derived-data.yml). The macOS 15 pool,
+    # which pr_runner_pool.py overflows pull requests to, gets its own cold
+    # seed on its own Xcode too, so its per-push seed chain never carries
+    # stale intermediates for long either. Its keys carry that Xcode in the
+    # fingerprint, so the two never write each other's entries.
+    strategy:
+      fail-fast: false
+      matrix:
+        pool:
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ matrix.pool }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # As seed-derived-data.yml: the macOS 15 pool's own Xcode, else the lane's.
+      CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
     steps:
@@ -740,8 +753,18 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
-      - name: Save DerivedData seed
+      # Seeds serve only the Swift job width they were built at; see
+      # scripts/ci/seed_derived_data.py.
+      - name: Scope DerivedData seed key
+        id: derived-data-seed-key
         if: steps.derived-data-bound.outputs.save == 'true'
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.compilation-cache-key.outputs.fingerprint }}
+        run: echo "scoped=$(python3 scripts/ci/seed_derived_data.py scope "admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${FINGERPRINT}-")" >> "$GITHUB_OUTPUT"
+
+      - name: Save DerivedData seed
+        if: steps.derived-data-bound.outputs.save == 'true' && steps.derived-data-seed-key.outputs.scoped != ''
         continue-on-error: true
         uses: ./.github/actions/cache-save
         env:
@@ -753,14 +776,14 @@ jobs:
         with:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
-          key: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
+          key: ${{ steps.derived-data-seed-key.outputs.scoped }}${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -823,7 +846,7 @@ jobs:
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -1158,7 +1181,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Delta generation against two previous builds adds about 15 minutes.
@@ -1281,12 +1304,15 @@ jobs:
 
       - name: Derive Sparkle public key from private key
         env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          # scripts/ci/nightly-sparkle-key.sh picks the key per channel and
+          # NIGHTLY_SPARKLE_KEY; unset keeps the shared key.
+          NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
         run: |
-          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
-            exit 1
-          fi
+          set -euo pipefail
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
@@ -1622,16 +1648,21 @@ jobs:
       - name: Generate Sparkle appcasts (nightly)
         if: needs.decide.outputs.fast_build != 'true'
         env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
           # Deltas from the two previous builds of this track, named
           # cmux-nightly-macos-<variant>-<new>-<old>.delta so tracks never collide.
           SPARKLE_PREVIOUS_ARCHIVES_DIR: previous-nightlies
           SPARKLE_MAXIMUM_DELTAS: "2"
         run: |
-          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
-            exit 1
-          fi
+          set -euo pipefail
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+          export SPARKLE_PRIVATE_KEY
+          # After a key change, deltas from builds that embed the other key can
+          # never install; skip building them. SPARKLE_PUBLIC_KEY is derived above.
+          ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh previous-nightlies "$SPARKLE_PUBLIC_KEY"
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
           ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST" ./*.delta 2>/dev/null || true
@@ -1675,7 +1706,7 @@ jobs:
       cancel-in-progress: false
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
@@ -1833,38 +1864,31 @@ jobs:
       - name: Move channel release tag to built commit
         if: needs.decide.outputs.should_publish == 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$CHANNEL_RELEASE_TAG" "${{ needs.decide.outputs.head_sha }}"
-          # Push via a tokenized URL so we neither rely on the persisted
-          # checkout credentials (which intermittently fail with "Device not
-          # configured" on self-hosted runners) nor overlay a second
-          # Authorization header on top of them (which makes GitHub reject the
-          # push with `remote: Duplicate header: "Authorization"`).
-          # GitHub can transiently time out checking workflow permissions on
-          # a tag push. Retrying the same fixed commit is idempotent; never
-          # mark publication complete if all attempts fail.
-          for attempt in 1 2 3; do
-            if git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-              "refs/tags/${CHANNEL_RELEASE_TAG}" --force; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "::error::Channel release tag push failed after 3 attempts"
-              exit 1
-            fi
-            sleep "$((attempt * 5))"
-          done
+          # Use the refs API rather than receive-pack. A Git push was rejected
+          # when GitHub timed out checking workflow-file changes across a large
+          # tag jump (the Actions token has no `workflows` permission).
+          # Every rc/** branch shares the rc tag and those branches diverge,
+          # so only the nightly tag requires a fast-forward.
+          # The helper retries only transient API/network failures and reads the
+          # ref back before this job can report publication complete. GitHub
+          # still refuses some moves across workflow-file changes with a 403;
+          # everything is published by then and a lagging tag only makes the
+          # next decide build more, so the helper warns instead of failing.
+          python3 scripts/ci/update-release-tag.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$CHANNEL_RELEASE_TAG" \
+            --sha "${{ needs.decide.outputs.head_sha }}" \
+            ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && contains(needs.*.result, 'failure')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write
@@ -1904,7 +1928,7 @@ jobs:
   close-nightly-failure-issue:
     needs: [decide, publish-nightly]
     if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write

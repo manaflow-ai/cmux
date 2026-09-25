@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 /// The single owner of surface identities and projections on this Mac.
@@ -199,8 +201,12 @@ final class SurfaceCatalog {
         cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
-        updateCloudDirectoryMetadata(on: machine)
         projections = projections.filter { $0.resource.machine != machine }
+        // Drop the workspace's device provenance only after removing the
+        // projections that establish ownership. A transport disconnect keeps
+        // the provider registered and therefore retains the desktop badge;
+        // unregister means access ended and clears it.
+        updateCloudDirectoryMetadata(on: machine)
         projectionVersions[machine] = nil
         notifyChange()
     }
@@ -820,14 +826,18 @@ final class SurfaceCatalog {
             }
             let returnedProjection: SurfaceProjection
             let ownsProjection: Bool
-            if let existing = projections.first(where: {
+            if let registered = projections.first(where: { $0.panelID == projection.panelID && $0.resource == id }) {
+                // The pane bound its resource while the provider configured it. It is
+                // still this operation's pane: keep that record and finish placement
+                // (workspace membership, focus) exactly like a fresh materialization.
+                returnedProjection = registered
+                ownsProjection = true
+            } else if let existing = projections.first(where: {
                 $0.resource == id
                     && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
                     && (key.workspaceID == nil || $0.workspaceID == key.workspaceID)
             }) {
-                if existing.panelID != projection.panelID {
-                    cleanupMaterialization(projection, from: inFlight.provider)
-                }
+                cleanupMaterialization(projection, from: inFlight.provider)
                 returnedProjection = existing
                 ownsProjection = false
             } else {
@@ -1203,8 +1213,9 @@ final class SurfaceCatalog {
         guard !ended.isEmpty || removedPending else { return }
         projections.subtract(ended)
         for projection in ended {
-            cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
-            providers[projection.resource.machine]?.projectionDidEnd(projection)
+            let endReason = projectionEndReasons[panelID] ?? reason
+            cloudPlacementCoordinator.projectionDidEnd(projection, reason: endReason, catalog: self)
+            providers[projection.resource.machine]?.projectionDidEnd(projection, reason: endReason)
         }
         notifyChange()
     }
@@ -1256,7 +1267,6 @@ final class SurfaceCatalog {
         }
         notifyChange()
     }
-
 
     /// Resolves an agent-provided remote placement against the latest accepted
     /// graph. A workspace id alone is valid only when it identifies one view;
@@ -1343,13 +1353,7 @@ final class SurfaceCatalog {
             if resources[record.resource] != nil {
                 wokenMachines.insert(record.resource.machine)
                 pendingRestoredProjections.remove(panelID: record.panelID)
-                insertSupersedingLocalPlaceholder(SurfaceProjection(
-                    resource: record.resource,
-                    workspaceID: workspaceID,
-                    panelID: record.panelID,
-                    remoteWorkspaceID: record.remoteWorkspaceID,
-                    remoteTabID: record.remoteTabID
-                ))
+                insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.restoredProjection(record, workspaceID: workspaceID))
             } else {
                 pendingRestoredProjections.stage(record, workspaceID: workspaceID)
                 cloudProjectionIndexDirty = true
@@ -1412,7 +1416,7 @@ final class SurfaceCatalog {
             isAllowed: canRestoreProjection
         )
         for projection in resolved {
-            insertSupersedingLocalPlaceholder(projection)
+            insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.resolvingLocalPreviewMembership(projection))
             resolvedWorkspaceIDs.insert(projection.workspaceID)
             cloudProjectionIndexDirty = true
         }
