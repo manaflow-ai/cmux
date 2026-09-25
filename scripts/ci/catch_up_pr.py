@@ -15,13 +15,15 @@ being merged (the workflow runs this against untrusted pull request bytes):
 - cmux.xcodeproj/project.pbxproj: a three-way union of the conflicted hunks
   when both sides only inserted lines (two branches each adding a file), then
   scripts/normalize-pbxproj.py, which also rejects broken syntax and duplicate
-  object IDs. A hunk where either side changed or removed a base line stops.
+  object IDs. A hunk where either side changed or removed a base line stops,
+  and so does a union that repeats a key in any dictionary (two values for
+  one build setting).
 - The embedded config schema Swift: regenerated with
   scripts/generate-cmux-config-schema.py from the merged
   web/data/cmux.schema.json. It is also regenerated when both sides changed
   the schema and git merged the Swift text cleanly, since a textual merge of
   two base64 blobs is not the encoding of the merged schema. A conflict in the
-  schema JSON itself stops.
+  schema JSON itself, or merged schema text that is not valid JSON, stops.
 - *.xcstrings: a key-level three-way merge through scripts/merge-xcstrings.py.
   The same key changed differently on both sides stops, naming the keys.
 
@@ -74,7 +76,6 @@ MARKER_SIZE = 32
 # One pbxproj list or object entry: `ID /* label */,` or `ID /* label */ = {...};`.
 PBX_ENTRY_RE = re.compile(r"^\s*[0-9A-Za-z]+ /\* .* \*/(,| = \{.*\};)\s*$")
 PBX_ID_RE = re.compile(r"^\s*([0-9A-Za-z]+) /\*")
-PBX_SETTING_RE = re.compile(r"^\s*([^\s=]+)\s*=\s*[^{(]*;\s*$")
 REGULAR_MODES = {"100644", "100755"}
 # attr.tree, which keeps the head's .gitattributes out of the merge.
 MIN_GIT = (2, 46)
@@ -253,39 +254,58 @@ def insertions(base: list[str], side: list[str]) -> list[list[str]] | None:
     return slots if index == len(base) else None
 
 
-def keyed_insertions(slots: list[list[str]]) -> tuple[dict[str, list], dict[str, list]]:
-    """Object IDs and flat `KEY = value;` settings a side inserted, with their slots."""
+def inserted_ids(slots: list[list[str]]) -> dict[str, list]:
+    """Object IDs a side inserted, with their slots and lines."""
     ids: dict[str, list] = {}
-    settings: dict[str, list] = {}
     for slot, lines in enumerate(slots):
         for line in lines:
             if match := PBX_ID_RE.match(line):
                 ids.setdefault(match.group(1), []).append((slot, line))
-            elif match := PBX_SETTING_RE.match(line):
-                settings.setdefault(match.group(1), []).append((slot, line))
-    return ids, settings
+    return ids
 
 
 def collides(ours_slots: list[list[str]], theirs_slots: list[list[str]]) -> bool:
-    """Both sides inserted the same object ID, or the same setting key, differently.
+    """Both sides inserted the same object ID differently.
 
     An identical entry in the same place is one entry and is deduplicated. The
-    same ID elsewhere would become a duplicate list entry or object that the
-    normalizer cannot always see, and the same build setting twice is a
-    duplicate dictionary key. Settings are only compared when neither side
-    opened a new object or list, where repeated keys such as `isa` are normal.
+    same ID elsewhere would become a duplicate list entry or object. Repeated
+    dictionary keys (two values for one build setting) are caught on the
+    whole merged file by duplicate_keys().
     """
-    ours_ids, ours_settings = keyed_insertions(ours_slots)
-    theirs_ids, theirs_settings = keyed_insertions(theirs_slots)
-    if any(ours_ids[key] != theirs_ids[key] for key in ours_ids.keys() & theirs_ids.keys()):
-        return True
-    opens = any(
-        line.rstrip().endswith(("{", "("))
-        for slots in (ours_slots, theirs_slots) for lines in slots for line in lines
-    )
-    return not opens and any(
-        ours_settings[key] != theirs_settings[key] for key in ours_settings.keys() & theirs_settings.keys()
-    )
+    ours_ids, theirs_ids = inserted_ids(ours_slots), inserted_ids(theirs_slots)
+    return any(ours_ids[key] != theirs_ids[key] for key in ours_ids.keys() & theirs_ids.keys())
+
+
+PBX_TOKEN_RE = re.compile(
+    r'(?P<comment>/\*.*?\*/|//[^\n]*)|(?P<string>"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\')|'
+    r'(?P<data><[0-9A-Fa-f\s]*>)|(?P<punctuation>[{}=;(),])|(?P<scalar>[^\s{}=;(),"\']+)',
+    re.DOTALL,
+)
+
+
+def duplicate_keys(text: str) -> list[str]:
+    """Keys that appear twice in one dictionary, at any depth.
+
+    A key is the scalar before `=` inside `{ }`, whatever its value: a
+    scalar, a `( list )` or a nested `{ dictionary }`. Xcode keeps one of two
+    values silently, so a union that produces both must stop.
+    """
+    tokens = [m.group() for m in PBX_TOKEN_RE.finditer(text) if m.lastgroup != "comment"]
+    stack: list[set[str] | None] = []
+    duplicates: list[str] = []
+    for index, token in enumerate(tokens):
+        if token == "{":
+            stack.append(set())
+        elif token == "(":
+            stack.append(None)
+        elif token in "})" and stack:
+            stack.pop()
+        elif token == "=" and index and stack and stack[-1] is not None:
+            key = tokens[index - 1].strip("\"'")
+            if key in stack[-1]:
+                duplicates.append(key)
+            stack[-1].add(key)
+    return duplicates
 
 
 def union_hunk(ours: list[str], base: list[str], theirs: list[str]) -> list[str] | None:
@@ -332,7 +352,10 @@ def union_pbxproj(base: str, ours: str, theirs: str) -> str:
                 " only distinct added lines can be merged"
             )
         out.extend(merged)
-    return "".join(out)
+    result = "".join(out)
+    if duplicates := duplicate_keys(result):
+        raise ValueError("the union repeats a key: " + ", ".join(sorted(set(duplicates))[:5]))
+    return result
 
 
 # --- the merge ---------------------------------------------------------------
@@ -403,6 +426,11 @@ class Resolver:
             if problem := self.repo.unsafe(path):
                 self.block(SCHEMA_SWIFT, f"{path} is {problem}; not regenerating")
                 return
+        try:
+            json.loads((self.repo.path / SCHEMA_JSON).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            self.block(SCHEMA_SWIFT, f"merged {SCHEMA_JSON} is not valid JSON ({error.__class__.__name__}); not regenerating")
+            return
         completed = run_tool(
             self.tools_root, SCHEMA_GENERATOR, ["--root", str(self.repo.path)], self.repo.path,
         )

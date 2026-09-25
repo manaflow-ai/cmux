@@ -345,6 +345,20 @@ class SchemaTests(CatchUpCase):
         code, result = self.catch_up()
         self.assert_blocked(code, result, before, [MODULE.SCHEMA_JSON, MODULE.SCHEMA_SWIFT])
 
+    def test_invalid_merged_schema_is_not_regenerated(self) -> None:
+        # Each side's edit is valid JSON; their clean textual merge is not.
+        base = '{\n  "a": 1,\n  "m1": 0,\n  "m2": 0,\n  "m3": 0,\n  "z": 1\n}\n'
+        self.repo.branches(
+            {MODULE.SCHEMA_JSON: base},
+            {MODULE.SCHEMA_JSON: base.replace('"a": 1,', '"a": 2')},
+            {MODULE.SCHEMA_JSON: base.replace('"z": 1', '"z": 2,\n  "y": 3')},
+            schema_regen=False,
+        )
+        before = self.repo.git("rev-parse", "HEAD")
+        code, result = self.catch_up()
+        self.assert_blocked(code, result, before, [MODULE.SCHEMA_SWIFT])
+        self.assertIn("not valid JSON", result["blocking"][0]["reason"])
+
     def test_generator_failure_stops(self) -> None:
         tools = self.tmp / "tools"
         for script in (MODULE.NORMALIZER, MODULE.XCSTRINGS_MERGER):
@@ -432,13 +446,35 @@ class PbxprojTests(CatchUpCase):
         self.assert_blocked(code, result, before, [MODULE.PBXPROJ])
         self.assertIn("added the same entry differently", result["blocking"][0]["reason"])
 
+    def union_of(self, ours_lines: str, theirs_lines: str) -> str:
+        head = ("// !$*UTF8*$!\n{\n\tobjects = {\n\t\tCFG /* Debug */ = {\n\t\t\tisa = XCBuildConfiguration;\n"
+                "\t\t\tbuildSettings = {\n\t\t\t\tPRODUCT_NAME = cmux;\n")
+        tail = "\t\t\t\tSDKROOT = macosx;\n\t\t\t};\n\t\t\tname = Debug;\n\t\t};\n\t};\n\trootObject = CFG;\n}\n"
+        return MODULE.union_pbxproj(head + tail, head + ours_lines + tail, head + theirs_lines + tail)
+
     def test_same_setting_added_with_different_values_stops(self) -> None:
-        setting = "\t\t\t\tSWIFT_VERSION = {};\n"
-        self.assertIsNone(MODULE.union_hunk([setting.format("5.0")], [], [setting.format("6.0")]))
-        self.assertEqual(
-            MODULE.union_hunk(["\t\t\t\tA = 1;\n"], [], ["\t\t\t\tB = 2;\n"]),
-            ["\t\t\t\tA = 1;\n", "\t\t\t\tB = 2;\n"],
-        )
+        with self.assertRaisesRegex(ValueError, "repeats a key: SWIFT_VERSION"):
+            self.union_of("\t\t\t\tSWIFT_VERSION = 6.0;\n", "\t\t\t\tSWIFT_VERSION = 5.0;\n")
+        merged = self.union_of("\t\t\t\tA_FLAG = 1;\n", "\t\t\t\tB_FLAG = 2;\n")
+        self.assertIn("A_FLAG = 1;", merged)
+        self.assertIn("B_FLAG = 2;", merged)
+
+    def test_setting_added_as_a_list_and_a_scalar_stops(self) -> None:
+        # A multi-line `KEY = (` is a key too (security review repro, case 1).
+        with self.assertRaisesRegex(ValueError, "OTHER_SWIFT_FLAGS"):
+            self.union_of('\t\t\t\tOTHER_SWIFT_FLAGS = (\n\t\t\t\t\t"-DFOO",\n\t\t\t\t);\n',
+                          '\t\t\t\tOTHER_SWIFT_FLAGS = "-DBAR";\n')
+
+    def test_repeated_setting_next_to_an_added_list_stops(self) -> None:
+        # One side also opens a list, which used to switch the settings check
+        # off (security review repro, case 2).
+        with self.assertRaisesRegex(ValueError, "SWIFT_VERSION"):
+            self.union_of('\t\t\t\tSWIFT_VERSION = 6.0;\n\t\t\t\tLD_FLAGS = (\n\t\t\t\t\t"-x",\n\t\t\t\t);\n',
+                          "\t\t\t\tSWIFT_VERSION = 5.0;\n")
+
+    def test_duplicate_keys_sees_every_dictionary(self) -> None:
+        text = "{ a = 1; b = { c = (x, y); c = 2; }; d = { a = 1; }; }"
+        self.assertEqual(MODULE.duplicate_keys(text), ["c"])
 
 
 class CommentTests(unittest.TestCase):
@@ -489,10 +525,39 @@ class WorkflowTests(unittest.TestCase):
 
     def test_checkouts_do_not_keep_credentials(self) -> None:
         checkouts = [step for step in run_steps(self.workflow) if str(step.get("uses", "")).startswith("actions/checkout@")]
-        self.assertEqual(len(checkouts), 2)
+        self.assertEqual(len(checkouts), 3)
         for step in checkouts:
             self.assertIs(step["with"]["persist-credentials"], False)
             self.assertFalse(step["with"].get("submodules"), "submodules would fetch PR-chosen URLs")
+            self.assertIs(step["with"]["lfs"], False)
+
+    def test_untrusted_checkout_job_holds_no_write_token(self) -> None:
+        jobs = self.workflow["jobs"]
+        for name, job in jobs.items():
+            refs = [step["with"]["ref"] for step in job.get("steps", [])
+                    if str(step.get("uses", "")).startswith("actions/checkout@")]
+            if any("head_sha" in ref for ref in refs):
+                self.assertEqual(name, "merge")
+                self.assertTrue(all(level == "read" for level in job["permissions"].values()), job["permissions"])
+                self.assertEqual(job["env"]["GIT_LFS_SKIP_SMUDGE"], "1")
+            elif refs:
+                self.assertEqual(refs, ["${{ github.sha }}"], name)
+
+    def test_only_writers_reach_a_concurrency_group(self) -> None:
+        jobs = self.workflow["jobs"]
+        self.assertNotIn("concurrency", jobs["gate"])
+        self.assertNotIn("concurrency", self.workflow)
+        self.assertEqual(jobs["merge"]["needs"], "gate")
+        self.assertIn("needs.gate.outputs.allowed == 'true'", jobs["merge"]["if"])
+        self.assertIn("needs.gate.outputs.allowed == 'true'", jobs["finish"]["if"])
+
+    def test_head_is_pinned(self) -> None:
+        script = next(step["run"] for step in self.workflow["jobs"]["merge"]["steps"] if step.get("id") == "pr")
+        self.assertIn('"$head_sha" != "$EVENT_HEAD_SHA"', script)
+        self.assertIn('"$first_run" > "$COMMENT_CREATED_AT"', script)
+        self.assertIn("action_required", script)
+        # Names are validated before they reach a URL.
+        self.assertLess(script.index("check-ref-format --branch \"$head_ref\""), script.index("branches/$head_ref_url"))
 
     def test_actions_are_pinned(self) -> None:
         for step in run_steps(self.workflow):

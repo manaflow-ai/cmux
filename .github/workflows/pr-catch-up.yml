@@ -1,31 +1,42 @@
 name: PR catch-up
 
 # RFC #14631, slice 1. Brings a pull request up to date with its base branch:
-# merges the base into the head (never a rebase or force-push), resolves the
-# generated-file conflicts with their generators, pushes, and comments.
+# merges the base into the head (never a rebase), resolves the generated-file
+# conflicts with their generators, pushes, and comments.
 #
-# Ask for it with the `catch-up` label or a `/catch-up` comment. Only people
-# with write, maintain or admin permission on this repository can start it.
-# The permission API decides; author_association is not used, because private
-# org members show up as CONTRIBUTOR or NONE there.
+# Ask for it with the `catch-up` label or a `/catch-up` comment (optionally
+# `/catch-up <sha>` to pin the head you looked at). Only people with write,
+# maintain or admin permission on this repository can start it. The
+# permission API decides; author_association is not used, because private org
+# members show up as CONTRIBUTOR or NONE there.
 #
-# Trust: both triggers run this file from the base branch with a write token,
-# so the pull request's bytes are data only. Its head is checked out without
-# credentials into `candidate/`, and everything that runs (catch_up_pr.py,
-# normalize-pbxproj.py, generate-cmux-config-schema.py, merge-xcstrings.py)
-# comes from `trusted/`, the commit this workflow was loaded from. Nothing
-# from the head is executed, sourced or installed, and no event text is
-# expanded inside a shell; it reaches steps through env only. The merge reads
-# .gitattributes from the base commit, and resolvers refuse symlinks.
+# Three jobs, so the untrusted bytes never share a job with a write token:
+#
+# - gate: who asked, with a metadata-only token. No concurrency group here,
+#   so comments from anyone cannot cancel a writer's pending run.
+# - merge: read-only token. Checks the pull request head out as data (no
+#   credentials, no submodules, no LFS smudge) into `candidate/` and runs
+#   catch_up_pr.py and the generators it calls (normalize-pbxproj.py,
+#   generate-cmux-config-schema.py, merge-xcstrings.py) from `trusted/`, the
+#   commit this workflow was loaded from. Nothing from the head is executed,
+#   sourced or installed, the merge reads .gitattributes from the base commit,
+#   and resolvers refuse symlinks. The merge commit leaves as a git bundle.
+# - finish: write token. Pushes the bundle, comments, removes the label.
+#
+# The head is pinned to what the requester saw: the label's event head, the
+# sha in `/catch-up <sha>`, or else the head must have been pushed before the
+# comment (read from the server-side creation time of its workflow runs). A
+# fork head whose runs still wait for approval is refused, so the App-token
+# push cannot stand in for that approval.
 #
 # Pushes use the GLAEDA route App token (contents and workflows write), so the
 # new head starts CI like any push and a merge that brings in workflow changes
-# is accepted. Without the App the job falls back to the Actions token, whose
-# pushes do not start workflows; the comment says so. Fork heads are pushed only
-# when the author allows edits by maintainers, and only with the App token.
-# The push is a compare-and-swap against the head that was merged
-# (--force-with-lease on that exact sha, of a commit that descends from it):
-# it cannot drop commits, and it is refused if the branch moved meanwhile.
+# is accepted. Without the App, same-repository branches fall back to the
+# Actions token, whose pushes do not start workflows; the comment says so.
+# Fork heads are pushed only when the author allows edits by maintainers, and
+# only with the App token. The push is a compare-and-swap (--force-with-lease
+# on the exact head that was merged, of a commit that descends from it): it
+# cannot drop commits, and it is refused if the branch moved meanwhile.
 on:
   pull_request_target:
     types: [labeled]
@@ -34,9 +45,12 @@ on:
 
 permissions: {}
 
+env:
+  PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+
 jobs:
-  catch-up:
-    name: PR catch-up
+  gate:
+    name: PR catch-up gate
     if: >-
       (
         github.event_name == 'pull_request_target' &&
@@ -47,36 +61,21 @@ jobs:
         github.event.comment.user.type == 'User' &&
         startsWith(github.event.comment.body, '/catch-up')
       )
-    # Untrusted pull request bytes sit next to a write token here: keep them
-    # on an ephemeral GitHub-hosted runner, never a variable-selected host.
-    runs-on: ubuntu-24.04 # github-hosted-required: untrusted pull request bytes beside a write token
-    timeout-minutes: 20
-    # One catch-up per pull request at a time. Job level, so unrelated label
-    # and comment events (skipped jobs) never replace a pending run.
-    concurrency:
-      group: pr-catch-up-${{ github.event.pull_request.number || github.event.issue.number }}
-      cancel-in-progress: false
+    runs-on: ubuntu-24.04 # github-hosted-required: control plane for a write-token workflow
+    timeout-minutes: 5
     permissions:
-      # The fallback push when the App token is unavailable.
-      contents: write
-      # The result comment, the label removal and the reaction.
-      issues: write
-      pull-requests: write
-    env:
-      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
-      ACTOR: ${{ github.event.sender.login }}
-      TRUSTED_SHA: ${{ github.sha }}
-      TRUSTED: ${{ github.workspace }}/trusted
-      CANDIDATE: ${{ github.workspace }}/candidate
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      contents: read
+    outputs:
+      allowed: ${{ steps.gate.outputs.allowed }}
+      pin: ${{ steps.gate.outputs.pin }}
     steps:
       - name: Check who asked
         id: gate
         env:
           GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.event.sender.login }}
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
-          COMMENT_ID: ${{ github.event.comment.id }}
         run: |
           set -euo pipefail
           echo "allowed=false" >> "$GITHUB_OUTPUT"
@@ -84,12 +83,15 @@ jobs:
             echo "::notice::Catch-up is for people, not $ACTOR."
             exit 0
           fi
+          pin=""
           if [[ "$EVENT_NAME" == issue_comment ]]; then
             # The whole comment must be the command; GitHub may append CRLF.
             body="${COMMENT_BODY//$'\r'/}"
             body="${body%"${body##*[![:space:]]}"}"
-            if [[ "$body" != "/catch-up" ]]; then
-              echo "Comment is not exactly /catch-up; nothing to do."
+            if [[ "$body" =~ ^/catch-up([[:space:]]+([0-9a-f]{7,40}))?$ ]]; then
+              pin="${BASH_REMATCH[2]}"
+            else
+              echo "Comment is not /catch-up [sha]; nothing to do."
               exit 0
             fi
           fi
@@ -101,19 +103,58 @@ jobs:
               exit 0
               ;;
           esac
-          if [[ "$EVENT_NAME" == issue_comment ]]; then
-            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" \
-              -f content=rocket > /dev/null || true
-          fi
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
           echo "allowed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Read the pull request
+  merge:
+    name: PR catch-up merge
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
+    # Untrusted pull request bytes: an ephemeral GitHub-hosted runner, never a
+    # variable-selected host.
+    runs-on: ubuntu-24.04 # github-hosted-required: checks out untrusted pull request bytes
+    timeout-minutes: 20
+    # One catch-up per pull request at a time. Only writers reach this job.
+    concurrency:
+      group: pr-catch-up-merge-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      # Workflow runs on the head: push time and fork approval state.
+      actions: read
+    outputs:
+      refusal: ${{ steps.pr.outputs.refusal }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      base_ref: ${{ steps.pr.outputs.base_ref }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+      pushable: ${{ steps.pr.outputs.pushable }}
+      status: ${{ steps.merge.outputs.status }}
+      base_sha: ${{ steps.merge.outputs.base_sha }}
+      merged_sha: ${{ steps.merge.outputs.merged_sha }}
+    env:
+      TRUSTED_SHA: ${{ github.sha }}
+      TRUSTED: ${{ github.workspace }}/trusted
+      CANDIDATE: ${{ github.workspace }}/candidate
+      # Never run an LFS smudge filter on pull request bytes.
+      GIT_LFS_SKIP_SMUDGE: "1"
+    steps:
+      - name: Read the pull request and pin its head
         id: pr
-        if: steps.gate.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
+          PIN: ${{ needs.gate.outputs.pin }}
         run: |
           set -euo pipefail
+          refuse() {
+            echo "::notice::$1"
+            echo "refusal=$1" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
           # The GraphQL variables are literal; gh substitutes them, not the shell.
           # shellcheck disable=SC2016
           gh api graphql -F number="$PR_NUMBER" -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
@@ -136,39 +177,66 @@ jobs:
           editable="$(jq -r '.maintainerCanModify' "$RUNNER_TEMP/pr.json")"
           default_branch="$(jq -r '.defaultBranch' "$RUNNER_TEMP/pr.json")"
           if [[ "$state" != OPEN ]]; then
-            echo "::notice::#$PR_NUMBER is $state; nothing to catch up."
-            exit 0
+            refuse "This pull request is $state, so there is nothing to catch up."
           fi
-          refuse() {
-            echo "::notice::$1"
-            printf '%s\n' "$1" > "$RUNNER_TEMP/comment.md"
-            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
-            exit 0
-          }
           if [[ -z "$head_repo" ]]; then
             refuse "The branch behind this pull request is gone (its fork was deleted), so there is nothing I can catch up."
           fi
+          # Branch and repository names come from the pull request author.
+          # Validate them before they reach any URL or git argument.
+          if ! git check-ref-format --branch "$head_ref" > /dev/null ||
+             ! git check-ref-format --branch "$base_ref" > /dev/null ||
+             [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]] ||
+             [[ ! "$head_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            refuse "This pull request's branch or repository name is not one I can safely work with."
+          fi
+          head_ref_url="$(jq -rn --arg ref "$head_ref" '$ref | @uri')"
+
           # Never merge into, or push to, a shared branch of this repository:
           # the default branch, classic protection, or any ruleset. Both REST
-          # reads need only contents read; an unreadable answer counts as
+          # reads need only read access; an unreadable answer counts as
           # protected.
-          protected=false
           if [[ "$cross" != true ]]; then
-            classic="$(gh api "repos/$GITHUB_REPOSITORY/branches/$head_ref" --jq '.protected' || echo true)"
-            rules="$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$head_ref" --jq 'length' || echo 1)"
-            if [[ "$classic" != false || "$rules" != 0 ]]; then
+            protected=false
+            classic="$(gh api "repos/$GITHUB_REPOSITORY/branches/$head_ref_url" --jq '.protected' || echo true)"
+            rules="$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$head_ref_url" --jq 'length' || echo 1)"
+            if [[ "$head_ref" == "$default_branch" || "$classic" != false || "$rules" != 0 ]]; then
               protected=true
             fi
+            if [[ "$protected" == true ]]; then
+              refuse "This pull request comes from a protected branch of this repository, so catch-up leaves it alone. Merge the base by hand if you really mean it."
+            fi
           fi
-          if [[ "$cross" != true && ( "$head_ref" == "$default_branch" || "$protected" == true ) ]]; then
-            refuse "This pull request comes from a protected branch of this repository, so catch-up leaves it alone. Merge the base by hand if you really mean it."
+
+          # Pin the head to what the requester saw.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$head_sha&per_page=100" \
+            --jq '[.workflow_runs[] | {status, conclusion, created_at}]' > "$RUNNER_TEMP/runs.json"
+          if [[ "$EVENT_NAME" == pull_request_target ]]; then
+            if [[ "$head_sha" != "$EVENT_HEAD_SHA" ]]; then
+              refuse "New commits landed after the catch-up label was added, so I did not touch the branch. Add the label again if the new head is fine."
+            fi
+          elif [[ -n "$PIN" ]]; then
+            if [[ "$head_sha" != "$PIN"* ]]; then
+              refuse "The head is now ${head_sha:0:12}, not the ${PIN} you asked for, so I did not touch the branch."
+            fi
+          else
+            # Runs are created by GitHub when a commit is pushed, so their
+            # earliest creation time is a push time the author cannot forge.
+            first_run="$(jq -r 'map(.created_at) | min // ""' "$RUNNER_TEMP/runs.json")"
+            if [[ -z "$first_run" ]]; then
+              refuse "I cannot tell when the head ${head_sha:0:12} was pushed. Comment \`/catch-up ${head_sha:0:12}\` if that is the head you want caught up."
+            fi
+            if [[ "$first_run" > "$COMMENT_CREATED_AT" ]]; then
+              refuse "The head ${head_sha:0:12} was pushed after your comment, so I did not touch the branch. Comment \`/catch-up ${head_sha:0:12}\` if it is fine."
+            fi
           fi
-          # Branch and repository names come from the pull request author.
-          # Refuse anything that is not a plain ref, sha or owner/name.
-          git check-ref-format --branch "$head_ref" > /dev/null
-          git check-ref-format --branch "$base_ref" > /dev/null
-          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$head_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          # A fork's runs waiting for approval: a push made with the App token
+          # would start CI without that approval.
+          if [[ "$cross" == true ]] &&
+             jq -e 'any(.[]; .status == "action_required" or .conclusion == "action_required")' "$RUNNER_TEMP/runs.json" > /dev/null; then
+            refuse "Workflow runs on this fork's head still need a maintainer's approval. Approve them first, then ask for catch-up again."
+          fi
+
           pushable=true
           if [[ "$cross" == true && "$editable" != true ]]; then
             pushable=false
@@ -191,6 +259,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           submodules: false
+          lfs: false
 
       # Data only. The head commit is reachable from this repository through
       # refs/pull/N/head, fork or not, and the full history (without blobs,
@@ -207,6 +276,7 @@ jobs:
           filter: blob:none
           persist-credentials: false
           submodules: false
+          lfs: false
 
       - name: Merge the base with the trusted tools
         id: merge
@@ -214,6 +284,7 @@ jobs:
         env:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          ACTOR: ${{ github.event.sender.login }}
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
@@ -223,25 +294,103 @@ jobs:
           [[ "$(git -C "$TRUSTED" rev-parse HEAD)" == "$TRUSTED_SHA" ]]
           [[ "$(git -C "$CANDIDATE" rev-parse HEAD)" == "$HEAD_SHA" ]]
           git -C "$CANDIDATE" rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF^{commit}" > /dev/null
+          mkdir -p "$RUNNER_TEMP/catch-up"
+          result="$RUNNER_TEMP/catch-up/result.json"
           code=0
           python3 -I "$TRUSTED/scripts/ci/catch_up_pr.py" merge \
             --repo "$CANDIDATE" --tools-root "$TRUSTED" --base "origin/$BASE_REF" --json \
-            --note "Requested by $ACTOR on pull request #$PR_NUMBER." > "$RUNNER_TEMP/catch-up.json" || code=$?
-          cat "$RUNNER_TEMP/catch-up.json"
-          status="$(jq -r '.status' "$RUNNER_TEMP/catch-up.json")"
+            --note "Requested by $ACTOR on pull request #$PR_NUMBER." > "$result" || code=$?
+          cat "$result"
+          status="$(jq -r '.status' "$result")"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           {
             echo "### PR catch-up: $status"
-            jq -r '(.resolved[] | "- resolved `\(.path)`: \(.method)"), (.blocking[] | "- blocking `\(.path)`: \(.reason)")' "$RUNNER_TEMP/catch-up.json"
+            jq -r '(.resolved[] | "- resolved `\(.path)`: \(.method)"), (.blocking[] | "- blocking `\(.path)`: \(.reason)")' "$result"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$status" == merged ]]; then
+            base_sha="$(jq -r '.base' "$result")"
+            merged_sha="$(git -C "$CANDIDATE" rev-parse HEAD)"
+            # Only the merge commit and the objects it adds; the push job
+            # fetches both parents itself.
+            git -C "$CANDIDATE" bundle create "$RUNNER_TEMP/catch-up/merge.bundle" HEAD "^$HEAD_SHA" "^$base_sha"
+            echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+            echo "merged_sha=$merged_sha" >> "$GITHUB_OUTPUT"
+          fi
           # Blocked (1) is an answer, not a failure; the comment carries it.
           if [[ "$code" -ne 0 && "$code" -ne 1 ]]; then
             exit "$code"
           fi
 
+      - name: Hand the result to the push job
+        if: always() && steps.pr.outputs.head_sha != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catch-up-${{ github.run_id }}
+          path: ${{ runner.temp }}/catch-up/
+          retention-days: 1
+          if-no-files-found: ignore
+
+  finish:
+    name: PR catch-up push and comment
+    needs: [gate, merge]
+    if: always() && (needs.gate.outputs.allowed == 'true' || (github.event_name == 'pull_request_target' && needs.gate.result == 'success'))
+    runs-on: ubuntu-24.04 # github-hosted-required: holds the push token
+    timeout-minutes: 15
+    concurrency:
+      group: pr-catch-up-push-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      # The fallback push when the App token is unavailable.
+      contents: write
+      # The result comment, the label removal and the reaction.
+      issues: write
+      pull-requests: write
+    env:
+      TRUSTED: ${{ github.workspace }}/trusted
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      REFUSAL: ${{ needs.merge.outputs.refusal }}
+      MERGE_STATUS: ${{ needs.merge.outputs.status }}
+      HEAD_SHA: ${{ needs.merge.outputs.head_sha }}
+      HEAD_REF: ${{ needs.merge.outputs.head_ref }}
+      HEAD_REPO: ${{ needs.merge.outputs.head_repo }}
+      BASE_REF: ${{ needs.merge.outputs.base_ref }}
+      BASE_SHA: ${{ needs.merge.outputs.base_sha }}
+      MERGED_SHA: ${{ needs.merge.outputs.merged_sha }}
+      PUSHABLE: ${{ needs.merge.outputs.pushable }}
+    steps:
+      - name: Acknowledge the comment
+        if: needs.gate.outputs.allowed == 'true' && github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" \
+            -f content=rocket > /dev/null || true
+
+      - name: Check out the trusted tools
+        if: needs.gate.outputs.allowed == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Fetch the merge result
+        if: needs.gate.outputs.allowed == 'true' && needs.merge.outputs.head_sha != ''
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: catch-up-${{ github.run_id }}
+          path: ${{ runner.temp }}/catch-up
+
       - name: Mint the push token
         id: app-token
-        if: steps.merge.outputs.status == 'merged' && steps.pr.outputs.pushable == 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: needs.merge.outputs.status == 'merged' && needs.merge.outputs.pushable == 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -255,15 +404,13 @@ jobs:
 
       - name: Push the merge to the pull request branch
         id: push
-        if: steps.merge.outputs.status == 'merged' && steps.pr.outputs.pushable == 'true'
+        if: needs.merge.outputs.status == 'merged' && needs.merge.outputs.pushable == 'true'
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           ACTIONS_TOKEN: ${{ github.token }}
-          HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
-          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$MERGED_SHA" =~ ^[0-9a-f]{40}$ ]]
           outcome=pushed
           token="$APP_TOKEN"
           if [[ -z "$token" ]]; then
@@ -275,24 +422,36 @@ jobs:
             outcome=pushed-without-ci
             token="$ACTIONS_TOKEN"
           fi
+          # Both parents, blob-less, from this repository (fork heads are
+          # reachable through refs/pull), then the merge commit from the bundle.
+          repo="$RUNNER_TEMP/push.git"
+          git init -q --bare "$repo"
+          git -C "$repo" fetch -q --no-tags --filter=blob:none \
+            "https://github.com/$GITHUB_REPOSITORY.git" "$HEAD_SHA" "$BASE_SHA"
+          git -C "$repo" bundle verify "$RUNNER_TEMP/catch-up/merge.bundle" > /dev/null
+          git -C "$repo" fetch -q --no-tags "$RUNNER_TEMP/catch-up/merge.bundle" "HEAD:refs/heads/catch-up-result"
+          [[ "$(git -C "$repo" rev-parse refs/heads/catch-up-result)" == "$MERGED_SHA" ]]
+          [[ "$(git -C "$repo" rev-parse "$MERGED_SHA^1") $(git -C "$repo" rev-parse "$MERGED_SHA^2")" == "$HEAD_SHA $BASE_SHA" ]]
           auth="$(printf 'x-access-token:%s' "$token" | base64 -w0)"
           echo "::add-mask::$auth"
-          merged="$(git -C "$CANDIDATE" rev-parse HEAD)"
           # Compare-and-swap: the remote branch must still be the head that
           # was merged, and the new commit descends from it.
           if GIT_CONFIG_COUNT=1 \
              GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-             git -C "$CANDIDATE" push --no-verify --porcelain \
+             git -C "$repo" push --no-verify --porcelain \
                --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA" \
-               "https://github.com/$HEAD_REPO.git" "$merged:refs/heads/$HEAD_REF" \
+               "https://github.com/$HEAD_REPO.git" "$MERGED_SHA:refs/heads/$HEAD_REF" \
                > "$RUNNER_TEMP/push.log" 2>&1; then
-            echo "Pushed $merged to $HEAD_REPO:$HEAD_REF ($outcome)."
+            echo "Pushed $MERGED_SHA to $HEAD_REPO:$HEAD_REF ($outcome)."
           else
             cat "$RUNNER_TEMP/push.log"
-            if grep -qiE 'stale info|non-fast-forward|fetch first' "$RUNNER_TEMP/push.log"; then
+            # git's own rejection reasons, then GitHub's refusal for a token
+            # without workflow permission ("refusing to allow a GitHub App to
+            # create or update workflow ... without `workflows` permission").
+            if grep -qE '\[rejected\].*\((stale info|non-fast-forward|fetch first)\)' "$RUNNER_TEMP/push.log"; then
               outcome=rejected
-            elif grep -qi 'workflow' "$RUNNER_TEMP/push.log"; then
+            elif grep -qE 'refusing to allow .* to create or update workflow' "$RUNNER_TEMP/push.log"; then
               outcome=needs-workflows
             else
               outcome=push-denied
@@ -301,25 +460,27 @@ jobs:
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 
       - name: Comment the result
-        if: always() && steps.pr.outputs.head_sha != ''
+        if: always() && needs.gate.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          MERGE_STATUS: ${{ steps.merge.outputs.status }}
-          PUSHABLE: ${{ steps.pr.outputs.pushable }}
           PUSH_OUTCOME: ${{ steps.push.outputs.outcome }}
-          BASE_REF: ${{ steps.pr.outputs.base_ref }}
-          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
         run: |
           set -euo pipefail
-          push="${PUSH_OUTCOME:-not-attempted}"
-          if [[ "$MERGE_STATUS" == merged && "$PUSHABLE" != true ]]; then
-            push=fork-not-editable
-          elif [[ "$MERGE_STATUS" == merged && "$push" == not-attempted ]]; then
-            push=push-denied
+          comment="$RUNNER_TEMP/comment.md"
+          if [[ -n "$REFUSAL" ]]; then
+            printf '%s\n' "$REFUSAL" > "$comment"
+          else
+            push="${PUSH_OUTCOME:-not-attempted}"
+            if [[ "$MERGE_STATUS" == merged && "$PUSHABLE" != true ]]; then
+              push=fork-not-editable
+            elif [[ "$MERGE_STATUS" == merged && "$push" == not-attempted ]]; then
+              push=push-denied
+            fi
+            python3 -I "$TRUSTED/scripts/ci/catch_up_pr.py" comment --result "$RUNNER_TEMP/catch-up/result.json" \
+              --push "$push" --base-name "${BASE_REF:-main}" --head-name "${HEAD_REF:-this branch}" \
+              --run-url "$RUN_URL" > "$comment"
           fi
-          python3 -I "$TRUSTED/scripts/ci/catch_up_pr.py" comment --result "$RUNNER_TEMP/catch-up.json" --push "$push" \
-            --base-name "$BASE_REF" --head-name "$HEAD_REF" --run-url "$RUN_URL" > "$RUNNER_TEMP/comment.md"
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$comment"
 
       # The label is a one-shot request: drop it whatever happened, so adding
       # it again asks again. A 404 means it was not there.
