@@ -14096,10 +14096,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }
+        updateSurfaceNumberShortcutModifierAcrossBonsplitControllers()
+    }
+
+    private func updateSurfaceNumberShortcutModifierAcrossBonsplitControllers() {
+        let modifier = KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier()
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                workspace.bonsplitController.surfaceNumberShortcutModifier = modifier
+                workspace._dockSplit?.bonsplitController.surfaceNumberShortcutModifier = modifier
+            }
+            context.windowDock?.bonsplitController.surfaceNumberShortcutModifier = modifier
+        }
     }
 
     private func handleShortcutDefaultsDidChange() {
         clearConfiguredShortcutChordState()
+        updateSurfaceNumberShortcutModifierAcrossBonsplitControllers()
         scheduleReloadConfigurationMenuItemRefresh()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }

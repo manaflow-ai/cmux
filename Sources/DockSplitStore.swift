@@ -352,6 +352,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             configuration: Self.makeConfiguration(),
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.surfaceNumberShortcutModifier =
+            KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier()
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()

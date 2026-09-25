@@ -4089,6 +4089,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration: config,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.surfaceNumberShortcutModifier =
+            KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier()
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()

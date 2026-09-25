@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxFoundation
 import Foundation
 import Testing
@@ -155,6 +156,44 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
             )
 
             #expect(defaults.string(forKey: paneFlashColorKey) == "#FF69B4")
+        }
+    }
+
+    @Test @MainActor
+    func resolvedSurfaceNumberShortcutModifierUsesCanonicalSettingsFileValue() throws {
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        let shortcutKey = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultsKey
+        try preservingDefaults(keys: [
+            shortcutKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "shortcuts": {
+                "selectSurfaceByNumber": "cmd+1"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            defer {
+                KeyboardShortcutSettings.settingsFileStore = originalStore
+                KeyboardShortcutSettings.resetAll()
+            }
+
+            #expect(
+                KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier() ==
+                    TabControlShortcutModifier(modifierFlags: [.command], symbol: "⌘")
+            )
         }
     }
 
