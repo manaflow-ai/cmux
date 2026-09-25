@@ -9,6 +9,17 @@ import Testing
 struct SidebarAccessibilityTreeTests {
     @Test
     func mountedSidebarAndProjectPanelAccessibilityWalkIsAcyclic() async throws {
+        // A headless app host has no assistive client to request SwiftUI's AX
+        // tree. Enable the same mode explicitly before mounting the fixture.
+        let attribute = "AXEnhancedUserInterface"
+        let getter = NSSelectorFromString("accessibilityAttributeValue:")
+        let setter = NSSelectorFromString("accessibilitySetValue:forAttribute:")
+        try #require(NSApp.responds(to: getter) && NSApp.responds(to: setter))
+        let previous = NSApp.perform(getter, with: attribute)?.takeUnretainedValue()
+            as? NSNumber ?? NSNumber(value: false)
+        NSApp.perform(setter, with: NSNumber(value: true), with: attribute)
+        defer { NSApp.perform(setter, with: previous, with: attribute) }
+
         let url = try #require(URL(string: "https://example.com/context"))
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "Read \(url.absoluteString)"
@@ -94,6 +105,8 @@ struct SidebarAccessibilityTreeTests {
         // a later main-loop turn than the AppKit layout above. Walk until it has.
         var walk = SidebarAccessibilityTreeWalk()
         _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            projectView.layoutSubtreeIfNeeded()
+            projectView.displayIfNeeded()
             walk = SidebarAccessibilityTreeWalk()
             walk.visit(window)
             return walk.cycle != nil || walk.textValues.contains { $0.contains("Context.swift") }
