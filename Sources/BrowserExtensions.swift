@@ -16,7 +16,10 @@ import WebKit
 /// Installations belong to the profile they were added in: approving an
 /// extension in one profile never loads it into another.
 struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
-    /// Profile key: the data store identifier, or `"default"`.
+    /// The profile key of the built-in default profile.
+    static let defaultProfileKey = "default"
+
+    /// Profile key: the data store identifier, or ``defaultProfileKey``.
     let profileKey: String
     let extensionID: String
     var name: String
@@ -61,7 +64,7 @@ struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        profileKey = try container.decodeIfPresent(String.self, forKey: .profileKey) ?? BrowserExtensions.defaultProfileKey
+        profileKey = try container.decodeIfPresent(String.self, forKey: .profileKey) ?? Self.defaultProfileKey
         extensionID = try container.decode(String.self, forKey: .extensionID)
         name = try container.decode(String.self, forKey: .name)
         version = try container.decode(String.self, forKey: .version)
@@ -89,7 +92,7 @@ struct BrowserExtensionInstallation: Codable, Identifiable, Equatable {
 @MainActor
 final class BrowserExtensions: NSObject, ObservableObject {
     static let shared = BrowserExtensions()
-    static let defaultProfileKey = "default"
+    static let defaultProfileKey = BrowserExtensionInstallation.defaultProfileKey
 
     /// Custom scheme extension pages are served from, matching Chrome so
     /// servers that allow-list an extension origin recognize it.
