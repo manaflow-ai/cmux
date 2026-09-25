@@ -4,14 +4,16 @@ import Foundation
 /// Top-level navigation targets for the settings window.
 ///
 /// The cmux app exposes a fixed set of section panes. Each section gets
-/// its own SwiftUI view in `Sections/`; the sidebar lists them in
-/// declaration order, the search index filters across all of them.
+/// its own SwiftUI view in `Sections/`; visible sections appear in the
+/// taxonomy and the search index filters across them. Legacy raw-value
+/// aliases may remain here for deep-link compatibility without owning a pane.
 ///
 /// Adding a section means: add a case here, add its title and icon in
 /// the `SettingsSectionID` extension below, and add a view file in
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    /// Legacy raw-value target; the visible destination is ``mobile``.
     case computers
     case app
     case terminal
@@ -117,7 +119,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
-        case .mobile: return "ios iphone ipad mobile pairing local network sync push notifications alerts forwarding"
+        case .mobile: return "ios iphone ipad mobile pairing local network sync push notifications alerts forwarding computers devices mac tailscale remote"
         case .cloudMachines: return "cloud machines vm virtual machine persistent computer plan upgrade fleet sandbox"
         case .networking: return "iroh relay server private network tailscale vpn direct peer custom provider region"
         case .sidebarAppearance: return "sidebar details branches material terminal background"

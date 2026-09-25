@@ -14,13 +14,10 @@ public struct ComputersSection: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SettingsSectionHeader(
-                String(localized: "settings.section.computers", defaultValue: "Computers"),
-                section: .computers
-            )
             HStack {
-                Text(String(localized: "devices.yourMacs", defaultValue: "Your Macs"))
+                Text(String(localized: "settings.section.computers", defaultValue: "Computers"))
                     .font(.headline)
+                    .accessibilityIdentifier("SettingsComputersHeading")
                 Spacer()
                 if isRefreshing { ProgressView().controlSize(.small) }
                 Button(String(localized: "settings.computers.refresh", defaultValue: "Refresh")) {
@@ -58,7 +55,7 @@ public struct ComputersSection: View {
                     .textSelection(.enabled)
             }
         }
-        .id("setting:computers:pair")
+        .settingsSearchAnchors([SettingsSectionID.computersSubsectionAnchorID])
         .task {
             for await value in actions.updates() {
                 guard !Task.isCancelled else { break }

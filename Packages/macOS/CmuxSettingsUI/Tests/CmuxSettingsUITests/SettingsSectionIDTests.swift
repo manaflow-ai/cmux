@@ -14,4 +14,13 @@ struct SettingsSectionIDTests {
         let titles = SettingsSectionID.allCases.map(\.title)
         #expect(titles.count == Set(titles).count)
     }
+
+    @Test func computersIsOnlyACompatibilityAliasForMobile() {
+        #expect(SettingsSectionID.computers.canonicalSection == .mobile)
+        #expect(!SettingsSectionID.computers.isVisibleSection)
+        #expect(!SettingsSectionID.visibleCases.contains(.computers))
+        #expect(SettingsSectionID.computersSubsectionAnchorID == "setting:mobile:computers")
+        #expect(SettingsSectionID.canonicalAnchorID("section:computers") == "setting:mobile:computers")
+        #expect(SettingsSectionID.canonicalAnchorID("setting:computers:pair") == "setting:mobile:computers")
+    }
 }

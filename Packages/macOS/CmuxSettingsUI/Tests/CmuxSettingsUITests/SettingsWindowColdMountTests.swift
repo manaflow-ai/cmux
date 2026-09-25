@@ -172,7 +172,6 @@ import Testing
             object: nil,
             userInfo: [
                 "target": SettingsSectionID.computers.rawValue,
-                "anchor": "section:computers",
                 "highlight": true
             ]
         )

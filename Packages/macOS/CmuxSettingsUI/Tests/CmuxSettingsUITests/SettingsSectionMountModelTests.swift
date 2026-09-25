@@ -14,6 +14,8 @@ struct SettingsSectionMountModelTests {
         let slots = Set(SettingsSectionMountModel.displayOrder)
         #expect(slots.count == SettingsSectionMountModel.displayOrder.count)
         #expect(slots == Set(SettingsSectionID.allCases).subtracting([.browserImport, .computers]))
+        #expect(!SettingsSectionMountModel.displayOrder.contains(.computers))
+        #expect(SettingsSectionMountModel.hostSection(for: .computers) == .mobile)
     }
 
     @Test func firstPassMountsOnlyTheInitialSection() {

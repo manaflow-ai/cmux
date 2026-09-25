@@ -6,8 +6,9 @@ import Foundation
 ///
 /// Two classes of entries are indexed:
 ///
-/// 1. Section entries — one per ``SettingsSectionID`` case — surfaced
-///    in the sidebar by default (empty query).
+/// 1. Section entries — one per visible ``SettingsSectionID`` case, plus
+///    compatibility aliases — surfaced in the sidebar by default (empty
+///    query) only when they belong to the browse taxonomy.
 /// 2. Curated setting entries from ``CuratedSettingEntries/entries`` —
 ///    one per high-signal row in the detail pane, with the user-facing
 ///    localized title, row detail text, config paths, and synonyms.
@@ -114,7 +115,7 @@ public struct SettingsSearchIndex: Sendable {
         let matcher = SettingsSearchMatcher()
         var built: [Entry] = []
 
-        for section in SettingsSectionID.allCases {
+        for section in SettingsSectionID.visibleCases {
             built.append(Entry(
                 id: "section:\(section.rawValue)",
                 kind: .section,
@@ -126,6 +127,22 @@ public struct SettingsSearchIndex: Sendable {
                 anchorID: "section:\(section.rawValue)"
             ))
         }
+
+        // Keep the former Computers search/deep-link identity as a
+        // compatibility result, while routing activation to the nested
+        // subsection inside Mobile. It is absent from the empty-query browse
+        // taxonomy, so it never becomes a second visible sidebar section.
+        let computersAlias = SettingsSectionID.computers
+        built.append(Entry(
+            id: "section:\(computersAlias.rawValue)",
+            kind: .section,
+            title: computersAlias.title,
+            symbolName: computersAlias.symbolName,
+            normalizedSearchText: matcher.normalize(
+                "\(computersAlias.rawValue) \(computersAlias.title) \(computersAlias.searchKeywords)"
+            ),
+            anchorID: SettingsSectionID.computersSubsectionAnchorID
+        ))
 
         var pathAnchors: [String: String] = [:]
 
@@ -188,7 +205,10 @@ public struct SettingsSearchIndex: Sendable {
         #endif
         let tokens = matcher.queryTokens(in: query)
         if tokens.isEmpty {
-            return entries.filter { if case .section = $0.kind { return true } else { return false } }
+            return entries.filter { entry in
+                guard case .section = entry.kind else { return false }
+                return entry.id != "section:\(SettingsSectionID.computers.rawValue)"
+            }
         }
         let normalizedQuery = matcher.normalize(query).trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.enumerated()

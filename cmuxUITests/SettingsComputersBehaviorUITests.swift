@@ -1,13 +1,13 @@
 import XCTest
 
 final class SettingsComputersBehaviorUITests: SettingsUITestCase {
-    func testComputersSectionShowsIndependentDiscoveryAndAccessControls() {
+    func testMobileSectionShowsComputersDiscoveryAndAccessControls() {
         let app = makeLaunchedApp()
         let window = openSettings(app)
         defer { closeSettings(app, window) }
 
         let before = XCTAttachment(screenshot: window.screenshot())
-        before.name = "Settings before opening Computers"
+        before.name = "Settings before opening Mobile"
         before.lifetime = .keepAlways
         add(before)
 

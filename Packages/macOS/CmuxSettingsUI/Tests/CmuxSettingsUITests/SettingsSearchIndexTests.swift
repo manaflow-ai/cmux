@@ -99,6 +99,15 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
+    @Test func computersSearchAliasTargetsMobileSubsection() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = try #require(index.match("Computers").first)
+
+        #expect(result.id == "section:computers")
+        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
+        #expect(result.kind == .section)
+    }
+
     /// Typing an exact section name navigates to that section first.
     /// Child settings' dotted-path synonyms (e.g. "automation.*") also
     /// match the query and carry a +20 bonus, so without an exact-title
