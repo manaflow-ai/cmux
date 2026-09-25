@@ -140,9 +140,10 @@ final class WorkspaceNavigationBarController: UIViewController {
         let groupedIDs: [[WorkspaceNavigationBar.Item.ID]]
         if ids.first == .alternateScreen {
             // A lone warning action gets UIKit's circular single-item glass.
-            // Keep the count chip and terminal picker in their shared group,
-            // matching the base toolbar's trailing action island.
-            groupedIDs = [[.alternateScreen], Array(ids.dropFirst())]
+            // Keep the count chip and terminal picker in their shared pinned
+            // group, matching the base toolbar's trailing action island. The
+            // warning group stays immediately before that pinned group.
+            groupedIDs = [Array(ids.dropFirst()), [.alternateScreen]]
         } else {
             groupedIDs = [ids]
         }
