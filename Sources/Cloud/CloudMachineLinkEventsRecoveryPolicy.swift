@@ -30,4 +30,3 @@ struct CloudMachineLinkEventsRecoveryPolicy: Sendable, Equatable {
         return delays[attempt - 1]
     }
 }
-
