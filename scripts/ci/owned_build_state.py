@@ -485,6 +485,8 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
         # A download (about 250 s on a mini) costs less than recompiling the
         # whole app (365 to 1,053 s on an owned mini on 2026-09-25).
         result.update(downloaded, reason=f"the kept DerivedData recompiles the app; the seed {distance} commits behind does not")
+    elif distance <= max_distance:
+        result.setdefault("reason", f"the seed {distance} commits behind may recompile the app; the kept DerivedData does not")
     else:
         result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
     return result

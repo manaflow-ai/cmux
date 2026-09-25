@@ -445,7 +445,11 @@ class Prefer(Fixture):
         self.kept(changed=3)
         for answer, expected in ((True, "false"), (None, "false"), (False, "true")):
             with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
-                self.assertEqual(self.prefer(("p-j14-base", 1), max_distance=2)["prefer"], expected)
+                result = self.prefer(("p-j14-base", 1), max_distance=2)
+            self.assertEqual(result["prefer"], expected)
+            if expected == "false":
+                self.assertEqual(result["reason"],
+                                 "the seed 1 commits behind may recompile the app; the kept DerivedData does not")
 
     def test_package_tests_do_not_rebuild_the_app(self):
         self.assertFalse(state.rebuilds_app({"Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/ATests.swift"}))
