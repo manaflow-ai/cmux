@@ -241,7 +241,10 @@ final class AgentJournalLifecycleCenter: Sendable {
     ///
     /// Runs on the socket worker thread; the reply IS the emitting hook's
     /// durable acknowledgement, so the SQLite commit happens inline here.
-    func handleAppendCommand(_ args: String) -> String {
+    func handleAppendCommand(
+        _ args: String,
+        goalTargetValidator: (@Sendable (AgentJournalEventDraft) -> Bool)? = nil
+    ) -> String {
         guard let store = lazyStore?.store(), let operations else {
             return "ERROR: agent journal unavailable"
         }
@@ -259,6 +262,11 @@ final class AgentJournalLifecycleCenter: Sendable {
             cmuxDebugLog("agentJournal.append.invalid \(String(describing: error))")
 #endif
             return "ERROR: invalid agent journal event"
+        }
+        if draft.kind == .goalStateChanged,
+           let goalTargetValidator,
+           !goalTargetValidator(draft) {
+            return "ERROR: goal target is no longer bound"
         }
         do {
             let outcome = try store.append(draft)
@@ -310,6 +318,8 @@ final class AgentJournalLifecycleCenter: Sendable {
             surfaceId: draft.surfaceId,
             payload: [
                 "event_id": draft.eventId,
+                "provider": draft.source,
+                "agent_key": draft.agentKey,
                 "session_id": draft.sessionId ?? "",
                 "goal_lifecycle": goal.state.rawValue,
                 "goal_generation": goal.generation,

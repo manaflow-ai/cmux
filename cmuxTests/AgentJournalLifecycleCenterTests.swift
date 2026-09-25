@@ -64,6 +64,36 @@ struct AgentJournalLifecycleCenterTests {
         #expect(center.handleAppendCommand(json).hasPrefix("ERROR:"))
     }
 
+    @Test func goalTargetValidatorRunsBeforeDurableCommit() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-journal-goal-binding-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let center = AgentJournalLifecycleCenter(databaseURL: url)
+        let goal = AgentGoalLifecycle(
+            state: .complete,
+            generation: "generation-1",
+            updatedAtMs: 1,
+            provenance: "provider_hook"
+        )
+        let draft = AgentJournalEventDraft(
+            eventId: "goal-binding-1",
+            kind: .goalStateChanged,
+            occurredAtMs: 1,
+            source: "codex",
+            agentKey: "codex",
+            sessionId: "session-1",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            goalLifecycle: goal
+        )
+        let json = try #require(String(data: JSONEncoder().encode(draft), encoding: .utf8))
+        #expect(center.handleAppendCommand(json, goalTargetValidator: { _ in false }) == "ERROR: goal target is no longer bound")
+        let store = try AgentJournalStore(databaseURL: url)
+        #expect(try store.headSequence() == 0)
+        #expect(try store.goalLifecycle(source: "codex", sessionId: "session-1") == nil)
+        store.close()
+    }
+
     @Test func unavailableJournalReportsError() {
         let center = AgentJournalLifecycleCenter(databaseURL: nil)
         #expect(!center.isAvailable)

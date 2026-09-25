@@ -2,6 +2,91 @@ import CmuxAgentJournal
 import Foundation
 
 extension CMUXCLI {
+    /// Converts one structured Codex goal receipt into the journal contract.
+    /// The app-server payload has changed shape across Codex releases, so this
+    /// only trusts values found on goal/limit paths (or a goal notification
+    /// envelope) and fails closed when no authoritative status is present.
+    func codexGoalLifecycle(
+        from input: ClaudeHookParsedInput,
+        sessionID: String,
+        updatedAtMs: Int64
+    ) -> AgentGoalLifecycle? {
+        guard let object = input.rawObject ?? input.object,
+              !sessionID.isEmpty else { return nil }
+
+        func normalized(_ value: String) -> String {
+            value.filter { $0.isLetter || $0.isNumber }.lowercased()
+        }
+
+        func containsGoalSignal(_ value: Any) -> Bool {
+            if let dictionary = value as? [String: Any] {
+                return dictionary.contains { key, nested in
+                    let keyValue = normalized(key)
+                    return keyValue.contains("goal")
+                        || keyValue.contains("usagelimit")
+                        || keyValue.contains("budgetlimit")
+                        || containsGoalSignal(nested)
+                }
+            }
+            if let array = value as? [Any] {
+                return array.contains(where: containsGoalSignal)
+            }
+            return false
+        }
+
+        func strings(in value: Any) -> [String] {
+            if let string = value as? String { return [string] }
+            if let dictionary = value as? [String: Any] {
+                return dictionary.flatMap { key, nested in [key] + strings(in: nested) }
+            }
+            if let array = value as? [Any] {
+                return array.flatMap(strings)
+            }
+            return []
+        }
+
+        let hasGoalEnvelope = containsGoalSignal(object)
+        guard hasGoalEnvelope else { return nil }
+        let adapter = CodexGoalLifecycleAdapter()
+        let status = strings(in: object).reversed().first { value in
+            adapter.state(for: value) != .unknown
+        }
+        let state: AgentGoalLifecycleState
+        if let status {
+            state = adapter.state(for: status)
+        } else if strings(in: object).contains(where: { normalized($0).contains("usagelimited") || normalized($0).contains("budgetlimited") }) {
+            state = .blocked
+        } else {
+            return nil
+        }
+
+        func firstValue(in value: Any, matching predicate: (String) -> Bool) -> String? {
+            if let dictionary = value as? [String: Any] {
+                for (key, nested) in dictionary {
+                    if predicate(normalized(key)), let string = nested as? String, !string.isEmpty {
+                        return string
+                    }
+                    if let found = firstValue(in: nested, matching: predicate) { return found }
+                }
+            } else if let array = value as? [Any] {
+                for nested in array {
+                    if let found = firstValue(in: nested, matching: predicate) { return found }
+                }
+            }
+            return nil
+        }
+
+        let generation = firstValue(in: object) { key in
+            key.contains("generation") || key == "goalid" || key == "objectiveid"
+        } ?? "codex-session-\(sessionID)"
+        return AgentGoalLifecycle(
+            state: state,
+            generation: generation,
+            updatedAtMs: updatedAtMs,
+            provenance: "provider_hook"
+        )
+    }
+
     /// Emits one semantic agent event into the app's append-only agent
     /// journal and blocks until the app acknowledges the durable commit.
     ///
@@ -29,6 +114,7 @@ extension CMUXCLI {
         declaredPhase: AgentLifecyclePhase? = nil,
         detail: String? = nil,
         attention: AgentAttentionContext? = nil,
+        goalLifecycle: AgentGoalLifecycle? = nil,
         occurredAtMs: Int64? = nil,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
@@ -63,7 +149,8 @@ extension CMUXCLI {
             nativeEvent: nativeEvent,
             declaredPhase: declaredPhase,
             detail: detail,
-            attention: attention
+            attention: attention,
+            goalLifecycle: goalLifecycle
         )
         if let problem = draft.validationProblem() {
             recordAgentJournalDeliveryFailure(

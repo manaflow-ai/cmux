@@ -26,7 +26,9 @@ extension CMUXCLI {
         commandArgs rawArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        socketPath: String? = nil,
+        explicitPassword: String? = nil
     ) throws {
         var args = rawArgs
         let subcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -137,7 +139,12 @@ extension CMUXCLI {
         var stores: [[String: Any]] = []
 
         let decoder = JSONDecoder()
-        var goalClient = sessionsListGoalClient(processEnv: processEnv)
+        var goalClient = sessionsListGoalClient(
+            processEnv: processEnv,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        )
+        defer { goalClient?.close() }
         var goalJournalUnavailable = goalClient == nil
         for spec in selectedSpecs {
             let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
@@ -212,7 +219,10 @@ extension CMUXCLI {
                     goalCapability = "supported"
                 case .absent:
                     goalLifecycle = nil
-                    goalCapability = "unmanaged"
+                    // Codex can expose an objective receipt, but a given
+                    // session may not have emitted one yet. Preserve that
+                    // distinction from providers with no objective contract.
+                    goalCapability = spec.name == "codex" ? "unknown" : "unmanaged"
                 case .unavailable:
                     goalLifecycle = nil
                     goalCapability = "unknown"
@@ -538,15 +548,27 @@ extension CMUXCLI {
         return normalized
     }
 
-    private func sessionsListGoalClient(processEnv: [String: String]) -> SocketClient? {
-        let path = sessionsListNormalized(processEnv["CMUX_SOCKET_PATH"])
+    private func sessionsListGoalClient(
+        processEnv: [String: String],
+        socketPath explicitSocketPath: String?,
+        explicitPassword: String?
+    ) -> SocketClient? {
+        let path = sessionsListNormalized(explicitSocketPath)
+            ?? sessionsListNormalized(processEnv["CMUX_SOCKET_PATH"])
             ?? sessionsListNormalized(processEnv["CMUX_SOCKET"])
             ?? CLISocketPathResolver.defaultSocketPath(
                 bundleIdentifier: sessionsListNormalized(processEnv["CMUX_BUNDLE_ID"]),
                 environment: processEnv
             )
         guard FileManager.default.fileExists(atPath: path) else { return nil }
-        return SocketClient(path: path)
+        let client = SocketClient(path: path)
+        client.configureAuthentication(
+            password: SocketPasswordResolver.resolve(
+                explicit: explicitPassword,
+                socketPath: path
+            )
+        )
+        return client
     }
 
     private func sessionsListGoalLookup(
