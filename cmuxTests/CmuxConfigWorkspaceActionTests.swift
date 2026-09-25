@@ -94,7 +94,7 @@ struct CmuxConfigWorkspaceActionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let marker = requestedDirectory.appendingPathComponent("result")
-        let physicalRequestedDirectory = requestedDirectory.resolvingSymlinksInPath().path
+        let physicalRequestedDirectory = canonicalPath(requestedDirectory.path)
         let config = try decode("""
         {
           "actions": {
@@ -134,14 +134,26 @@ struct CmuxConfigWorkspaceActionTests {
 
         let markerDeadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < markerDeadline {
-            if (try? String(contentsOf: marker, encoding: .utf8)) == physicalRequestedDirectory { break }
+            if let contents = try? String(contentsOf: marker, encoding: .utf8),
+               canonicalPath(contents) == physicalRequestedDirectory {
+                break
+            }
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(try String(contentsOf: marker, encoding: .utf8) == physicalRequestedDirectory)
+        let actualDirectory = try String(contentsOf: marker, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(canonicalPath(actualDirectory) == physicalRequestedDirectory)
     }
 
     private func decode(_ json: String) throws -> CmuxConfigFile {
         try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
+    }
+
+    private func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path.trimmingCharacters(in: .whitespacesAndNewlines))
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
     }
 
     private func workspaceAction(
