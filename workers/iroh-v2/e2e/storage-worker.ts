@@ -56,6 +56,7 @@ export class StorageTestDO {
       if (path === "/socket/output") { this.sockets.setOutput(body.userId, body.sessionId, body.revision, body.bytes, body.messages); return Response.json({ ok: true }); }
       if (path === "/socket/release") { this.sockets.releaseSocket(body.userId, body.sessionId); return Response.json({ ok: true }); }
       if (path === "/socket/list") return Response.json(this.sockets.listSocketReservations(body.userId));
+      if (path === "/schema") return Response.json(Array.from(this.team.storage.sql.exec("SELECT version FROM schema_history ORDER BY version")));
       if (path === "/revision") return Response.json({ revision: this.team.readRevision() });
       if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
       if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));

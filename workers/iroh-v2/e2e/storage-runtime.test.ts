@@ -220,3 +220,10 @@ test("socket reservations survive a second workerd restart", async () => {
   stub = namespace.getByName("team-e2e");
   expect((await post("/socket/list", { userId: "socket-capacity" })).body.length).toBe(501);
 });
+
+
+test("ordinary activation retains schema 6 so the deployed reader can reopen it", async () => {
+  const result = await post("/schema", {});
+  expect(result.status).toBe(200);
+  expect(result.body.map((row: any) => row.version)).toEqual([1, 2, 3, 4, 5, 6]);
+});

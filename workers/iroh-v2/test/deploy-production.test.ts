@@ -73,6 +73,7 @@ for flag, expected in [('--connect-timeout', '10'), ('--max-time', '30'), ('--ma
         if args[args.index(flag) + 1] != expected: sys.exit(28)
     except (ValueError, IndexError):
         sys.exit(28)
+if os.environ['PROBE_SCENARIO'] == 'canonical-target' and args[-1] != 'https://cmux-v2.debussy.workers.dev/v2/control/session': sys.exit(97)
 payload_path = args[args.index('--data-binary') + 1][1:]
 payload = json.loads(pathlib.Path(payload_path).read_text())
 name = pathlib.Path(args[args.index('-o') + 1]).name.split('.')[0]
@@ -198,4 +199,12 @@ test("missing curl is rejected before running checks or deployment", async () =>
   expect(result.exit).toBe(2);
   expect(result.output).toContain("required command not found: curl");
   expect(result.calls).toBe("");
+});
+
+
+test("deployment scope checks reach the canonical Worker, never its forwarding alias", async () => {
+  const result = await probe("canonical-target");
+  expect(result.exit).toBe(0);
+  expect(result.calls).toContain("--name cmux-v2");
+  expect(result.calls).not.toContain("--name cmux-iroh-v2");
 });
