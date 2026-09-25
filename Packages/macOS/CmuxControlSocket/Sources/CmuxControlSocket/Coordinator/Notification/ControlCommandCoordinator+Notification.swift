@@ -42,6 +42,9 @@ extension ControlCommandCoordinator {
 
     /// `notification.create` — deliver to the resolved/focused surface.
     func notificationCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let desktop = desktopEffect(params) else {
+            return invalidDesktopEffect
+        }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
@@ -51,7 +54,8 @@ extension ControlCommandCoordinator {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShapeWire: rawString(params, "reply_shape")
+            replyShapeWire: rawString(params, "reply_shape"),
+            desktop: desktop
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -81,6 +85,9 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        guard let desktop = desktopEffect(params) else {
+            return invalidDesktopEffect
+        }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
@@ -90,7 +97,8 @@ extension ControlCommandCoordinator {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShapeWire: rawString(params, "reply_shape")
+            replyShapeWire: rawString(params, "reply_shape"),
+            desktop: desktop
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
     }
@@ -104,6 +112,9 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        guard let desktop = desktopEffect(params) else {
+            return invalidDesktopEffect
+        }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
@@ -114,9 +125,23 @@ extension ControlCommandCoordinator {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShapeWire: rawString(params, "reply_shape")
+            replyShapeWire: rawString(params, "reply_shape"),
+            desktop: desktop
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
+    }
+
+    /// The `desktop` effect a create request asks for: `.some(nil)` when the key
+    /// is absent (policy default), `.some(value)` for a recognizable bool, and
+    /// `nil` when the key is present but not a bool, which the caller rejects.
+    private func desktopEffect(_ params: [String: JSONValue]) -> Bool?? {
+        guard params["desktop"] != nil else { return .some(nil) }
+        guard let value = bool(params, "desktop") else { return nil }
+        return .some(value)
+    }
+
+    private var invalidDesktopEffect: ControlCallResult {
+        .err(code: "invalid_params", message: "Missing or invalid desktop", data: nil)
     }
 
     /// The shared result shaping for `create_for_surface` / `create_for_target`.

@@ -262,6 +262,10 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let agent: TerminalNotificationPolicyAgentContext?
     let soundContext: NotificationSoundOverrideContext?
     let origin: TerminalNotificationOrigin
+    /// The caller's `desktop` effect (`cmux notify --desktop false`). `nil` keeps
+    /// the policy default. Hooks receive it as the envelope's starting value and
+    /// may still override it.
+    let desktop: Bool?
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -277,7 +281,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         isFocusedPanel: Bool,
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
-        origin: TerminalNotificationOrigin = .local
+        origin: TerminalNotificationOrigin = .local,
+        desktop: Bool? = nil
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
@@ -294,6 +299,17 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.agent = agent
         self.soundContext = soundContext
         self.origin = origin
+        self.desktop = desktop
+    }
+
+    /// The effects a delivery starts from before any hook runs: the defaults with
+    /// the caller's `desktop` request applied.
+    var baseEffects: TerminalNotificationPolicyEffects {
+        var effects = TerminalNotificationPolicyEffects()
+        if let desktop {
+            effects.desktop = desktop
+        }
+        return effects
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
@@ -331,7 +347,8 @@ enum TerminalNotificationPolicyEngine {
                 soundContext: request.soundContext
             ),
             agent: request.agent,
-            origin: request.origin.isRemote ? TerminalNotificationPolicyOriginContext(request.origin) : nil
+            origin: request.origin.isRemote ? TerminalNotificationPolicyOriginContext(request.origin) : nil,
+            effects: request.baseEffects
         )
 
         return await evaluate(envelope: initialEnvelope, hooks: hooks)

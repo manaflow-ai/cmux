@@ -12,6 +12,9 @@ private final class NotificationControlCommandContext: ControlCommandContext {
     private(set) var clearSurfaceID: UUID?
     private(set) var clearCallerWorkspaceID: UUID?
     private(set) var clearCallerSurfaceID: UUID?
+    /// The `desktop` value each create verb handed over, recorded as a nested
+    /// optional so an absent key and an explicit value stay distinguishable.
+    private(set) var createDesktopEffects: [Bool?] = []
 
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
@@ -19,8 +22,10 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        desktop: Bool?
     ) -> ControlNotificationCreateResolution {
+        createDesktopEffects.append(desktop)
         .delivered(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
@@ -34,8 +39,10 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        desktop: Bool?
     ) -> ControlNotificationTargetedDeliveryResolution {
+        createDesktopEffects.append(desktop)
         .delivered(
             workspaceID: workspaceID,
             surfaceID: self.surfaceID,
@@ -51,8 +58,10 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        desktop: Bool?
     ) -> ControlNotificationTargetedDeliveryResolution {
+        createDesktopEffects.append(desktop)
         .delivered(
             workspaceID: self.workspaceID,
             surfaceID: self.surfaceID,
@@ -154,6 +163,40 @@ struct ControlCommandCoordinatorNotificationTests {
             return
         }
         #expect(payload["id"] == .string(context.notificationID.uuidString))
+    }
+
+    @Test func createForwardsTheDesktopEffectToTheContext() throws {
+        let context = NotificationControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = try #require(coordinator.handle(request("notification.create")))
+        _ = try #require(coordinator.handle(request("notification.create", ["desktop": .bool(false)])))
+        _ = try #require(coordinator.handle(request("notification.create", ["desktop": .string("true")])))
+        _ = try #require(coordinator.handle(request("notification.create_for_target", [
+            "workspace_id": .string(context.workspaceID.uuidString),
+            "surface_id": .string(context.surfaceID.uuidString),
+            "desktop": .string("false"),
+        ])))
+        _ = try #require(coordinator.handle(request("notification.create_for_surface", [
+            "surface_id": .string(context.surfaceID.uuidString),
+            "desktop": .bool(false),
+        ])))
+
+        #expect(context.createDesktopEffects == [nil, false, true, false, false])
+    }
+
+    @Test func createRejectsAnUnrecognizableDesktopEffect() throws {
+        let context = NotificationControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = try #require(coordinator.handle(request("notification.create", ["desktop": .string("maybe")])))
+
+        guard case let .err(code, message, _) = result else {
+            Issue.record("desktop=maybe was accepted: \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message == "Missing or invalid desktop")
+        #expect(context.createDesktopEffects.isEmpty)
     }
 
     @Test func clearAcceptsWorkspaceAndSurfaceSelectors() throws {

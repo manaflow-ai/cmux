@@ -272,6 +272,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 const BOOLEAN_FLAGS: &[&str] = &[
     "clear",
     "reply",
+    "no-desktop",
     "empty",
     "left",
     "right",
@@ -1395,8 +1396,9 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// session or `--workspace` asks for a session-level row; a machine cannot
 /// address anything outside its own session. `--reply` is refused: the reply
 /// channel would type into a terminal, and that channel does not cross the
-/// machine boundary. `--window` and `--id-format` are accepted for
-/// signature parity and have no meaning on a machine.
+/// machine boundary. `--window`, `--id-format`, `--desktop`, and `--no-desktop`
+/// are accepted for signature parity and have no meaning on a machine: the Mac
+/// decides how a machine's row is delivered.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
         return usage("notify takes flags only");
@@ -1409,6 +1411,8 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     }
     let _ = flags.take("window");
     let _ = flags.take("id-format");
+    let _ = flags.take("desktop");
+    let _ = flags.boolean("no-desktop");
     let workspace = flags.take("workspace");
     if let Some(workspace) = &workspace
         && workspace != "current"
@@ -3461,6 +3465,17 @@ mod tests {
             parse(&strings(&["notify", "--reply", "--title", "x"])).is_err(),
             "no reply channel across the link"
         );
+        // The Mac owns delivery for a machine's rows, so the local banner
+        // switch parses for parity and adds nothing to the request.
+        for parity in [
+            &["notify", "--workspace", "current", "--desktop", "false"][..],
+            &["notify", "--workspace", "current", "--desktop=true"][..],
+            &["notify", "--workspace", "current", "--no-desktop"][..],
+        ] {
+            let plan = protocol(parity);
+            assert_eq!(plan.operation.name().unwrap(), "notification.create");
+            assert!(plan.params.get("desktop").is_none(), "{parity:?}");
+        }
         if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
             assert!(
                 parse(&strings(&["notify", "--clear"])).is_err(),

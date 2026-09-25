@@ -29,6 +29,8 @@ public protocol ControlNotificationContext: AnyObject {
     ///   - title: The notification title.
     ///   - subtitle: The notification subtitle.
     ///   - body: The notification body.
+    ///   - desktop: The caller's `desktop` effect request, or `nil` for the
+    ///     policy default. Hooks still run and may override it.
     /// - Returns: The delivery resolution.
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
@@ -36,7 +38,8 @@ public protocol ControlNotificationContext: AnyObject {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        desktop: Bool?
     ) -> ControlNotificationCreateResolution
 
     /// Delivers a notification for `notification.create_for_surface`: resolves
@@ -58,7 +61,8 @@ public protocol ControlNotificationContext: AnyObject {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        desktop: Bool?
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Delivers a notification for `notification.create_for_target`: resolves
@@ -83,7 +87,8 @@ public protocol ControlNotificationContext: AnyObject {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        desktop: Bool?
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Snapshots every notification for `notification.list`, in store order,

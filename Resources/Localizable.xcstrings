@@ -13213,121 +13213,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux notify [flags]\n\nSend or clear notifications.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Usage: cmux notify [flags]\n\nSend or clear notifications.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux notify [flags]\n\nワークスペース／サーフェスに通知を送り、--clear で対象を消去します。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "使い方: cmux notify [flags]\n\nワークスペース／サーフェスに通知を送り、--clear で対象を消去します。\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا أو امسح الهدف باستخدام --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا أو امسح الهدف باستخدام --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest ili obrišite cilj pomoću --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest ili obrišite cilj pomoću --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug: cmux notify [flags]\n\nSend en meddelelse eller ryd målet med --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Brug: cmux notify [flags]\n\nSend en meddelelse eller ryd målet med --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux notify [flags]\n\nBenachrichtigung senden oder das Ziel mit --clear leeren.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Verwendung: cmux notify [flags]\n\nBenachrichtigung senden oder das Ziel mit --clear leeren.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nEnvía una notificación o limpia el destino con --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Uso: cmux notify [flags]\n\nEnvía una notificación o limpia el destino con --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux notify [flags]\n\nEnvoyer une notification ou effacer la cible avec --clear.\n\nFlags : --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Utilisation : cmux notify [flags]\n\nEnvoyer une notification ou effacer la cible avec --clear.\n\nFlags : --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nInvia una notifica o cancella la destinazione con --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Uso: cmux notify [flags]\n\nInvia una notifica o cancella la destinazione con --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការប្រើប្រាស់: cmux notify [flags]\n\nផ្ញើការជូនដំណឹង ឬសម្អាតគោលដៅដោយ --clear។\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "ការប្រើប្រាស់: cmux notify [flags]\n\nផ្ញើការជូនដំណឹង ឬសម្អាតគោលដៅដោយ --clear។\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux notify [flags]\n\n알림을 보내거나 --clear로 대상을 지웁니다.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "사용법: cmux notify [flags]\n\n알림을 보내거나 --clear로 대상을 지웁니다.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruk: cmux notify [flags]\n\nSend et varsel eller tøm målet med --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Bruk: cmux notify [flags]\n\nSend et varsel eller tøm målet med --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie albo wyczyść cel za pomocą --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie albo wyczyść cel za pomocą --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação ou limpe o destino com --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação ou limpe o destino com --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление или очистите цель с помощью --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление или очистите цель с помощью --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "วิธีใช้: cmux notify [flags]\n\nส่งการแจ้งเตือนหรือล้างเป้าหมายด้วย --clear\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "วิธีใช้: cmux notify [flags]\n\nส่งการแจ้งเตือนหรือล้างเป้าหมายด้วย --clear\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kullanım: cmux notify [flags]\n\nBildirim gönderin veya --clear ile hedefi temizleyin.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Kullanım: cmux notify [flags]\n\nBildirim gönderin veya --clear ile hedefi temizleyin.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення або очистьте ціль за допомогою --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення або очистьте ціль за допомогою --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux notify [flags]\n\n发送通知，或使用 --clear 清除目标。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "用法：cmux notify [flags]\n\n发送通知，或使用 --clear 清除目标。\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux notify [flags]\n\n傳送通知，或使用 --clear 清除目標。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "用法：cmux notify [flags]\n\n傳送通知，或使用 --clear 清除目標。\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         }
       }
@@ -77366,6 +77366,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "dismiss-notification에는 --id 또는 --all-read 중 정확히 하나가 필요합니다."
+          }
+        }
+      }
+    },
+    "cli.error.notifyDesktopValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop takes true or false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop には true か false を指定してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop 只接受 true 或 false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop erwartet true oder false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop accepte true ou false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقبل notify --desktop القيمة true أو false فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop acepta true o false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop 只接受 true 或 false"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify --desktop에는 true 또는 false를 지정해야 합니다."
+          }
+        }
+      }
+    },
+    "cli.error.notifyDesktopConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify: --desktop and --no-desktop disagree; pass one of them"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify: --desktop と --no-desktop の指定が矛盾しています。どちらか一方だけを指定してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify：--desktop 与 --no-desktop 相互矛盾；请只使用其中一个"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify: --desktop und --no-desktop widersprechen sich; geben Sie nur eines davon an"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify : --desktop et --no-desktop se contredisent ; n'indiquez que l'un des deux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify: يتعارض --desktop مع --no-desktop؛ استخدم أحدهما فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify: --desktop y --no-desktop se contradicen; indica solo uno de ellos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify：--desktop 與 --no-desktop 互相矛盾；請只使用其中一個"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notify: --desktop과 --no-desktop이 서로 충돌합니다. 둘 중 하나만 지정하세요."
           }
         }
       }

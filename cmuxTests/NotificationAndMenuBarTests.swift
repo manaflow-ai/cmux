@@ -153,6 +153,62 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertEqual(envelope.notification.body, "Filtered")
     }
 
+    func testRequestedDesktopEffectSeedsTheHookEnvelope() async throws {
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Title",
+            subtitle: "Subtitle",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            desktop: false
+        )
+        let passthrough = CmuxResolvedNotificationHook(
+            id: "passthrough",
+            command: "cat",
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let seeded = try await evaluate(request: request, hooks: [passthrough]).get()
+        XCTAssertFalse(seeded.effects.desktop, "the caller's --desktop false must be what the hook receives")
+        XCTAssertTrue(seeded.effects.record)
+        XCTAssertTrue(seeded.effects.sound, "only the desktop effect is requested by the flag")
+
+        let restore = CmuxResolvedNotificationHook(
+            id: "restore",
+            command: #"sed 's/"desktop":false/"desktop":true/'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let overridden = try await evaluate(request: request, hooks: [restore]).get()
+        XCTAssertTrue(overridden.effects.desktop, "a hook keeps the last word over the flag")
+    }
+
+    func testNoHooksKeepTheRequestedDesktopEffect() async throws {
+        func request(desktop: Bool?) -> TerminalNotificationPolicyRequest {
+            TerminalNotificationPolicyRequest(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Title",
+                subtitle: "",
+                body: "",
+                cwd: nil,
+                isAppFocused: false,
+                isFocusedPanel: false,
+                desktop: desktop
+            )
+        }
+        XCTAssertFalse(try await evaluate(request: request(desktop: false), hooks: []).get().effects.desktop)
+        XCTAssertTrue(try await evaluate(request: request(desktop: true), hooks: []).get().effects.desktop)
+        XCTAssertTrue(try await evaluate(request: request(desktop: nil), hooks: []).get().effects.desktop)
+        XCTAssertEqual(request(desktop: nil).baseEffects, TerminalNotificationPolicyEffects())
+    }
+
     func testHookCanFilterExistingPolicyEnvelope() async throws {
         var effects = TerminalNotificationPolicyEffects()
         effects.record = false
@@ -1505,6 +1561,57 @@ final class NotificationDockBadgeTests: XCTestCase {
                 return
             }
         }
+    }
+
+    func testNotifyDesktopFalseRecordsThePanelEntryWithoutABanner() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("AppDelegate.shared must be set for this test")
+            return
+        }
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        var deliveredEffects: [TerminalNotificationPolicyEffects] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { (_: TerminalNotificationStore, _: TerminalNotification, effects: TerminalNotificationPolicyEffects) in
+            deliveredEffects.append(effects)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace to address the notification to")
+            return
+        }
+
+        let notificationID = store.addNotification(
+            tabId: workspace.id,
+            surfaceId: nil,
+            title: "Panel only",
+            subtitle: "",
+            body: "The caller showed its own banner",
+            desktop: false
+        )
+
+        let recorded = try XCTUnwrap(store.notifications.first, "desktop: false must still record the panel entry")
+        XCTAssertEqual(recorded.id, notificationID)
+        XCTAssertFalse(recorded.isRead, "the entry still counts as unread for the badge and ring")
+        XCTAssertEqual(deliveredEffects.count, 1)
+        XCTAssertEqual(deliveredEffects.first?.desktop, false)
+        XCTAssertEqual(deliveredEffects.first?.record, true)
+        XCTAssertEqual(deliveredEffects.first?.markUnread, true)
     }
 
     func testFocusedTerminalNotificationStillRunsLocalSoundFeedbackWhenExternalDeliveryIsSuppressed() throws {

@@ -1114,7 +1114,8 @@ final class TerminalNotificationStore: ObservableObject {
         notificationID: UUID? = nil,
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
-        origin: TerminalNotificationOrigin = .local
+        origin: TerminalNotificationOrigin = .local,
+        desktop: Bool? = nil
     ) -> UUID? {
 #if DEBUG
         cmuxDebugLog(
@@ -1183,7 +1184,8 @@ final class TerminalNotificationStore: ObservableObject {
             resolvedHooks: resolvedHooks,
             agent: agent,
             soundContext: soundContext,
-            origin: origin
+            origin: origin,
+            desktop: desktop
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             inFlightPolicyRequests.discardPending(
@@ -1191,7 +1193,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
             let didRecord = applyNotification(
                 request: policyContext.request,
-                effects: TerminalNotificationPolicyEffects(),
+                effects: policyContext.request.baseEffects,
                 now: now,
                 cooldownReservation: cooldownReservation,
                 scrollPosition: policyContext.scrollPosition,
@@ -1212,7 +1214,7 @@ final class TerminalNotificationStore: ObservableObject {
             completePolicyRequest(
                 policyRequestId,
                 request: policyContext.request,
-                effects: TerminalNotificationPolicyEffects(),
+                effects: policyContext.request.baseEffects,
                 cooldownReservation: cooldownReservation,
                 scrollPosition: policyContext.scrollPosition,
                 clickAction: clickAction,
@@ -1236,7 +1238,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self.completePolicyRequest(
                     policyRequestId,
                     request: policyContext.request,
-                    effects: TerminalNotificationPolicyEffects(),
+                    effects: policyContext.request.baseEffects,
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction,
@@ -1264,7 +1266,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self.completePolicyRequest(
                     policyRequestId,
                     request: policyContext.request,
-                    effects: TerminalNotificationPolicyEffects(),
+                    effects: policyContext.request.baseEffects,
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction,
@@ -1368,7 +1370,8 @@ final class TerminalNotificationStore: ObservableObject {
         resolvedHooks: [CmuxResolvedNotificationHook]?,
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
-        origin: TerminalNotificationOrigin = .local
+        origin: TerminalNotificationOrigin = .local,
+        desktop: Bool? = nil
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
@@ -1415,7 +1418,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isFocusedPanel: isFocusedPanel,
                 agent: agent,
                 soundContext: soundContext,
-                origin: origin
+                origin: origin,
+                desktop: desktop
             ),
             scrollPosition: scrollPosition,
             hooks: resolvedHooks ?? (origin.isRemote ? [] : cmuxConfigStore?.notificationHooks(
@@ -1462,7 +1466,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isFocusedPanel: request.isFocusedPanel,
                 agent: request.agent,
                 soundContext: envelope.context.soundContext,
-                origin: request.origin
+                origin: request.origin,
+                desktop: request.desktop
             ),
             effects: envelope.effects,
             now: now,
