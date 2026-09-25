@@ -26,7 +26,7 @@ extension CMUXCLI {
             }
             pending.append(chunk)
             while let newline = pending.firstIndex(of: 0x0A) {
-                let line = pending.prefix(upTo: newline)
+                let line = Data(pending.prefix(upTo: newline))
                 pending.removeSubrange(...newline)
                 if let text = String(data: line, encoding: .utf8),
                    engine.containsClaudeCustomTitle(inTranscriptLines: [text]) {
