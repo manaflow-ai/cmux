@@ -5,8 +5,9 @@ Status: proposal
 ## Problem
 
 cmux already has useful built-in actions, workspace commands, surface buttons,
-the Markdown viewer, and project-scoped notes. The local pack loader now lets a
-project or global `cmux.json` reuse those declarative entries. It does not yet
+and the Markdown viewer. A project-scoped note primitive is proposed in #4331,
+but is not part of the current main tree. The local pack loader now lets a
+project or global `cmux.json` reuse declarative entries. It does not yet
 define how a pack names itself, how an intent selects an implementation, how a
 user inspects or replaces cmux's defaults, or how an external implementation is
 trusted.
@@ -37,9 +38,9 @@ execution scheduler.
 
 ## Terms
 
-**Intent** is a public cmux operation such as `markdown.open`, `note.open`, or
-`diff.open`. cmux owns its validation, target selection, focus policy, lifecycle,
-and result shape.
+**Intent** is a public cmux operation such as `cmux.markdown.open`,
+`cmux.note.open`, or `cmux.diff.open`. cmux owns its validation, target
+selection, focus policy, lifecycle, and result shape.
 
 **Provider** is a named implementation of one provider kind. A provider may be
 built into cmux or run as a bounded filesystem, webview, or stdio adapter.
@@ -58,7 +59,7 @@ pack and is never written by a defaults command.
 
 ## Stable identifiers
 
-IDs are immutable API names. They are ASCII, lowercase, dot-separated, and
+New IDs are immutable API names. They are ASCII, lowercase, dot-separated, and
 limited to `[a-z0-9][a-z0-9-]*`; an optional `@major` suffix is used only for a
 provider protocol version. Display names, titles, file paths, and Git URLs are
 not identities.
@@ -74,10 +75,32 @@ The first-party namespace is reserved for cmux:
 | Route | `cmux.route.<intent>` | `cmux.route.markdown-open` |
 | Default entry | `cmux.default.<area>.<name>` | `cmux.default.surface-tab-bar` |
 
+Existing built-in action IDs are a compatibility exception: current canonical
+IDs such as `cmux.newTerminal`, `cmux.newBrowser`, and `cmux.splitRight` remain
+stable canonical IDs. New registry metadata records those IDs as legacy
+first-party IDs, and the proposed kebab-case `cmux.action.*` names are aliases
+only when a future migration explicitly declares them. A pack cannot rename a
+built-in action by supplying a second spelling. Diagnostics always show the
+existing canonical ID and any alias together.
+
 Third-party packs use a reverse-domain namespace they control, for example
 `com.example.review.diff` and `com.example.provider.diff-render`. A pack must
 not redefine another pack's ID by changing its display metadata; an override is
 explicitly recorded as an override of that stable ID.
+
+Provider kinds are also stable IDs, not free-form labels. Built-in kinds use
+the `cmux.provider.<domain>` form in the table (for example,
+`cmux.provider.diff-render`); a third-party kind uses its own reverse-domain
+namespace. The short names in prose such as “diff renderer” are display terms
+only. `doctor` rejects a provider whose kind is not registered or whose kind
+namespace is owned by another pack.
+
+Existing wire names are compatibility aliases. For example, the v2 socket
+method `markdown.open` and CLI verb `markdown open` map to the canonical intent
+`cmux.markdown.open`; the same mapping applies to any existing unprefixed
+intent. The coordinator accepts both spellings, but provenance and new pack
+routes use the canonical ID. Removing a wire alias requires a separately
+versioned API change.
 
 Built-in aliases keep existing config working. For example, `newTerminal` and
 `cmux.newTerminal` continue to resolve to the same action while diagnostics
@@ -102,14 +125,19 @@ current packs do not need a rewrite.
   "capabilities": ["readWorkspace", "gitDiff", "runCommand"],
   "providers": {
     "com.example.provider.diff": {
-      "kind": "diff.render",
+      "kind": "cmux.provider.diff-render",
       "driver": "stdio",
       "command": "review-diff-provider",
-      "protocol": "cmux.provider.diff@1"
+      "protocol": "cmux.provider.diff@1",
+      "capabilities": ["gitDiff", "runCommand"]
     }
   },
   "routes": {
-    "cmux.diff.open": "com.example.provider.diff"
+    "cmux.diff.open": {
+      "provider": "com.example.provider.diff",
+      "fallback": "cmux.provider.diff-render.builtin",
+      "allowFallback": true
+    }
   },
   "actions": {},
   "ui": {},
@@ -122,6 +150,36 @@ optional for an inline legacy pack. `requires.cmux` is checked before any entry
 is applied. Unknown keys are preserved for forward compatibility only when they
 are inside a provider's driver-specific `config` object; unknown top-level keys
 are diagnostics and do not activate the pack.
+
+The `$schema` URL in the example is reserved for the versioned schema that a
+future implementation must publish. It is not a live URL today. Until that
+schema is shipped, the bundled validator is authoritative and examples must be
+treated as a proposal rather than an installable manifest.
+
+The pack-level `capabilities` list is an upper bound for every provider and
+entry in that pack; it is not itself a grant. Each provider must declare its
+own least-privilege capability list, and its effective set is the intersection
+of the provider list, the pack ceiling, and the intent's allowed set. A provider
+with no declaration has no capabilities and cannot be activated. Actions that
+do not invoke a provider may declare their own capability requirements in their
+typed action definition.
+
+Routes use either the legacy string form (provider ID only) or this object
+form:
+
+```json
+{
+  "provider": "com.example.provider.diff",
+  "fallback": "cmux.provider.diff-render.builtin",
+  "allowFallback": true
+}
+```
+
+`provider` is required. `fallback` is optional and must name a built-in
+provider of the same kind. `allowFallback` defaults to `false`; it may be true
+only when the intent contract marks fallback as safe. Route scope comes from
+the declaring layer (global or project), and a project route always outranks a
+global route. Unknown route fields are diagnostics and disable that route.
 
 Pack references stay local in the first phase. A Git install materializes a
 checked-out directory and records its exact commit; `cmux.json` still points at
@@ -140,7 +198,7 @@ ProviderDescriptor {
   driver:         builtin | filesystem | webview | stdio
   protocol:       provider protocol id and major version
   source:         bundled | installed-pack | global-config | project-config
-  capabilities:   declared capability set
+  capabilities:   declared capability set (intersected with the pack ceiling)
   config:         driver-specific, non-executable metadata
 }
 
@@ -202,10 +260,14 @@ precedence:
 5. runtime/session state.
 
 Within one layer, later pack entries override earlier entries by stable ID.
-Direct entries in a config file override its referenced packs. A field overlay
-retains unspecified fields from the lower layer, as the existing action and
-command loader does today. Routes follow the same rule, but a route may point
-only to a provider that survived validation in the same or a lower layer.
+Direct entries in a config file override its referenced packs. Action metadata
+uses a field overlay and retains unspecified fields from the lower layer. UI
+defaults and routes use the same per-entry overlay rules when their typed
+models support it. Workspace command definitions currently use first-wins
+precedence by command name; the registry must preserve that behavior in the
+compatibility slice and may add explicit command overlays only in a versioned
+pack schema. A route may point only to a provider that survived validation in
+the same or a lower layer.
 
 The resolver emits provenance for every effective entry: canonical ID,
 declaration path, pack ID/version, fingerprint, and the fields that were
@@ -232,10 +294,13 @@ user's trust decision.
 | `writeGlobalConfig` | Modify global config or installed packs | always prompt |
 
 The trust key is the SHA-256 fingerprint of the canonical manifest bytes, the
-resolved pack root, and the installed Git commit. A path or display name alone
-is not a trust identity. Project-local packs never inherit global trust. A
-changed manifest, commit, provider command, or declared origin requires a new
-decision.
+complete content digest of every declared pack file, the resolved pack root,
+the installed Git commit when one exists, the project root (or global scope),
+and the capability/path/origin scope. A path or display name alone is not a
+trust identity. Project-local packs never inherit global trust, and a global
+pack gets a separate decision for each project root it accesses. A changed
+manifest, any declared pack file, commit, provider command, or declared origin
+requires a new decision.
 
 For a `stdio` provider, the grant is also bound to the executable that will
 actually run: its canonical path, file identity, SHA-256 of its bytes, and the
@@ -326,21 +391,26 @@ The first provider registry migration keeps existing behavior byte-for-byte:
 
 | Intent | Built-in provider | Safe fallback |
 | --- | --- | --- |
-| `cmux.note.open` | `cmux.provider.notes.filesystem` | none for writes; read-only list may use the built-in note store |
+| `cmux.note.open` (after #4331) | `cmux.provider.notes.filesystem` | none for writes; read-only list may use the built-in note store |
 | `cmux.markdown.open` | `cmux.provider.markdown-render.builtin` | bundled Markdown renderer |
 | `cmux.diff.open` | `cmux.provider.diff-render.builtin` | bundled diff viewer |
 
-The note store remains the authority for note identity, project-root
-resolution, attachments, and writes. A custom note provider can supply a read
-projection only until it implements the note protocol and passes the same
-write/restore tests. Markdown and diff providers receive a file or bounded
-content descriptor, not an arbitrary path from a webview. Existing CLI and
-socket verbs keep their result shapes; only their internal route changes.
+When the note primitive from #4331 is available, its note store remains the
+authority for note identity, project-root resolution, attachments, and writes.
+A custom note provider can supply a read projection only until it implements the
+note protocol and passes the same write/restore tests. Markdown and diff
+providers receive a file or bounded content descriptor, not an arbitrary path
+from a webview. Existing CLI and socket verbs keep their result shapes; only
+their internal route changes.
 
 ## Failure, diagnostics, and compatibility
 
-- Invalid packs are isolated. cmux keeps the last valid snapshot and reports
-  the invalid source; it does not partially apply a new route set.
+- Invalid packs are isolated. The current legacy `CmuxConfigStore` reports the
+  invalid source and removes that pack's entries on reload; the registry
+  migration must preserve that observable behavior for legacy actions and
+  commands. A future transactional registry snapshot may retain the last valid
+  provider routes, but only after it has an explicit compatibility test and a
+  diagnostic that distinguishes retained state from newly loaded state.
 - Missing providers produce `provider_unavailable` with the provider ID,
   intent, and recovery command. A route with no fallback never opens a
   different surface type.
@@ -369,7 +439,11 @@ provider command arguments, environment secrets, note bodies, or file contents.
 4. **Built-in routing**: route Markdown and the note primitive through the
    registry while keeping their CLI/socket contracts and restore behavior.
 5. **Filesystem and webview drivers**: add confined, capability-checked
-   drivers with fixture providers and cancellation tests.
+   drivers with fixture providers and cancellation tests. Filesystem access
+   must resolve every path beneath the declared root without following a
+   symlink out of it, open files with no-follow semantics where available, and
+   revalidate the root and file identity at use time so a rename or symlink swap
+   cannot escape the grant.
 6. **Git distribution**: add install/update/remove and lock integrity checks;
    network access is explicit and never part of config reload.
 7. **Stdio driver and trust UI**: add the handshake, process limits, prompts,
