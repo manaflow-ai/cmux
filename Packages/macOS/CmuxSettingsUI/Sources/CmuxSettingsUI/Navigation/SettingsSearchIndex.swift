@@ -115,7 +115,9 @@ public struct SettingsSearchIndex: Sendable {
         let matcher = SettingsSearchMatcher()
         var built: [Entry] = []
 
-        for section in SettingsSectionID.visibleCases {
+        // Keep declaration order for search ranking, including legacy aliases.
+        // Empty-query browsing filters aliases out in match(_:).
+        for section in SettingsSectionID.allCases {
             built.append(Entry(
                 id: "section:\(section.rawValue)",
                 kind: .section,
@@ -124,25 +126,9 @@ public struct SettingsSearchIndex: Sendable {
                 normalizedSearchText: matcher.normalize(
                     "\(section.rawValue) \(section.title) \(section.searchKeywords) \(matcher.humanizedIdentifier(section.rawValue))"
                 ),
-                anchorID: "section:\(section.rawValue)"
+                anchorID: section.canonicalNavigationAnchor(providedAnchor: nil)
             ))
         }
-
-        // Keep the former Computers search/deep-link identity as a
-        // compatibility result, while routing activation to the nested
-        // subsection inside Mobile. It is absent from the empty-query browse
-        // taxonomy, so it never becomes a second visible sidebar section.
-        let computersAlias = SettingsSectionID.computers
-        built.append(Entry(
-            id: "section:\(computersAlias.rawValue)",
-            kind: .section,
-            title: computersAlias.title,
-            symbolName: computersAlias.symbolName,
-            normalizedSearchText: matcher.normalize(
-                "\(computersAlias.rawValue) \(computersAlias.title) \(computersAlias.searchKeywords)"
-            ),
-            anchorID: SettingsSectionID.computersSubsectionAnchorID
-        ))
 
         var pathAnchors: [String: String] = [:]
 
