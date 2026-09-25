@@ -466,16 +466,25 @@ def main() -> int:
     }.items():
         if not acceptance_gate_problem(fixture, preparation_id):
             raise SystemExit(f"FAIL: acceptance gate guard must reject {rejected}")
-    acceptance_step = require_step(
-        "app-host-unit-tests", "Run Cloud machine ordering acceptance"
-    )
-    acceptance_problem = acceptance_gate_problem(
-        acceptance_step.get("if"), preparation_id
-    )
-    if acceptance_problem:
-        raise SystemExit(
-            f"FAIL: Cloud machine ordering acceptance {acceptance_problem}"
+    for acceptance_name in (
+        "Run Cloud machine ordering acceptance",
+        "Run agent notification semantics",
+    ):
+        acceptance_step = require_step("app-host-unit-tests", acceptance_name)
+        acceptance_problem = acceptance_gate_problem(
+            acceptance_step.get("if"), preparation_id
         )
+        if acceptance_problem:
+            raise SystemExit(f"FAIL: {acceptance_name} {acceptance_problem}")
+    # The notification gate resolves `bun`, so its setup must survive the
+    # same earlier failures the gate does.
+    bun_condition = require_step(
+        "app-host-unit-tests", "Set up Bun for Pi extension dispatch regression"
+    ).get("if")
+    if not isinstance(bun_condition, str) or not bun_condition.replace(
+        " ", ""
+    ).startswith("${{!cancelled()&&"):
+        raise SystemExit("FAIL: Bun setup must run after an earlier failure")
 
     # Once preparation starts, the console-user cleanup must still run even if
     # preparation fails or is cancelled, and its failures must remain visible.
