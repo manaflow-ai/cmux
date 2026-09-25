@@ -28,9 +28,10 @@ When we change the fork, update this document and the parent submodule SHA.
 - Verification: the fork regression requires a SIGHUP-ignoring leader to reap
   in under 500 ms with a one-second SIGHUP grace. The test is skipped on
   non-Darwin targets because the process-disposition query is macOS-specific;
-  hosted macOS Ghostty tests provide the behavioral proof. The disposition
-  query zero-initializes and size-checks the Darwin process record before
-  reading its signal mask.
+  the hosted macOS GhosttyKit build validates the integration artifact, and
+  tagged cmux dogfood covers the app teardown path. The disposition query
+  zero-initializes and size-checks the Darwin process record before reading its
+  signal mask.
 - Artifact:
   https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01e7c93ca9e4f5e13d82babebca183a94f6704d8-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 - SHA-256 `b6c8b8661f2098d9d8120523dded69f9f2347a988822cccb4711da1624f1121a`
