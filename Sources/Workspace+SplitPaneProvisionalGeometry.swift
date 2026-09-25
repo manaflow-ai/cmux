@@ -123,49 +123,32 @@ extension Workspace {
         newPaneIsFirst: Bool,
         newPane: PaneID
     ) {
-        var existingPaneIDStrings = Set<String>()
-        var pendingNodes = [existingTree]
-        while let node = pendingNodes.popLast() {
-            switch node {
-            case .pane(let pane):
-                existingPaneIDStrings.insert(pane.id)
-            case .split(let split):
-                pendingNodes.append(split.first)
-                pendingNodes.append(split.second)
-            }
+        let configuration = bonsplitController.configuration
+        let layout = bonsplitController.layoutSnapshot()
+        let localTreeFrame = NSRect(
+            x: 0, y: 0,
+            width: layout.containerFrame.width, height: layout.containerFrame.height
+        )
+        guard localTreeFrame.width > 0, localTreeFrame.height > 0 else { return }
+        var oldPaneFrames: [String: NSRect] = [:]
+        projectPaneContentFrames(in: existingTree, frame: localTreeFrame, into: &oldPaneFrames)
+        let existingPaneIds = bonsplitController.allPaneIds.filter { oldPaneFrames[$0.id.uuidString] != nil }
+        let terminalsByPane = existingPaneIds.map { paneId in
+            (paneId.id.uuidString, presentedTerminalHostedViews(forTabs: bonsplitController.tabs(inPane: paneId)))
         }
-        let existingPaneIds = bonsplitController.allPaneIds.filter {
-            existingPaneIDStrings.contains($0.id.uuidString)
-        }
-        let existingTerminals = existingPaneIds.flatMap { paneId in
-            presentedTerminalHostedViews(forTabs: bonsplitController.tabs(inPane: paneId))
-        }
-        let baseFrames = existingTerminals.compactMap { hostedView -> (GhosttySurfaceScrollView, NSRect)? in
-            let frame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(
-                for: hostedView, transactionID: transactionID
-            )
-                ?? Self.frameInWindow(of: hostedView)
-            return frame.map { (hostedView, $0) }
-        }
-        let treeFrame: NSRect = {
-            let layout = bonsplitController.layoutSnapshot()
-            let bounds = layout.panes.reduce(into: CGRect.null) { result, pane in
-                result = result.union(CGRect(
-                    x: pane.frame.x, y: pane.frame.y,
-                    width: pane.frame.width, height: pane.frame.height
-                ))
-            }
-            guard !bounds.isNull, layout.containerFrame.width > 0, layout.containerFrame.height > 0 else {
-                return baseFrames.map { $0.1 }.reduce(nil) { partial, frame in
-                    partial.map { $0.union(frame) } ?? frame
-                } ?? .zero
-            }
-            return NSRect(
-                x: CGFloat(layout.containerFrame.x), y: CGFloat(layout.containerFrame.y),
-                width: CGFloat(layout.containerFrame.width), height: CGFloat(layout.containerFrame.height)
-            )
-        }()
-        guard treeFrame.width > 0, treeFrame.height > 0 else { return }
+        // Bonsplit's container origin is in SwiftUI coordinates. Anchor its
+        // complete tree in bottom-left window coordinates using a presented
+        // terminal's known position within the old tree. Hidden/browser panes
+        // still contribute their full extent to the model projection.
+        let rootOrigin = terminalsByPane.lazy.compactMap { paneID, terminals -> NSPoint? in
+            guard let oldFrame = oldPaneFrames[paneID], let terminal = terminals.first,
+                  let frame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(
+                    for: terminal, transactionID: transactionID
+                  ) ?? Self.frameInWindow(of: terminal) else { return nil }
+            return NSPoint(x: frame.minX - oldFrame.minX, y: frame.minY - oldFrame.minY)
+        }.first
+        guard let rootOrigin else { return }
+        let treeFrame = NSRect(origin: rootOrigin, size: localTreeFrame.size)
 
         let newTabs = bonsplitController.tabs(inPane: newPane)
         let request = SplitPaneGeometryProjection.Request(
@@ -185,12 +168,15 @@ extension Workspace {
             chrome: SplitPaneGeometryProjection.Chrome(configuration: bonsplitController.configuration)
         ) else { return }
 
-        for (hostedView, frame) in baseFrames {
-            TerminalWindowPortalRegistry.applyProvisionalPaneFrame(
-                Self.map(frame, from: treeFrame, to: projection.sourceContentFrame),
-                for: hostedView,
-                transactionID: transactionID
-            )
+        var newPaneFrames: [String: NSRect] = [:]
+        projectPaneContentFrames(in: existingTree, frame: projection.sourceContentFrame, into: &newPaneFrames)
+        for (paneID, terminals) in terminalsByPane {
+            guard let frame = newPaneFrames[paneID] else { continue }
+            for hostedView in terminals {
+                TerminalWindowPortalRegistry.applyProvisionalPaneFrame(
+                    frame, for: hostedView, transactionID: transactionID
+                )
+            }
         }
         let newTerminals = presentedTerminalHostedViews(forTabs: newTabs)
         for hostedView in newTerminals {
@@ -206,7 +192,7 @@ extension Workspace {
             "new=\(newPane.id.uuidString.prefix(5)) orientation=\(split.orientation) " +
             "sourceIsFirst=\(request.sourceIsFirst ? 1 : 0) divider=\(String(format: "%.3f", split.dividerPosition)) " +
             "tree=\(portalDebugFrame(treeFrame)) source=\(portalDebugFrame(projection.sourceContentFrame)) " +
-            "newPane=\(portalDebugFrame(projection.newPaneContentFrame)) sourceViews=\(baseFrames.count) newViews=\(newTerminals.count)"
+            "newPane=\(portalDebugFrame(projection.newPaneContentFrame)) newViews=\(newTerminals.count)"
         )
 #endif
     }
@@ -250,15 +236,35 @@ extension Workspace {
         return view.convert(view.bounds, to: nil)
     }
 
-    private static func map(_ frame: NSRect, from source: NSRect, to target: NSRect) -> NSRect {
-        guard source.width > 0, source.height > 0 else { return target }
-        let scaleX = target.width / source.width
-        let scaleY = target.height / source.height
-        return NSRect(
-            x: target.minX + (frame.minX - source.minX) * scaleX,
-            y: target.minY + (frame.minY - source.minY) * scaleY,
-            width: frame.width * scaleX,
-            height: frame.height * scaleY
-        )
+    /// Lays out the entire subtree once, keeping tab bars and dividers at their fixed sizes.
+    private func projectPaneContentFrames(
+        in tree: ExternalTreeNode,
+        frame: NSRect,
+        into frames: inout [String: NSRect]
+    ) {
+        let configuration = bonsplitController.configuration
+        switch tree {
+        case .pane(let pane):
+            let tabBar = configuration.tabBarVisibility.showsTabBar(tabCount: pane.tabs.count)
+                ? configuration.appearance.tabBarHeight : 0
+            frames[pane.id] = NSRect(
+                x: frame.minX, y: frame.minY, width: frame.width,
+                height: max(0, frame.height - tabBar)
+            )
+        case .split(let split):
+            let request = SplitPaneGeometryProjection.Request(
+                orientation: split.orientation == SplitOrientation.horizontal.rawValue ? .horizontal : .vertical,
+                sourceIsFirst: true,
+                dividerPosition: CGFloat(split.dividerPosition),
+                imposedFirstExtent: split.imposedFirstExtent.map { CGFloat($0) },
+                sourceContentFrame: frame,
+                baseShowsTabBar: false, sourceShowsTabBar: false, newPaneShowsTabBar: false
+            )
+            guard let projection = SplitPaneGeometryProjection.project(
+                request, chrome: SplitPaneGeometryProjection.Chrome(configuration: configuration)
+            ) else { return }
+            projectPaneContentFrames(in: split.first, frame: projection.sourceContentFrame, into: &frames)
+            projectPaneContentFrames(in: split.second, frame: projection.newPaneContentFrame, into: &frames)
+        }
     }
 }
