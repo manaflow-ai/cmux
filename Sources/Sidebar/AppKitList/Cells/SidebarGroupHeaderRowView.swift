@@ -447,7 +447,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     static func preferredHeight(model: SidebarGroupHeaderRowModel, width: CGFloat = 400) -> CGFloat {
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let heights = Self.contentHeights(model: model, width: width)
-        let interlineSpacing = heights.description > 0 ? 2 : 0
+        let interlineSpacing: CGFloat = heights.description > 0 ? 2 : 0
         let content = max(
             metrics.chevronFrame,
             metrics.iconFrame,
