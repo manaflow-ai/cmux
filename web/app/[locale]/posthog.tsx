@@ -4,7 +4,7 @@ import { PostHogProvider as PHProvider } from "posthog-js/react";
 import type { CaptureResult } from "posthog-js";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef, Suspense } from "react";
-import { posthog } from "../lib/posthog-client";
+import { markAnalyticsCaptureBuffered, posthog } from "../lib/posthog-client";
 import {
   STACK_AUTH_CHANGED_EVENT,
   STACK_IDENTITY_STORAGE_KEY,
@@ -133,6 +133,7 @@ function PageviewTracker() {
       // after reset/identify prevents stale attribution without losing routine
       // focus and visibility captures.
       posthog.set_config({ before_send: bufferCapture });
+      markAnalyticsCaptureBuffered();
 
       try {
         const response = await fetch("/api/analytics/identity", {

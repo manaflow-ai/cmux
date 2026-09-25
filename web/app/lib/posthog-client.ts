@@ -20,4 +20,22 @@ if (typeof window !== "undefined") {
   });
 }
 
+let openAnalyticsGate: () => void = () => {};
+const analyticsGate = new Promise<void>((resolve) => {
+  openAnalyticsGate = resolve;
+});
+
+/**
+ * Resolves once the route tracker buffers captures instead of the initial
+ * `before_send` dropping them. Captures sent before this are discarded.
+ */
+export function whenAnalyticsCaptureBuffered(): Promise<void> {
+  return analyticsGate;
+}
+
+/** Called by the route tracker after it installs its capture buffer. */
+export function markAnalyticsCaptureBuffered() {
+  openAnalyticsGate();
+}
+
 export { posthog };

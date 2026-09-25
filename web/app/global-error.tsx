@@ -1,6 +1,6 @@
 "use client";
 
-import { RouteErrorView } from "./components/error-boundary";
+import { RouteErrorView, useErrorBoundaryLocale } from "./components/error-boundary";
 import "./globals.css";
 
 /**
@@ -9,8 +9,9 @@ import "./globals.css";
  * "Application error" screen.
  */
 export default function GlobalError({ error, reset, retry }: { error: Error; reset: () => void; retry?: () => void }) {
+  const locale = useErrorBoundaryLocale();
   return (
-    <html suppressHydrationWarning>
+    <html lang={locale} dir={locale === "ar" ? "rtl" : "ltr"} suppressHydrationWarning>
       <body className="bg-background font-sans text-foreground antialiased">
         <RouteErrorView boundary="global" error={error} retry={retry ?? reset} />
       </body>

@@ -41,5 +41,12 @@ describe("landing providers during a Hexclave outage", () => {
     expect(boundary.render()).toBe("widget");
     boundary.state = { ...boundary.state, ...IsolatedErrorBoundary.getDerivedStateFromError() };
     expect(boundary.render()).toBe("fallback");
+
+    // Re-rendering with the same element keeps the fallback; a new element
+    // from the parent retries the widget.
+    expect(IsolatedErrorBoundary.getDerivedStateFromProps(boundary.props, boundary.state)).toEqual({});
+    expect(
+      IsolatedErrorBoundary.getDerivedStateFromProps({ ...boundary.props, children: "widget again" }, boundary.state),
+    ).toEqual({ failed: false, children: "widget again" });
   });
 });

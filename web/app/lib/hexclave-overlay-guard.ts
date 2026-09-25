@@ -1,6 +1,6 @@
 "use client";
 
-import { posthog } from "./posthog-client";
+import { posthog, whenAnalyticsCaptureBuffered } from "./posthog-client";
 
 /** Class Hexclave gives the full-screen card it appends to `<body>`. */
 export const HEXCLAVE_SETUP_OVERLAY_CLASS = "hexclave-setup-error-overlay";
@@ -18,14 +18,19 @@ export function reportHexclaveSetupOverlays() {
     if (reported.has(element)) return;
     reported.add(element);
     const summary = (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
-    try {
-      posthog?.captureException(new Error(`Hexclave setup error overlay: ${summary}`), {
-        boundary: "hexclave-setup-overlay",
-        path: window.location.pathname,
-      });
-    } catch {
-      // Reporting must never break the page it is protecting.
-    }
+    const path = window.location.pathname;
+    // A setup error can fire before hydration, while PostHog still drops
+    // every capture. Send it once the route tracker buffers captures.
+    void whenAnalyticsCaptureBuffered().then(() => {
+      try {
+        posthog?.captureException(new Error(`Hexclave setup error overlay: ${summary}`), {
+          boundary: "hexclave-setup-overlay",
+          path,
+        });
+      } catch {
+        // Reporting must never break the page it is protecting.
+      }
+    });
   };
   const scan = () => {
     for (const element of document.body.querySelectorAll(`.${HEXCLAVE_SETUP_OVERLAY_CLASS}`)) {

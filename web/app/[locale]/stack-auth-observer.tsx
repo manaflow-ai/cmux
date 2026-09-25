@@ -1,6 +1,7 @@
 "use client";
 
 import { useUser } from "@hexclave/next";
+import { usePathname } from "next/navigation";
 import { Suspense, useLayoutEffect, useRef } from "react";
 import { STACK_AUTH_CHANGED_EVENT } from "../../services/analytics/stackIdentity";
 import { IsolatedErrorBoundary } from "../components/error-boundary";
@@ -33,6 +34,9 @@ function StackAuthObserver() {
  * instead of unmounting the page.
  */
 export function IsolatedStackAuthObserver() {
+  // Re-rendering on navigation hands the boundary a new element, which
+  // retries an observer that failed during a Hexclave outage.
+  usePathname();
   return (
     <IsolatedErrorBoundary name="stack-auth-observer" fallback={null}>
       <Suspense fallback={null}>
