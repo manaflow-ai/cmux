@@ -45,14 +45,26 @@ python3 $T --package CmuxMobileShell cleanup           # delete probe branches
 - `--filter <regex>` narrows the suite once you are chasing a few tests;
   `--paths` changes which commits count as midpoint candidates (default: the
   iOS and Shared packages).
+- `--patch <sha>` (repeatable) applies a fix commit to every probe. Use it
+  when older commits hang or fail to build for a reason you already know:
+  bisect the question you have, not the known break.
+- `--bisect <name>` keeps a second experiment (for example the same commits
+  with a `--patch`) beside the first.
 - State is shared by every worktree of the checkout, in
-  `<git-common-dir>/package-bisect/<package>.json`.
+  `<git-common-dir>/package-bisect/<name>.json`. Finished job logs are cached
+  beside it, and `status --refetch` re-parses them without spending the shared
+  REST budget.
 
 ## Read the matrix
 
 `status` prints one row per test and one column per probe, oldest first:
-`X` failed, `.` passed, `?` pending, `E` the probe produced no test summary
-(compile or runner failure; check the log, then rerun it).
+`X` failed, `.` passed, `-` never ran at that probe, `?` pending, `E` no test
+ran at all (compile or runner failure; check the log, then rerun it).
+
+Check the probe list first. A probe marked `INCOMPLETE` hung or hit the job
+timeout, so every test after the hang shows `-`. A `-` is never a pass: a
+suite that hangs early makes a whole cluster look like it "broke" at the
+commit that fixed the hang. Rerun those probes with `--patch <hang fix>`.
 
 | Verdict | Meaning | Next |
 | --- | --- | --- |

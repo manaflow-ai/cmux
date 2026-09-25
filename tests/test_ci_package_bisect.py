@@ -19,13 +19,18 @@ FAILING_LOG = """\
 2026-09-25T08:44:02.3Z ✘ Test nextScope(signOutHook:) with 2 test cases failed after 6.808 seconds with 4 issues.
 2026-09-25T08:44:02.4Z ✘ Test "chip keeps its anchor" failed after 4.377 seconds with 1 issue.
 2026-09-25T08:44:02.5Z Test Case '-[CmuxMobileShellTests.LegacyTests testOld]' failed (0.1 seconds).
+2026-09-25T08:44:02.55Z ✔ Test healthyTest() passed after 0.002 seconds.
+2026-09-25T08:44:02.56Z ✔ Test nextScope(signOutHook:) passed after 0.1 seconds.
 2026-09-25T08:44:02.6Z ✘ Suite MobileShellTests failed after 0.012 seconds with 2 issues.
 2026-09-25T08:46:15.9Z ✘ Test run with 1317 tests in 115 suites failed after 133.660 seconds with 35 issues.
 """
 
 
-def state(results, history=None):
-    """results: list of failing-test sets (None = still pending), oldest first."""
+def state(results, history=None, universe=frozenset({"t"})):
+    """results: list of failing-test sets (None = still pending), oldest first.
+
+    Every other test in `universe` passed at that probe.
+    """
     history = history or [f"{n:040x}" for n in range(1, 21)]
     shas = history[:: max(1, len(history) // len(results))][: len(results)]
     probes = {}
@@ -34,23 +39,35 @@ def state(results, history=None):
         if failures is not None:
             probe.status = "done"
             probe.failures = sorted(failures)
+            probe.passes = sorted(universe - failures)
+            probe.complete = True
         probes[sha] = probe
-    return MODULE.State("Pkg", "", history[-1], history, list(history), probes), shas
+    return MODULE.State("Pkg", "Pkg", "", history[-1], history, list(history), probes), shas
 
 
-class FailedTestsTests(unittest.TestCase):
-    def test_collects_swift_testing_and_xctest_failures_without_summaries(self):
+class TestResultsTests(unittest.TestCase):
+    def test_collects_swift_testing_and_xctest_results_without_summaries(self):
+        results = MODULE.test_results(FAILING_LOG)
         self.assertEqual(
-            MODULE.failed_tests(FAILING_LOG),
+            results.failed,
             {"secondaryAggregationExcludesX", "nextScope", '"chip keeps its anchor"', "testOld"},
         )
+        # A parameterized test with one failing case is failing, not passing.
+        self.assertEqual(results.passed, {"healthyTest"})
+        self.assertTrue(results.complete)
 
-    def test_passing_run_is_an_empty_set(self):
+    def test_passing_run_is_complete_with_no_failures(self):
         log = "2026-09-25T08:46:15Z ✔ Test run with 1317 tests in 115 suites passed after 90 seconds.\n"
-        self.assertEqual(MODULE.failed_tests(log), set())
+        results = MODULE.test_results(log)
+        self.assertEqual(results.failed, set())
+        self.assertTrue(results.complete)
 
-    def test_log_without_a_test_summary_is_an_error(self):
-        self.assertIsNone(MODULE.failed_tests("error: compile failed\n"))
+    def test_hung_run_is_incomplete(self):
+        log = "2026-09-25T08:44:02Z ✔ Test healthyTest() passed after 0.002 seconds.\n"
+        self.assertFalse(MODULE.test_results(log).complete)
+
+    def test_log_where_no_test_ran_is_an_error(self):
+        self.assertIsNone(MODULE.test_results("error: compile failed\n"))
 
 
 class VerdictTests(unittest.TestCase):
@@ -70,6 +87,14 @@ class VerdictTests(unittest.TestCase):
     def test_pass_between_failures_is_flaky(self):
         s, _ = state([{"t"}, set(), {"t"}])
         self.assertTrue(MODULE.verdicts(s)["t"].flaky)
+
+    def test_probe_that_never_ran_the_test_does_not_count_as_a_pass(self):
+        # The middle probe hung before reaching "t": its silence is not a pass.
+        s, shas = state([{"t"}, set(), {"t"}])
+        s.probes[shas[1]].passes = []
+        verdict = MODULE.verdicts(s)["t"]
+        self.assertFalse(verdict.flaky)
+        self.assertIsNone(verdict.broke)
 
     def test_pending_probes_do_not_count(self):
         s, shas = state([set(), None, {"t"}])

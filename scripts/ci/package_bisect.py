@@ -14,8 +14,12 @@ package suite then runs exactly as it does now.
     package_bisect.py next [--dispatch]    # midpoints that split each break window
     package_bisect.py cleanup              # delete the probe branches
 
+Add --bisect NAME to run a second experiment beside the first, for example
+the same commits with `start --patch <fix>` applied to get past a hang.
+
 State lives in <git-common-dir>/package-bisect/<package>.json, so every
-worktree of one checkout shares a bisect. Probes leave the runner on `auto`
+worktree of one checkout shares a bisect; finished job logs are cached beside
+it, so `status --refetch` re-parses without spending the shared REST budget. Probes leave the runner on `auto`
 (owned minis first, Blacksmith overflow).
 """
 from __future__ import annotations
@@ -43,8 +47,8 @@ LINT_GATE = "&& (needs.package-conventions-lint.result == 'success'"
 # History that can change an iOS package test result.
 DEFAULT_PATHS = ("Packages/iOS", "Packages/Shared")
 
-SWIFT_TESTING_FAILURE = re.compile(r"✘ Test (?P<name>.+?) failed after ")
-XCTEST_FAILURE = re.compile(r"Test Case '-\[\S+ (?P<name>\w+)\]' failed")
+SWIFT_TESTING_RESULT = re.compile(r"(?P<mark>[✔✘]) Test (?P<name>.+?) (?P<verdict>passed|failed) after ")
+XCTEST_RESULT = re.compile(r"Test Case '-\[\S+ (?P<name>\w+)\]' (?P<verdict>passed|failed)")
 RUN_SUMMARY = re.compile(r"Test run with (?P<tests>\d+) tests?")
 RUN_URL = re.compile(r"/actions/runs/(?P<id>\d+)")
 
@@ -77,14 +81,30 @@ def test_name(raw: str) -> str:
     return raw.split("(", 1)[0]
 
 
-def failed_tests(log: str) -> set[str] | None:
-    """Failing test names, or None when the log never reached a test summary."""
-    names = {test_name(m["name"]) for m in SWIFT_TESTING_FAILURE.finditer(log)}
-    names |= {m["name"] for m in XCTEST_FAILURE.finditer(log)}
-    names = {n for n in names if not n.startswith("run with ")}
-    if not names and not RUN_SUMMARY.search(log):
+@dataclasses.dataclass
+class Results:
+    failed: set[str]
+    passed: set[str]
+    # False when the log never reached its "Test run with" summary: the job
+    # hung or timed out, and tests after that point never ran.
+    complete: bool
+
+
+def test_results(log: str) -> Results | None:
+    """Every test the log reports, or None when no test ran at all."""
+    failed, passed = set(), set()
+    for match in SWIFT_TESTING_RESULT.finditer(log):
+        name = test_name(match["name"])
+        if name.startswith("run with "):
+            continue
+        (failed if match["verdict"] == "failed" else passed).add(name)
+    for match in XCTEST_RESULT.finditer(log):
+        (failed if match["verdict"] == "failed" else passed).add(match["name"])
+    complete = RUN_SUMMARY.search(log) is not None
+    if not failed and not passed and not complete:
         return None
-    return names
+    # A parameterized test can pass one case and fail another.
+    return Results(failed=failed, passed=passed - failed, complete=complete)
 
 
 # --- state -----------------------------------------------------------------
@@ -95,36 +115,51 @@ class Probe:
     sha: str
     branch: str
     run_id: int | None = None
-    # "pending", "done", or "error" (no test summary: compile or runner).
+    # "pending", "done", or "error" (no test ran: compile or runner).
     status: str = "pending"
     failures: list[str] = dataclasses.field(default_factory=list)
+    passes: list[str] = dataclasses.field(default_factory=list)
+    complete: bool = False
+
+    def result(self, test: str) -> bool | None:
+        """True failed, False passed, None not run (or probe unfinished)."""
+        if self.status != "done":
+            return None
+        if test in self.failures:
+            return True
+        return False if test in self.passes else None
 
 
 @dataclasses.dataclass
 class State:
+    name: str
     package: str
     test_filter: str
     ci_base: str
     history: list[str]  # main's first-parent commits, oldest first
     candidates: list[str]  # the history commits that touch the watched paths
     probes: dict[str, Probe]
+    # Commits whose changes are applied to every probe, e.g. a fix for a hang
+    # that stops older commits from running the whole suite.
+    patches: list[str] = dataclasses.field(default_factory=list)
 
     @classmethod
-    def path(cls, package: str) -> Path:
+    def path(cls, name: str) -> Path:
         common = Path(git("rev-parse", "--git-common-dir").strip()).resolve()
-        return common / "package-bisect" / f"{package}.json"
+        return common / "package-bisect" / f"{name}.json"
 
     @classmethod
-    def load(cls, package: str) -> "State":
-        path = cls.path(package)
+    def load(cls, name: str) -> "State":
+        path = cls.path(name)
         if not path.exists():
-            raise SystemExit(f"no bisect for {package}; run `start` first")
+            raise SystemExit(f"no bisect named {name}; run `start` first")
         data = json.loads(path.read_text())
+        data.setdefault("name", name)
         data["probes"] = {k: Probe(**v) for k, v in data["probes"].items()}
         return cls(**data)
 
     def save(self) -> None:
-        path = self.path(self.package)
+        path = self.path(self.name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(dataclasses.asdict(self), indent=2) + "\n")
 
@@ -144,11 +179,20 @@ def drop_lint_gate(workflow: str) -> str:
     return workflow[:start] + body.replace(LINT_GATE, "&& (true", 1)
 
 
-def probe_commit(sha: str, ci_base: str) -> str:
+def probe_commit(sha: str, ci_base: str, patches: list[str] = ()) -> str:
     """Commit `sha`'s tree with the CI base's iOS CI files, without a checkout."""
     with tempfile.TemporaryDirectory() as scratch:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
         git("read-tree", sha, env=env)
+        for patch in patches:
+            if subprocess.run(["git", "merge-base", "--is-ancestor", patch, sha]).returncode == 0:
+                continue  # already in this commit
+            diff = git("diff", "--binary", f"{patch}^", patch)
+            applied = subprocess.run(
+                ["git", "apply", "--cached", "-3"], input=diff, env=env, text=True, capture_output=True
+            )
+            if applied.returncode != 0:
+                raise SystemExit(f"patch {patch[:10]} does not apply to {sha[:10]}: {applied.stderr.strip()}")
         entries = git("ls-tree", "-r", ci_base, "--", *OVERLAY_PATHS)
         git("update-index", "--index-info", input=entries, env=env)
         workflow = git("show", f"{ci_base}:{WORKFLOW_PATH}")
@@ -160,8 +204,8 @@ def probe_commit(sha: str, ci_base: str) -> str:
 
 
 def dispatch(state: State, sha: str) -> Probe:
-    branch = f"{BRANCH_PREFIX}{state.package}/{sha[:10]}"
-    commit = probe_commit(sha, state.ci_base)
+    branch = f"{BRANCH_PREFIX}{state.name}/{sha[:10]}"
+    commit = probe_commit(sha, state.ci_base, state.patches)
     git("push", "-q", "-f", REMOTE_URL, f"{commit}:refs/heads/{branch}")
     args = ["gh", "workflow", "run", WORKFLOW, "--repo", REPO, "--ref", branch,
             "-f", f"swift_package={state.package}"]
@@ -174,7 +218,16 @@ def dispatch(state: State, sha: str) -> Probe:
     return probe
 
 
+def log_cache(run_id: int) -> Path:
+    common = Path(git("rev-parse", "--git-common-dir").strip()).resolve()
+    return common / "package-bisect" / "logs" / f"{run_id}.log"
+
+
 def package_job_log(run_id: int) -> tuple[str, str]:
+    """(status, log). A finished log is cached: the REST budget is shared."""
+    cached = log_cache(run_id)
+    if cached.exists():
+        return "completed", cached.read_text()
     jobs = gh_json("run", "view", str(run_id), "--repo", REPO, "--json", "status,jobs")
     job = next((j for j in jobs["jobs"] if j["name"] == PACKAGE_JOB), None)
     if jobs["status"] != "completed" or job is None:
@@ -182,20 +235,28 @@ def package_job_log(run_id: int) -> tuple[str, str]:
     if job["conclusion"] in ("skipped", "cancelled"):
         return "error", ""
     log = run("gh", "api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['databaseId']}/logs")
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    cached.write_text(log)
     return "completed", log
 
 
-def refresh(state: State) -> None:
+def refresh(state: State, refetch: bool = False) -> None:
     for probe in state.probes.values():
-        if probe.status != "pending" or probe.run_id is None:
+        if probe.run_id is None or (probe.status != "pending" and not refetch):
             continue
-        status, log = package_job_log(probe.run_id)
+        try:
+            status, log = package_job_log(probe.run_id)
+        except SystemExit as error:  # e.g. the shared REST budget ran out
+            print(f"skipping run {probe.run_id} for now: {error}", file=sys.stderr)
+            continue
         if status == "error":
             probe.status = "error"
         elif status == "completed":
-            failures = failed_tests(log)
-            probe.status = "error" if failures is None else "done"
-            probe.failures = sorted(failures or [])
+            results = test_results(log)
+            probe.status = "error" if results is None else "done"
+            probe.failures = sorted(results.failed) if results else []
+            probe.passes = sorted(results.passed) if results else []
+            probe.complete = bool(results and results.complete)
     state.save()
 
 
@@ -214,17 +275,19 @@ class Verdict:
 
 
 def verdicts(state: State) -> dict[str, Verdict]:
+    """Judge each failing test only on the probes that actually ran it."""
     done = [p for p in state.ordered() if p.status == "done"]
     result = {}
     for test in sorted({t for p in done for t in p.failures}):
-        marks = [test in p.failures for p in done]
+        ran = [(p, p.result(test)) for p in done if p.result(test) is not None]
+        marks = [failed for _, failed in ran]
         first = marks.index(True)
         last = len(marks) - 1 - marks[::-1].index(True)
         if not all(marks[first : last + 1]):
             result[test] = Verdict(flaky=True)
             continue
-        broke = (done[first - 1].sha, done[first].sha) if first > 0 else None
-        fixed = (done[last].sha, done[last + 1].sha) if last + 1 < len(done) else None
+        broke = (ran[first - 1][0].sha, ran[first][0].sha) if first > 0 else None
+        fixed = (ran[last][0].sha, ran[last + 1][0].sha) if last + 1 < len(ran) else None
         result[test] = Verdict(flaky=False, broke=broke, fixed=fixed)
     return result
 
@@ -249,7 +312,11 @@ def print_status(state: State) -> None:
     for probe in probes:
         subjects[probe.sha] = git("log", "-1", "--format=%ad %s", "--date=format:%m-%d %H:%M", probe.sha).strip()
     for n, probe in enumerate(probes):
-        detail = {"done": f"{len(probe.failures)} failing", "error": "no test summary"}.get(probe.status, "pending")
+        detail = {
+            "done": f"{len(probe.failures)} failing, {len(probe.passes)} passing"
+            + ("" if probe.complete else ", INCOMPLETE (hung or timed out)"),
+            "error": "no test ran",
+        }.get(probe.status, "pending")
         print(f"[{n}] {probe.sha[:10]} {subjects[probe.sha][:70]:70} {detail}  run {probe.run_id}")
     found = verdicts(state)
     if not found:
@@ -270,7 +337,7 @@ def print_status(state: State) -> None:
             if probe.status != "done":
                 cells.append("?" if probe.status == "pending" else "E")
             else:
-                cells.append("X" if test in probe.failures else ".")
+                cells.append({True: "X", False: ".", None: "-"}[probe.result(test)])
         if verdict.flaky:
             notes = ["flaky (passes between failures)"]
         else:
@@ -301,9 +368,11 @@ def cmd_start(args) -> None:
     ci_base = git("rev-parse", args.ci_base).strip()
     history = first_parent_history(ci_base)
     candidates = first_parent_history(ci_base, args.paths)
-    state = State(args.package, args.filter, ci_base, history, candidates, {})
-    if State.path(args.package).exists() and not args.force:
-        raise SystemExit("a bisect already exists for this package; `cleanup` or --force")
+    patches = [git("rev-parse", p).strip() for p in args.patch]
+    name = args.bisect or args.package
+    state = State(name, args.package, args.filter, ci_base, history, candidates, {}, patches)
+    if State.path(name).exists() and not args.force:
+        raise SystemExit(f"bisect {name} already exists; `cleanup`, --force, or another --bisect name")
     shas = []
     for spec in args.commits:
         if ".." in spec:
@@ -324,7 +393,7 @@ def cmd_start(args) -> None:
 
 
 def cmd_adopt(args) -> None:
-    state = State.load(args.package)
+    state = State.load(args.bisect or args.package)
     sha = git("rev-parse", args.sha).strip()
     if sha not in state.history:
         raise SystemExit(f"{args.sha} is not on the bisect's first-parent history")
@@ -333,9 +402,9 @@ def cmd_adopt(args) -> None:
 
 
 def cmd_status(args) -> None:
-    state = State.load(args.package)
+    state = State.load(args.bisect or args.package)
     deadline = time.monotonic() + args.timeout
-    refresh(state)
+    refresh(state, args.refetch)
     while args.wait and time.monotonic() < deadline and any(
         p.status == "pending" for p in state.probes.values()
     ):
@@ -345,7 +414,7 @@ def cmd_status(args) -> None:
 
 
 def cmd_next(args) -> None:
-    state = State.load(args.package)
+    state = State.load(args.bisect or args.package)
     refresh(state)
     picks = next_points(state, args.fixed)
     if not picks:
@@ -359,17 +428,18 @@ def cmd_next(args) -> None:
 
 
 def cmd_cleanup(args) -> None:
-    state = State.load(args.package)
+    state = State.load(args.bisect or args.package)
     for probe in state.probes.values():
         if probe.branch:
             subprocess.run(["git", "push", "-q", REMOTE_URL, f":refs/heads/{probe.branch}"])
-    State.path(args.package).unlink()
+    State.path(state.name).unlink()
     print(f"deleted {len(state.probes)} probe branches and the bisect state")
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--package", default="CmuxMobileShell")
+    parser.add_argument("--bisect", help="name for this bisect (default: the package); lets experiments coexist")
     sub = parser.add_subparsers(dest="command", required=True)
     start = sub.add_parser("start")
     start.add_argument("commits", nargs="*", help="SHAs or GOOD..BAD ranges")
@@ -378,12 +448,15 @@ def main(argv: list[str] | None = None) -> None:
     start.add_argument("--ci-base", default="upstream/main", help="where today's CI files come from")
     start.add_argument("--paths", nargs="+", default=list(DEFAULT_PATHS))
     start.add_argument("--force", action="store_true")
+    start.add_argument("--patch", action="append", default=[], metavar="SHA",
+                       help="apply this commit's change to every probe (repeatable)")
     adopt = sub.add_parser("adopt")
     adopt.add_argument("sha")
     adopt.add_argument("run_id", type=int)
     status = sub.add_parser("status")
     status.add_argument("--wait", action="store_true")
     status.add_argument("--timeout", type=int, default=45 * 60)
+    status.add_argument("--refetch", action="store_true", help="re-read every probe's log")
     nxt = sub.add_parser("next")
     nxt.add_argument("--dispatch", action="store_true")
     nxt.add_argument("--fixed", action="store_true", help="also split windows where a test was fixed")
