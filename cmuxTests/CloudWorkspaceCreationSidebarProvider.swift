@@ -93,7 +93,10 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
-        let pane = try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
+        let pane = try SurfacePaneFactory.makeCloudManualMirrorPane(
+            at: destination, focus: focus, onInput: { _ in }, keyNameResolver: nil,
+            onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
+        )
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID,
                                  remoteWorkspaceID: resource.remoteWorkspace?.id, remoteTabID: resource.remoteViews?.first?.tabID)
     }
