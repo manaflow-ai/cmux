@@ -74,14 +74,15 @@ struct DeviceDirectoryMergeTests {
         #expect(count == (peerChanged ? 1 : 0))
     }
 
-    @Test("V2 discovery merges enabled hosts and excludes discovery-only Macs", arguments: [true, false])
-    func authenticatedDiscovery(enabled: Bool) throws {
+    @Test("Only Mac opt-in admits a row, even with mobile hosting and cached sources", arguments: [true, false], [true, false])
+    func authenticatedDiscovery(enabled: Bool, mobileEnabled: Bool) throws {
         func record(deviceID: String, endpoint: String, hosting: Bool) -> V2DeviceRecord {
             let identity = V2Identity(appNamespace: "com.cmuxterm.app", buildTag: "default",
                 deviceID: deviceID, environment: "development", projectID: "project",
                 teamID: "work-team", userID: "my-account")
-            let metadata = V2DeviceMetadata(appVersion: "1", capabilities: ["cmux.mac-devices.v1", "cmux.mac-host.v1"],
-                displayName: "Studio", pairingEnabled: hosting, platform: .mac, relayURLs: [])
+            let metadata = V2DeviceMetadata(appVersion: "1",
+                capabilities: ["cmux.mac-devices.v1"] + (hosting ? ["cmux.mac-host.v1"] : []),
+                displayName: "Studio", pairingEnabled: hosting || mobileEnabled, platform: .mac, relayURLs: [])
             return V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: endpoint, identity: identity,
                 identityGeneration: 0, metadata: metadata), deviceRecordID: deviceID, revision: 1, revoked: false)
         }
@@ -91,9 +92,17 @@ struct DeviceDirectoryMergeTests {
         cache.device = own
         cache.directory = V2Directory(devices: [peer], issuedAt: 1000, permissionExpiresAt: 1060,
             relayURLs: [], revision: 1, teamID: "work-team")
+        let staleRoute = try hostIrohRoute(String(repeating: "ab", count: 32))
+        let instance = SurfaceDeviceInstanceID(deviceID: studioID, tag: "default")
         let records = DeviceDirectoryMerge.merge(.init(
+            registry: [registryDevice(studioID, name: "Studio", routes: [staleRoute])],
             authenticatedMacs: DeviceIrxClient.displayBindings(cache: cache, now: Date(timeIntervalSince1970: 1001)),
-            ownersKnown: true, selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team"
+            requiresAuthenticatedDiscovery: true,
+            presence: Dictionary(uniqueKeysWithValues: [presence(studioID, online: true, routes: [staleRoute])]),
+            ownersKnown: true,
+            paired: [paired(instance, name: "Studio", routes: [staleRoute])],
+            previous: [self.record(instance, name: "Studio", online: true, routes: [staleRoute], trust: .sameAccount)],
+            selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team"
         ))
         if enabled {
             let record = try #require(records.first)
@@ -220,7 +229,7 @@ struct DeviceDirectoryMergeTests {
         presence: [(SurfaceDeviceInstanceID, DevicePresenceInstance)] = [],
         previous: [DeviceDirectoryRecord] = []
     ) -> DeviceDirectoryMerge.Input {
-        .init(registry: registry, authenticatedMacs: macs,
+        .init(registry: registry, authenticatedMacs: macs, requiresAuthenticatedDiscovery: true,
             presence: Dictionary(uniqueKeysWithValues: presence), presenceLive: true, ownersKnown: true,
             previous: previous, selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team")
     }
@@ -245,18 +254,17 @@ struct DeviceDirectoryMergeTests {
         #expect(record.routes.filter { $0.kind == .iroh }.count == 1)
     }
 
-    @Test("A row listed before the directory arrived folds into the directory row instead of lingering")
+    @Test("Presence waits for authenticated discovery before publishing one joined row")
     func rowListedBeforeTheDirectoryFolds() throws {
         let route = try hostIrohRoute(studioEndpoint)
         let beforeDirectory = DeviceDirectoryMerge.merge(directoryInput(
             macs: [], presence: [presence(studioID, online: true, name: "Studio", routes: [route])]
         ))
-        #expect(beforeDirectory.map(\.instance) == [SurfaceDeviceInstanceID(deviceID: studioID, tag: "default")])
+        #expect(beforeDirectory.isEmpty)
 
-        // Presence stops repeating the routes; the remembered row still carries the join.
         let records = DeviceDirectoryMerge.merge(directoryInput(
             macs: directoryMacs(peerDeviceID: studioDirectoryID, endpoint: studioEndpoint),
-            presence: [presence(studioID, online: true, name: "Studio", routes: nil)],
+            presence: [presence(studioID, online: true, name: "Studio", routes: [route])],
             previous: beforeDirectory
         ))
 
@@ -264,7 +272,7 @@ struct DeviceDirectoryMergeTests {
         #expect(records.first?.presenceState == .online)
     }
 
-    @Test("A briefly stale directory does not split the Mac back into two rows")
+    @Test("Turning host discovery off removes cached rows; re-enabling restores one joined row")
     func staleDirectoryKeepsOneRow() throws {
         let route = try hostIrohRoute(studioEndpoint)
         let online = [presence(studioID, online: true, name: "Studio", routes: [route])]
@@ -275,8 +283,13 @@ struct DeviceDirectoryMergeTests {
 
         let stale = DeviceDirectoryMerge.merge(directoryInput(macs: [], presence: online, previous: live))
 
-        #expect(stale.map(\.instance) == [studioDirectoryInstance])
-        #expect(stale.first?.presenceState == .online)
+        #expect(stale.isEmpty)
+        let enabledAgain = DeviceDirectoryMerge.merge(directoryInput(
+            macs: directoryMacs(peerDeviceID: studioDirectoryID, endpoint: studioEndpoint),
+            presence: online, previous: stale
+        ))
+        #expect(enabledAgain.map(\.instance) == [studioDirectoryInstance])
+        #expect(enabledAgain.first?.presenceState == .online)
     }
 
     @Test("Only the endpoint the directory lists joins a host identity to its row")
@@ -287,8 +300,8 @@ struct DeviceDirectoryMergeTests {
             presence: [presence(laptopID, online: true, name: "Laptop", routes: [otherRoute])]
         ))
 
-        let laptop = SurfaceDeviceInstanceID(deviceID: laptopID, tag: "default")
-        #expect(Set(records.map(\.instance)) == Set([studioDirectoryInstance, laptop]))
+        #expect(records.map(\.instance) == [studioDirectoryInstance])
+        #expect(records.first?.isOnline == false)
     }
 
     @Test("When two host identities advertise one endpoint, the online report describes the row")

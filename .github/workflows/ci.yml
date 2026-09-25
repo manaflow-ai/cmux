@@ -631,6 +631,8 @@ jobs:
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          # Rounds of queue a pool may hold, owned or Blacksmith (default 1; 0 off).
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           # Owned Mac pools (off unless 1), their machine counts, and the lane
           # Xcode whose version names their label (glaeda-std-xcode-26.6).
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
@@ -661,9 +663,9 @@ jobs:
         run: python3 scripts/ci/pr_runner_pool.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
-      # it stays busy. This marker tells ci-owned-pool-rescue.yml, running from
-      # main, to watch the run and re-run it on Blacksmith when a job waits past
-      # CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
+      # it stays busy. The owned-pool-watch job starts ci-owned-pool-rescue.yml,
+      # running from main, and this marker tells it to watch the run and re-run
+      # it on Blacksmith when a job waits past CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
       # Fail-safe like the picker: a missing marker only means the run is not
       # watched, which is how every run behaved before the rescue existed.
       - name: Mark a run on a persistent macOS pool
@@ -685,6 +687,20 @@ jobs:
         with:
           # The janitor reads the run's peak and pool from the name.
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}
+          path: ${{ steps.macos-pool-marker.outputs.path }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      # Some owned job was placed in the queue allowance (CI_PR_POOL_QUEUE_ROUNDS)
+      # and may wait for a busy runner on purpose; ci-owned-pool-rescue.yml
+      # gives such a run a round's more budget. No marker keeps the short one.
+      - name: Upload the owned queue marker
+        if: ${{ steps.macos-pool-marker.outputs.path != '' && steps.macos-pool.outputs.queued == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-queued-${{ github.run_id }}-${{ github.run_attempt }}-owned
           path: ${{ steps.macos-pool-marker.outputs.path }}
           if-no-files-found: error
           retention-days: 1
@@ -969,6 +985,33 @@ jobs:
           path: ${{ runner.temp }}/reverse-test-impact/report.json
           if-no-files-found: ignore
           retention-days: 14
+
+  owned-pool-watch:
+    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `changes`
+    # job placed jobs on an owned pool, so a run on an ephemeral pool, a fork
+    # or a retry creates no rescue workflow run at all. It is the one job in
+    # this workflow with Actions write, and it runs no repository code:
+    # no checkout, one API call. The watcher re-checks the run it is given.
+    # Fail-safe: if the dispatch fails the run is only not watched, and
+    # ci-status does not wait for this job.
+    name: Watch owned pool jobs
+    needs: changes
+    if: ${{ needs.changes.outputs.macos_pr_owned_jobs != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
+    timeout-minutes: 5
+    # Job level, like reverse-test-impact, so macos-admission-gate never
+    # waits on it.
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the persistent pool rescue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
 
   static-preflight:
     name: Fast static checks
