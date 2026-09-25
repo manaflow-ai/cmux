@@ -144,6 +144,7 @@ output.write_text(json.dumps(result))
             assert json.loads(read.stdout) == receipt, "persisted receipt differs from completed run"
         except (AssertionError, KeyError, ValueError, StopIteration) as error:
             failures.append(f"review runner contract: {error}")
+            return failures
 
         driver.write_text(driver.read_text().replace('"disposition": "survives_challenge"', '"disposition": "refuted"'))
         disagreement = subprocess.run(command, env=environment, text=True, capture_output=True, timeout=30)
