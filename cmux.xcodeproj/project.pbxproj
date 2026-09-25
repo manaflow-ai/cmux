@@ -629,6 +629,7 @@
 		C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000016 /* CLIHookNoResponseTests.swift */; };
 		C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000051 /* CLIHookProcessRunner.swift */; };
 		C11757000000000000000052 /* CLIHookProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000051 /* CLIHookProcessRunner.swift */; };
+		9C23A4FD07C6BBFEB282D230 /* CLIKiroFeedPermissionModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */; };
 		74346B19AC8D55243926D168 /* CLILegacyCodexRestoreLeaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */; };
 		A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */; };
 		C10657000000000000000003 /* CLILocalTmuxIdentityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */; };
@@ -1550,6 +1551,7 @@
 		AF8F87181F9AEA5900C3CFF6 /* ComputerUseToolOnboardingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EADE9C46C2344A4DCA31E7C /* ComputerUseToolOnboardingFixture.swift */; };
 		78268843FBE52814D8334200 /* ComputerUseToolOnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A226CED4A4759331F84C9036 /* ComputerUseToolOnboardingTests.swift */; };
 		C0A710130000000000000002 /* ComputerUseUXCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */; };
+		BB6BABEDA119AC6C3AE313D2 /* ComputerUseUXTests+PermissionRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = E412D7061FB6A4CDC83A7784 /* ComputerUseUXTests+PermissionRefresh.swift */; };
 		C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710120000000000000001 /* ComputerUseUXTests.swift */; };
 		C0A713010000000000000002 /* ComputerUseWatchTargetActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */; };
 		D1F00A100000000000000002 /* ComputerUseWatchTargetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */; };
@@ -4754,6 +4756,7 @@
 		A76110030000000000000002 /* CLIGrokNotificationNoiseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIGrokNotificationNoiseTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000016 /* CLIHookNoResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHookNoResponseTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000051 /* CLIHookProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHookProcessRunner.swift; sourceTree = "<group>"; };
+		537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIKiroFeedPermissionModeTests.swift"; sourceTree = "<group>"; };
 		1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLILegacyCodexRestoreLeaseTests.swift"; sourceTree = "<group>"; };
 		A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILegacyHookAliasTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxIdentityRegressionTests.swift; sourceTree = "<group>"; };
@@ -5548,6 +5551,7 @@
 		9EADE9C46C2344A4DCA31E7C /* ComputerUseToolOnboardingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseToolOnboardingFixture.swift"; sourceTree = "<group>"; };
 		A226CED4A4759331F84C9036 /* ComputerUseToolOnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseToolOnboardingTests.swift"; sourceTree = "<group>"; };
 		C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseUXCoordinator.swift; sourceTree = "<group>"; };
+		E412D7061FB6A4CDC83A7784 /* ComputerUseUXTests+PermissionRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseUXTests+PermissionRefresh.swift"; sourceTree = "<group>"; };
 		C0A710120000000000000001 /* ComputerUseUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseUXTests.swift; sourceTree = "<group>"; };
 		C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetActivity.swift; sourceTree = "<group>"; };
 		D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetController.swift; sourceTree = "<group>"; };
@@ -12168,6 +12172,8 @@
 				D11427416DA80C1DFD739C79 /* CodexWriterAdmissionRecoveryTests.swift */,
 				521EAC2D4A600581B92BC865 /* SidebarAccessibilityTreeTests.swift */,
 				3FAE8A4DD3DEE6A1ECEFB1C6 /* SidebarAccessibilityTreeWalk.swift */,
+				537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */,
+				E412D7061FB6A4CDC83A7784 /* ComputerUseUXTests+PermissionRefresh.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15874,6 +15880,7 @@
 				A5D41207A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift in Sources */,
 				A76110030000000000000001 /* CLIGrokNotificationNoiseTests.swift in Sources */,
 				C11757000000000000000052 /* CLIHookProcessRunner.swift in Sources */,
+				9C23A4FD07C6BBFEB282D230 /* CLIKiroFeedPermissionModeTests.swift in Sources */,
 				74346B19AC8D55243926D168 /* CLILegacyCodexRestoreLeaseTests.swift in Sources */,
 				A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */,
 				C10657000000000000000003 /* CLILocalTmuxIdentityRegressionTests.swift in Sources */,
@@ -16155,6 +16162,7 @@
 				C0A716950000000000000002 /* ComputerUseOnboardingWindowTests.swift in Sources */,
 				AF8F87181F9AEA5900C3CFF6 /* ComputerUseToolOnboardingFixture.swift in Sources */,
 				78268843FBE52814D8334200 /* ComputerUseToolOnboardingTests.swift in Sources */,
+				BB6BABEDA119AC6C3AE313D2 /* ComputerUseUXTests+PermissionRefresh.swift in Sources */,
 				C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */,
 				C0DE77770000000000000001 /* ConfiguredShortcutMatcherTests.swift in Sources */,
 				B88356000000000000000003 /* ControlledPastePreparationDeadlines.swift in Sources */,
