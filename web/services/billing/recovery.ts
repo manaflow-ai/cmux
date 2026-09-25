@@ -462,7 +462,7 @@ function billingEmailPredicate(
 }
 
 function settledFounderCheckoutSession(
-  sessions: Stripe.Checkout.Session[],
+  sessions: readonly Stripe.Checkout.Session[],
   subscriptionId: string,
 ): Stripe.Checkout.Session | undefined {
   for (const candidate of sessions) {
