@@ -42,20 +42,9 @@ extension GhosttyNSView {
         after: (text: String, selection: NSRange),
         accumulatedText: [String],
         event: NSEvent? = nil,
-        inputSourceId: String? = nil,
-        suppressPressAndHoldKeyRepeat: Bool = false,
-        pressAndHoldEvent: NSEvent? = nil
+        inputSourceId: String? = nil
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
-
-        if suppressPressAndHoldKeyRepeat,
-           shouldSuppressPressAndHoldKeyRepeat(
-               event: pressAndHoldEvent ?? event,
-               before: before,
-               after: after
-           ) {
-            return true
-        }
 
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
@@ -84,18 +73,22 @@ extension GhosttyNSView {
         return shouldKeepIMECompositionCommandInsideTextInput(event)
     }
 
-    private func shouldSuppressPressAndHoldKeyRepeat(
+    /// Filters only repeat fallback events left unhandled by AppKit text input.
+    func shouldSuppressPressAndHoldKeyRepeat(
         event: NSEvent?,
         before: (text: String, selection: NSRange),
-        after: (text: String, selection: NSRange)
+        after: (text: String, selection: NSRange),
+        accumulatedText: [String]
     ) -> Bool {
+        guard accumulatedText.isEmpty else { return false }
         guard let event, event.isARepeat else { return false }
         guard before.text.isEmpty, after.text.isEmpty else { return false }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.isDisjoint(with: [.command, .control, .option]) else { return false }
         guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return false }
-        return characters.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+        guard characters.unicodeScalars.allSatisfy({ CharacterSet.letters.contains($0) }) else { return false }
+        return terminalPressAndHoldSettings?.value(for: terminalPressAndHoldKey) ?? terminalPressAndHoldKey.defaultValue
     }
 
     private func shouldForwardKoreanMarkedSelectionArrowToTerminal(
@@ -181,28 +174,4 @@ extension GhosttyNSView {
             return false
         }
     }
-
-#if DEBUG
-    func shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-        markedTextBefore: String,
-        markedSelectionBefore: NSRange,
-        markedTextAfter: String,
-        markedSelectionAfter: NSRange,
-        accumulatedText: [String],
-        event: NSEvent? = nil,
-        inputSourceId: String? = nil,
-        suppressPressAndHoldKeyRepeat: Bool = false,
-        pressAndHoldEvent: NSEvent? = nil
-    ) -> Bool {
-        shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: (markedTextBefore, markedSelectionBefore),
-            after: (markedTextAfter, markedSelectionAfter),
-            accumulatedText: accumulatedText,
-            event: event,
-            inputSourceId: inputSourceId,
-            suppressPressAndHoldKeyRepeat: suppressPressAndHoldKeyRepeat,
-            pressAndHoldEvent: pressAndHoldEvent
-        )
-    }
-#endif
 }

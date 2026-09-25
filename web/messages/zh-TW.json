@@ -1315,6 +1315,7 @@
           "adaptiveDefaultTheme": "為 true（預設）時，除非已設定 Ghostty 主題或終端機顏色，否則 cmux 會提供隨外觀變更的預設配色。字體和其他設定會保留。為 false 時，Ghostty 使用固定的內建配色。明確指定的主題和顏色一律優先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
+          "macosPressAndHold": "為 true 時，按住字母會開啟 macOS 重音符號選單，不會在終端機中重複輸入。選單開啟時，這些字母的按鍵重複會維持停用。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",

@@ -672,6 +672,7 @@
         "macosPressAndHold": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.macosPressAndHold",
           "description": "When true, held letters open the macOS accent menu without repeating into the terminal. Key repeat stays disabled for those letters while the menu is open."
         },
         "autoResumeAgentSessions": {

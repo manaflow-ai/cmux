@@ -29,6 +29,18 @@ extension GhosttyApp: TerminalEngineHosting {
 /// surface model historically constructed in its initializer.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     let imageTransferPreparation: TerminalImageTransferPreparationService
+    let terminalPressAndHoldSettings: (any SettingsReading)?
+    let terminalPressAndHoldKey: DefaultsKey<Bool>
+
+    init(
+        imageTransferPreparation: TerminalImageTransferPreparationService,
+        terminalPressAndHoldSettings: (any SettingsReading)? = nil,
+        terminalPressAndHoldKey: DefaultsKey<Bool> = SettingCatalog().terminal.macosPressAndHold
+    ) {
+        self.imageTransferPreparation = imageTransferPreparation
+        self.terminalPressAndHoldSettings = terminalPressAndHoldSettings
+        self.terminalPressAndHoldKey = terminalPressAndHoldKey
+    }
 
     @MainActor
     func makeSurfaceViews(
@@ -36,7 +48,9 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
         let view = GhosttyNSView(
             frame: initialFrame,
-            imageTransferPreparation: imageTransferPreparation
+            imageTransferPreparation: imageTransferPreparation,
+            terminalPressAndHoldSettings: terminalPressAndHoldSettings,
+            terminalPressAndHoldKey: terminalPressAndHoldKey
         )
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }

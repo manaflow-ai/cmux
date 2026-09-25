@@ -1315,6 +1315,7 @@
           "adaptiveDefaultTheme": "true (varsayılan) olduğunda cmux, bir Ghostty teması veya terminal renkleri yapılandırılmadıkça görünüme uyarlanan varsayılan bir palet sağlar. Yazı tipi ve diğer ayarlar korunur. false olduğunda Ghostty sabit yerleşik paletini kullanır. theme = light:X,dark:Y dahil açıkça belirtilen temalar ve renkler her zaman önceliklidir.",
           "sessionContentMaxWidth": "Terminal ve yerleşik ajan sohbeti içeriği için puan cinsinden isteğe bağlı maksimum genişlik. Bölmenin tamamını kullanmak için false olarak ayarlayın.",
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
+          "macosPressAndHold": "true olduğunda, basılı tutulan harfler terminalde tekrarlanmadan macOS aksan menüsünü açar. Menü açıkken bu harflerin tekrarı devre dışı kalır.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
