@@ -461,7 +461,10 @@ jobs:
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
           echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
           fingerprint="$({
-            echo e2e-compilation-v1
+            # v2: the build no longer uses the compilation cache
+            # (compile-app-host-test-product.sh), so nothing restores the
+            # v1 CAS and an empty directory skips the save below.
+            echo e2e-compilation-v2
             xcodebuild -version
             printf 'workspace=%s\nderived-data=%s\ncas=%s\n' "$workspace_path" "$DERIVED_DATA_PATH" "$CACHE_PATH"
           } | shasum -a 256 | awk '{print $1}')"
@@ -509,8 +512,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
-          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
-          restore-keys: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+          key: e2e-compilation-v2-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+          restore-keys: e2e-compilation-v2-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Discard incomplete E2E compilation cache
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.compilation-cache-restore.outcome == 'failure' }}
@@ -750,7 +753,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
-          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+          key: e2e-compilation-v2-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
 
       - name: Clean owned DerivedData
         if: always()
