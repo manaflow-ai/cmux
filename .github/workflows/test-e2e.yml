@@ -73,8 +73,8 @@ jobs:
     # back. Any error reading the queue stays on 6vcpu, and
     # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the
     # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
-    # (glaeda-*) with a free slot in CI_OWNED_POOL_SLOTS comes first, as for
-    # pull requests. A job an owned Mac leaves queued or refuses is re-run by
+    # (glaeda-*) comes first while its job starts within CI_PR_POOL_QUEUE_ROUNDS
+    # job lengths and no later than on Blacksmith, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -113,6 +113,7 @@ jobs:
           LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
@@ -126,6 +127,7 @@ jobs:
             --overflow "$LARGE_POOL_OVERFLOW" \
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" \
+            --queue-rounds "$POOL_QUEUE_ROUNDS" \
             --owned "$POOL_OWNED" \
             --owned-slots "$OWNED_SLOTS" \
             --pr-xcode-app "$PR_XCODE_APP" \
@@ -138,7 +140,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto}; a re-run takes $retry_label)"
 
-      # ci-owned-pool-rescue.yml, started by owned-pool-watch, watches a run
+      # ci-owned-pool-rescue.yml's sweeper watches a run
       # with this marker and re-runs a job an owned Mac leaves queued or
       # refuses. Fail-safe: without it the run is only not watched.
       - name: Mark a run on a persistent macOS pool
@@ -160,27 +162,16 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
-  owned-pool-watch:
-    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `runner`
-    # job put it on an owned Mac; any other run creates no rescue workflow
-    # run. The only job here with actions: write; it runs no repository code.
-    # Fail-safe: if the dispatch fails the run is only not watched.
-    name: Watch owned pool jobs
-    needs: runner
-    if: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Dispatch the persistent pool rescue
+      # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
+      # it watches by this fixed name, one listing for all of them.
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
 
   filter:
     # Seconds on Linux, and it rejects a malformed selector before either
@@ -524,11 +515,20 @@ jobs:
           mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
           echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
+      # Restore only, from the seed nightly.yml saves after a resolve. This job
+      # resolves in the canonical root, so the workspace copy is still exactly
+      # what was restored: saving it (as actions/cache did) stored a fallback
+      # restore of the previous Package.resolved under the new exact key, and
+      # every later exact hit then failed its offline resolve and fetched every
+      # remote (run 36134675453: 44 s wasted, then 86 s online).
       - name: Cache Swift packages
         id: swift-package-cache
         if: ${{ steps.reuse.outputs.hit != 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
