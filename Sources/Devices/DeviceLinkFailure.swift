@@ -139,7 +139,7 @@ struct DeviceLinkFailure: Equatable, Sendable {
     }
 
     static var needsAuthorizationMessage: String {
-        String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings › Computers to connect.")
+        String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings › Mobile › Computers to connect.")
     }
 
     static var connectionFailedMessage: String {

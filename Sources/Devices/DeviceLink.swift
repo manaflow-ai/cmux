@@ -31,7 +31,7 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
         case .identityUnproven:
             return String(localized: "devices.link.error.identityUnproven", defaultValue: "This Mac did not confirm it is signed into your account.")
         case .identityMismatch:
-            return String(localized: "devices.link.error.identityMismatch", defaultValue: "A different Mac answered at this address. Pair it again from Settings › Computers.")
+            return String(localized: "devices.link.error.identityMismatch", defaultValue: "A different Mac answered at this address. Pair it again from Settings › Mobile › Computers.")
         }
     }
 }
