@@ -104,6 +104,20 @@ APP_HOST_CONSUMER_PATHS = (
 # executed and were accounted for, which is what a consumer edit can break.
 CONSUMER_CANARY_SELECTOR = "cmuxTests/CmuxSSHURLRequestTests"
 
+# What decides which suites share a worker and in what order they run. A new
+# layout can put one suite after another that leaves state behind, and only
+# running every shard shows that: #14393 took the canary, merged, and main
+# failed four suites that only fail in the new order. These run every unit
+# suite, as `unit-ci` does, but not the rest of the full suite.
+# generate_test_timings.py is left out: no CI job runs it, and its layout
+# change arrives as the timings file it writes.
+SHARD_LAYOUT_PATHS = (
+    MACOS_WORKFLOW_PATH,  # only shard_layout_lines() count
+    "scripts/ci/cmux-unit-test-timings.json",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/run-app-host-unit-batches.sh",
+)
+
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
     """True when the diff contains changes compile admission cannot judge.
@@ -361,6 +375,51 @@ def consumer_canary_selectors(
     return []
 
 
+def shard_layout_lines(workflow: str) -> set[int]:
+    """1-based lines of `app-host unit tests` that lay out its shards.
+
+    Its `strategy:` block (the shard matrix) and the job env that places a
+    strict step on a shard or reserves its time there.
+    """
+    job = job_lines(workflow, APP_HOST_CONSUMER_JOB)
+    if job is None:
+        return set()
+    lines = workflow.splitlines()
+    layout: set[int] = set()
+    in_strategy = False
+    for number in job:
+        text = lines[number - 1]
+        if re.match(r"^    [A-Za-z_-]+:", text):
+            in_strategy = text.startswith("    strategy:")
+        if in_strategy or re.match(r"^      CMUX_APP_HOST_[A-Z_]*(SHARD|RESERVED_WALL_SECONDS):", text):
+            layout.add(number)
+    return layout
+
+
+def shard_layout_changed(root: Path, paths: Iterable[str] | None, diff: str | None) -> bool:
+    """True when the diff changes how app-host unit suites are laid out over shards.
+
+    A ci-macos.yml edit counts only when a hunk touches shard_layout_lines(),
+    or when its hunks are missing and the edit cannot be placed. An unreadable
+    file list returns False because the caller already runs every unit suite.
+    """
+    if paths is None:
+        return False
+    stripped = {path.strip() for path in paths}
+    if stripped & set(SHARD_LAYOUT_PATHS[1:]):
+        return True
+    if MACOS_WORKFLOW_PATH not in stripped:
+        return False
+    hunks = changed_lines(diff).get(MACOS_WORKFLOW_PATH) if diff else None
+    if not hunks:
+        return True
+    try:
+        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return True
+    return bool(hunks & shard_layout_lines(workflow))
+
+
 def runs_in_admission(
     root: Path,
     paths: Iterable[str] | None,
@@ -497,11 +556,13 @@ def main(argv: list[str]) -> int:
             app_diff = None
 
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
-    unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
+    layout = shard_layout_changed(args.root, paths, diff)
+    unit = layout or wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
     # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
-    # explicit requests for every suite.
-    asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
+    # explicit requests for every suite, and a shard layout change needs every
+    # suite in its new order.
+    asked_for_every_suite = full or layout or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
     canary = False
     reached: list[str] = []
