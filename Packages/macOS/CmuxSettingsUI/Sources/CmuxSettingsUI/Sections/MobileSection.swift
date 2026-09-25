@@ -483,7 +483,7 @@ public struct MobileSection: View {
             subtitle: browserTunnelAllowOtherHosts.current
                 ? String(
                     localized: "settings.mobile.browserTunnel.allowOtherHosts.subtitleOn",
-                    defaultValue: "The iOS browser can load LAN, VPN, and internet hosts through this Mac. Link-local and cloud metadata addresses stay blocked."
+                    defaultValue: "The iOS browser can load LAN, VPN, and internet hosts through this Mac. Link-local and cloud metadata addresses never go through this Mac; the phone loads them itself."
                 )
                 : String(
                     localized: "settings.mobile.browserTunnel.allowOtherHosts.subtitleOff",

@@ -45,7 +45,7 @@ Controls where the iOS "On iPhone" browser can reach through this Mac. The brows
 - `false` (default): only this Mac's `localhost` (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`) is reachable through the Mac. Other sites load over the phone's own network.
 - `true`: LAN, VPN, and internet hosts are also reachable through this Mac, with names resolved on this Mac.
 
-Link-local addresses, including the cloud metadata service at `169.254.169.254`, are refused either way. Only a phone signed in to the same account and admitted to this Mac can open connections, and they end when that phone disconnects. Turning off the embedded browser by configuration profile turns this off too.
+Link-local addresses, including the cloud metadata service at `169.254.169.254`, never go through this Mac either way; the phone loads those over its own network, as it does any host this Mac refuses. Only a phone signed in to the same account and admitted to this Mac can open connections, and they end when that phone disconnects. Turning off the embedded browser by configuration profile turns this off too.
 
 ## `paneBorderColor` and `activePaneBorderColor`
 

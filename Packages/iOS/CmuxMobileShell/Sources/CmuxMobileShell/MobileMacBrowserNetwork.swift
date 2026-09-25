@@ -5,10 +5,10 @@ import Foundation
 /// The native ("On iPhone") browser's network for one paired Mac, with the
 /// Mac as the exit point.
 ///
-/// - A SOCKS5 proxy on the phone's loopback. Destinations the Mac serves go
-///   to it as tunnel lanes on the admitted connection; the Mac connects and
-///   relays. When the Mac only serves its own loopback (its default policy),
-///   other hosts load directly from the phone.
+/// - A SOCKS5 proxy on the phone's loopback. `MacBrowserRoute` decides
+///   each destination: the Mac's loopback always rides a tunnel lane on the
+///   admitted connection (the Mac connects and relays); any destination the
+///   Mac is not allowed to dial loads directly from the phone instead.
 /// - iOS never proxies `localhost`/`127.0.0.1`/`::1`, so the Mac's listening
 ///   loopback ports are mirrored onto the same ports on the phone, each
 ///   forward also carried by a tunnel lane.
@@ -67,14 +67,12 @@ public final class MobileMacBrowserNetwork {
         self.now = now
     }
 
-    /// Where connections go: through the Mac for its loopback (and for every
-    /// host when the Mac allows other hosts), directly otherwise.
-    var backend: SplitConnectBackend {
-        let policy = exitPolicy
-        return SplitConnectBackend(
-            exit: MacTunnelConnectBackend(openLane: openLane, lanes: lanes),
+    /// Where connections go, per destination (`MacBrowserRoute`).
+    var backend: MacBrowserRouter {
+        MacBrowserRouter(
+            mac: MacTunnelConnectBackend(openLane: openLane, lanes: lanes),
             direct: direct,
-            sendsThroughExit: { host in policy.allowsNonLoopbackHosts || TunnelLoopbackHost.isLoopback(host) }
+            policy: exitPolicy
         )
     }
 
@@ -179,6 +177,49 @@ public final class MobileMacBrowserNetwork {
     private func dropForward(_ port: Int) async {
         guard let forward = forwards.removeValue(forKey: port) else { return }
         await forward.stop()
+    }
+}
+
+/// Where one "On iPhone" connection for a paired Mac goes. The only place
+/// the Mac browser network picks between the Mac and the phone's own
+/// network.
+enum MacBrowserRoute: Equatable, Sendable {
+    /// The Mac's own loopback. Only the Mac can reach it (the phone's
+    /// loopback is a different machine), so there is no fallback.
+    case mac
+    /// The Mac advertises that it may dial other hosts: try it, and if its
+    /// policy refuses this destination (link-local, metadata, a name that
+    /// resolves only to those, or the setting just turned off), load it
+    /// from the phone.
+    case macThenDirect
+    /// The Mac only serves its own loopback: load from the phone.
+    case direct
+
+    static func of(host: String, macAllowsNonLoopbackHosts: Bool) -> MacBrowserRoute {
+        if TunnelLoopbackHost.isLoopback(host) { return .mac }
+        return macAllowsNonLoopbackHosts ? .macThenDirect : .direct
+    }
+}
+
+/// Opens each connection along its `MacBrowserRoute`.
+struct MacBrowserRouter: SocksConnectBackend {
+    let mac: any SocksConnectBackend
+    let direct: any SocksConnectBackend
+    let policy: MacTunnelExitPolicy
+
+    func open(host: String, port: Int) async throws -> any TunnelByteStream {
+        switch MacBrowserRoute.of(host: host, macAllowsNonLoopbackHosts: policy.allowsNonLoopbackHosts) {
+        case .mac:
+            return try await mac.open(host: host, port: port)
+        case .direct:
+            return try await direct.open(host: host, port: port)
+        case .macThenDirect:
+            do {
+                return try await mac.open(host: host, port: port)
+            } catch TunnelOpenError.notAllowed {
+                return try await direct.open(host: host, port: port)
+            }
+        }
     }
 }
 

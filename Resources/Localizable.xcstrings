@@ -331981,55 +331981,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The iOS browser can load LAN, VPN, and internet hosts through this Mac. Link-local and cloud metadata addresses stay blocked."
+            "value": "The iOS browser can load LAN, VPN, and internet hosts through this Mac. Link-local and cloud metadata addresses never go through this Mac; the phone loads them itself."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der iOS-Browser kann LAN-, VPN- und Internet-Hosts über diesen Mac laden. Link-Local- und Cloud-Metadatenadressen bleiben gesperrt."
+            "value": "Der iOS-Browser kann LAN-, VPN- und Internet-Hosts über diesen Mac laden. Link-Local- und Cloud-Metadatenadressen laufen nie über diesen Mac; das iPhone lädt sie selbst."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le navigateur iOS peut charger des hôtes du réseau local, du VPN et d’Internet via ce Mac. Les adresses link-local et de métadonnées cloud restent bloquées."
+            "value": "Le navigateur iOS peut charger des hôtes du réseau local, du VPN et d’Internet via ce Mac. Les adresses link-local et de métadonnées cloud ne passent jamais par ce Mac ; l’iPhone les charge lui-même."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكن لمتصفح iOS تحميل مضيفي الشبكة المحلية وVPN والإنترنت عبر جهاز Mac هذا. تبقى عناوين الارتباط المحلي وعناوين بيانات التعريف السحابية محظورة."
+            "value": "يمكن لمتصفح iOS تحميل مضيفي الشبكة المحلية وVPN والإنترنت عبر جهاز Mac هذا. لا تمر عناوين الارتباط المحلي وعناوين بيانات التعريف السحابية عبر جهاز Mac هذا أبدًا؛ يحمّلها iPhone بنفسه."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El navegador de iOS puede cargar hosts de la red local, VPN e internet a través de este Mac. Las direcciones link-local y de metadatos en la nube siguen bloqueadas."
+            "value": "El navegador de iOS puede cargar hosts de la red local, VPN e internet a través de este Mac. Las direcciones link-local y de metadatos en la nube nunca pasan por este Mac; el iPhone las carga por sí mismo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 瀏覽器可透過這台 Mac 載入區域網路、VPN 與網際網路主機。連結本機位址與雲端中繼資料位址仍會被封鎖。"
+            "value": "iOS 瀏覽器可透過這台 Mac 載入區域網路、VPN 與網際網路主機。連結本機位址與雲端中繼資料位址絕不經過這台 Mac，由 iPhone 自行載入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 浏览器可通过这台 Mac 加载局域网、VPN 和互联网主机。链路本地地址和云元数据地址仍会被阻止。"
+            "value": "iOS 浏览器可通过这台 Mac 加载局域网、VPN 和互联网主机。链路本地地址和云元数据地址绝不经过这台 Mac，由 iPhone 自行加载。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 브라우저가 이 Mac을 통해 LAN, VPN, 인터넷 호스트를 불러올 수 있습니다. 링크 로컬 및 클라우드 메타데이터 주소는 계속 차단됩니다."
+            "value": "iOS 브라우저가 이 Mac을 통해 LAN, VPN, 인터넷 호스트를 불러올 수 있습니다. 링크 로컬 및 클라우드 메타데이터 주소는 이 Mac을 거치지 않으며 iPhone이 직접 불러옵니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOSブラウザはこのMac経由でLAN、VPN、インターネット上のホストを読み込めます。リンクローカルとクラウドメタデータのアドレスは引き続きブロックされます。"
+            "value": "iOSブラウザはこのMac経由でLAN、VPN、インターネット上のホストを読み込めます。リンクローカルとクラウドメタデータのアドレスはこのMacを経由せず、iPhoneが直接読み込みます。"
           }
         }
       }
