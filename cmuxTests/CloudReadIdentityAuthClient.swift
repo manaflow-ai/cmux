@@ -60,7 +60,7 @@ actor CloudReadIdentityAuthClient: AuthClient {
                 for waiter in waiters { waiter.resume() }
             }
         }
-        [CMUXAuthTeam(id: "selected", displayName: "Selected")]
+        return [CMUXAuthTeam(id: "selected", displayName: "Selected")]
     }
     func setSelectedTeam(id: String?) async throws {}
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "fixture" }
