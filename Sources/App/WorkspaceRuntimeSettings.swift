@@ -6,6 +6,18 @@ import CmuxSettings
 enum WorkspaceTitlebarSettings {
     static let showTitlebarKey = "workspaceTitlebarVisible"
     static let defaultShowTitlebar = true
+    /// Resolves the shared compact-header policy without changing pane-tab presentation.
+    static func isHidden(showTitlebar: Bool, presentationMode: String) -> Bool {
+        !showTitlebar || WorkspacePresentationModeSettings.mode(for: presentationMode) == .minimal
+    }
+
+    static func isHidden(defaults: UserDefaults = .standard) -> Bool {
+        isHidden(
+            showTitlebar: isVisible(defaults: defaults),
+            presentationMode: WorkspacePresentationModeSettings.mode(defaults: defaults).rawValue
+        )
+    }
+
     static func isVisible(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showTitlebarKey) == nil {
             return defaultShowTitlebar

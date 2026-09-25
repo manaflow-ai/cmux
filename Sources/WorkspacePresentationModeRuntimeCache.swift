@@ -14,6 +14,9 @@ final class WorkspacePresentationModeRuntimeCache {
     @ObservationIgnored
     var isMinimalMode: Bool
 
+    @ObservationIgnored
+    var hasHiddenTitlebar = WorkspaceTitlebarSettings.isHidden()
+
     var titlebarPadding: CGFloat
     var hostingSafeAreaTop: CGFloat
 

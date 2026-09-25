@@ -17,6 +17,7 @@ General app preferences from Settings > App.
 | `app.newWorkspacePlacement` | `"top"` or `"afterCurrent"` or `"end"` | `"afterCurrent"` | Where new workspaces are inserted in the sidebar. |
 | `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead. |
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
+| `app.workspaceTitlebarVisibility` | boolean | `true` | Show the folder and active workspace title above pane tabs. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
 | `app.focusPaneOnFirstClick` | boolean | `true` | When cmux is inactive, the first click can activate and focus the clicked pane. |
 | `app.preferredEditor` | string | `""` | Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default. |
