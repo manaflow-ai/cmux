@@ -1673,7 +1673,7 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache=""):
+              swift_package="", seed_cache="", tart_fleet="1"):
     calls = []
 
     def measured():
@@ -1687,7 +1687,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
-        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW)
+        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, tart_fleet=tart_fleet)
     return route, len(calls)
 
 
@@ -1762,6 +1762,15 @@ class IOSRouting(unittest.TestCase):
         # MACOS_RUNNER_TESTS naming another pool is honored, as for E2E.
         route, calls = ios_route(sim_fleet(), variable="tart-ios")
         self.assertEqual((route.label, route.persistent, calls), ("tart-ios", False, 0))
+
+    def test_a_tart_request_routes_as_auto_while_the_tart_fleet_is_off(self):
+        # 2026-09-25: every Tart VM was offline and tart-ios jobs queued for hours.
+        auto, _ = ios_route(sim_fleet())
+        for fleet in ("", "0"):
+            route, _ = ios_route(sim_fleet(), requested="tart-ios", tart_fleet=fleet)
+            self.assertEqual((route.label, route.persistent), (auto.label, auto.persistent), fleet)
+        route, calls = ios_route(sim_fleet(), requested="tart-ios", tart_fleet="1")
+        self.assertEqual((route.label, calls), ("tart-ios", 0))
 
     def test_ios_version_upload_release_and_seed_runs_stay_off_the_fleet(self):
         # seed_cache runs in the ci-cache-writer environment with the R2 write keys.
