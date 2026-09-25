@@ -37,7 +37,10 @@ For authorized local native test compilation, the existing wrapper is:
 ./scripts/test-unit.sh -derivedDataPath /tmp/cmux-<tag>-tests build-for-testing
 ```
 
-Use `build-for-testing`, not `build`: the latter skips the test target. This
+Use `build-for-testing`, not `build`: the latter skips the test target. Like
+CI, the wrapper builds `cmuxTests` without a Swift module, so a one-test-file
+edit skips a serial ~26 s emit-module step; set `CMUX_TEST_EMIT_MODULE=1` to
+keep the module, for example to inspect test frames in lldb. This
 still does not execute tests. Execute the focused selection through the supported
 test lane and record how many ran; a zero-test invocation is not verification.
 Keep test DerivedData separate from the app tag's directory: a failed test build
