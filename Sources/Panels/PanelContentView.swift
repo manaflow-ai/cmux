@@ -72,6 +72,10 @@ struct PanelContentView: View {
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
+                // Bonsplit reuses this structural slot when a pane selects a
+                // different terminal, so reset panel-scoped footer state with
+                // the terminal panel's identity.
+                .id(terminalPanel.id)
             } else {
                 TerminalPanelUnavailableView(appearance: appearance)
             }
