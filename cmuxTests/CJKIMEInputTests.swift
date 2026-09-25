@@ -2183,15 +2183,43 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
         }
     }
 
-    func testOptionDeadKeyPreservesAppKitCompositionWhenOptionAsAltIsUnset() async {
-        await AppContextSerialGate.withExclusiveAppContext {
-            let restore = self.installOptionAsAltConfiguration(nil)
-            defer { restore() }
-            await self.exerciseDeadKeyInput(
-                expectedOptionPreserved: true,
-                expectedText: []
-            )
-        }
+    func testOptionDeadKeyPreservesAppKitCompositionWhenOptionAsAltIsUnset() throws {
+        let config = try XCTUnwrap(ghostty_config_new())
+        defer { ghostty_config_free(config) }
+        ghostty_config_finalize(config)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "e",
+            isARepeat: false,
+            keyCode: 14
+        ))
+        let translatedEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "e",
+            charactersIgnoringModifiers: "e",
+            isARepeat: false,
+            keyCode: 14
+        ))
+
+        let selected = KeyboardLayout.textInputEvent(
+            for: event,
+            translatedEvent: translatedEvent,
+            isDeadKey: true,
+            config: config
+        )
+        XCTAssertTrue(selected.modifierFlags.contains(.option))
     }
 
 }

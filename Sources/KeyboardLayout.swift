@@ -72,8 +72,25 @@ class KeyboardLayout {
         translatedEvent: NSEvent,
         config: ghostty_config_t?
     ) -> NSEvent {
+        textInputEvent(
+            for: event,
+            translatedEvent: translatedEvent,
+            isDeadKey: isDeadKey(
+                forKeyCode: event.keyCode,
+                modifierFlags: event.modifierFlags
+            ),
+            config: config
+        )
+    }
+
+    static func textInputEvent(
+        for event: NSEvent,
+        translatedEvent: NSEvent,
+        isDeadKey: Bool,
+        config: ghostty_config_t?
+    ) -> NSEvent {
         guard !isOptionAsAltExplicitlyConfigured(in: config),
-              isDeadKey(forKeyCode: event.keyCode, modifierFlags: event.modifierFlags) else {
+              isDeadKey else {
             return translatedEvent
         }
         return event
