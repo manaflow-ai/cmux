@@ -2,6 +2,8 @@ import CmuxSidebar
 import Foundation
 
 extension Workspace {
+    private static let feedAttentionStatusKeyPrefix = "cmux.feed.attention:"
+
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
         let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
         return statusEntries.values.filter { entry in
@@ -13,6 +15,9 @@ extension Workspace {
         _ entry: SidebarStatusEntry,
         visibleStructuredStatusKeys: Set<String>
     ) -> Bool {
+        if Self.feedAttentionAgentStatusKey(for: entry.key) != nil {
+            return visibleStructuredStatusKeys.contains(entry.key)
+        }
         guard AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(entry.key) else {
             return true
         }
@@ -21,6 +26,14 @@ extension Workspace {
 
     private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
         var statusKeysByPanelId: [UUID: Set<String>] = [:]
+        var feedAttentionKeysByAgentStatusKey: [String: Set<String>] = [:]
+        for key in statusEntries.keys {
+            guard let agentStatusKey = Self.feedAttentionAgentStatusKey(for: key) else {
+                continue
+            }
+            feedAttentionKeysByAgentStatusKey[agentStatusKey, default: []].insert(key)
+        }
+
         for (key, panelId) in agentPIDPanelIdsByKey
         where panels[panelId] != nil {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
@@ -30,9 +43,30 @@ extension Workspace {
             }
             statusKeysByPanelId[panelId, default: []].insert(statusKey)
         }
+
+        // Feed keeps its blocking-decision status in a separate namespace so
+        // it cannot overwrite the agent's own lifecycle/status slot. For the
+        // sidebar, both keys still describe the same agent on this panel and
+        // must compete for one displayed row.
+        for (panelId, lifecycleStates) in agentLifecycleStatesByPanelId
+        where panels[panelId] != nil {
+            for (key, lifecycle) in lifecycleStates {
+                guard lifecycle == .needsInput,
+                      Self.feedAttentionAgentStatusKey(for: key) != nil,
+                      statusEntries[key] != nil else {
+                    continue
+                }
+                statusKeysByPanelId[panelId, default: []].insert(key)
+            }
+        }
+
         var visibleStatusKeys = Set<String>()
         for statusKeys in statusKeysByPanelId.values {
-            let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
+            var candidates = statusKeys
+            for statusKey in statusKeys {
+                candidates.formUnion(feedAttentionKeysByAgentStatusKey[statusKey] ?? [])
+            }
+            let winningEntry = candidates.compactMap { statusEntries[$0] }.max {
                 isSidebarStatusEntryLessCurrent($0, than: $1)
             }
             if let winningEntry {
@@ -50,6 +84,12 @@ extension Workspace {
         }
 
         return visibleStatusKeys
+    }
+
+    private static func feedAttentionAgentStatusKey(for statusKey: String) -> String? {
+        guard statusKey.hasPrefix(feedAttentionStatusKeyPrefix) else { return nil }
+        let agentStatusKey = String(statusKey.dropFirst(feedAttentionStatusKeyPrefix.count))
+        return agentStatusKey.isEmpty ? nil : agentStatusKey
     }
 
     private func isSidebarStatusEntryLessCurrent(
