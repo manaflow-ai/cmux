@@ -107,6 +107,6 @@ final class WorkspaceTitlebarLayoutFixture {
 
     private func marker(identifier: String, in view: NSView) -> NSView? {
         if view.identifier?.rawValue == identifier { return view }
-        return view.subviews.lazy.compactMap { marker(identifier: identifier, in: $0) }.first
+        return view.subviews.lazy.compactMap { self.marker(identifier: identifier, in: $0) }.first
     }
 }
