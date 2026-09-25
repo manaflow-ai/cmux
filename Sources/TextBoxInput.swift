@@ -4364,6 +4364,7 @@ final class TextBoxInputTextView: NSTextView {
         dismissMentionCompletions()
         if let hit = inlineAttachmentHit(for: event) {
             window?.makeFirstResponder(self)
+            clearAdditionalTextBoxSelections()
             if hit.closeRect.contains(hit.point) {
                 deleteAttachment(at: hit.characterIndex)
                 return
@@ -4394,6 +4395,7 @@ final class TextBoxInputTextView: NSTextView {
         isCloseClick: Bool
     ) {
         window?.makeFirstResponder(self)
+        clearAdditionalTextBoxSelections()
         if isCloseClick {
             deleteAttachment(at: characterIndex)
             return
@@ -5325,6 +5327,7 @@ final class TextBoxInputTextView: NSTextView {
             paste(nil)
             return true
         case "d":
+            guard !hasMarkedText() else { return false }
             selectNextOccurrence()
             return true
         default:

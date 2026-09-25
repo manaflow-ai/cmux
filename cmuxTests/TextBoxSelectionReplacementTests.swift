@@ -128,6 +128,35 @@ struct TextBoxSelectionReplacementTests {
         #expect(textView.string == "Xcd")
     }
 
+    @Test("Cmd+D does not interrupt marked text composition")
+    func commandDLeavesMarkedTextForTheInputMethod() throws {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.setMarkedText(
+            "draft",
+            selectedRange: NSRange(location: 5, length: 0),
+            replacementRange: NSRange(location: 0, length: 0)
+        )
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "d",
+                charactersIgnoringModifiers: "d",
+                isARepeat: false,
+                keyCode: UInt16(kVK_ANSI_D)
+            )
+        )
+
+        #expect(!textView.performKeyEquivalent(with: event))
+        #expect(textView.hasMarkedText())
+    }
+
     @Test("deletion preserves the primary and boundary cursors")
     func deletionPreservesPrimaryAndBoundaryCursors() {
         let textView = TextBoxInputTextView(
