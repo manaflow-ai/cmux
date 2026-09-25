@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+@testable import CmuxMobileHost
 import CmuxTerminal
 import CmuxTerminalCore
 import Foundation
