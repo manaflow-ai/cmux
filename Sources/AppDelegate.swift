@@ -2126,6 +2126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+                _ = ParkedWorkspaceStore.shared.flush()
                 self.terminateCleanupPhase = .agentTermination
                 if savedForQuit {
                     await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
@@ -2177,6 +2178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             removeWhenEmpty: false
                         )
                         ClosedItemHistoryStore.shared.flushPendingSaves()
+                        _ = ParkedWorkspaceStore.shared.flush()
                     }
                     self.terminationWatchdog.arm()
                     self.replyToTerminateOnce(true)
