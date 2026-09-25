@@ -67,7 +67,6 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
-    @State private var browserAvailabilityRevision = 0
     @StateObject var focusHistoryMenuInvalidator: FocusHistoryMenuInvalidator
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private var browserToolbarAccessorySpacing: Int {
@@ -411,9 +410,6 @@ struct cmuxApp: App {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
                     browserFocusModeMenuRevision &+= 1
-                }
-                .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.effectiveStateDidChangeNotification)) { _ in
-                    browserAvailabilityRevision &+= 1
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -1199,8 +1195,8 @@ struct cmuxApp: App {
     }
 
     private var browserAvailabilityEnabled: Bool {
-        let _ = browserAvailabilityRevision
-        return BrowserAvailabilitySettings.isEnabled()
+        appDelegate.managedPolicyEnforcementObserver?.isBrowserEnabled
+            ?? BrowserAvailabilitySettings.isEnabled()
     }
 
     private var activeBrowserActionTarget: BrowserActionTarget? {

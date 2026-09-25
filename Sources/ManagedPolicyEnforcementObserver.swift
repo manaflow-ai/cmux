@@ -1,6 +1,7 @@
 import AppKit
 import CmuxSettings
 import Foundation
+import Observation
 
 /// Applies MDM managed-policy transitions to a running app.
 ///
@@ -19,33 +20,34 @@ import Foundation
 /// push against a Mac that stays frontmost is enforced within one interval,
 /// not only at the next activation.
 @MainActor
+@Observable
 final class ManagedPolicyEnforcementObserver {
     /// Upper bound on enforcement latency for out-of-band MDM pushes that
     /// fire no local notification. Justified periodic re-check: there is no
     /// callback API for managed-preference changes, and an enforcement
     /// deadline is the intended behavior (matches MDM check-in semantics).
     static let recheckInterval: Duration = .seconds(60)
-    private let notificationCenter: NotificationCenter
-    private let isBrowserDisabledByPolicy: () -> Bool
-    private let isBrowserEnabled: () -> Bool
-    private let onBrowserAvailabilityChange: (Bool) -> Void
-    private let browserURLAllowlistPolicy: () -> BrowserURLAllowlistPolicy
-    private let isRemoteControlDisabledByPolicy: () -> Bool
-    private let enforceBrowserPolicy: () -> Void
-    private let enforceBrowserURLAllowlistPolicy: () -> Void
-    private let enforceRemoteControlPolicy: () -> Void
-    private var browserPolicyActive: Bool
-    private var lastBrowserEnabled: Bool
-    private var observedBrowserURLAllowlistPolicy: BrowserURLAllowlistPolicy
-    private var remoteControlPolicyActive: Bool
-    private var observationTasks: [Task<Void, Never>] = []
+    private(set) var isBrowserEnabled: Bool
+    @ObservationIgnored private let notificationCenter: NotificationCenter
+    @ObservationIgnored private let isBrowserDisabledByPolicy: () -> Bool
+    @ObservationIgnored private let readBrowserEnabled: () -> Bool
+    @ObservationIgnored private let onBrowserAvailabilityChange: (Bool) -> Void
+    @ObservationIgnored private let browserURLAllowlistPolicy: () -> BrowserURLAllowlistPolicy
+    @ObservationIgnored private let isRemoteControlDisabledByPolicy: () -> Bool
+    @ObservationIgnored private let enforceBrowserPolicy: () -> Void
+    @ObservationIgnored private let enforceBrowserURLAllowlistPolicy: () -> Void
+    @ObservationIgnored private let enforceRemoteControlPolicy: () -> Void
+    @ObservationIgnored private var browserPolicyActive: Bool
+    @ObservationIgnored private var observedBrowserURLAllowlistPolicy: BrowserURLAllowlistPolicy
+    @ObservationIgnored private var remoteControlPolicyActive: Bool
+    @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
 
     init(
         notificationCenter: NotificationCenter = .default,
         isBrowserDisabledByPolicy: @escaping () -> Bool = {
             BrowserAvailabilitySettings.isManagedByPolicy
         },
-        isBrowserEnabled: @escaping () -> Bool = {
+        readBrowserEnabled: @escaping () -> Bool = {
             BrowserAvailabilitySettings.isEnabled()
         },
         onBrowserAvailabilityChange: @escaping (Bool) -> Void = { _ in },
@@ -61,7 +63,7 @@ final class ManagedPolicyEnforcementObserver {
     ) {
         self.notificationCenter = notificationCenter
         self.isBrowserDisabledByPolicy = isBrowserDisabledByPolicy
-        self.isBrowserEnabled = isBrowserEnabled
+        self.readBrowserEnabled = readBrowserEnabled
         self.onBrowserAvailabilityChange = onBrowserAvailabilityChange
         self.browserURLAllowlistPolicy = browserURLAllowlistPolicy
         self.isRemoteControlDisabledByPolicy = isRemoteControlDisabledByPolicy
@@ -69,7 +71,7 @@ final class ManagedPolicyEnforcementObserver {
         self.enforceBrowserURLAllowlistPolicy = enforceBrowserURLAllowlistPolicy
         self.enforceRemoteControlPolicy = enforceRemoteControlPolicy
         browserPolicyActive = isBrowserDisabledByPolicy()
-        lastBrowserEnabled = isBrowserEnabled()
+        isBrowserEnabled = readBrowserEnabled()
         observedBrowserURLAllowlistPolicy = browserURLAllowlistPolicy()
         remoteControlPolicyActive = isRemoteControlDisabledByPolicy()
         observe(UserDefaults.didChangeNotification)
@@ -119,9 +121,9 @@ final class ManagedPolicyEnforcementObserver {
                 object: nil
             )
         }
-        let browserEnabledNow = isBrowserEnabled()
-        if browserEnabledNow != lastBrowserEnabled {
-            lastBrowserEnabled = browserEnabledNow
+        let browserEnabledNow = readBrowserEnabled()
+        if browserEnabledNow != isBrowserEnabled {
+            isBrowserEnabled = browserEnabledNow
             onBrowserAvailabilityChange(browserEnabledNow)
             notificationCenter.post(
                 name: BrowserAvailabilitySettings.effectiveStateDidChangeNotification,

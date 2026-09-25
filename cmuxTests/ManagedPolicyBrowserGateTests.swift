@@ -52,7 +52,7 @@ struct ManagedPolicyBrowserGateTests {
         let observer = ManagedPolicyEnforcementObserver(
             notificationCenter: NotificationCenter(),
             isBrowserDisabledByPolicy: { false },
-            isBrowserEnabled: { isEnabled },
+            readBrowserEnabled: { isEnabled },
             onBrowserAvailabilityChange: { transitions.append($0) },
             browserURLAllowlistPolicy: { BrowserURLAllowlistPolicy(defaults: .standard) },
             isRemoteControlDisabledByPolicy: { false },
@@ -61,14 +61,17 @@ struct ManagedPolicyBrowserGateTests {
             enforceRemoteControlPolicy: {}
         )
 
+        #expect(observer.isBrowserEnabled)
         observer.reevaluate()
         #expect(transitions.isEmpty)
 
         isEnabled = false
         observer.reevaluate()
+        #expect(!observer.isBrowserEnabled)
         #expect(transitions == [false])
 
         observer.reevaluate()
+        #expect(!observer.isBrowserEnabled)
         #expect(transitions == [false])
     }
 
