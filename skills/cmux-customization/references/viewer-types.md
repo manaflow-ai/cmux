@@ -17,6 +17,13 @@ does not appear in the schema is not a license to add a guessed
 | `html` | Local HTML content and browser chrome | Treat `cmux open` for `.html` as an embedded browser surface; use applicable `browser.*` presentation settings (such as theme and default zoom) and edit the HTML/CSS for page content. Local HTML opening bypasses host routing lists. | `cmux-settings validate` for JSON changes; `cmux reload-config` |
 | `notes` | Project-scoped notes rendering | No `notes.*` or `templates.notes` setting is shipped yet. If the notes surface is Markdown, use the `markdown.*` defaults; otherwise wait for its schema section | Do not write an unknown key; re-check the schema when notes customization lands |
 
+The current schema intentionally exposes only the knobs listed above. Markdown
+theme, line-height, syntax-highlighter, anchor/image behavior, and Vim
+keybindings, plus file-preview backend selection, fallback policy, size limits,
+and video autoplay, do not have supported cmux settings yet. Explain that
+boundary and point to the schema or the templates follow-up instead of
+inventing a path.
+
 ## Safe workflow
 
 1. Map the user's words to one row. If the request names a knob that is not in
