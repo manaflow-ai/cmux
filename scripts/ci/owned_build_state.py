@@ -357,8 +357,14 @@ def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
 
 
 def rebuilds_app(paths) -> bool:
-    """Whether these changed files recompile the whole `cmux` module."""
-    return any(path.startswith(PACKAGE_SOURCES) and path.endswith(".swift") for path in paths)
+    """Whether these changed files recompile the whole `cmux` module.
+
+    A package's Tests/ are not built by the app's schemes, so they do not count.
+    """
+    return any(
+        path.startswith(PACKAGE_SOURCES) and path.endswith(".swift") and "/Tests/" not in path
+        for path in paths
+    )
 
 
 def cost(paths: set[str]) -> tuple[bool, int]:
@@ -468,13 +474,19 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
         return result
     if kept_cost is not None and kept_cost[1] == 0:
         result["reason"] = "the kept DerivedData has no changed inputs"
-    elif distance <= max_distance:
+    elif distance <= max_distance and not (
+        kept_cost is not None and not kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is not False
+    ):
+        # A near seed that would recompile the app never replaces a kept build
+        # that would not; unknown counts as would.
         result.update(downloaded, reason=f"seed {distance} commits behind, within {max_distance}"
                       + ("" if kept_cost is not None else "; kept DerivedData has no input record"))
     elif kept_cost is not None and kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is False:
         # A download (about 250 s on a mini) costs less than recompiling the
         # whole app (365 to 1,053 s on an owned mini on 2026-09-25).
         result.update(downloaded, reason=f"the kept DerivedData recompiles the app; the seed {distance} commits behind does not")
+    elif distance <= max_distance:
+        result.setdefault("reason", f"the seed {distance} commits behind may recompile the app; the kept DerivedData does not")
     else:
         result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
     return result
