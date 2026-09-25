@@ -2469,6 +2469,70 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(charged({"display_title": "iOS screenshots"}), 2)
         self.assertEqual(charged({}), 2)
 
+    def test_auto_runs_the_picker_sent_to_blacksmith_hold_no_simulators(self):
+        # 2026-09-25: every in-flight `auto` run was charged two simulators wherever it went, so the
+        # picker read "-5 of 8 free" with nine simulator minis idle and kept sending runs to Blacksmith.
+        title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
+
+        def run(run_id, minutes, attempt=1, display=title):
+            return {"id": run_id, "run_attempt": attempt, "display_title": display,
+                    "created_at": pool.iso(NOW - dt.timedelta(minutes=minutes))}
+
+        placed = ios_pool.Placements(frozenset({1}))
+        charged = ios_pool.charged_sim_jobs
+        self.assertEqual(charged(run(1, 30), placed, NOW), 2)  # took the fleet: its marker is listed
+        self.assertEqual(charged(run(2, 30), placed, NOW), 0)  # picked long ago, no marker: Blacksmith
+        self.assertEqual(charged(run(3, 1), placed, NOW), 2)  # may still be picking
+        self.assertEqual(charged(run(4, 30, attempt=2), placed, NOW), 0)  # a re-run takes the retry label
+        self.assertEqual(charged(run(5, 30), None, NOW), 2)  # markers unread: in full
+        forced = title.replace("on auto", "on owned")
+        self.assertEqual(charged(run(6, 30, display=forced), placed, NOW), 2)
+        self.assertEqual(charged(run(7, 30, display="iOS screenshots"), placed, NOW), 2)
+        # A full page reaches back only to its oldest marker; an older run may be on the next page.
+        partial = ios_pool.Placements(frozenset({1}), since=pool.iso(NOW - dt.timedelta(minutes=20)))
+        self.assertEqual(charged(run(2, 30), partial, NOW), 2)
+        self.assertEqual(charged(run(8, 10), partial, NOW), 0)
+
+    def test_owned_placements_reads_one_page_of_watch_markers(self):
+        def marker(run_id, minutes):
+            return {"name": "owned-pool-watch", "workflow_run": {"id": run_id},
+                    "created_at": pool.iso(NOW - dt.timedelta(minutes=minutes))}
+
+        class Client:
+            def __init__(self, artifacts):
+                self.artifacts, self.paths = artifacts, []
+
+            def get(self, path):
+                self.paths.append(path)
+                return {"artifacts": self.artifacts}
+
+        client = Client([marker(1, 3), marker(2, 9), {"name": "owned-pool-watch"}])
+        placed = ios_pool.owned_placements(client)
+        self.assertEqual(placed, ios_pool.Placements(frozenset({1, 2})))
+        self.assertEqual(client.paths, ["/actions/artifacts?name=owned-pool-watch&per_page=100"])
+        full = ios_pool.owned_placements(Client([marker(n, n) for n in range(1, pool.PAGE_SIZE + 1)]))
+        self.assertEqual(full.since, pool.iso(NOW - dt.timedelta(minutes=pool.PAGE_SIZE)))
+
+        class Broken:
+            def get(self, path):
+                raise RuntimeError("GET /actions/artifacts failed (500)")
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            self.assertIsNone(ios_pool.owned_placements(Broken()))
+
+    def test_the_snapshot_path_charges_only_runs_on_the_fleet(self):
+        title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
+        old = pool.iso(NOW - dt.timedelta(minutes=20))
+
+        class Client:
+            def runs_since(self, workflow, since):
+                return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
+                                          "display_title": title, "created_at": old} for n in (1, 2, 3)],
+                        "ios-screenshots.yml": []}[workflow]
+        since = "2026-09-24T10:00:00Z"
+        self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
+        placed = ios_pool.Placements(frozenset({2}))
+        self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None, placements=placed, now=NOW), 2)
+
     def test_the_simulator_count_is_a_capability_not_a_pool(self):
         raw = json.dumps(IOS_SLOTS)
         self.assertEqual(pool.slot_problems(raw, PR_XCODE), [])
