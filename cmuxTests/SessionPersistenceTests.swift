@@ -1351,10 +1351,13 @@ final class SessionPersistenceTests: XCTestCase {
                 "gpt-5.4",
             ]
         )
+        // Auto-resume requires evidence that the saved agent was running.
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex
         )
+        XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, true)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
@@ -1388,10 +1391,13 @@ final class SessionPersistenceTests: XCTestCase {
             ],
             environment: [:]
         )
+        // Auto-resume requires evidence that the saved agent was running.
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex
         )
+        XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, true)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
