@@ -126,9 +126,18 @@ runners' count beside the pool's (`{"std": 40, "root-std": 10}`). A pool with
 a root count sends its placed root jobs (ROOT_JOBS) to the `root_runner`
 output, and place() puts no more of them there than its root runners have
 room for, by the same expected wait; a
-pool without one keeps the pool label for every job. The side lanes keep the
-pool label either way. A root job also holds one of the pool's machines, so
-it counts against both.
+pool without one keeps the pool label for every job. A root job also holds
+one of the pool's machines, so it counts against both.
+
+Side lanes (the Claude wrapper and remote daemon lanes, light jobs that never
+touch a canonical root) take the pool's side label,
+`glaeda-side-<class>-xcode-<version>` (side_label()), the other runners of
+each mini, whenever the pool has a root count and more machines than root
+runners (the `side_runner` output). On the pool label a side lane landed on a
+root runner about half the time (11 of 21 on 2026-09-25, 06:30 to 09:00Z,
+3,300 s of root-runner time) and kept a compile or product consumer off that
+mini's root while it ran; on cmux7s and cmux9s, with one root, it blocked the
+mini's only compile. A pool without a root count keeps the pool label.
 
 Warm affinity: an owned Mac keeps compile admission's DerivedData
 (owned_build_state.py), and ci-owned-warm-labels.yml labels its root runner
@@ -244,8 +253,8 @@ DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 RUN_CLASSES = ("std", "light")
 # `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
 # `glaeda-side-...` are the other runners: the light side-lane workflows take it
-# (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS). No picker
-# routes to it, but its jobs hold its pool's machines.
+# (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
+# this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
 OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
@@ -387,6 +396,27 @@ def root_label(label: str) -> str:
     return ROOT_PREFIX + label.removeprefix("glaeda-")
 
 
+def side_label(label: str) -> str:
+    """The side runners' label for an owned pool label, or "" for any other label."""
+    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX)):
+        return ""
+    return SIDE_PREFIX + label.removeprefix("glaeda-")
+
+
+def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
+    """The label a pick's side lanes take: the pool's side label, or "" to keep the pool label.
+
+    Only on a pool with a root count (the root and side runners are split),
+    and only while CI_OWNED_POOL_SLOTS leaves it machines beyond its root
+    runners, so a side lane never waits on a label no runner carries.
+    """
+    if not choice.root_runner or not persistent(choice.runner):
+        return ""
+    if owned_slots.get(choice.runner, 0) <= owned_slots.get(choice.root_runner, 0):
+        return ""
+    return side_label(choice.runner)
+
+
 def pool_label(label: str) -> str:
     """The owned pool a root or side label's runners belong to; any other label unchanged."""
     for prefix in (ROOT_PREFIX, SIDE_PREFIX):
@@ -515,6 +545,8 @@ LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper")
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
 ROOT_JOBS = "admission, shards, lag, cli-product"
+# The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
+SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon")
 
 
 def gui_job(key: str) -> bool:
@@ -704,8 +736,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
         elif label.startswith(("side-", SIDE_PREFIX)):
-            # No picker routes to side runners (vars.CI_SIDE_LANE_RUNNER does), so a count is a mistake.
-            problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which take no picked run")
+            # Side runners are a pool's machines less its root runners (side_runner()), so a count is a mistake.
+            problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which are counted "
+                            "as the pool's machines less its root runners")
         elif label in CAPABILITY_LABELS:
             continue
         elif persistent(label):
@@ -1565,7 +1598,7 @@ class GitHub:
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime,
             owned_slots: Mapping[str, int] | None = None, problems: Sequence[str] = (),
-            owned_jobs: Sequence[str] = (), admission_runner: str = "") -> str:
+            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "") -> str:
     runner = choice.runner or "each job's default (MACOS_RUNNER_PR or its fallback)"
     lines = ["### macOS pool for this run", "", f"- Pool: `{runner}`", f"- Why: {choice.reason}"]
     if choice.xcode_app:
@@ -1575,6 +1608,8 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
                      f"and a re-run of failed jobs, goes to: `{choice.retry_runner}`")
     if choice.root_runner:
         lines.append(f"- Root jobs among them ({ROOT_JOBS}) take `{choice.root_runner}`")
+    if side:
+        lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`")
     if admission_runner:
         labels = " + ".join(f"`{label}`" for label in json.loads(admission_runner))
         lines.append(f"- Compile admission takes {labels}: an idle root runner kept a build of this run's merge base")
@@ -1704,8 +1739,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if (env.get("WARM_LABELS") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
             and live_runners is not None):
         admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"))
-    text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS"), pr_xcode_app), problems=problems,
-                   owned_jobs=owned_jobs, admission_runner=admission_runner)
+    owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
+    side = side_runner(choice, owned_slots)
+    text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
+                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
@@ -1722,6 +1759,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # What the root jobs in owned_jobs take instead of
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"root_runner={choice.root_runner}\n"
+                         # What the side lanes in owned_jobs take instead of
+                         # the pool label, on attempt 1 and on that attempt 2.
+                         f"side_runner={side}\n"
                          # JSON labels for admission's attempt 1: the root label
                          # and the warm label of this run's merge base, or "".
                          f"admission_runner={admission_runner}\n"

@@ -1299,13 +1299,16 @@ ROOT_PICKED = "steps.macos-pool.outputs.root_runner"
 ROOT_OUTPUT = "needs.changes.outputs.macos_pr_root_runner"
 ADMISSION_PICKED = "steps.macos-pool.outputs.admission_runner"
 ADMISSION_OUTPUT = "needs.changes.outputs.macos_pr_admission_runner"
+SIDE_PICKED = "steps.macos-pool.outputs.side_runner"
+SIDE_OUTPUT = "needs.changes.outputs.macos_pr_side_runner"
 PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
 # Each input the picked pools reach a reusable workflow through, and its value.
 INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
           "pr_refused_retry_runner": "${{ " + REFUSED_OUTPUT + " }}",
           "pr_shard_runner": "${{ " + SHARD_OUTPUT + " }}",
           "pr_root_runner": "${{ " + ROOT_OUTPUT + " }}",
-          "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}"}
+          "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}",
+          "pr_side_runner": "${{ " + SIDE_OUTPUT + " }}"}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
           "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
 # The runs-on branches that may read the picked pool, each behind its
@@ -1316,9 +1319,13 @@ GUARDED = (
     " || 'blacksmith-6vcpu-macos-15')",
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
     " || 'blacksmith-6vcpu-macos-15')",
+    # A side lane: the side label of the pool first, when the picker named one.
+    "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner"
+    " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
     # Attempt 2 of a refused owned job: the owned pool once more.
     "github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs,"
-    " ' claude-wrapper ') && needs.changes.outputs.macos_pr_refused_retry_runner",
+    " ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
+    " || needs.changes.outputs.macos_pr_refused_retry_runner)",
     # A re-run of failed jobs on an owned-pool run, or a job the picker did not
     # place on the owned pool: the Blacksmith pool the picker named for it.
     "github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
@@ -1370,19 +1377,25 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_admission_runner")
                 and value == "${{ " + ADMISSION_PICKED + " }}"):
             violations.append(f"{where}: reads the picker's admission runner outside macos_pr_admission_runner")
+        if SIDE_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_side_runner")
+                and value == "${{ " + SIDE_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's side runner outside macos_pr_side_runner")
         if len(path) >= 3 and path[-2] == "with" and path[-1] in INPUTS:
             if value != INPUTS[path[-1]] or file.name != "ci.yml":
                 violations.append(f"{where}: {path[-1]} must be exactly {INPUTS[path[-1]]}")
             continue
         if OUTPUT not in value and RETRY_OUTPUT not in value and REFUSED_OUTPUT not in value \
-                and SHARD_OUTPUT not in value and ROOT_OUTPUT not in value and ADMISSION_OUTPUT not in value:
+                and SHARD_OUTPUT not in value and ROOT_OUTPUT not in value and ADMISSION_OUTPUT not in value \
+                and SIDE_OUTPUT not in value:
             continue
         if path[-1:] == ("runs-on",):
             rest = value
             for branch in GUARDED:
                 rest = rest.replace(branch, "")
             if OUTPUT not in rest and RETRY_OUTPUT not in rest and REFUSED_OUTPUT not in rest \
-                    and SHARD_OUTPUT not in rest and ROOT_OUTPUT not in rest and ADMISSION_OUTPUT not in rest:
+                    and SHARD_OUTPUT not in rest and ROOT_OUTPUT not in rest and ADMISSION_OUTPUT not in rest \
+                    and SIDE_OUTPUT not in rest:
                 continue
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
