@@ -31,6 +31,15 @@ struct SidebarAccessibilityTreeTests {
 
     @Test
     func mountedSidebarAndProjectPanelAccessibilityWalkIsAcyclic() async throws {
+        // AppKit scroll views omit their document's accessibility children
+        // until an assistive client enables the application's AX hierarchy.
+        // This in-process test must establish and restore that client state.
+        let enhancedUI = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        try #require(NSApp.accessibilityIsAttributeSettable(enhancedUI))
+        let previousEnhancedUI = try #require(NSApp.accessibilityAttributeValue(enhancedUI) as? Bool)
+        NSApp.accessibilitySetValue(true, forAttribute: enhancedUI)
+        defer { NSApp.accessibilitySetValue(previousEnhancedUI, forAttribute: enhancedUI) }
+
         let url = try #require(URL(string: "https://example.com/context"))
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "Read \(url.absoluteString)"
