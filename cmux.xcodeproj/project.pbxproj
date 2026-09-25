@@ -12816,6 +12816,7 @@
 				C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
+				C11757000000000000000064 /* CLIHooksSetupSurfaceTests.swift in Sources */,
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
 				C11757000000000000000032 /* CLISSHPTYResizeInputTests.swift in Sources */,
@@ -12838,7 +12839,6 @@
 				C1175700000000000000004C /* CodexTeamsSocketFixture.swift in Sources */,
 				C1175700000000000000003D /* CodexTerminalErrorNotificationTests.swift in Sources */,
 				C1175700000000000000003E /* KimiHookConfigLocationTests.swift in Sources */,
-				C11757000000000000000064 /* CLIHooksSetupSurfaceTests.swift in Sources */,
 				C11757000000000000000063 /* ProcessExitWait.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

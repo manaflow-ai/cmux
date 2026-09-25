@@ -47,6 +47,15 @@ public protocol SettingsHostActions: AnyObject {
     @discardableResult
     func reloadAutomationRules() -> Bool
 
+    /// Opens a focused terminal pane that installs cmux hooks for detected
+    /// agent CLIs. The command is the same canonical no-socket CLI path users
+    /// can run from any terminal.
+    func openAgentHooksSetup()
+
+    /// Opens a focused terminal pane showing the current hook installation
+    /// status for every supported agent.
+    func openAgentHooksStatus()
+
     /// Names of custom sidebar files currently discovered by the host.
     func customSidebarNames() -> [String]
 
@@ -439,6 +448,10 @@ public extension SettingsHostActions {
     /// Default failure for hosts without a live automation engine.
     @discardableResult
     func reloadAutomationRules() -> Bool { false }
+
+    /// Default no-op for package-only settings hosts without a terminal host.
+    func openAgentHooksSetup() {}
+    func openAgentHooksStatus() {}
 
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
