@@ -640,16 +640,4 @@ final class AgentChatTranscriptService {
         proseWakeDriver.refreshDemand()
     }
 
-    deinit {
-        guard !didShutdown else { return }
-        // ARC may run deinit on the executor that releases the final reference.
-        // This boundary hop owns both dependencies until synchronous teardown
-        // finishes; it must outlive self and has no ongoing work to cancel.
-        let wakeDriver = proseWakeDriver
-        let streamer = proseStreamer
-        Task { @MainActor in
-            wakeDriver?.stop()
-            streamer?.stopAll()
-        }
-    }
 }

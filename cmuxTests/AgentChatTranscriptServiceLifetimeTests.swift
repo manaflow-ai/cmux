@@ -14,7 +14,7 @@ import Testing
 
 @Suite
 struct AgentChatTranscriptServiceLifetimeTests {
-    @Test("transcript service tears down when its final owner releases off the main actor")
+    @Test("transcript service shutdown completes before off-main final release")
     func finalReleaseFromDetachedTask() async throws {
         let events = AsyncStream<AgentChatTranscriptNotificationRecorder.Event>.makeStream()
         defer { events.continuation.finish() }
