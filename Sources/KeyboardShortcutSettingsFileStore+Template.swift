@@ -193,6 +193,7 @@ extension CmuxSettingsFileStore {
                     "claudeBinaryPath": "",
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
+                    "hookTimeoutMs": AutomationCatalogSection().hookTimeoutMilliseconds.defaultValue,
                     "ampIntegration": IntegrationsCatalogSection().ampHooksEnabled.defaultValue,
                     "cursorIntegration": IntegrationsCatalogSection().cursorHooksEnabled.defaultValue,
                     "geminiIntegration": IntegrationsCatalogSection().geminiHooksEnabled.defaultValue,

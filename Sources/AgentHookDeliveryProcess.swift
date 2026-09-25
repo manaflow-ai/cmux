@@ -1,4 +1,5 @@
 import Darwin
+import CmuxSettings
 import Foundation
 import OSLog
 
@@ -11,35 +12,45 @@ nonisolated private let agentHookDeliveryProcessLogger = Logger(
 struct AgentHookDeliveryProcess: Sendable {
     private enum Completion: Sendable {
         case exited(Int32)
-        case deadline
+        case deadline(elapsed: Duration)
         case cancelled
         case inputFailure(String)
         case launchFailure(String)
     }
 
     private let executableURLProvider: @Sendable () -> URL?
-    private let processTimeout: Duration
-    private let deliveryTimeout: Duration
+    private let processTimeoutOverride: Duration?
+    private let deliveryTimeoutOverride: Duration?
     private let terminationGrace: Duration
+    private nonisolated(unsafe) let userDefaults: UserDefaults
+    private let logMessage: @Sendable (String) -> Void
+
+    private static let deliveryDeadlineGrace: Duration = .seconds(1)
 
     init(
         executableURLProvider: @escaping @Sendable () -> URL? = {
             Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
         },
-        processTimeout: Duration = .seconds(15),
-        deliveryTimeout: Duration = .seconds(16),
-        terminationGrace: Duration = .milliseconds(250)
+        processTimeout: Duration? = nil,
+        deliveryTimeout: Duration? = nil,
+        terminationGrace: Duration = .milliseconds(250),
+        userDefaults: UserDefaults = .standard,
+        logger: @escaping @Sendable (String) -> Void = { message in
+            agentHookDeliveryProcessLogger.error("\(message, privacy: .public)")
+        }
     ) {
         self.executableURLProvider = executableURLProvider
-        self.processTimeout = processTimeout
-        self.deliveryTimeout = deliveryTimeout
+        self.processTimeoutOverride = processTimeout
+        self.deliveryTimeoutOverride = deliveryTimeout
         self.terminationGrace = terminationGrace
+        self.userDefaults = userDefaults
+        self.logMessage = logger
     }
 
     func deliver(_ event: AgentHookDeliveryEvent) async {
         guard let executableURL = executableURLProvider(),
               FileManager.default.isExecutableFile(atPath: executableURL.path) else {
-            agentHookDeliveryProcessLogger.error("Bundled hook-delivery CLI is unavailable")
+            logMessage("Bundled hook-delivery CLI is unavailable")
             return
         }
 
@@ -51,13 +62,18 @@ struct AgentHookDeliveryProcess: Sendable {
         // The complete retry sequence stays below the app's 18-second lane
         // barrier. The deadline begins at queue admission so same-lane backlog
         // consumes one shared window instead of multiplying this timeout.
+        let processTimeout = configuredProcessTimeout()
+        let deliveryTimeout = deliveryTimeoutOverride ?? processTimeout + Self.deliveryDeadlineGrace
         let deliveryDeadline = (
             event.queueAdmissionInstant ?? clock.now
         ).advanced(by: deliveryTimeout)
         for attempt in 1...maximumAttempts {
             let remainingDeliveryTime = clock.now.duration(to: deliveryDeadline)
             guard remainingDeliveryTime > terminationGrace else {
-                logFailure(.deadline)
+                logDeadline(
+                    event: event,
+                    elapsed: (event.queueAdmissionInstant ?? clock.now).duration(to: clock.now)
+                )
                 return
             }
             let completion = await runDeliveryAttempt(
@@ -72,6 +88,12 @@ struct AgentHookDeliveryProcess: Sendable {
             case .exited(0):
                 return
             case .cancelled:
+                return
+            case .deadline(let elapsed):
+                logDeadline(event: event, elapsed: elapsed)
+                if attempt < maximumAttempts {
+                    continue
+                }
                 return
             default:
                 if attempt < maximumAttempts {
@@ -125,6 +147,7 @@ struct AgentHookDeliveryProcess: Sendable {
                 processID: processID
             )
 
+            let processStart = ContinuousClock().now
             let completion = await awaitCompletion(
                 terminations: terminations,
                 processTimeout: processTimeout
@@ -137,6 +160,7 @@ struct AgentHookDeliveryProcess: Sendable {
                     signal: SIGKILL
                 )
             case .deadline:
+                let elapsed = processStart.duration(to: ContinuousClock().now)
                 Self.terminateProcessGroup(
                     processID: processID,
                     processGroupID: processGroupID,
@@ -150,6 +174,8 @@ struct AgentHookDeliveryProcess: Sendable {
                     processGroupID: processGroupID,
                     signal: SIGKILL
                 )
+                process.terminationHandler = nil
+                return .deadline(elapsed: elapsed)
             case .exited, .inputFailure, .launchFailure:
                 break
             }
@@ -163,21 +189,43 @@ struct AgentHookDeliveryProcess: Sendable {
 
     private func logFailure(_ completion: Completion) {
         switch completion {
-        case .exited(0), .cancelled:
+        case .exited(0), .cancelled, .deadline:
             return
         case .exited(let status):
-            agentHookDeliveryProcessLogger.error("Hook delivery exited with status \(status)")
-        case .deadline:
-            agentHookDeliveryProcessLogger.error("Hook delivery exceeded its process deadline")
+            logMessage("Hook delivery exited with status \(status)")
         case .inputFailure(let message):
-            agentHookDeliveryProcessLogger.error(
-                "Could not stage hook input: \(message, privacy: .private)"
-            )
+            logMessage("Could not stage hook input: \(message)")
         case .launchFailure(let message):
-            agentHookDeliveryProcessLogger.error(
-                "Could not launch hook delivery: \(message, privacy: .private)"
-            )
+            logMessage("Could not launch hook delivery: \(message)")
         }
+    }
+
+    private func logDeadline(event: AgentHookDeliveryEvent, elapsed: Duration) {
+        let components = elapsed.components
+        let elapsedMilliseconds = max(
+            0,
+            components.seconds * 1_000
+                + components.attoseconds / 1_000_000_000_000_000
+        )
+        logMessage(
+            "Hook delivery timed out agent=\(event.agent) subcommand=\(event.subcommand) elapsed_ms=\(elapsedMilliseconds)"
+        )
+    }
+
+    private func configuredProcessTimeout() -> Duration {
+        if let processTimeoutOverride {
+            return processTimeoutOverride
+        }
+        let setting = SettingCatalog().automation.hookTimeoutMilliseconds
+        let requestedMilliseconds = UserDefaultsSettingsClient(defaults: userDefaults).value(for: setting)
+        let milliseconds = min(
+            max(
+                requestedMilliseconds,
+                AutomationCatalogSection.hookTimeoutMillisecondsRange.lowerBound
+            ),
+            AutomationCatalogSection.hookTimeoutMillisecondsRange.upperBound
+        )
+        return .milliseconds(milliseconds)
     }
 
     func deliveryEnvironment(
@@ -289,7 +337,7 @@ struct AgentHookDeliveryProcess: Sendable {
                 } catch {
                     return .cancelled
                 }
-                return .deadline
+                return .deadline(elapsed: .zero)
             }
             let completion = await group.next() ?? .cancelled
             group.cancelAll()

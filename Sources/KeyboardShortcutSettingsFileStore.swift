@@ -822,6 +822,12 @@ final class CmuxSettingsFileStore {
         }
         applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if let value = jsonInt(section["hookTimeoutMs"]),
+           AutomationCatalogSection.hookTimeoutMillisecondsRange.contains(value) {
+            snapshot.managedUserDefaults[AutomationCatalogSection().hookTimeoutMilliseconds.userDefaultsKey] = .int(value)
+        } else if section.keys.contains("hookTimeoutMs") {
+            logInvalid("automation.hookTimeoutMs", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["kiroNotificationLevel"]) {
             if KiroNotificationLevel(rawValue: raw) != nil {
                 snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)

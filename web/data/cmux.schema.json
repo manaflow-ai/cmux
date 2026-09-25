@@ -1442,6 +1442,14 @@
           "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
           "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
         },
+        "hookTimeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 120000,
+          "default": 15000,
+          "descriptionKey": "schemaDescriptions.automation.hookTimeoutMs",
+          "description": "Maximum time in milliseconds for an injected agent hook to run before cmux terminates it."
+        },
         "ampIntegration": {
           "type": "boolean",
           "default": true,

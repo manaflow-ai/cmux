@@ -2,6 +2,10 @@ import Foundation
 
 /// Settings under the dotted-id prefix `automation.*`.
 public struct AutomationCatalogSection: SettingCatalogSection {
+    /// The default execution deadline for an injected agent hook.
+    public static let hookTimeoutMillisecondsDefault = 15_000
+    public static let hookTimeoutMillisecondsRange = 1_000...120_000
+
     public let socketControlMode = DefaultsKey<SocketControlMode>(
         id: "automation.socketControlMode",
         defaultValue: .cmuxOnly,
@@ -56,6 +60,15 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         id: "automation.suppressSubagentNotifications",
         defaultValue: true,
         userDefaultsKey: "suppressSubagentNotifications"
+    )
+
+    /// Maximum time an injected agent hook may run before cmux terminates it.
+    /// The value is read for each delivery so a watched cmux.json reload takes
+    /// effect without restarting the app.
+    public let hookTimeoutMilliseconds = DefaultsKey<Int>(
+        id: "automation.hookTimeoutMs",
+        defaultValue: AutomationCatalogSection.hookTimeoutMillisecondsDefault,
+        userDefaultsKey: "agentHookTimeoutMs"
     )
 
     // Several agent-integration toggles are intentionally exposed under both
