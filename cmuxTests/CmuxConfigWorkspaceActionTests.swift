@@ -82,6 +82,59 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(workspace.focusedPanelId == focusedPanel)
     }
 
+    @MainActor
+    @Test func backgroundCommandUsesRequestedTerminalDirectoryBeforePwdReport() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-cwd-\(UUID().uuidString)", isDirectory: true)
+        let fallbackDirectory = root.appendingPathComponent("fallback", isDirectory: true)
+        let requestedDirectory = root.appendingPathComponent("requested", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallbackDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let marker = requestedDirectory.appendingPathComponent("result")
+        let config = try decode("""
+        {
+          "actions": {
+            "quiet": {
+              "type": "command", "target": "background",
+              "command": "printf '%s' \\\"$PWD\\\" > result"
+            }
+          }
+        }
+        """)
+        let definition = try #require(config.actions["quiet"])
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "quiet", definition: definition, sourcePath: nil
+        ))
+        let manager = TabManager(initialWorkingDirectory: fallbackDirectory.path)
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminal = try #require(workspace.newTerminalSurface(
+            inPane: pane,
+            focus: true,
+            workingDirectory: requestedDirectory.path,
+            autoRefreshMetadata: false
+        ))
+        workspace.panelDirectories.removeValue(forKey: terminal.id)
+        workspace.currentDirectory = fallbackDirectory.path
+
+        #expect(CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: fallbackDirectory.path,
+            globalConfigPath: root.appendingPathComponent("cmux.json").path
+        ))
+
+        for _ in 0..<250 {
+            if (try? String(contentsOf: marker, encoding: .utf8)) == requestedDirectory.path { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(try String(contentsOf: marker, encoding: .utf8) == requestedDirectory.path)
+    }
+
     private func decode(_ json: String) throws -> CmuxConfigFile {
         try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
     }

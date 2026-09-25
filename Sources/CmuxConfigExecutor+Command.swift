@@ -31,7 +31,14 @@ extension CmuxConfigExecutor {
             ? workspace.focusedTerminalInputTarget()?.panel
             : panelID.flatMap { workspace.terminalPanel(for: $0) }
         if target == .currentTerminal, terminal == nil { return false }
-        let directory = panelID.flatMap { workspace.panelDirectories[$0] } ?? baseCwd
+        let directory = [
+            panelID.flatMap { workspace.panelDirectories[$0] },
+            panelID.flatMap { workspace.terminalPanel(for: $0)?.requestedWorkingDirectory },
+            baseCwd,
+        ].compactMap { candidate in
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }.first ?? FileManager.default.homeDirectoryForCurrentUser.path
         let environment = target == .background
             ? backgroundCommandEnvironment(workspace: workspace, panelID: panelID)
             : [:]
