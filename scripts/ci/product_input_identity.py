@@ -85,6 +85,7 @@ NON_PRODUCT_TOOLING_PREFIXES = (
 )
 NON_PRODUCT_TOOLING = frozenset({
     "scripts/benchmark-dev-fleet-warm-slots.py",
+    "scripts/check-pbxproj-group-membership.py",
     "scripts/check-pbxproj.sh",
     "scripts/check-test-determinism.py",
     "scripts/dev-fleet-warm-slot.py",
