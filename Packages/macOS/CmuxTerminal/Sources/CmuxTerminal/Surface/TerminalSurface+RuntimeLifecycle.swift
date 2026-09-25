@@ -188,6 +188,7 @@ extension TerminalSurface {
                 }
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
+            attachedView?.retireExternalHoverLifetime()
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
@@ -318,6 +319,7 @@ extension TerminalSurface {
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -433,6 +435,7 @@ extension TerminalSurface {
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
         activePortalHostLease = nil
         portalHostAuthority = nil

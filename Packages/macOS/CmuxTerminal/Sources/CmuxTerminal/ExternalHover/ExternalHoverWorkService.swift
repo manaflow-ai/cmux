@@ -167,13 +167,6 @@ public actor ExternalHoverWorkService {
     private let surfaceSerialRegistry: ExternalHoverSurfaceSerialRegistry
 
     internal var cachesByLifetime: [RuntimeSurfaceLifetimeID: ExternalHoverCandidateCache] = [:]
-    /// Lifetimes `invalidateSurface` has tombstoned. A request for a
-    /// closed lifetime can never rebuild a cache entry, even if it
-    /// otherwise looks current by generation — review Blocking 5's fix
-    /// for the contradiction in the original design doc ("dropCache" vs.
-    /// "the next process rebuilds it").
-    private var closedLifetimes: Set<RuntimeSurfaceLifetimeID> = []
-
     public init(
         teardownCoordinator: TerminalSurfaceRuntimeTeardownCoordinator,
         resolver: TerminalPathResolver = TerminalPathResolver(),
@@ -201,20 +194,10 @@ public actor ExternalHoverWorkService {
         self.surfaceSerialRegistry = teardownCoordinator.surfaceSerialRegistry
     }
 
-    /// The ONLY entry point `GhosttyNSView`'s AppKit event path calls
-    /// (wired in a later pass). `nonisolated` and fire-and-forget — the
-    /// main-thread hot path never `await`s this actor (review Blocking 1:
-    /// generalized past its literal "no `DispatchQueue.main.sync`" wording
-    /// to "no synchronous wait on this actor from the main event path" at
-    /// all).
-    ///
-    /// Returns the underlying `Task` so deterministic tests can
-    /// `await task.value` instead of a real-time poll; production callers
-    /// (Pass 2's AppKit wiring) discard it — `@discardableResult` keeps
-    /// that a plain statement, not an error.
-    @discardableResult
-    public nonisolated func submit(_ request: ExternalHoverWorkRequest) -> Task<Void, Never> {
-        Task { await self.process(request) }
+    /// Actor-isolated entry point for one coalesced request. AppKit callers
+    /// launch their own task and never synchronously wait on this actor.
+    public func submit(_ request: ExternalHoverWorkRequest) async {
+        await process(request)
     }
 
     /// (B) wiring review Blocking 5 — acceptance boundary. `mirror`'s
@@ -245,8 +228,8 @@ public actor ExternalHoverWorkService {
     // logic in the test file (guard 1's "don't duplicate structured
     // judgment" applies to tests too, not just production call sites).
     func currentnessVerdict(_ request: ExternalHoverWorkRequest) -> CurrentnessVerdict {
-        guard !closedLifetimes.contains(request.lifetimeID) else {
-            return .dropped(reason: "closedLifetime")
+        guard request.coordinator.isCurrentLifetimeToken(request.lifetimeToken) else {
+            return .dropped(reason: "retiredLifetime")
         }
         let snapshot = request.mirror.captureHoverCallbackSnapshot()
         guard snapshot.lifetimeID == request.lifetimeID else {
@@ -279,8 +262,8 @@ public actor ExternalHoverWorkService {
 
     // `internal`, matching `currentnessVerdict`'s own visibility rationale.
     func withdrawalAuthorizationVerdict(_ request: ExternalHoverWorkRequest) -> WithdrawalAuthorizationVerdict {
-        guard !closedLifetimes.contains(request.lifetimeID) else {
-            return .rejected(reason: "closedLifetime")
+        guard request.coordinator.isCurrentLifetimeToken(request.lifetimeToken) else {
+            return .rejected(reason: "retiredLifetime")
         }
         let snapshot = request.mirror.captureHoverCallbackSnapshot()
         guard snapshot.lifetimeID == request.lifetimeID else {
@@ -357,11 +340,10 @@ public actor ExternalHoverWorkService {
     }
 
     private func process(_ request: ExternalHoverWorkRequest) async {
+        guard isCurrent(request, checkpoint: "processStart") else { return }
         if diagnosticsEnabled() {
             rememberSurfaceSerial(request)
         }
-        // Checkpoint 1 (start).
-        guard isCurrent(request, checkpoint: "processStart") else { return }
 
         if let cached = cachesByLifetime[request.lifetimeID],
            cached.cwd == request.cwd,
@@ -509,6 +491,10 @@ public actor ExternalHoverWorkService {
 #endif
             return nil
         }
+        guard isCurrent(request, checkpoint: "afterReadLease") else {
+            await teardownCoordinator.releaseExternalHoverLease(readLease)
+            return nil
+        }
         // review B3 — the reader itself performs the A-B-A metrics
         // check (before/read/after, all inside this SAME lease) and
         // returns a coherent snapshot only when both captures match the
@@ -517,6 +503,7 @@ public actor ExternalHoverWorkService {
         // raced the read) uniformly.
         let snapshot = readPhysicalRows(readLease, topRow, rowCount, request.gridColumns, request.viewportRowCount)
         await teardownCoordinator.releaseExternalHoverLease(readLease)
+        guard isCurrent(request, checkpoint: "afterRead") else { return nil }
         guard let snapshot else {
 #if DEBUG
             if diagnosticsOn {
@@ -771,7 +758,12 @@ public actor ExternalHoverWorkService {
             cachesByLifetime.removeValue(forKey: request.lifetimeID)
             return
         }
+        guard isCurrent(request, checkpoint: "afterSetterLease") else {
+            await teardownCoordinator.releaseExternalHoverLease(setterLease)
+            return
+        }
         let minted = request.coordinator.callSetterAndRecordPending(
+            lifetimeToken: request.lifetimeToken,
             event: request.requestGeneration,
             path: cache.path
         ) {
@@ -799,6 +791,20 @@ public actor ExternalHoverWorkService {
             coordinator: request.coordinator
         )
         await teardownCoordinator.releaseExternalHoverLease(setterLease)
+
+        guard isCurrent(request, checkpoint: "afterSetter") else {
+            if let minted {
+                // A retirement racing the setter must clear the native
+                // override before the lease is discarded.
+                if let clearLease = await teardownCoordinator.acquireExternalHoverLease(
+                    lifetimeID: request.lifetimeID, surface: request.surface
+                ) {
+                    callClear(clearLease, minted)
+                    await teardownCoordinator.releaseExternalHoverLease(clearLease)
+                }
+            }
+            return
+        }
 
         guard let minted else {
             // Setter rejected (stale token, ineligible, out of scope,
@@ -979,14 +985,11 @@ public actor ExternalHoverWorkService {
     /// masked by a same-range cache hit reusing a token the render loop
     /// has already discarded (review Blocking 7's closing requirement).
     /// Never touches the mailbox — `receiveTransition` already did.
-    /// Returns the underlying `Task` for deterministic tests; production
-    /// callers discard it.
-    @discardableResult
-    public nonisolated func noteExternalInactive(
+    public func noteExternalInactive(
         lifetimeID: RuntimeSurfaceLifetimeID,
         token: HoverActivationTokenValue
-    ) -> Task<Void, Never> {
-        Task { await self.invalidateCacheIfTokenMatches(lifetimeID: lifetimeID, token: token) }
+    ) async {
+        invalidateCacheIfTokenMatches(lifetimeID: lifetimeID, token: token)
     }
 
     private func invalidateCacheIfTokenMatches(
@@ -997,48 +1000,16 @@ public actor ExternalHoverWorkService {
         cachesByLifetime.removeValue(forKey: lifetimeID)
     }
 
-    /// Surface replacement/teardown: closes `lifetimeID` (a monotonic
-    /// tombstone, never reopened — a NEW lifetime for the same surfaceID
-    /// gets its own fresh entry, never this one) and drops its cache. A
-    /// request for this lifetime already in the actor's queue becomes a no-op
-    /// via `isCurrent`'s `closedLifetimes` check.
-    ///
-    /// The tombstones intentionally remain for the process lifetime.
-    /// `RuntimeSurfaceLifetimeID` is a 24-byte value; allowing for `Set`
-    /// storage overhead, budget about 48 bytes per entry, so even 10,000
-    /// closed lifetimes retain only about 0.5 MB. Do not reclaim entries in
-    /// the final drain or evict them at a size limit: either can reopen the
-    /// same stale-request hole from round 1 Blocking 5.
-    /// `ExternalHoverMailbox.teardown()` clears `pending` but does not seal
-    /// the mailbox, so a queued request can subsequently reach
-    /// `callSetterAndRecordPending` and recreate `pending` after a tombstone
-    /// is removed. Safe reclamation is deferred in full to issue #9872,
-    /// whose seven review items are the exit criteria:
-    /// https://github.com/manaflow-ai/cmux/issues/9872
-    /// Review context:
-    /// https://github.com/manaflow-ai/cmux/pull/9868#discussion_r3751442728
-    @discardableResult
-    public nonisolated func invalidateSurface(_ lifetimeID: RuntimeSurfaceLifetimeID) -> Task<Void, Never> {
-        let task = Task { await self.closeLifetime(lifetimeID) }
-        teardownCoordinator.retainExternalHoverInvalidationTask(task, for: lifetimeID)
-        return task
+    /// Surface replacement/teardown drops only the cache. Liveness is owned
+    /// by the per-generation token retained by every request; no actor-side
+    /// tombstone set is needed.
+    public func invalidateSurface(_ lifetimeID: RuntimeSurfaceLifetimeID) {
+        removeCache(for: lifetimeID)
     }
 
-    private func closeLifetime(_ lifetimeID: RuntimeSurfaceLifetimeID) {
-        closedLifetimes.insert(lifetimeID)
+    private func removeCache(for lifetimeID: RuntimeSurfaceLifetimeID) {
         cachesByLifetime.removeValue(forKey: lifetimeID)
-        // review non-blocking N2 — deliberately does NOT clear
-        // `droppedCountTracker`'s entry for `lifetimeID` here: this
-        // actor's `invalidateSurface` and the teardown coordinator's own
-        // final drain are two independently-scheduled fire-and-forget
-        // Tasks with no ordering between them (both are triggered
-        // separately off `GhosttyNSView`'s teardown, never awaited
-        // against each other), so whichever runs first must not
-        // invalidate the baseline the other still needs. The teardown
-        // coordinator's own final drain — which IS provably the very
-        // last possible report for this lifetime, since the surface is
-        // freed immediately after it runs — is where that cleanup
-        // actually belongs; see `TerminalSurfaceRuntimeTeardownCoordinator
-        // .defaultDrainExternalHoverDiagnostics`.
+        // The teardown coordinator owns diagnostic-baseline cleanup at the
+        // final native-free boundary; cache invalidation is independent.
     }
 }

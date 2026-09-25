@@ -211,6 +211,7 @@ extension TerminalSurface {
 
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
@@ -239,6 +240,7 @@ extension TerminalSurface {
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
+        attachedView?.retireExternalHoverLifetime()
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()

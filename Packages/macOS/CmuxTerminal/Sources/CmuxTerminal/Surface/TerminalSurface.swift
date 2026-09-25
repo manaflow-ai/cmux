@@ -734,6 +734,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
 
         guard let surfaceToFree else {

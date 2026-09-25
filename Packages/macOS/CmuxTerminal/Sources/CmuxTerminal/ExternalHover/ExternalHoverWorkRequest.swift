@@ -18,6 +18,9 @@ public import CmuxTerminalCore
 /// not the type system's.
 public struct ExternalHoverWorkRequest: @unchecked Sendable {
     public let lifetimeID: RuntimeSurfaceLifetimeID
+    /// Strong reference to the exact native-surface generation that produced
+    /// this request. Retirement seals this token's mailbox synchronously.
+    public let lifetimeToken: ExternalHoverSurfaceLifetimeToken
     public let surface: ghostty_surface_t
     /// == the `hoverEventID` published to `mirror` at the moment this
     /// request was built — the acceptance-boundary checks compare against
@@ -49,6 +52,7 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
 
     public init(
         lifetimeID: RuntimeSurfaceLifetimeID,
+        lifetimeToken: ExternalHoverSurfaceLifetimeToken,
         surface: ghostty_surface_t,
         requestGeneration: UInt64,
         cell: ExternalHoverGridCell,
@@ -60,6 +64,7 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         surfaceSerial: UInt64
     ) {
         self.lifetimeID = lifetimeID
+        self.lifetimeToken = lifetimeToken
         self.surface = surface
         self.requestGeneration = requestGeneration
         self.cell = cell
@@ -69,5 +74,35 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         self.mirror = mirror
         self.coordinator = coordinator
         self.surfaceSerial = surfaceSerial
+    }
+
+    /// Compatibility initializer for callers that construct a request and
+    /// immediately use the coordinator's current generation. Production
+    /// lifecycle paths pass the token explicitly at capture time.
+    public init(
+        lifetimeID: RuntimeSurfaceLifetimeID,
+        surface: ghostty_surface_t,
+        requestGeneration: UInt64,
+        cell: ExternalHoverGridCell,
+        viewportRowCount: UInt32,
+        gridColumns: Int,
+        cwd: String,
+        mirror: HoverCallbackMirror,
+        coordinator: ExternalHoverOwnerCoordinator,
+        surfaceSerial: UInt64
+    ) {
+        self.init(
+            lifetimeID: lifetimeID,
+            lifetimeToken: coordinator.currentLifetimeToken,
+            surface: surface,
+            requestGeneration: requestGeneration,
+            cell: cell,
+            viewportRowCount: viewportRowCount,
+            gridColumns: gridColumns,
+            cwd: cwd,
+            mirror: mirror,
+            coordinator: coordinator,
+            surfaceSerial: surfaceSerial
+        )
     }
 }

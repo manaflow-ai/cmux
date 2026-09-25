@@ -82,8 +82,8 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     /// callback/dispatchをlock内へ追加してはならない").
     public typealias LogTransition = (TransitionVerdict) -> Void
 
-    private let lock = NSLock()
-    private var mailbox = ExternalHoverMailbox()
+    private let lifetimeLock = NSLock()
+    private var lifetimeToken = ExternalHoverSurfaceLifetimeToken()
 
     private let scheduler: Scheduler
     private let project: Project
@@ -133,11 +133,54 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         self.diagnosticsEnabled = diagnosticsEnabled
     }
 
+    /// The token for the currently installed native-surface generation.
+    /// Requests retain this exact reference for their entire lifetime.
+    public var currentLifetimeToken: ExternalHoverSurfaceLifetimeToken {
+        lifetimeLock.lock()
+        defer { lifetimeLock.unlock() }
+        return lifetimeToken
+    }
+
+    public func isCurrentLifetimeToken(_ token: ExternalHoverSurfaceLifetimeToken) -> Bool {
+        lifetimeLock.lock()
+        defer { lifetimeLock.unlock() }
+        return lifetimeToken === token && !token.isRetired
+    }
+
+    /// Retires the current generation and installs a fresh mailbox/token.
+    /// Retirement is synchronous, so no delayed request can publish into the
+    /// old generation after this method returns.
+    @discardableResult
+    public func beginLifetime(
+        surfaceID: UUID = UUID(),
+        runtimeSurfaceGeneration: UInt64 = 0
+    ) -> ExternalHoverSurfaceLifetimeToken {
+        lifetimeLock.lock()
+        let oldToken = lifetimeToken
+        oldToken.retire()
+        let newToken = ExternalHoverSurfaceLifetimeToken(
+            surfaceID: surfaceID,
+            runtimeSurfaceGeneration: runtimeSurfaceGeneration
+        )
+        lifetimeToken = newToken
+        lifetimeLock.unlock()
+        return newToken
+    }
+
+    /// Permanently retires the current generation.
+    public func retireLifetime() {
+        lifetimeLock.lock()
+        let token = lifetimeToken
+        lifetimeLock.unlock()
+        token.retire()
+    }
+
     /// Read-only snapshot for tests and diagnostics; takes the lock briefly.
     public var currentMailbox: ExternalHoverMailbox {
-        lock.lock()
-        defer { lock.unlock() }
-        return mailbox
+        let token = currentLifetimeToken
+        token.lock.lock()
+        defer { token.lock.unlock() }
+        return token.mailbox
     }
 
     /// Calls `setterCall` — the actual Ghostty setter — while holding the
@@ -168,6 +211,21 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         path: String,
         setterCall: () -> HoverActivationTokenValue?
     ) -> HoverActivationTokenValue? {
+        callSetterAndRecordPending(
+            lifetimeToken: currentLifetimeToken,
+            event: event,
+            path: path,
+            setterCall: setterCall
+        )
+    }
+
+    @discardableResult
+    public func callSetterAndRecordPending(
+        lifetimeToken: ExternalHoverSurfaceLifetimeToken,
+        event: UInt64,
+        path: String,
+        setterCall: () -> HoverActivationTokenValue?
+    ) -> HoverActivationTokenValue? {
         // (C) diagnostics — review B2: armed BEFORE `setterCall` runs (and
         // therefore before Ghostty's own synchronous in-setter
         // `queueRender()` can fire), not after this method returns. Arming
@@ -181,11 +239,18 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
             armDiagnosticsDemand(for: event)
         }
         let token: HoverActivationTokenValue? = {
-            lock.lock()
-            defer { lock.unlock() }
-            guard let token = setterCall(), token != .zero else { return nil }
-            mailbox.setPending(.init(event: event, token: token, path: path))
-            return token
+            lifetimeLock.lock()
+            guard lifetimeToken === self.lifetimeToken else {
+                lifetimeLock.unlock()
+                return nil
+            }
+            lifetimeLock.unlock()
+            lifetimeToken.lock.lock()
+            defer { lifetimeToken.lock.unlock() }
+            guard !lifetimeToken.retired else { return nil }
+            guard let minted = setterCall(), minted != .zero else { return nil }
+            lifetimeToken.mailbox.setPending(.init(event: event, token: minted, path: path))
+            return minted
         }()
         if diagnosticsOn {
             if token == nil {
@@ -343,11 +408,13 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     }
 
     private func acceptPendingIfTokenMatches(_ token: HoverActivationTokenValue) -> AcceptOutcome {
-        lock.lock()
-        defer { lock.unlock() }
-        if let pendingEntry = mailbox.pending, pendingEntry.token == token {
-            mailbox.acceptActive(pendingEntry)
-            return AcceptOutcome(pendingMatched: true, event: pendingEntry.event, revision: mailbox.ownerRevision)
+        let lifetimeToken = currentLifetimeToken
+        lifetimeToken.lock.lock()
+        defer { lifetimeToken.lock.unlock() }
+        if lifetimeToken.retired { return AcceptOutcome(pendingMatched: false, event: nil, revision: nil) }
+        if let pendingEntry = lifetimeToken.mailbox.pending, pendingEntry.token == token {
+            lifetimeToken.mailbox.acceptActive(pendingEntry)
+            return AcceptOutcome(pendingMatched: true, event: pendingEntry.event, revision: lifetimeToken.mailbox.ownerRevision)
         }
         return AcceptOutcome(pendingMatched: false, event: nil, revision: nil)
     }
@@ -358,12 +425,14 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     }
 
     private func clearPendingIfTokenMatches(_ token: HoverActivationTokenValue) -> ClearPendingOutcome {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let pendingEntry = mailbox.pending, pendingEntry.token == token else {
+        let lifetimeToken = currentLifetimeToken
+        lifetimeToken.lock.lock()
+        defer { lifetimeToken.lock.unlock() }
+        guard !lifetimeToken.retired,
+              let pendingEntry = lifetimeToken.mailbox.pending, pendingEntry.token == token else {
             return ClearPendingOutcome(matched: false, event: nil)
         }
-        mailbox.clearPending()
+        lifetimeToken.mailbox.clearPending()
         return ClearPendingOutcome(matched: true, event: pendingEntry.event)
     }
 
@@ -387,14 +456,15 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         var didClear = false
         var matchedEvent: UInt64?
         let revision: UInt64 = {
-            lock.lock()
-            defer { lock.unlock() }
-            let ownedEntry = mailbox.acceptedOwner
+            let lifetimeToken = currentLifetimeToken
+            lifetimeToken.lock.lock()
+            defer { lifetimeToken.lock.unlock() }
+            let ownedEntry = lifetimeToken.mailbox.acceptedOwner
             let wasOwner = ownedEntry?.token == token
-            _ = mailbox.inactive(token: token)
+            _ = lifetimeToken.mailbox.inactive(token: token)
             didClear = wasOwner
             matchedEvent = wasOwner ? ownedEntry?.event : nil
-            return mailbox.ownerRevision
+            return lifetimeToken.mailbox.ownerRevision
         }()
         if didClear {
             enqueueProjection(atRevision: revision)
@@ -424,11 +494,12 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         var removedPending: ExternalHoverMailbox.Entry?
         var removed: ExternalHoverMailbox.Entry?
         let revision: UInt64 = {
-            lock.lock()
-            defer { lock.unlock() }
-            removedPending = mailbox.clearPending()
-            removed = mailbox.clearOwnerUnconditionally()
-            return mailbox.ownerRevision
+            let lifetimeToken = currentLifetimeToken
+            lifetimeToken.lock.lock()
+            defer { lifetimeToken.lock.unlock() }
+            removedPending = lifetimeToken.mailbox.clearPending()
+            removed = lifetimeToken.mailbox.clearOwnerUnconditionally()
+            return lifetimeToken.mailbox.ownerRevision
         }()
         // (C) diagnostics — review B2: a withdrawn candidate, whether it
         // was only `pending` (setter accepted, no ack yet) or already the
@@ -454,12 +525,12 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     /// unconditionally) so every already-queued projection task, and this
     /// one, resolve as no-ops once run — see `runProjectionIfCurrent`.
     public func teardown() {
-        let revision: UInt64 = {
-            lock.lock()
-            defer { lock.unlock() }
-            mailbox.teardown()
-            return mailbox.ownerRevision
-        }()
+        let lifetimeToken = currentLifetimeToken
+        lifetimeToken.lock.lock()
+        lifetimeToken.retired = true
+        lifetimeToken.mailbox.teardown()
+        let revision = lifetimeToken.mailbox.ownerRevision
+        lifetimeToken.lock.unlock()
         // (C) diagnostics — the surface is going away; no future render
         // trigger will ever fire for it, so any still-armed demand must be
         // released now rather than leaking.
@@ -484,10 +555,11 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     /// newer event.
     private func runProjectionIfCurrent(_ revision: UInt64) {
         let outcome: ExternalHoverMailbox.Entry?? = {
-            lock.lock()
-            defer { lock.unlock() }
-            guard mailbox.ownerRevision == revision else { return nil }
-            return .some(mailbox.acceptedOwner)
+            let lifetimeToken = currentLifetimeToken
+            lifetimeToken.lock.lock()
+            defer { lifetimeToken.lock.unlock() }
+            guard lifetimeToken.mailbox.ownerRevision == revision else { return nil }
+            return .some(lifetimeToken.mailbox.acceptedOwner)
         }()
         guard let owner = outcome else { return }
         project(owner)

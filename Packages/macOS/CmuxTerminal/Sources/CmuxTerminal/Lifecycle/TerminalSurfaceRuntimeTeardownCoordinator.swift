@@ -58,7 +58,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let isolatedHibernationQueues: [DispatchQueue]
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
-    private nonisolated let externalHoverInvalidationTasks = ExternalHoverInvalidationTaskRegistry()
 
     // cmux fork: (B) ExternalHover — native-surface lease. See
     // `acquireExternalHoverLease`/`releaseExternalHoverLease` below.
@@ -220,17 +219,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             executionLane: deferred.executionLane,
             isolatedHibernationReservation: deferred.isolatedHibernationReservation
         )
-    }
-
-    /// Retains the matching ExternalHover lifetime-invalidation task until its
-    /// teardown request reaches admission. This closes the race where native
-    /// surface teardown could otherwise run before the actor tombstones its
-    /// cache and lifetime state.
-    nonisolated func retainExternalHoverInvalidationTask(
-        _ task: Task<Void, Never>,
-        for lifetimeID: RuntimeSurfaceLifetimeID
-    ) {
-        externalHoverInvalidationTasks.insert(task, for: lifetimeID)
     }
 
     /// (C) ExternalHover diagnostics — the real production drain+log
@@ -490,9 +478,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             TerminalSurfaceRuntimeTeardownReservation? = nil
     ) async {
         let lifetimeID = request.lifetimeID
-        if let invalidationTask = externalHoverInvalidationTasks.remove(for: lifetimeID) {
-            await invalidationTask.value
-        }
         retiredRuntimeGenerationWatermark[lifetimeID.surfaceID] = max(
             retiredRuntimeGenerationWatermark[lifetimeID.surfaceID] ?? 0,
             lifetimeID.runtimeSurfaceGeneration

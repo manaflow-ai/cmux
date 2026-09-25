@@ -3484,7 +3484,7 @@ class GhosttyApp {
                     surfaceID: terminalSurface.id,
                     runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
                 )
-                GhosttyApp.externalHoverWorkService.noteExternalInactive(lifetimeID: lifetimeID, token: token)
+                Task { await GhosttyApp.externalHoverWorkService.noteExternalInactive(lifetimeID: lifetimeID, token: token) }
             }
             return committed
         case GHOSTTY_ACTION_SCROLLBAR:
@@ -4235,6 +4235,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // from the renderer-callback path.
     fileprivate let hoverCallbackMirror = HoverCallbackMirror()
     private let externalHoverRecomputeScheduler = MainActorDeferredActionScheduler()
+    private var externalHoverLifetimeGeneration: UInt64?
     // (C) ExternalHover diagnostics — this surface's own serial. See
     // `Self.externalHoverSurfaceSerialCounter`'s doc.
     // `fileprivate`, not `private`: `GhosttyApp.handleAction`'s
@@ -4413,6 +4414,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private var hasUsableFocusGeometry: Bool { bounds.width > 1 && bounds.height > 1 }
 
+    /// Seals the current ExternalHover generation before a native surface is
+    /// closed, suspended, replaced, or this view is deallocated.
+    func retireExternalHoverLifetime() {
+        externalHoverOwnerCoordinator.retireLifetime()
+    }
+
+    private func installExternalHoverLifetimeIfNeeded() {
+        guard let terminalSurface,
+              terminalSurface.surface != nil,
+              externalHoverLifetimeGeneration != terminalSurface.runtimeSurfaceGeneration else {
+            return
+        }
+        externalHoverOwnerCoordinator.beginLifetime(
+            surfaceID: terminalSurface.id,
+            runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+        )
+        externalHoverLifetimeGeneration = terminalSurface.runtimeSurfaceGeneration
+    }
+
     var hasClipboardInputDeferral: Bool {
         terminalClipboardInputSequencer.hasInputDeferral(
             for: terminalSurface?.runtimeSurfaceGeneration ?? .max
@@ -4502,7 +4522,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         registerForDraggedTypes(Array(Self.dropTypes))
         // Force `externalHoverOwnerCoordinator`'s `lazy` initializer to run now,
         // while `self` is a fully-constructed, live instance. `deinit` (below)
-        // unconditionally calls `externalHoverOwnerCoordinator.teardown()`; if
+        // unconditionally calls `externalHoverOwnerCoordinator.retireLifetime()`; if
         // nothing had touched this property before that first access, the
         // `lazy` initializer would run *during* `deinit`, and its `project:`
         // closure's `[weak self]` capture would try to register a weak
@@ -4904,6 +4924,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !isAlreadyAttached {
             _ = reapplyPaneGeometry()
         }
+        installExternalHoverLifetimeIfNeeded()
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
         synchronizeGhosttyMouseSurfaceIdentity()
@@ -5787,6 +5808,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func runtimeSurfaceDidBecomeReady() {
+        installExternalHoverLifetimeIfNeeded()
         guard keyboardCopyModeActive, let surface else { return }
         guard initializeKeyboardCopyModeCursor(surface: surface) else {
             setKeyboardCopyModeActive(false)
@@ -8474,6 +8496,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         let request = ExternalHoverWorkRequest(
             lifetimeID: lifetimeID,
+            lifetimeToken: externalHoverOwnerCoordinator.currentLifetimeToken,
             surface: surface,
             requestGeneration: hoverEventID,
             cell: ExternalHoverGridCell(row: UInt32(cell.row), column: cell.column),
@@ -8484,10 +8507,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             coordinator: externalHoverOwnerCoordinator,
             surfaceSerial: externalHoverSurfaceSerial
         )
-        let task = GhosttyApp.externalHoverWorkService.submit(request)
-        #if DEBUG
-        Task { await task.value; finish() }
-        #endif
+        Task {
+            await GhosttyApp.externalHoverWorkService.submit(request)
+            finish()
+        }
     }
 
     /// The shared withdrawal entry point every non-resolver invalidation
@@ -8510,6 +8533,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         let request = ExternalHoverWorkRequest(
             lifetimeID: lifetimeID,
+            lifetimeToken: externalHoverOwnerCoordinator.currentLifetimeToken,
             surface: surface,
             requestGeneration: hoverEventID,
             cell: ExternalHoverGridCell(row: 0, column: 0),
@@ -10314,13 +10338,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghosttyMouseSessionLedger.invalidate()
         removeMouseUpEventMonitorIfUnused()
         resetCommandClickGestureState()
-        externalHoverOwnerCoordinator.teardown()
+        externalHoverOwnerCoordinator.retireLifetime()
         if let terminalSurface {
             let lifetimeID = RuntimeSurfaceLifetimeID(
                 surfaceID: terminalSurface.id,
                 runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
             )
-            GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID)
+            Task { await GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID) }
         }
         terminalSurface = nil
     }
