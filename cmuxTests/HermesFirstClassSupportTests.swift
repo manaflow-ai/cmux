@@ -849,13 +849,8 @@ struct HermesFirstClassSupportTests {
         let restoredPanelID = try #require(restored.focusedPanelId)
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
-        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
-        let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
-        let scriptPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value
-        )
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        #expect(script.contains("cmux restore hermes-agent \(sessionID)"))
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
     @Test("Hook indexing replaces a transient Hermes transport ID with its durable process-generation sibling")

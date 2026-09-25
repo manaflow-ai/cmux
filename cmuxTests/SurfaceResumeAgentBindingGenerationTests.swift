@@ -60,13 +60,8 @@ struct SurfaceResumeAgentBindingGenerationTests {
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelID = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
-            #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
-            let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
-            let scriptPath = try #require(
-                TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value
-            )
-            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-            #expect(script.contains("cmux restore codex \(currentSessionID)"))
+            #expect(restoredPanel.surface.debugInitialCommand() == nil)
+            #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         }
     }
 
@@ -127,7 +122,7 @@ struct SurfaceResumeAgentBindingGenerationTests {
             let firstPanelID = try #require(firstRestore.focusedPanelId)
             #expect(
                 firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID]
-                    == .autoResumeCommandRunning
+                    == .awaitingAutoResumeCommand
             )
             let queuedLaunchSnapshot = firstRestore.sessionSnapshot(
                 includeScrollback: false,
@@ -171,7 +166,7 @@ struct SurfaceResumeAgentBindingGenerationTests {
             let secondPanelID = try #require(secondRestore.focusedPanelId)
             #expect(
                 secondRestore.restoredAgentResumeStatesByPanelId[secondPanelID]
-                    == .autoResumeCommandRunning
+                    == .awaitingAutoResumeCommand
             )
             secondRestore.updatePanelShellActivityState(panelId: secondPanelID, state: .commandRunning)
 
@@ -232,14 +227,8 @@ struct SurfaceResumeAgentBindingGenerationTests {
         firstRestore.restoreSessionSnapshot(sourceSnapshot)
         let firstPanelID = try #require(firstRestore.focusedPanelId)
         let firstPanel = try #require(firstRestore.terminalPanel(for: firstPanelID))
-        #expect(!firstPanel.surface.debugInitialInputMetadata().hasInitialInput)
-        let firstStartupCommand = try #require(firstPanel.surface.debugInitialCommand())
-        let firstScriptPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(firstStartupCommand).last?.value
-        )
-        let firstScript = try String(contentsOfFile: firstScriptPath, encoding: .utf8)
-        #expect(firstScript.contains(expectedRestoreInput.trimmingCharacters(in: .whitespacesAndNewlines)))
-        #expect(firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID] == .autoResumeCommandRunning)
+        #expect(firstPanel.surface.debugInitialInputForTesting() == expectedRestoreInput)
+        #expect(firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID] == .awaitingAutoResumeCommand)
 
         firstRestore.updatePanelShellActivityState(panelId: firstPanelID, state: .commandRunning)
         #expect(firstRestore.setSurfaceResumeBinding(
@@ -263,14 +252,9 @@ struct SurfaceResumeAgentBindingGenerationTests {
         secondRestore.restoreSessionSnapshot(secondGenerationSnapshot)
         let secondPanelID = try #require(secondRestore.focusedPanelId)
         let secondPanel = try #require(secondRestore.terminalPanel(for: secondPanelID))
-        #expect(!secondPanel.surface.debugInitialInputMetadata().hasInitialInput)
-        let secondStartupCommand = try #require(secondPanel.surface.debugInitialCommand())
-        let secondScriptPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(secondStartupCommand).last?.value
-        )
-        let secondScript = try String(contentsOfFile: secondScriptPath, encoding: .utf8)
-        #expect(secondScript.contains(expectedRestoreInput.trimmingCharacters(in: .whitespacesAndNewlines)))
-        #expect(!secondScript.contains("grok -r"))
+        let secondRestoreInput = try #require(secondPanel.surface.debugInitialInputForTesting())
+        #expect(secondRestoreInput == expectedRestoreInput)
+        #expect(!secondRestoreInput.contains("grok -r"))
     }
 
     @Test("A replacement binding cannot inherit restored-command liveness")

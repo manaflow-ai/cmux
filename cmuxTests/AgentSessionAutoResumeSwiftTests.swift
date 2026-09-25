@@ -61,13 +61,7 @@ struct AgentSessionAutoResumeSwiftTests {
             " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(checkpointID)\n"
         let bootstrapTitle = bootstrapInput.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
-        let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
-        let scriptPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value
-        )
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        #expect(script.contains(bootstrapInput.trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(restoredPanel.surface.debugInitialInputForTesting() == bootstrapInput)
         #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
         #expect(restored.title == persistedTitle)
         #expect(restored.processTitle == persistedTitle)
@@ -913,7 +907,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let secondRestore = Workspace(restorableAgentIndexProvider: { .empty })
             secondRestore.restoreSessionSnapshot(clobberedSnapshot)
             let secondRestoredPanelId = try #require(secondRestore.focusedPanelId)
-            #expect(secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .autoResumeCommandRunning)
+            #expect(secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .awaitingAutoResumeCommand)
             secondRestore.updatePanelShellActivityState(panelId: secondRestoredPanelId, state: .commandRunning)
             try #require(
                 secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .autoResumeCommandRunning
@@ -1016,7 +1010,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
-            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
             try #require(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
@@ -1361,7 +1355,7 @@ struct AgentSessionAutoResumeSwiftTests {
         let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
-        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         // Restore replays the persisted directory onto the workspace and panel.
@@ -1409,7 +1403,7 @@ struct AgentSessionAutoResumeSwiftTests {
         let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
-        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         #expect(restored.currentDirectory == savedDirectory)
@@ -1457,7 +1451,7 @@ struct AgentSessionAutoResumeSwiftTests {
         let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
-        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         #expect(restored.currentDirectory == savedDirectory)
@@ -1857,14 +1851,9 @@ struct AgentSessionAutoResumeSwiftTests {
         commandContains needles: [String],
         commandDoesNotContain excludedNeedles: [String] = []
     ) throws {
-        #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
-        let startupCommand = try #require(panel.surface.debugInitialCommand())
-        let scriptPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value
-        )
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        #expect(script.contains("\(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)"))
-        #expect(script.contains("exec \"$SHELL\" -lc"))
+        #expect(panel.surface.debugInitialCommand() == nil)
+        let input = try #require(panel.surface.debugInitialInputForTesting())
+        #expect(input == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n")
         let command: String
         if let agent = workspace.restoredAgentSnapshotForTesting(panelId: panel.id) {
             #expect(agent.kind.rawValue == kind)

@@ -135,14 +135,6 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            let startupCommand: String? = if !restore.restoresRemoteWorkspaceTerminalSnapshot {
-                OneShotTerminalLauncherStore().writeStartupCommand(
-                    input: startupInput,
-                    workingDirectory: restore.resumeWorkingDirectory
-                )
-            } else {
-                nil
-            }
             let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
                 ? claim
                 : nil
@@ -164,13 +156,10 @@ extension DockSplitStore {
                 .awaitingAutoResumeCommand,
                 panelId: panelId
             )
-            let admittedInput = restore.remoteResumeCommandEmbedded || startupCommand != nil
-                ? nil
-                : startupInput
+            let admittedInput = restore.remoteResumeCommandEmbedded ? nil : startupInput
             restoredAgentLifecycle.registerStartupInput(admittedInput, panelId: panelId)
             let admitted = terminal.surface.admitStartupRestoreRuntime(
-                initialInput: admittedInput,
-                startupCommand: startupCommand
+                initialInput: admittedInput
             )
             if !admitted {
                 restoredAgentLifecycle.clearStartupInput(panelId: panelId)

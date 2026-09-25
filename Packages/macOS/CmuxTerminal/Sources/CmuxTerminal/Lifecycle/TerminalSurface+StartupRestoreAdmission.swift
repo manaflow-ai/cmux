@@ -12,24 +12,14 @@ extension TerminalSurface {
     /// Calls for unrestricted or already-admitted surfaces are no-ops.
     @MainActor
     @discardableResult
-    public func admitStartupRestoreRuntime(
-        initialInput: String? = nil,
-        startupCommand: String? = nil
-    ) -> Bool {
+    public func admitStartupRestoreRuntime(initialInput: String? = nil) -> Bool {
         guard startupRestoreAdmissionPhase == .awaitingAdmission else { return false }
         if let initialInput {
             prepareNextRuntimeInitialInput(initialInput)
         }
-        if let startupCommand, !startupCommand.isEmpty {
-            nextRuntimeInitialInput = nil
-            startupRestoreAdmissionCommandOverride = startupCommand
-            hasStartupRestoreAdmissionCommandOverride = true
-            suppressConfiguredInitialInput = true
-        } else {
-            startupRestoreAdmissionCommandOverride = nil
-            hasStartupRestoreAdmissionCommandOverride = false
-            suppressConfiguredInitialInput = false
-        }
+        startupRestoreAdmissionCommandOverride = nil
+        hasStartupRestoreAdmissionCommandOverride = false
+        suppressConfiguredInitialInput = false
         startupRestoreAdmissionPhase = .admitted
         scheduleHeadlessRuntimeStartIfNeeded(reason: "startup-restore-admitted")
         return true

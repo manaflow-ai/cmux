@@ -301,13 +301,6 @@ extension AgentRestoreLiveOwnerAdmissionTests {
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restoredIDs[sourcePanelID])
         let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
-        if let input = terminal.surface.debugInitialInputForTesting() {
-            return input
-        }
-        let startupCommand = try #require(terminal.surface.debugInitialCommand())
-        let scriptPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value
-        )
-        return try String(contentsOfFile: scriptPath, encoding: .utf8)
+        return try #require(terminal.surface.debugInitialInputForTesting())
     }
 }

@@ -81,14 +81,14 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         defaults.removeObject(forKey: key)
         let restoredWithAutoResume = Workspace()
         restoredWithAutoResume.restoreSessionSnapshot(snapshot)
-            let autoResumePanelId = try XCTUnwrap(restoredWithAutoResume.focusedPanelId)
-            let autoResumePanel = try XCTUnwrap(restoredWithAutoResume.terminalPanel(for: autoResumePanelId))
-            let autoResumeInput = autoResumePanel.surface.debugInitialInputMetadata()
-            XCTAssertFalse(autoResumeInput.hasInitialInput)
-            XCTAssertEqual(autoResumeInput.byteCount, 0)
-            try assertAgentAutoResumeUsesRestoreVerb(
-                autoResumePanel,
-                sessionID: "codex-auto-resume-disabled-session"
+        let autoResumePanelId = try XCTUnwrap(restoredWithAutoResume.focusedPanelId)
+        let autoResumePanel = try XCTUnwrap(restoredWithAutoResume.terminalPanel(for: autoResumePanelId))
+        let autoResumeInput = autoResumePanel.surface.debugInitialInputMetadata()
+        XCTAssertTrue(autoResumeInput.hasInitialInput)
+        XCTAssertGreaterThan(autoResumeInput.byteCount, 0)
+        try assertAgentAutoResumeUsesRestoreVerb(
+            autoResumePanel,
+            sessionID: "codex-auto-resume-disabled-session"
         )
 
         defaults.set(false, forKey: key)
@@ -187,15 +187,15 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertFalse(restoredInput.hasInitialInput)
-            XCTAssertEqual(restoredInput.byteCount, 0)
+            XCTAssertTrue(restoredInput.hasInitialInput)
+            XCTAssertGreaterThan(restoredInput.byteCount, 0)
             try assertAgentAutoResumeUsesRestoreVerb(
                 restoredPanel,
                 sessionID: "codex-running-at-snapshot-session"
             )
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
-                .autoResumeCommandRunning
+                .awaitingAutoResumeCommand
             )
 
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
@@ -206,39 +206,6 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
             XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
-        }
-    }
-
-    @MainActor
-    func testLocalAutoResumeRunsRestoreVerbAsStartupCommand() throws {
-        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
-            let defaults = UserDefaults.standard
-            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-
-            let source = Workspace()
-            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
-            let sourceIndex = try makeRestorableAgentIndex(
-                workspaceId: source.id,
-                panelId: sourcePanelId,
-                sessionId: "codex-vi-mode-restore-session"
-            )
-            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
-            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
-
-            let restored = Workspace()
-            restored.restoreSessionSnapshot(snapshot)
-            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
-            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
-
-            XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
-            let startupCommand = try XCTUnwrap(restoredPanel.surface.debugInitialCommand())
-            let scriptPath = try XCTUnwrap(
-                TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand)
-                    .last?.value
-            )
-            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-            XCTAssertTrue(script.contains("cmux restore codex codex-vi-mode-restore-session"))
-            XCTAssertTrue(script.contains("exec \"$SHELL\" -lc"))
         }
     }
 
@@ -403,8 +370,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertFalse(restoredInput.hasInitialInput)
-            XCTAssertEqual(restoredInput.byteCount, 0)
+            XCTAssertTrue(restoredInput.hasInitialInput)
+            XCTAssertGreaterThan(restoredInput.byteCount, 0)
             try assertAgentAutoResumeUsesRestoreVerb(
                 restoredPanel,
                 sessionID: "codex-unknown-shell-state-session"
@@ -625,15 +592,15 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
         let input = restoredPanel.surface.debugInitialInputMetadata()
-        XCTAssertFalse(input.hasInitialInput)
-        XCTAssertEqual(input.byteCount, 0)
+        XCTAssertTrue(input.hasInitialInput)
+        XCTAssertGreaterThan(input.byteCount, 0)
         try assertAgentAutoResumeUsesRestoreVerb(
             restoredPanel,
             sessionID: "codex-binding-auto-resume-session"
         )
         XCTAssertEqual(
             restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
-            .autoResumeCommandRunning
+            .awaitingAutoResumeCommand
         )
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
@@ -763,25 +730,14 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        XCTAssertFalse(
-            panel.surface.debugInitialInputMetadata().hasInitialInput,
+        XCTAssertNil(panel.surface.debugInitialCommand(), file: file, line: line)
+        let input = try XCTUnwrap(panel.surface.debugInitialInputForTesting(), file: file, line: line)
+        XCTAssertEqual(
+            input,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n",
             file: file,
             line: line
         )
-        let startupCommand = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
-        let scriptPath = try XCTUnwrap(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value,
-            file: file,
-            line: line
-        )
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        XCTAssertTrue(
-            script.contains("\(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)"),
-            script,
-            file: file,
-            line: line
-        )
-        XCTAssertTrue(script.contains("exec \"$SHELL\" -lc"), script, file: file, line: line)
     }
 
     private func makeRestorableAgentIndex(

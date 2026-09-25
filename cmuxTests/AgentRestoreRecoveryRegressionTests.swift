@@ -55,15 +55,11 @@ struct AgentRestoreRecoveryRegressionTests {
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
         let panelID = try #require(restoredIDs[sourcePanelID])
         let terminal = try #require(restored.terminalPanel(for: panelID))
-        #expect(!terminal.surface.debugInitialInputMetadata().hasInitialInput)
-        let startupCommand = try #require(terminal.surface.debugInitialCommand())
-        let scriptPath = try #require(
-            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value
-        )
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        #expect(script.contains("cmux restore codex \(sessionID)"), Comment(rawValue: script))
-        #expect(!script.contains("/usr/bin/printf"), Comment(rawValue: script))
-        #expect(restored.restoredAgentResumeStatesByPanelId[panelID] == .autoResumeCommandRunning)
+        let input = try #require(terminal.surface.debugInitialInputForTesting())
+
+        #expect(input.contains(" restore codex \(sessionID)"), Comment(rawValue: input))
+        #expect(!input.contains("/usr/bin/printf"), Comment(rawValue: input))
+        #expect(restored.restoredAgentResumeStatesByPanelId[panelID] == .awaitingAutoResumeCommand)
         let nextSnapshot = restored.sessionSnapshot(includeScrollback: false)
         let continuation = nextSnapshot.panels.compactMap(\.terminal).first {
             $0.agent?.sessionId == sessionID
