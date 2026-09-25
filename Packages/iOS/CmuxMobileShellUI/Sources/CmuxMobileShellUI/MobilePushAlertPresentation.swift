@@ -9,17 +9,7 @@ struct MobilePushAlertPresentationModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: coordinator.tabUnavailableAlert, initial: true) { _, alert in
-                presentedAlert = alert?.kind == .tabUnavailable ? alert : nil
-            }
-            .overlay(alignment: .top) {
-                if coordinator.tabUnavailableAlert?.kind == .connectionUnavailable {
-                    MobilePushConnectionUnavailableBanner(
-                        retry: coordinator.retryPendingDeeplink,
-                        dismiss: coordinator.dismissTabUnavailableAlert
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                }
+                presentedAlert = alert
             }
             .alert(item: $presentedAlert) { alert in
                 switch alert.kind {
@@ -40,8 +30,6 @@ struct MobilePushAlertPresentationModifier: ViewModifier {
                             coordinator.dismissTabUnavailableAlert()
                         }
                     )
-                case .connectionUnavailable:
-                    Alert(title: Text(""), dismissButton: .cancel())
                 }
             }
     }
