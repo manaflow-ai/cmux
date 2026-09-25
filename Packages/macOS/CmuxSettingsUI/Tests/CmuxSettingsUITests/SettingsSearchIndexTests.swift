@@ -99,13 +99,23 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
-    @Test func computersSearchAliasTargetsMobileSubsection() throws {
+    @Test(arguments: ["Computers", "devices"])
+    func computersSearchAliasTargetsMobileSubsection(query: String) throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
-        let result = try #require(index.match("Computers").first)
+        let result = try #require(index.match(query).first)
 
         #expect(result.id == "section:computers")
         #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
         #expect(result.kind == .section)
+    }
+
+    @Test(arguments: ["mac", "tailscale", "remote"])
+    func computersSectionAliasesPreserveSearchRanking(query: String) throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = try #require(index.match(query).first { $0.kind == .section })
+
+        #expect(result.id == "section:computers")
+        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
     }
 
     /// Typing an exact section name navigates to that section first.
