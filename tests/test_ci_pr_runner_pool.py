@@ -283,7 +283,7 @@ class FailSafe(unittest.TestCase):
             finally:
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
-                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nowned_jobs=\n")
+                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nrefused_retry_runner=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -439,7 +439,8 @@ PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
-    return (f"(github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, {key}) && inputs.pr_refused_retry_runner "
+            f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 PR_XCODE = "/Applications/Xcode_26.6.app"
 MINI = "glaeda-std-xcode-26.6"
@@ -629,7 +630,8 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(get.call_count, 2 * pool.ROUTE_LOOKUPS)
 
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
-        self.assertEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, LARGE)
+        self.assertNotEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, MINI)
+        self.assertEqual(owned_choice(fleet(age=40)).runner, MINI)
         self.assertEqual(owned_choice(fleet(), owned_slots="").runner, LARGE)
         self.assertEqual(owned_choice(fleet(), machines=0).runner, LARGE)
 
@@ -647,16 +649,35 @@ class OwnedPools(unittest.TestCase):
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
 
-    def test_main_warns_about_bad_slots_only_while_owned_pools_are_on(self):
-        for owned, warned in (("1", True), ("", False)):
+    def test_main_flags_bad_slots_only_on_same_repo_prs_while_owned_pools_are_on(self):
+        cases = (("1", "pull_request", "manaflow-ai/cmux", True), ("", "pull_request", "manaflow-ai/cmux", False),
+                 ("1", "push", "", False), ("1", "pull_request", "someone/cmux", False))
+        for owned, event, head, flagged in cases:
             with tempfile.TemporaryDirectory() as tmp:
                 stdout = io.StringIO()
-                env = {"EVENT_NAME": "push", "POOL_OWNED": owned, "OWNED_SLOTS": '{"glaeda-std": 3}',
-                       "GITHUB_STEP_SUMMARY": str(Path(tmp, "summary"))}
+                snapshot = Path(tmp, "snap.json")
+                snapshot.write_text(json.dumps(fleet()))
+                env = {"EVENT_NAME": event, "GITHUB_REPOSITORY": "manaflow-ai/cmux", "HEAD_REPO": head,
+                       "DEFAULT_RUNNER": SMALL, "POOL_OWNED": owned, "OWNED_SLOTS": '{"glaeda-std": 3}',
+                       "CMUX_CI_XCODE_APP_PR": PR_XCODE, "GITHUB_STEP_SUMMARY": str(Path(tmp, "summary"))}
                 with unittest.mock.patch("sys.stdout", stdout):
-                    pool.main([], env)
-                self.assertEqual("::warning title=CI_OWNED_POOL_SLOTS::" in stdout.getvalue(), warned, owned)
-                self.assertEqual("**Warning:**" in Path(tmp, "summary").read_text(), warned, owned)
+                    pool.main(["--snapshot", str(snapshot)], env)
+                case = (owned, event, head)
+                self.assertEqual("::error title=CI_OWNED_POOL_SLOTS::" in stdout.getvalue(), flagged, case)
+                self.assertEqual("**Error:**" in Path(tmp, "summary").read_text(), flagged, case)
+
+    def test_slots_take_a_bare_count_or_a_class_for_the_lane_pin(self):
+        pin = "/Applications/Xcode_26.6.app"
+        for raw in ("40", " 40\n", '{"std": 40}'):
+            self.assertEqual(pool.slots(raw, pin), {MINI: 40}, raw)
+            self.assertEqual(pool.slot_problems(raw, pin), [], raw)
+        self.assertEqual(pool.slots('{"std": 40, "light": 4}', pin), {MINI: 40, LIGHT: 4})
+        self.assertEqual(pool.slots('{"std": 40, "%s": 36}' % MINI, pin), {MINI: 36})
+        self.assertEqual(pool.slots("40", ""), {})
+        self.assertIn("names no Xcode version", pool.slot_problems("40", "")[0])
+        self.assertEqual(pool.slots("0", pin), {})
+        self.assertEqual(pool.slots("true", pin), {})
+        self.assertEqual(owned_choice(fleet(), owned_slots="40").runner, MINI)
 
     def test_slots_ignore_anything_malformed(self):
         self.assertEqual(pool.slots('{"%s": 11, "blacksmith-6vcpu-macos-26": 5, "glaeda-std-xcode-26.3": 0,'
@@ -714,6 +735,10 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(first["jobs"], "1")
         retried = self.output(2)
         self.assertEqual((retried["runner"], retried["persistent"], retried["retry_runner"]), (LARGE, "false", ""))
+        # A re-run of failed jobs reuses attempt 1's outputs, so its refused
+        # owned jobs try the fleet once more; a full re-run picks again and
+        # gets no owned label.
+        self.assertEqual((first["refused_retry_runner"], retried["refused_retry_runner"]), (MINI, ""))
         self.assertEqual(self.output(1, owned="")["persistent"], "false")
 
 
@@ -892,11 +917,16 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
+        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
+                                            "format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner "
+                                            "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
-        self.assertIn("(github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
+        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains("
+                      "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
+                      "needs.changes.outputs.macos_pr_refused_retry_runner || github.event_name == 'pull_request' && "
+                      "(github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
                       "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
 
     def test_callers_pass_the_choice(self):

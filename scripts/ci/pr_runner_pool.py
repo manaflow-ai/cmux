@@ -44,7 +44,8 @@ verified the new Xcode on it. Owned pools are persistent: the machine
 outlives the job. They take part only when `vars.CI_PR_POOL_OWNED == '1'`,
 and then go first in the default order so Blacksmith is overflow. Their
 capacity is the number of machines the fleet manifest gives each label,
-published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-26.6": 12}`).
+published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-26.6": 12}`;
+`{"std": 12}` and a bare `12` mean the same for the lane's Xcode pin).
 The janitor's snapshot counts the jobs queued and running on each owned label
 from the job listings it already makes, and `committed`: what the runs
 holding the pool need at their peak, read from the marker each one uploads
@@ -181,7 +182,11 @@ SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
 REPLAYED_RUN_JOBS = SIDE_LANES + 1
 # A snapshot older than this is not trusted to place a run on an owned pool.
-OWNED_MAX_AGE_MINUTES = 20
+# It was 20, but GitHub delays scheduled runs: the janitor's */10 cron fired
+# 55 minutes apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40
+# idle minis. ci-queue-janitor.yml now also sweeps when CI is requested, and
+# a mini that turns out busy is caught by the rescue within its budget.
+OWNED_MAX_AGE_MINUTES = 45
 # Pools whose machines are discarded after each job; the only ones a fork run may use.
 EPHEMERAL_PREFIX = "blacksmith-"
 
@@ -448,39 +453,56 @@ def snapshot_age_minutes(snapshot: Mapping[str, Any], now: dt.datetime) -> float
     return (now - generated).total_seconds() / 60
 
 
-def slots(raw: str | None) -> dict[str, int]:
+def slots(raw: str | None, pr_xcode_app: str | None = None) -> dict[str, int]:
     """CI_OWNED_POOL_SLOTS: owned pool label -> machines. Anything malformed counts as none."""
-    return _slots(raw)[0]
+    return _slots(raw, pr_xcode_app)[0]
 
 
-def slot_problems(raw: str | None) -> list[str]:
+def slot_problems(raw: str | None, pr_xcode_app: str | None = None) -> list[str]:
     """Why CI_OWNED_POOL_SLOTS, or an entry of it, counts as no machines.
 
     The picker treats all of these as zero slots, which is safe but silent: a
     mistyped label or a count of "11" or 11.0 just leaves the pool unused.
-    main() turns each one into a workflow warning.
+    main() turns each one into a workflow error annotation.
     """
-    return _slots(raw)[1]
+    return _slots(raw, pr_xcode_app)[1]
 
 
-def _slots(raw: str | None) -> tuple[dict[str, int], list[str]]:
-    if not (raw or "").strip():
+def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, int], list[str]]:
+    # Accepted forms, so a plausible value never silently means "no minis":
+    #   {"glaeda-std-xcode-26.6": 40}  a full label
+    #   {"std": 40, "light": 4}        a class, for the lane's Xcode pin
+    #   40                             the std class, for the lane's Xcode pin
+    text = (raw or "").strip()
+    if not text:
         return {}, []
     try:
-        data = json.loads(raw or "")
+        data = json.loads(text)
     except ValueError as error:
         return {}, [f"{SLOTS_VARIABLE} is not JSON ({error})"]
+    if isinstance(data, int) and not isinstance(data, bool):
+        data = {"std": data}
     if not isinstance(data, Mapping):
-        return {}, [f"{SLOTS_VARIABLE} is not a JSON object"]
-    counted, problems = {}, []
+        return {}, [f"{SLOTS_VARIABLE} is not a JSON object or a whole number"]
+    match = XCODE_APP.search(pr_xcode_app or "")
+    counted, by_class, problems = {}, {}, []
     for label, count in data.items():
-        if not persistent(str(label)):
-            problems.append(f"{SLOTS_VARIABLE} entry {label!r} is not an owned pool label (glaeda-<class>-xcode-<version>)")
-        elif not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        label = str(label)
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
+        elif persistent(label):
+            counted[label] = count
+        elif OWNED_LABEL.fullmatch(f"glaeda-{label}-xcode-0"):
+            if match:
+                by_class[f"glaeda-{label}-xcode-{match.group(1)}"] = count
+            else:
+                problems.append(f"{SLOTS_VARIABLE} entry {label!r} names a class, but {PR_XCODE_VARIABLE} "
+                                "names no Xcode version to pair it with")
         else:
-            counted[str(label)] = count
-    return counted, problems
+            problems.append(f"{SLOTS_VARIABLE} entry {label!r} is not an owned pool label "
+                            "(glaeda-<class>-xcode-<version>) or class (std, light, xl)")
+    # A full label is more specific than its class, so it wins.
+    return {**by_class, **counted}, problems
 
 
 def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int] | None = None) -> Mapping[str, int]:
@@ -763,7 +785,7 @@ def choose(
         routed = Routed(unknown=int(routed))
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
-                    auto_xcode=fork, owned_slots={} if fork else slots(owned_slots), jobs=jobs,
+                    auto_xcode=fork, owned_slots={} if fork else slots(owned_slots, xcode_pins.get(PR_XCODE_VARIABLE)), jobs=jobs,
                     split=(split or "").strip() == "1")
     if fork and choice.runner:
         choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
@@ -948,7 +970,7 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
         lines.append(f"- Jobs on `{choice.runner}`: {', '.join(owned_jobs) or 'none'}; every other job, "
                      f"and a re-run of failed jobs, goes to: `{choice.retry_runner}`")
     for problem in problems:
-        lines.append(f"- **Warning:** {problem}; that pool gets no machines")
+        lines.append(f"- **Error:** {problem}; that pool gets no machines")
     if isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping):
         age = snapshot_age_minutes(snapshot, now)
         lines.append(f"- Queue seen by the janitor at {snapshot.get('generated_at')}"
@@ -1017,13 +1039,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         now=now,
         run_attempt=int(attempt) if attempt.isdigit() else 1,
     )
-    problems = slot_problems(env.get("OWNED_SLOTS")) if (env.get("POOL_OWNED") or "").strip() == "1" else []
+    pr_xcode_app = env.get(PR_XCODE_VARIABLE)
+    # Only a same-repository pull request reads the slots; ci.yml blanks the pin
+    # everywhere else, so checking there would flag a class entry on every run.
+    same_repo_pr = env.get("EVENT_NAME") == "pull_request" and env.get("HEAD_REPO") == repo
+    problems = (slot_problems(env.get("OWNED_SLOTS"), pr_xcode_app)
+                if same_repo_pr and (env.get("POOL_OWNED") or "").strip() == "1" else [])
     for problem in problems:
-        print(f"::warning title={SLOTS_VARIABLE}::{problem}")
+        # An error, not a warning: a malformed entry silently takes the
+        # fleet out of the order (a bare `40` did for 30 minutes on 2026-09-25).
+        print(f"::error title={SLOTS_VARIABLE}::{problem}")
     # A persistent pick names the jobs that take it; every other job of the
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_jobs, held = place(plan, choice.owned_budget, gui) if persistent(choice.runner) else ((), plan.peak)
-    text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS")), problems=problems,
+    text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS"), pr_xcode_app), problems=problems,
                    owned_jobs=owned_jobs)
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
@@ -1034,6 +1063,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
                          f"persistent={'true' if persistent(choice.runner) else 'false'}\n"
                          f"retry_runner={choice.retry_runner}\njobs={held}\n"
+                         # Attempt 2 of an owned job the fleet refused tries it
+                         # once more: a re-run of failed jobs reuses these outputs.
+                         f"refused_retry_runner={choice.runner if persistent(choice.runner) else ''}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
                          f"owned_jobs={' ' + ' '.join(owned_jobs) + ' ' if owned_jobs else ''}\n")
