@@ -1,5 +1,7 @@
 import CMUXAuthCore
+import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxPhonePush
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
@@ -20,7 +22,7 @@ import StackAuth
 public struct MobileAuthComposition {
     /// The shared auth orchestrator the UI binds to.
     public let coordinator: AuthCoordinator
-    /// The push registration service (off by default).
+    /// The push registration service, activated after notification permission.
     public let pushRegistration: PushRegistrationService
     /// The resolved configuration (used for diagnostics + push API base URL).
     public let config: AuthConfig
@@ -28,16 +30,26 @@ public struct MobileAuthComposition {
     /// development and Release to production, but an ``authEnvironmentOverrideKey``
     /// entry (from `LocalConfig.plist`, or the Info.plist value
     /// `ios/scripts/reload.sh --prod-auth` bakes) flips it, so a sideloaded
-    /// dev build can run production auth and pair with a release Mac
-    /// (https://github.com/manaflow-ai/cmux/issues/7145). Exposed so the
+    /// dev build can test production account behavior. Build compatibility is
+    /// enforced separately and remains exact-tag DEV to DEV. Exposed so the
     /// identity provider can label the channel its user ids belong to.
     public let authEnvironment: CMUXAuthEnvironment
+    /// Exact installed-app boundary used by every persistent subsystem.
+    public let appNamespace: MobileIOSAppNamespace?
+    /// Exact Keychain group claimed by this signed bundle.
+    public let keychainAccessGroup: String?
+
+    /// iOS OAuth must not inherit Safari cookies from another cmux build.
+    nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
 
     /// UIKit protected-data availability bridge used by auth session restore.
     private let protectedDataAvailability: ProtectedDataAvailability
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
+
+    /// Owns bootstrap and protected-data revalidation tasks for this graph.
+    private let taskOwner: MobileAuthTaskOwner
 
     /// Build the auth graph.
     ///
@@ -49,16 +61,24 @@ public struct MobileAuthComposition {
     ///   - defaults: Persistence for the session/user caches and push opt-in.
     ///   - reachability: Connectivity probe for fail-fast sign-in.
     ///   - policy: The build-flag policy (dev-auth `42` shortcut).
+    ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
         defaults: UserDefaults = .standard,
         reachability: any ReachabilityProviding,
-        policy: MobileAuthBuildPolicy = .current
+        policy: MobileAuthBuildPolicy = .current,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.reachability = reachability
+        let appNamespace = MobileIOSAppNamespace(
+            bundleIdentifier: bundle.bundleIdentifier
+        )
+        let keychainAccessGroup = Self.keychainAccessGroup(in: bundle)
+        self.appNamespace = appNamespace
+        self.keychainAccessGroup = keychainAccessGroup
 
-        let overrides = Self.authOverrides(
+        let sourcedOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
             bakedAuthEnvironment: bundle.object(
                 forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey
@@ -69,7 +89,11 @@ public struct MobileAuthComposition {
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
-            overrides: overrides
+            overrides: sourcedOverrides
+        )
+        let overrides = Self.productionSafeOverrides(
+            sourcedOverrides,
+            authEnvironment: resolvedEnvironment
         )
         self.authEnvironment = resolvedEnvironment
         let resolvedConfig = AuthConfig(
@@ -80,13 +104,19 @@ public struct MobileAuthComposition {
 
         let client = StackAuthClient(
             config: resolvedConfig,
-            tokenStore: Self.tokenStore
+            tokenStore: Self.tokenStore(
+                appNamespace: appNamespace,
+                accessGroup: keychainAccessGroup,
+                legacyProjectID: resolvedConfig.stack.projectId
+            ),
+            oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
         )
         let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
             key: Self.sessionCacheDefaultsKey
         )
+        let hadCachedSessionAtLaunch = sessionCache.hasTokens
         let userCache = CMUXAuthIdentityStore(
             keyValueStore: defaults,
             key: Self.cachedUserDefaultsKey
@@ -111,15 +141,20 @@ public struct MobileAuthComposition {
             ).stack.projectId,
             defaults: defaults
         )
+        let includesDevAuth = Self.includesDevAuth(
+            policy: policy,
+            resolvedEnvironment: resolvedEnvironment
+        )
         let launch = AuthLaunchOptions(
             clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
-            includesDevAuth: Self.includesDevAuth(
-                policy: policy,
-                resolvedEnvironment: resolvedEnvironment
-            ),
-            clearStaleAuthOnLaunch: authProjectSwitched
+            includesDevAuth: includesDevAuth,
+            clearStaleAuthOnLaunch: authProjectSwitched,
+            replaceStoredSessionWithAutoLogin: Self.shouldReplaceStoredSessionWithAutoLogin(
+                includesDevAuth: includesDevAuth,
+                environment: environment
+            )
         )
         // Break the coordinator <-> push cycle: the coordinator is built first
         // and reaches the push service (for its post-sign-in token re-upload)
@@ -139,25 +174,60 @@ public struct MobileAuthComposition {
             isTokenStorageAvailable: { await MainActor.run { availability.isAvailable } },
             onSignedIn: { await deferredSignIn.run() }
         )
+        let pushIdentity = try? PhonePushKeyMaterial.current(
+            bundleID: bundle.bundleIdentifier ?? "",
+            accessGroup: keychainAccessGroup
+        )
         let push = PushRegistrationService(
             tokenProvider: coordinator,
             apiBaseURL: resolvedConfig.apiBaseURL,
             bundleID: bundle.bundleIdentifier ?? "",
             apnsEnvironment: Self.apnsEnvironment,
+            pushInstallationID: pushIdentity?.installationID,
+            pushKeyID: pushIdentity?.keyID,
+            pushPublicKey: pushIdentity?.publicKeyData.base64EncodedString(),
+            pushIdentityProvider: {
+                guard let identity = try? PhonePushKeyMaterial.current(
+                    bundleID: bundle.bundleIdentifier ?? "",
+                    accessGroup: keychainAccessGroup
+                ) else { return nil }
+                return PushRegistrationIdentity(
+                    installationID: identity.installationID,
+                    keyID: identity.keyID,
+                    publicKey: identity.publicKeyData.base64EncodedString()
+                )
+            },
             session: .shared
         )
-        deferredSignIn.set { await push.syncTokenIfPossible() }
+        deferredSignIn.set {
+            await push.syncTokenIfPossible()
+        }
         self.coordinator = coordinator
         self.pushRegistration = push
         self.protectedDataAvailability = availability
+        self.taskOwner = MobileAuthTaskOwner(
+            diagnosticLog: diagnosticLog,
+            shouldObserveCachedRestore: hadCachedSessionAtLaunch
+                && !launch.clearAuthRequested
+                && !launch.mockDataEnabled
+                && !launch.shouldClearStoredSessionBeforePriming
+        )
     }
 
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
-        protectedDataAvailability.startObserving { [coordinator] in
-            Task { await coordinator.revalidateSession() }
+        taskOwner.recordRestoreStarted()
+        let pushRegistration = self.pushRegistration
+        protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
+            taskOwner.revalidateSession(using: coordinator) {
+                Task {
+                    await pushRegistration.syncTokenIfPossible()
+                }
+            }
         }
+        taskOwner.mirrorActiveAccount(from: coordinator)
         coordinator.start()
+        taskOwner.observeRestore(using: coordinator)
     }
 
     private static var isDevelopmentBuild: Bool {
@@ -221,6 +291,7 @@ public struct MobileAuthComposition {
         isDevelopmentBuild: Bool,
         overrides: [String: String]
     ) -> CMUXAuthEnvironment {
+        guard isDevelopmentBuild else { return .production }
         switch overrides[authEnvironmentOverrideKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
@@ -231,6 +302,20 @@ public struct MobileAuthComposition {
         default:
             return isDevelopmentBuild ? .development : .production
         }
+    }
+
+    /// Release and production-auth builds cannot be redirected by a stale
+    /// LocalConfig.plist or launch override. Keep the auth channel and its
+    /// credential-bearing API origin aligned before constructing AuthConfig.
+    nonisolated static func productionSafeOverrides(
+        _ overrides: [String: String],
+        authEnvironment: CMUXAuthEnvironment
+    ) -> [String: String] {
+        guard authEnvironment == .production else { return overrides }
+        var safe = overrides
+        safe[authEnvironmentOverrideKey] = "production"
+        safe["ApiBaseURL"] = "https://cmux.com"
+        return safe
     }
 
     /// Whether launch enables the `42` debug sign-in shortcut. It signs in
@@ -244,6 +329,20 @@ public struct MobileAuthComposition {
         resolvedEnvironment: CMUXAuthEnvironment
     ) -> Bool {
         policy.includesFortyTwoShortcut && resolvedEnvironment == .development
+    }
+
+    /// Whether an explicit resolved development-auth profile may replace a
+    /// persisted session. A DEBUG build can be pointed at production with
+    /// `--prod-auth`; that channel must never let the replacement marker clear
+    /// a valid production session.
+    nonisolated static func shouldReplaceStoredSessionWithAutoLogin(
+        includesDevAuth: Bool,
+        environment: [String: String]
+    ) -> Bool {
+        includesDevAuth
+            && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
+            && !(environment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
+            && !(environment["CMUX_UITEST_STACK_PASSWORD"] ?? "").isEmpty
     }
 
     /// The defaults key persisting which Stack project id this install last
@@ -299,20 +398,43 @@ public struct MobileAuthComposition {
         return previous != resolvedProjectID
     }
 
+    /// The Simulator only ever mints sandbox device tokens, so a Release build
+    /// running there must register as sandbox or APNs rejects every push.
     private static var apnsEnvironment: String {
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         "sandbox"
         #else
         "production"
         #endif
     }
 
-    private static var tokenStore: TokenStoreInit {
+    private static func tokenStore(
+        appNamespace: MobileIOSAppNamespace?,
+        accessGroup: String?,
+        legacyProjectID: String
+    ) -> TokenStoreInit {
         #if DEBUG && targetEnvironment(simulator)
         .memory
         #else
-        .keychain
+        guard let appNamespace else {
+            return .none
+        }
+        return .custom(
+            KeychainStackTokenStore(
+                service: appNamespace.keychainService(
+                    base: "com.cmuxterm.app.auth"
+                ),
+                accessGroup: accessGroup,
+                legacyProjectID: legacyProjectID
+            )
+        )
         #endif
+    }
+
+    private static func keychainAccessGroup(in bundle: Bundle) -> String? {
+        String.cmuxKeychainAccessGroup(from:
+            bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
+        )
     }
 
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.
@@ -332,5 +454,73 @@ public struct MobileAuthComposition {
             }
         }
         return overrides
+    }
+}
+
+/// Lifetime owner for auth operations started from synchronous UIKit seams.
+@MainActor
+private final class MobileAuthTaskOwner {
+    private let diagnosticLog: DiagnosticLog?
+    private let shouldObserveCachedRestore: Bool
+    private var restoreTask: Task<Void, Never>?
+    private var revalidationTask: Task<Void, Never>?
+    private var activeAccountMirrorTask: Task<Void, Never>?
+
+    init(
+        diagnosticLog: DiagnosticLog?,
+        shouldObserveCachedRestore: Bool
+    ) {
+        self.diagnosticLog = diagnosticLog
+        self.shouldObserveCachedRestore = shouldObserveCachedRestore
+    }
+
+    func recordRestoreStarted() {
+        guard shouldObserveCachedRestore else { return }
+        diagnosticLog?.recordAppEvent(.authRestoreStarted)
+    }
+
+    /// The notification service extension reads the active account from the
+    /// shared keychain. Mirroring the auth stream covers a restored session at
+    /// launch, sign-in, account switches, and sign-out through one path.
+    func mirrorActiveAccount(from coordinator: AuthCoordinator) {
+        activeAccountMirrorTask?.cancel()
+        let identities = coordinator.authenticatedSessionIdentities()
+        activeAccountMirrorTask = Task { @MainActor in
+            await PhonePushActiveAccountStore().mirror(identities)
+        }
+    }
+
+    func observeRestore(using coordinator: AuthCoordinator) {
+        guard shouldObserveCachedRestore, let diagnosticLog else { return }
+        restoreTask?.cancel()
+        restoreTask = Task { @MainActor [weak self, coordinator] in
+            await coordinator.awaitBootstrapped()
+            guard !Task.isCancelled else { return }
+            diagnosticLog.recordAppEvent(
+                coordinator.isAuthenticated ? .authRestoreSucceeded : .authRestoreFailed,
+                failure: coordinator.isAuthenticated ? nil : .authorizationFailed,
+                count: coordinator.isAuthenticated ? 1 : nil
+            )
+            self?.restoreTask = nil
+        }
+    }
+
+    func revalidateSession(
+        using coordinator: AuthCoordinator,
+        onComplete: @escaping @MainActor () -> Void = {}
+    ) {
+        revalidationTask?.cancel()
+        revalidationTask = Task { @MainActor [weak self, coordinator] in
+            await coordinator.revalidateSession()
+            guard !Task.isCancelled else { return }
+            onComplete()
+            self?.revalidationTask = nil
+        }
+    }
+
+    deinit {
+        restoreTask?.cancel()
+        revalidationTask?.cancel()
+        activeAccountMirrorTask?.cancel()
     }
 }

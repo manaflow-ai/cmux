@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -121,7 +122,11 @@ struct SSHDeepSleepReattachTests {
     @Test func confirmedSSHPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let foregroundAuthToken = "foreground-auth-restored-session"
-        let configuration = Self.persistentConfiguration(foregroundAuthToken: foregroundAuthToken)
+        let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
+        let configuration = Self.persistentConfiguration(
+            foregroundAuthToken: foregroundAuthToken,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
         let initialPanel = try #require(workspace.focusedTerminalPanel)
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         let customSessionID = "ssh-restored-custom-session"
@@ -130,6 +135,19 @@ struct SSHDeepSleepReattachTests {
             orientation: .horizontal,
             focus: false,
             remotePTYSessionID: customSessionID
+        ))
+        let resumeCommand = "printf resumed-session"
+        #expect(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                command: resumeCommand,
+                source: "process-detected",
+                launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                    workspaceID: workspace.id,
+                    surfaceID: panel.id,
+                    persistentPTYSessionID: customSessionID
+                ))
+            ),
+            panelId: panel.id
         ))
         let originalSurface = panel.surface
         #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
@@ -158,6 +176,20 @@ struct SSHDeepSleepReattachTests {
         #expect(command.contains("workspace.remote.foreground_auth_ready"))
         #expect(command.contains(foregroundAuthToken))
         #expect(command.contains("ssh-session-end"))
+        let commandRange = try #require(
+            command.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
+        )
+        let encodedCommand = String(command[commandRange])
+            .split(separator: " ", maxSplits: 1)
+            .last
+            .map(String.init)
+        let commandData = try #require(encodedCommand.flatMap { Data(base64Encoded: $0) })
+        let decodedCommand = try #require(String(data: commandData, encoding: .utf8))
+        // A persistent-SSH resume binding is no longer replayed into the restarted
+        // PTY, so the restart runs the configured remote command like any shell.
+        #expect(decodedCommand.contains(configuredRemoteCommand))
+        #expect(!decodedCommand.contains(Data((resumeCommand + "\n").utf8).base64EncodedString()))
+        #expect(decodedCommand.contains("64007"))
         #expect(restarted.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
         #expect(!workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(panel.id))
@@ -191,17 +223,52 @@ struct SSHDeepSleepReattachTests {
     }
 
     @MainActor
+    @Test func confirmedPersistentPTYExitClearsConnectedPresentation() throws {
+        let workspace = Workspace()
+        let configuration = Self.persistentConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )
+        #expect(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                authority: .persistentTransport(try #require(workspace.remoteConfiguration).proxyBrokerTransportKey),
+                terminalLifecycleID: panel.surface.terminalLifecycleId
+            )
+        )
+        #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        #expect(workspace.remoteConnectionState == .connected)
+
+        let ended = workspace.markRemotePTYAttachEnded(
+            surfaceId: panel.id,
+            sessionID: sessionID
+        )
+
+        #expect(ended.clearedRemotePTYSession)
+        #expect(ended.untrackedRemoteTerminal)
+        #expect(!workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        #expect(workspace.remoteConnectionState != .connected)
+    }
+
+    @MainActor
     @Test func confirmedCloudPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let initialPanel = try #require(workspace.focusedTerminalPanel)
-        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         let customSessionID = "cloud-custom-session"
+        // Once the workspace is Cloud-owned, a split carrying a launch override
+        // such as a custom PTY identity fails closed instead of spawning a
+        // local PTY (#13098). Create the custom-identity pane first; what this
+        // test pins is that identity surviving the confirmed exit and restart.
         let panel = try #require(workspace.newTerminalSplit(
             from: initialPanel.id,
             orientation: .horizontal,
             focus: false,
             remotePTYSessionID: customSessionID
         ))
+        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
 
@@ -243,7 +310,55 @@ struct SSHDeepSleepReattachTests {
         #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
     }
 
-    @Test(arguments: [(nil, Int32(253), "24", 23), ("2O", Int32(255), "21", 20)])
+    /// The attach wrapper resolves its retry budget before the loop starts, so
+    /// the fallback, a well-formed operator budget, and the ceiling are all
+    /// provable without paying for a full budget of attach attempts.
+    @Test(arguments: [
+        (nil, SSHReconnectBudget().fallbackLimit),
+        ("2O", SSHReconnectBudget().fallbackLimit),
+        ("0", SSHReconnectBudget().fallbackLimit),
+        ("021", 21),
+        ("21", 21),
+        (String(SSHReconnectBudget().maximumLimit + 1), SSHReconnectBudget().maximumLimit),
+    ] as [(String?, Int)])
+    func foregroundAuthenticatedAttachResolvesRetryBudgetBeforeTheLoop(
+        reconnectLimit: String?,
+        expectedLimit: Int
+    ) throws {
+        let attachLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_ssh_attach_attempt",
+            reauthenticates: true
+        )
+        let budgetResolution = Array(attachLines.prefix { $0 != "while :; do" })
+        #expect(
+            budgetResolution.count < attachLines.count,
+            "the attach retry loop marker moved; the budget probe would run the whole loop"
+        )
+        // The generated startup command embeds these same lines, so the probe
+        // cannot drift away from what a real pane runs.
+        let startupCommand = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-test-session",
+            foregroundAuth: Self.foregroundAuth()
+        )
+        let clampLine = try #require(budgetResolution.first { $0.contains("CMUX_SSH_RECONNECT_LIMIT") })
+        #expect(startupCommand.contains(clampLine))
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = reconnectLimit
+        let result = Self.runProcessCapturingStandardOutput(
+            command: (budgetResolution + ["printf '%s' \"$cmux_ssh_attach_reconnect_limit\""])
+                .joined(separator: "\n"),
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        // Absent, malformed, and zero budgets fall back to the finite default;
+        // a well-formed budget is honored up to the shared ceiling (#13959).
+        #expect(result.stdout == String(expectedLimit), Comment(rawValue: result.stderr))
+    }
+
+    @Test(arguments: [(Optional("4"), Int32(255), "5", 4)])
     func foregroundAuthenticatedAttachUsesConfiguredRetryBudget(
         reconnectLimit: String?, expectedStatus: Int32, expectedAttempts: String, expectedSleepCount: Int
     ) throws {
@@ -296,8 +411,13 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
-            environment: environment
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
+            environment: environment,
+            // Every attach attempt spawns uuidgen, the fake ssh, cmux and
+            // sleep, so the full budget costs ~4.5 s on an idle runner and
+            // more under shard load. The deadline only bounds a hang; it
+            // scales with the attempts the case expects to run.
+            timeout: max(5, Double(expectedSleepCount + 1) * 2)
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -385,6 +505,7 @@ struct SSHDeepSleepReattachTests {
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
             "printf '%s' $((count + 1)) > \"${CMUX_TEST_AUTH_ATTEMPT_FILE}\"",
+            "printf '%s\\n' 'user@example.test: Permission denied (publickey,password).' >&2",
             "exit 255",
         ])
         for executable in [fakeCLI, fakeSSH] {
@@ -404,25 +525,27 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 255, Comment(rawValue: result.stderr))
         #expect(try String(contentsOf: authAttemptFile, encoding: .utf8) == "1")
-        #expect(!fileManager.fileExists(atPath: cliAttemptFile.path))
+        let cliAttempts = (try? String(contentsOf: cliAttemptFile, encoding: .utf8)) ?? ""
+        #expect(!cliAttempts.contains("ssh-pty-attach"), "Failed foreground authentication must never start a PTY attach")
     }
 
     private static func foregroundAuth() -> SSHPTYAttachStartupCommandBuilder.ForegroundAuth {
         SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: "user@example.test", port: 22, identityFile: nil,
-            sshOptions: [], token: "test-auth-token"
+            sshOptions: ["ControlMaster=no", "ControlPath=none"], token: "test-auth-token"
         )
     }
 
     private static func persistentConfiguration(
-        foregroundAuthToken: String? = nil
+        foregroundAuthToken: String? = nil,
+        configuredRemoteCommand: String? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini", port: nil, identityFile: nil, sshOptions: [],
@@ -431,6 +554,7 @@ struct SSHDeepSleepReattachTests {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             preserveAfterTerminalExit: true, persistentDaemonSlot: "ssh-test"
         )
@@ -459,7 +583,41 @@ struct SSHDeepSleepReattachTests {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private static func runProcess(command: String, environment: [String: String]) -> ProcessRunResult {
+    /// Runs a short shell probe and keeps its stdout, for scripts that report a
+    /// resolved value instead of exercising a retry loop.
+    private static func runProcessCapturingStandardOutput(
+        command: String,
+        environment: [String: String]
+    ) -> (status: Int32, stdout: String, stderr: String, timedOut: Bool) {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        do {
+            try process.run()
+        } catch {
+            return (-1, "", String(describing: error), false)
+        }
+        let timedOut = waitForProcessExit(process, timeout: 10) == .timedOut
+        if timedOut {
+            process.terminate()
+            _ = waitForProcessExit(process, timeout: 1)
+        }
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr, timedOut)
+    }
+
+    private static func runProcess(
+        command: String,
+        environment: [String: String],
+        timeout: TimeInterval = 5
+    ) -> ProcessRunResult {
         let process = Process()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -473,15 +631,10 @@ struct SSHDeepSleepReattachTests {
         } catch {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 5) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(status: process.terminationStatus, stderr: stderr, timedOut: timedOut)

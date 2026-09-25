@@ -241,8 +241,9 @@ extension RemoteTmuxWindowMirror {
         // at the top of performSizingPassNow does NOT cover a window resize,
         // so gate the stale re-pin here. The fresh setAssignedGrid below is
         // left alone: it applies tmux's own assignment, never a stale one.
-        let suppressPin = visibleHostingContext()?.window?.inLiveResize == true
-            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        let hostingWindow = visibleHostingContext()?.window
+        let suppressPin = hostingWindow?.inLiveResize == true
+            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: hostingWindow)
         var panesToRepaint: [Int] = []
         for (paneId, panel) in panelsByPaneId {
             // Under zoom the visible tree is the single zoomed leaf, but the
@@ -258,7 +259,7 @@ extension RemoteTmuxWindowMirror {
             let grewPin = panel.surface.setAssignedGrid(columns: node.width, rows: node.height)
             var laggedShort = false
             if !grewPin, !suppressPin,
-               let rendered = lastRenderedGrids[paneId],
+               let rendered = observedRenderedGrid(for: paneId),
                rendered.cols != node.width || rendered.rows != node.height {
                 // The pin value already equals the assignment, but the surface
                 // rendered a DIFFERENT grid: tmux grew the pane after the pin
@@ -269,20 +270,11 @@ extension RemoteTmuxWindowMirror {
                 panel.surface.reapplyAssignedGrid()
                 laggedShort = rendered.cols < node.width || rendered.rows < node.height
             }
-            // A grid that grew after tmux streamed those rows leaves the
-            // late-granted cells blank: the surface clipped that content while it
-            // was short, and tmux repaints only on change. tmux's own grid still
-            // HAS those rows — only the mirror lost them — so the repair is to read
-            // tmux's screen back into this pane, never to move the CLIENT size. The
-            // old shrink→restore kick did move it, which made tmux re-round an odd
-            // split, which grew a pane again and re-fired the kick: an unbounded
-            // loop (23k kicks in one fuzz iteration). Rationing the kick by a
-            // per-pane high-water bounded the loop but silently dropped genuine
-            // grows (a grow back to a size already refilled at this claim never
-            // repainted, so its cells stayed blank). A capture-pane read perturbs
-            // nothing, so every genuine grow can repaint exactly once with no
-            // budget, no high-water, and no loop.
-            if grewPin || laggedShort {
+            // Verified tmux assignment growth is repaired centrally after topology
+            // observers apply their grids. This residual covers a different edge:
+            // an unchanged pin applied against stale cell metrics can still render
+            // short, so re-read tmux's visible screen after reapplying that pin.
+            if laggedShort {
                 panesToRepaint.append(paneId)
             }
         }
@@ -290,6 +282,13 @@ extension RemoteTmuxWindowMirror {
         for paneId in panesToRepaint.sorted() {
             connection?.repaintPaneVisibleScreen(paneId: paneId)
         }
+    }
+
+    /// Reads live renderer dimensions, using the ledger only before a live sample exists.
+    private func observedRenderedGrid(for paneId: Int) -> (cols: Int, rows: Int)? {
+        panelsByPaneId[paneId]?.surface.rawSizingSample()
+            .map { (cols: $0.columns, rows: $0.rows) }
+            ?? lastRenderedGrids[paneId]
     }
 
     /// The first renderable pane whose last sampled grid is behind the cells
@@ -309,9 +308,9 @@ extension RemoteTmuxWindowMirror {
             // (TerminalSurface+Sizing), so a pane that quietly drifted off
             // its assignment would read parity-clean from the cache alone.
             // rawSizingSample() is @MainActor and this runs on main.
-            let liveGrid = panelsByPaneId[paneId]?.surface.rawSizingSample()
-                .map { (cols: $0.columns, rows: $0.rows) }
-            guard let rendered = liveGrid ?? lastRenderedGrids[paneId] else { continue }
+            // Detection and repair must read the same observation. A stale
+            // ledger cannot suppress reapplying a pin that the live grid missed.
+            guard let rendered = observedRenderedGrid(for: paneId) else { continue }
             // Either direction is a mismatch: a short pane wraps, and an
             // over-rendered pane holds rows tmux never repaints. The recovery
             // pass re-applies the pin, which clamps both ways.
@@ -413,9 +412,9 @@ extension RemoteTmuxWindowMirror {
         guard !inputs.visible || hostingContext != nil else { return }
         pendingSizingPassIntent = .inputChange
         lastCompletedSizingInputs = inputs
-        // A new fixed point gets a fresh re-arm budget; a recovery pass for
-        // the SAME inputs (lastCompletedSizingInputs was nil'd) keeps
-        // spending the old one, or the re-arm edge would loop unbounded.
+        // A new input set gets a fresh re-arm budget. Recovery passes retain
+        // that budget until output parity is restored, so a persistent miss
+        // cannot schedule an unbounded correction loop.
         if outputParityRearmInputs != inputs {
             outputParityRearmInputs = inputs
             outputParityRearmsSpent = 0
@@ -484,8 +483,8 @@ extension RemoteTmuxWindowMirror {
     /// (the settle payload's own comparison, tolerance and all). An apply
     /// may never terminate off-target without a re-arm edge: when the views
     /// miss the plan at an input fixed point, request one recovery pass,
-    /// capped per fixed point so an extent bonsplit genuinely cannot apply
-    /// (a hard minimum) stops after a bounded correction instead of looping.
+    /// capped until parity is restored so an extent bonsplit genuinely cannot
+    /// apply (a hard minimum) stops after a bounded correction instead of looping.
     func rearmIfOutputMissedPlan() {
         guard !isTornDown, !sizingPassScheduled, isEffectivelyVisibleForSizing,
               !bonsplitController.isDividerDragActive,
@@ -500,13 +499,18 @@ extension RemoteTmuxWindowMirror {
               let completed = lastCompletedSizingInputs,
               completed == currentSizingInputs()
         else { return }
-        guard outputParityRearmsSpent < 3 else { return }
         // Re-arm on EITHER a hosted-frame miss (the plan's points never
         // reached the views) OR a grid-lag miss (the pin never followed an
         // assignment that grew); the recovery pass re-imposes the plan and
         // re-applies the pin, and the cap bounds a miss that genuinely cannot
         // converge.
-        guard let mismatch = outputParityMismatch() ?? gridParityMismatch() else { return }
+        guard let mismatch = outputParityMismatch() ?? gridParityMismatch() else {
+            // The previous correction finished. A later layout disturbance
+            // needs its own budget even when the sizing inputs are unchanged.
+            outputParityRearmsSpent = 0
+            return
+        }
+        guard outputParityRearmsSpent < 3 else { return }
         outputParityRearmsSpent += 1
         #if DEBUG
         RemoteTmuxSizingDiagnostics.parityRearmCount += 1

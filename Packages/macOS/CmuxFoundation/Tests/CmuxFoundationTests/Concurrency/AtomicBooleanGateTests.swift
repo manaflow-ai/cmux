@@ -54,4 +54,21 @@ struct AtomicBooleanGateTests {
 
         #expect(observed)
     }
+
+    @Test func compareExchangeClaimsOnlyOneConcurrentCaller() async {
+        let gate = AtomicBooleanGate(false)
+
+        let claims = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for _ in 0..<100 {
+                group.addTask {
+                    gate.compareExchange(expected: false, desired: true)
+                }
+            }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+
+        #expect(claims.filter { $0 }.count == 1)
+        #expect(gate.loadAcquire())
+        #expect(!gate.compareExchange(expected: false, desired: true))
+    }
 }

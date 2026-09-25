@@ -105,7 +105,7 @@ public struct AgentForkArgv: Sendable, Equatable {
             }
             return [parts.executable, "--session", sessionId, "--fork"] + preserved
         case "pi":
-            return withSessionFork(
+            return withForkSessionValue(
                 kind: "pi",
                 executable: "pi",
                 sessionId: sessionId,
@@ -113,7 +113,7 @@ public struct AgentForkArgv: Sendable, Equatable {
                 arguments: arguments
             )
         case "omp":
-            return withSessionFork(
+            return withForkSessionValue(
                 kind: "omp",
                 executable: "omp",
                 sessionId: sessionId,
@@ -125,7 +125,7 @@ public struct AgentForkArgv: Sendable, Equatable {
         }
     }
 
-    private func withSessionFork(
+    private func withForkSessionValue(
         kind: String,
         executable fallbackExecutable: String,
         sessionId: String,
@@ -134,7 +134,7 @@ public struct AgentForkArgv: Sendable, Equatable {
     ) -> [String]? {
         let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: fallbackExecutable)
         guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: kind, args: parts.tail) else { return nil }
-        return [parts.executable, "--session", sessionId, "--fork"] + preserved
+        return [parts.executable, "--fork", sessionId] + preserved
     }
 
     private func commandParts(

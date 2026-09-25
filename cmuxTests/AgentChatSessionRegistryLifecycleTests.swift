@@ -1,4 +1,6 @@
 import CMUXAgentLaunch
+import CmuxFoundation
+@testable import CmuxMobileHost
 import Foundation
 import Testing
 
@@ -9,6 +11,26 @@ import Testing
 #endif
 
 struct AgentChatSessionRegistryLifecycleTests {
+    @MainActor
+    @Test("Feed v1 ids are decoded before chat records are indexed")
+    func canonicalFeedIDIsDecodedBeforeChatBinding() throws {
+        let sessionID = "thread-with-hyphens"
+        let canonicalID = try #require(
+            FeedWorkstreamIdentifier(agentID: "codex", sessionID: sessionID)?.rawValue
+        )
+        let registry = AgentChatSessionRegistry()
+
+        let record = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: canonicalID,
+            hookEventName: .sessionStart,
+            source: "codex"
+        ))
+
+        #expect(record.sessionID == sessionID)
+        #expect(record.hookStoreLookupSessionID == sessionID)
+        #expect(record.hookStoreSessionID == nil)
+    }
+
     @MainActor
     @Test func hookStoreSeedDoesNotRestoreStalePIDOntoExistingLiveRecord() async throws {
         let home = try temporaryHomeDirectory()
@@ -462,6 +484,39 @@ struct AgentChatSessionRegistryLifecycleTests {
         record.rememberHookStoreSessionID(realSessionID)
 
         #expect(service.hasBoundedReadableTranscript(record))
+    }
+
+    @MainActor
+    @Test func restoreStyleInitializationRebuildsSurfaceLookup() throws {
+        let surfaceID = UUID().uuidString
+        let older = AgentChatSessionRecord(
+            sessionID: "older",
+            agentKind: .codex,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: "/tmp/older.jsonl",
+            state: .ended,
+            lastActivityAt: Date(timeIntervalSince1970: 100),
+            title: nil,
+            pid: nil
+        )
+        let newer = AgentChatSessionRecord(
+            sessionID: "newer",
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: "/tmp/newer.jsonl",
+            state: .ended,
+            lastActivityAt: Date(timeIntervalSince1970: 200),
+            title: nil,
+            pid: nil
+        )
+        let registry = AgentChatSessionRegistry(restoredRecords: [older, newer])
+
+        let resolved = try #require(registry.currentOrMostRecentSession(surfaceID: surfaceID))
+        #expect(resolved.sessionID == newer.sessionID)
     }
 
     private func temporaryHomeDirectory() throws -> URL {

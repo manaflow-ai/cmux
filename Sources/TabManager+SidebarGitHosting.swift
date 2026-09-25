@@ -25,7 +25,7 @@ extension TabManager: SidebarGitHosting {
 
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
+        return workspace.usesRemoteDirectoryProvenance
     }
 
     func panelIds(in workspaceId: UUID) -> [UUID] {
@@ -42,7 +42,9 @@ extension TabManager: SidebarGitHosting {
     }
 
     func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
-        tabs.first(where: { $0.id == workspaceId })?.isRemoteTerminalSurface(panelId) == true
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.isRemoteTerminalSurface(panelId) ||
+            workspace.cloudDirectoryProvenanceRequired(panelId: panelId)
     }
 
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
@@ -110,6 +112,8 @@ extension TabManager: SidebarGitHosting {
     }
 
     func updateReportedSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
+        // A Cloud pane's local renderer/launcher cannot outrank the revisioned daemon graph.
+        if tabs.first(where: { $0.id == tabId })?.cloudDirectoryProvenanceRequired(panelId: surfaceId) == true { return }
         if let workspace = tabs.first(where: { $0.id == tabId }),
            !workspace.allowsLocalDirectoryFallback(panelId: surfaceId) {
             updateRemoteSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)
@@ -172,12 +176,12 @@ extension TabManager: SidebarGitHosting {
 
     // MARK: Environment
 
-    var isGitMetadataWatchEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.gitMetadataPollingEnabled(defaults: .standard)
+    var gitMetadataActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard)
     }
 
-    var isPullRequestPollingEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+    var pullRequestActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard)
     }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {

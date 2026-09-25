@@ -26,16 +26,8 @@ extension RemoteTmuxSizingUITests {
     /// byte-identical screens, so a comparison that read the wrong pane's surface
     /// would pass — which is exactly how a broken text oracle stayed green.
     func startRuler(pane: String) {
-        let ruler = """
-        unset COLUMNS LINES; id=${TMUX_PANE:-%?}; while :; do sz=$(stty size 2>/dev/null); \
-        r=${sz%% *}; c=${sz##* }; [ -n "$r" ] || r=24; [ -n "$c" ] || c=80; \
-        base=$(printf '%0.s0123456789' $(seq 1 400)); printf '\\033[2J\\033[H'; \
-        i=1; while [ "$i" -lt "$r" ]; do printf '%s\\n' \
-        "$(printf '%s %03dx%03d %s' "$id" "$c" "$r" "$base" | cut -c1-"$c")"; \
-        i=$((i+1)); done; printf 'END %s %03dx%03d' "$id" "$c" "$r"; sleep 2; done
-        """
         XCTAssertNotNil(
-            tmux(["send-keys", "-t", pane, ruler, "Enter"]),
+            tmux(["start-ruler", "-t", pane]),
             "could not start the ruler in \(pane): \(lastTmuxFailure ?? "?")"
         )
     }

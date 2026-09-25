@@ -1,4 +1,5 @@
 import Foundation
+internal import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 
 /// Retry accounting for the pending-input render-grid drop path, layered on
@@ -34,12 +35,13 @@ extension MobileShellComposite {
             // Same fail-open invariant as failOpenTerminalReplayBarrier: once
             // retry budget is exhausted, the pending-input gate must not keep
             // live output suppressed forever.
+            cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
             pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
             terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
-        requestTerminalReplay(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, trigger: .pendingInputDrop)
     }
 
     @discardableResult
@@ -58,6 +60,7 @@ extension MobileShellComposite {
             clearTerminalReplayInFlightIfCurrent(surfaceID: surfaceID, requestID: replayRequestID)
             requestTerminalReplay(
                 surfaceID: surfaceID,
+                trigger: .failureRetry,
                 replayBarrierToken: retryToken,
                 coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCount
                     ?? terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
@@ -67,7 +70,7 @@ extension MobileShellComposite {
         if replayBarrierToken == nil,
            prepareNonBarrierTerminalReplayFailureRetry(surfaceID: surfaceID) {
             clearTerminalReplayInFlightIfCurrent(surfaceID: surfaceID, requestID: replayRequestID)
-            requestTerminalReplay(surfaceID: surfaceID)
+            requestTerminalReplay(surfaceID: surfaceID, trigger: .failureRetry)
             return true
         }
         let retryBudgetExhausted = retryBudgetWasExhausted
@@ -98,6 +101,7 @@ extension MobileShellComposite {
         resetRetryBudget: Bool = true
     ) {
         MobileDebugLog.anchormux("CMUX_REPLAY pending_input_fail_open surface=\(surfaceID) reason=\(reason)")
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         if resetRetryBudget {

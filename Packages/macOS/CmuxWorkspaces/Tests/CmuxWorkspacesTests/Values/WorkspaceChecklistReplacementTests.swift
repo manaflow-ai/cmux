@@ -4,7 +4,20 @@ import Testing
 
 @Suite struct WorkspaceChecklistReplacementTests {
     @Test func replaceKeepsIdentityAndOriginForMatchedIds() throws {
-        let keep = WorkspaceChecklistItem(text: "keep me", state: .inProgress, origin: .agent)
+        let attachment = WorkspaceChecklistAttachment(
+            displayName: "screenshot.png",
+            filePath: "/tmp/screenshot.png",
+            byteCount: 100,
+            contentTypeIdentifier: "public.png",
+            pixelWidth: 20,
+            pixelHeight: 10
+        )
+        let keep = WorkspaceChecklistItem(
+            text: "keep me",
+            state: .inProgress,
+            origin: .agent,
+            attachments: [attachment]
+        )
         let drop = WorkspaceChecklistItem(text: "drop me")
         var items = [keep, drop]
 
@@ -20,22 +33,31 @@ import Testing
         // state) their existing state.
         #expect(result[0].origin == .agent)
         #expect(result[0].state == .inProgress)
+        #expect(result[0].attachments == [attachment])
         // Unmatched existing items are removed.
         #expect(!result.contains(where: { $0.id == drop.id }))
         #expect(result[1].text == "brand new")
         #expect(result[1].origin == .user)
         #expect(result[1].state == .pending)
+        #expect(result[1].attachments.isEmpty)
         #expect(items == result)
     }
 
     @Test func replaceAppliesIncomingStateToMatchedItems() throws {
-        let existing = WorkspaceChecklistItem(text: "task", state: .pending, origin: .user)
+        let attachment = WorkspaceChecklistAttachment(displayName: "image.png", filePath: "/tmp/image.png")
+        let existing = WorkspaceChecklistItem(
+            text: "task",
+            state: .pending,
+            origin: .user,
+            attachments: [attachment]
+        )
         var items = [existing]
         let result = try items.replaceChecklist(with: [
             WorkspaceChecklistReplacementItem(id: existing.id, text: "task", state: .completed),
         ]).get()
         #expect(result[0].id == existing.id)
         #expect(result[0].state == .completed)
+        #expect(result[0].attachments == [attachment])
     }
 
     @Test func replaceCreatesNewItemsWithGivenIdOriginAndState() throws {

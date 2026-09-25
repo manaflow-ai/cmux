@@ -3,10 +3,14 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
+import CmuxMobileBrowserStream
+import CmuxMobileRPC
+import CmuxPhonePush
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
+import CmuxMobileToast
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -31,18 +35,30 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 /// `@Environment` instead of `AuthManager.shared`.
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
-    private let auth: MobileAuthComposition
+    private let macListAuthState: MobileMacListAuthState
+    let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
-    private let signOutHook: MobileSignOutHook
+    private let analyticsClientID: String?
+    private let terminalLatencyObserver: any MobileTerminalLatencyObserving
+    package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
+    private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
+    private let personalIrohForget: (any MobileIrohMacForgetting)?
+    /// The same policy instance used by the process-wide Iroh discovery runtime.
+    private let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let featureFlags: MobileFeatureFlags
+    /// The legacy connection-method choice used only by onboarding and migration UI.
+    private let connectionMethodStore: MobileConnectionMethodStore
+    /// The one-time Auto-Connect migration eligibility and acknowledgement.
+    private let autoConnectMigrationStore: MobileAutoConnectMigrationStore
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
-    private let onboardingStore: MobileOnboardingStore
+    package let onboardingStore: MobileOnboardingStore
     #endif
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
@@ -50,17 +66,43 @@ public struct CMUXMobileRootScene: View {
     /// non-iOS roots, which simply shows no Tailscale guidance.
     private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    /// The app-wide toast presenter, hosted at this root so toasts float over
+    /// every screen (including sheets) and any descendant can present through
+    /// `@Environment(ToastCenter.self)`.
+    @State private var toastCenter: ToastCenter
+    #if os(iOS)
+    /// What's New state (binary catalog visibility via the remote list,
+    /// remote announcements, acknowledgement marker), hosted at this root so
+    /// the shell's one-time sheet and Settings > What's New share one fetch
+    /// and one cache through `@Environment(MobileWhatsNewCenter.self)`.
+    @State private var whatsNewCenter: MobileWhatsNewCenter
+    // This state is inside the iOS-only block because the center is not
+    // defined for macOS builds of the shared root scene.
+    /// Minimum-Mac-version state (remote list + per-origin cache), hosted at
+    /// this root so onboarding copy and the shell store's connection gate
+    /// share one fetch through `@Environment(MobileMacCompatCenter.self)`.
+    @State private var macCompatCenter: MobileMacCompatCenter
+    /// Exchanges the native Stack session for cmux web session cookies so
+    /// in-app webviews (What's New web pages) render as the signed-in user.
+    /// Injected as a plain environment value through
+    /// `\.mobileWebAppSession`.
+    private let webAppSession: MobileWebAppSessionBroker
+    #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
     /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
-    #if DEBUG
-    /// The structured diagnostic log injected into the shell store so the DEV
-    /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
-    /// composition root did not build one.
+    /// The bounded privacy-safe diagnostic log shared by the production shell
+    /// store and the in-app diagnostics exporter.
+    #if os(iOS)
+    private let diagnosticLog: DiagnosticLog
+    /// App-wide durable logs used by Settings' single ZIP export.
+    private let appLog: AppLog?
+    #else
     private let diagnosticLog: DiagnosticLog?
+    private let appLog: AppLog?
     #endif
 
     #if os(iOS)
@@ -75,74 +117,172 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - featureFlags: The live PostHog-backed mobile feature flags.
+    ///   - connectionMethodStore: The legacy onboarding and migration choice.
+    ///   - autoConnectMigrationStore: The versioned, one-time migration
+    ///     eligibility and acknowledgement injected into the root view.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
     ///   - personalIrohRouteCatalog: Authenticated personal-account Iroh routes
-    ///     to merge only when refreshing an already-paired Mac.
+    ///     to merge when refreshing paired Macs and listing live candidates.
+    ///   - personalIrohDiscovery: Live same-account Mac discovery used before
+    ///     presenting QR pairing.
+    ///   - personalIrohForget: Revokes a hidden computer's account bindings when
+    ///     the user forgets it from the Computers screen.
+    ///   - buildCompatibilityPolicy: Shared Mac-instance admission policy used
+    ///     by Iroh discovery, persistence, and connection validation.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
-    ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
-    ///     injected into the shell store for the DEV feedback round-trip.
+    ///   - diagnosticLog: The privacy-safe structured connection log.
+    ///   - appLog: The durable app and networking log used by the unified
+    ///     Diagnostics export.
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
+        terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        featureFlags: MobileFeatureFlags,
+        connectionMethodStore: MobileConnectionMethodStore,
+        autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
+        personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
+        personalIrohForget: (any MobileIrohMacForgetting)? = nil,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog,
+        appLog: AppLog? = nil,
+        v2Configuration: MobileIrohV2Configuration? = nil
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
+        self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.featureFlags = featureFlags
+        self.connectionMethodStore = connectionMethodStore
+        self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
+        self.personalIrohDiscovery = personalIrohDiscovery
+        self.personalIrohForget = personalIrohForget
+        self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
-        self.pairedMacStore = Self.openPairedMacStore()
+        self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog, configuration: v2Configuration)
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = diagnosticLog
-        #endif
+        self.appLog = appLog
+        _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
+        _whatsNewCenter = State(
+            initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
+        )
+        _macCompatCenter = State(
+            initialValue: MobileMacCompatCenter(apiBaseURL: auth.config.apiBaseURL)
+        )
+        webAppSession = MobileWebAppSessionBroker(
+            tokens: auth.coordinator,
+            apiBaseURL: auth.config.apiBaseURL,
+            projectID: auth.config.stack.projectId
+        )
     }
     #else
     /// Creates the root scene (non-iOS: no push).
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
+        self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
+        self.personalIrohDiscovery = nil
+        self.personalIrohForget = nil
+        self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.tailscaleStatusMonitor = nil
-        self.pairedMacStore = Self.openPairedMacStore()
+        self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = nil
-        #endif
+        self.appLog = nil
+        _toastCenter = State(initialValue: ToastCenter())
     }
     #endif
 
-    private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
+    private static func openPairedMacStore(
+        diagnosticLog: DiagnosticLog?, configuration: MobileIrohV2Configuration? = nil
+    ) -> (any MobilePairedMacStoring)? {
         do {
-            return try MobilePairedMacStore()
+            #if DEBUG
+            if UITestConfig.mockDataEnabled {
+                // Manual-pair UI tests can relaunch the app after connecting.
+                // Their injected device name is unique to one test invocation
+                // and survives that relaunch, while every other mock launch
+                // stays isolated. Ports can be reused by later runner jobs.
+                let storeID = UITestConfig.addDeviceName.flatMap { name in
+                    guard UITestConfig.addDevicePort != nil,
+                          name.hasPrefix("manual-") else { return nil }
+                    return name
+                } ?? UUID().uuidString
+                let databaseURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        "cmux-uitest-paired-macs-\(storeID).sqlite3"
+                    )
+                let store = try MobilePairedMacStore(databaseURL: databaseURL)
+                diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
+                return store
+            }
+            #endif
+            let support = configuration?.stateDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let environment = configuration?.environment ?? "development"
+            let directory = support.appendingPathComponent("cmux-iroh-v2", isDirectory: true)
+                .appendingPathComponent(Data(environment.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_"), isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Official builds previously kept saved Computers under cmux/. The
+            // app container supplies bundle isolation; user/team/build keys stay
+            // intact inside the imported rows. Dev stores have no trustworthy
+            // legacy environment label, so they must start their own partition.
+            let legacyURL: URL?
+            #if DEBUG
+            legacyURL = nil
+            #else
+            legacyURL = environment == "production" && MobileIOSBuildScope.current() == nil
+                ? support.appendingPathComponent("cmux/paired-macs.sqlite3") : nil
+            #endif
+            let store = try MobilePairedMacStore(
+                databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"),
+                importingLegacyDatabaseURL: legacyURL
+            )
+            diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
+            return store
         } catch {
             mobileRootSceneLog.error(
                 "failed to open paired mac store: \(String(describing: error), privacy: .public)"
+            )
+            diagnosticLog?.recordAppEvent(
+                .pairedMacStoreOpenFailed,
+                failure: DiagnosticFailureKind.classify(error)
             )
             return nil
         }
@@ -158,21 +298,9 @@ public struct CMUXMobileRootScene: View {
     private func makeDeviceRegistry(
         pairedMacStore: (any MobilePairedMacStoring)?
     ) -> (any DeviceRegistryRefreshing)? {
-        let baseURL = auth.config.apiBaseURL
-        guard !baseURL.isEmpty else { return nil }
+        guard let personalIrohRouteCatalog else { return nil }
         let coordinator = auth.coordinator
-        let teamRegistry = DeviceRegistryService(
-            apiBaseURL: baseURL,
-            deviceID: DeviceRegistryService.deviceID(),
-            tokenSource: DeviceRegistryService.TokenSource(
-                accessToken: { try? await coordinator.accessToken() },
-                refreshToken: { await coordinator.refreshToken() }
-            ),
-            teamIDProvider: { await coordinator.resolvedTeamID }
-        )
-        guard let personalIrohRouteCatalog else { return teamRegistry }
         return PersonalIrohDeviceRegistryDecorator(
-            base: teamRegistry,
             catalog: personalIrohRouteCatalog,
             knownRoutes: { macDeviceID, instanceTag in
                 guard let pairedMacStore else { return nil }
@@ -182,35 +310,17 @@ public struct CMUXMobileRootScene: View {
                     stackUserID: userID,
                     teamID: teamID
                 )
-                let target = macDeviceID.lowercased()
+                let targetID = CmxMacAppInstanceIdentity(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                ).id
                 return pairedMacs?.first(where: {
-                    $0.macDeviceID.lowercased() == target
-                        && $0.instanceTag == instanceTag
+                    CmxMacAppInstanceIdentity(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ).id == targetID
                 })?.routes
             }
-        )
-    }
-
-    /// Build the live presence subscription client (the `workers/presence`
-    /// Durable Object edge). `nil` when no service URL resolves for this build
-    /// (Release without an explicit override), which keeps presence entirely
-    /// off; auth mirrors `makeDeviceRegistry()` so the stream always carries
-    /// the current session and selected team.
-    @MainActor
-    private func makePresenceClient() -> PresenceClient? {
-        // Presence follows the resolved auth channel (not the build config):
-        // a --prod-auth dev build must subscribe to the production worker its
-        // production Macs heartbeat to (issue 7145).
-        guard let baseURL = PresenceClient.resolvedServiceBaseURL(
-            isDevelopmentAuthChannel: auth.authEnvironment == .development
-        ) else { return nil }
-        let coordinator = auth.coordinator
-        return PresenceClient(
-            serviceBaseURL: baseURL,
-            tokenSource: PresenceTokenSource(
-                accessToken: { try? await coordinator.accessToken() }
-            ),
-            teamIDProvider: { await coordinator.resolvedTeamID }
         )
     }
 
@@ -221,7 +331,8 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeBackedUpPairedMacStore(
         restoreBoundary: PairedMacRestoreBoundary,
-        buildScope: MobileIOSBuildScope?
+        buildScope: MobileIOSBuildScope?,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
@@ -232,41 +343,43 @@ public struct CMUXMobileRootScene: View {
             buildScopedStore = store
         }
         let scopedStore = TeamScopedPairedMacStore(
-            inner: buildScopedStore,
+            inner: buildCompatibilityPolicy.scoping(buildScopedStore),
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
-        guard MobilePairedMacBackup.resolved().isEnabled,
-              let baseURL = PresenceClient.resolvedServiceBaseURL(
-                  isDevelopmentAuthChannel: auth.authEnvironment == .development
-              ) else {
-            return scopedStore
-        }
-        let client = PairedMacBackupClient(
-            serviceBaseURL: baseURL,
-            tokenSource: PresenceTokenSource(
-                accessToken: { try? await coordinator.accessToken() },
-                currentUserID: { await coordinator.currentUser?.id }
-            ),
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            clientScopeProvider: { buildScope?.serializedScope }
-        )
-        return BackingUpPairedMacStore(
-            inner: scopedStore,
-            backup: client,
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            restoreBoundary: restoreBoundary,
-            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore()
-        )
+        return scopedStore
     }
 
     public var body: some View {
-        content
+        applyingRootEnvironment(to: content)
+    }
+
+    /// Applies the production root environment to a package-owned alternate
+    /// Debug host without widening the app's public composition API.
+    @ViewBuilder
+    package func applyingRootEnvironment<Content: View>(
+        to rootContent: Content
+    ) -> some View {
+        rootContent
+            // App-wide toast layer: every root host gets the presentation
+            // window and the ToastCenter environment.
+            .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
+            .environment(macListAuthState)
             .analytics(analytics)
+            .analyticsClientID(analyticsClientID)
+            .environment(\.mobileDiagnosticLog, diagnosticLog)
+            .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
+            .keyboardDockRebuildRevertEnabled(featureFlags.keyboardDockRebuildRevertEnabled)
+            .environment(connectionMethodStore)
+            .environment(autoConnectMigrationStore)
+            .environment(whatsNewCenter)
+            .environment(macCompatCenter)
+            .environment(\.mobileWebAppSession, webAppSession)
             #endif
     }
 
@@ -274,7 +387,17 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.workspaceListLayoutPreviewEnabled {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
+            ComputerPickerPersistencePreviewView()
+        } else if UITestConfig.taskComposerPreviewEnabled {
+            TaskComposerAccessibilityPreviewView()
+        } else if UITestConfig.pushTabNavigationPreviewEnabled {
+            PushTabNavigationPreviewView()
+        } else if UITestConfig.notificationFeedPreviewEnabled {
+            NotificationFeedPreviewView()
+        } else if UITestConfig.whatsNewPreviewEnabled {
+            MobileWhatsNewPreviewView()
+        } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
@@ -282,27 +405,88 @@ public struct CMUXMobileRootScene: View {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
+            ToastGalleryView()
         } else {
-            CMUXMobileAppView(
-                store: makeStore(),
-                onboardingStore: onboardingStore,
-                signOutHook: signOutHook
-            )
+            makeMobileAppView()
         }
         #else
-        CMUXMobileAppView(
-            store: makeStore(),
-            onboardingStore: onboardingStore,
-            signOutHook: signOutHook
-        )
+        makeMobileAppView()
         #endif
         #else
-        CMUXMobileAppView(store: makeStore(), signOutHook: signOutHook)
+        makeMobileAppView()
         #endif
     }
 
     @MainActor
-    private func makeStore() -> CMUXMobileShellStore {
+    private func makeMobileAppView() -> CMUXMobileAppView {
+        let browserStreamStore = BrowserStreamStore()
+        let simulatorStreamStore = MobileSimulatorStreamStore()
+        #if os(iOS)
+        return CMUXMobileAppView(
+            store: makeStore(
+                browserStreamEvents: browserStreamStore,
+                simulatorStreamStore: simulatorStreamStore
+            ),
+            browserStreamStore: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore,
+            onboardingStore: onboardingStore,
+            signOutHook: signOutHook
+        )
+        #else
+        return CMUXMobileAppView(
+            store: makeStore(
+                browserStreamEvents: browserStreamStore,
+                simulatorStreamStore: simulatorStreamStore
+            ),
+            browserStreamStore: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore,
+            signOutHook: signOutHook
+        )
+        #endif
+    }
+
+    @MainActor
+    private func makePhonePushKeyExchangeHooks() -> MobilePhonePushKeyExchangeHooks {
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.cmux.ios"
+        let accessGroup = auth.keychainAccessGroup
+        return MobilePhonePushKeyExchangeHooks(
+            makeDescriptor: {
+                let key = try PhonePushKeyMaterial.current(
+                    bundleID: bundleID,
+                    accessGroup: accessGroup
+                )
+                return MobilePhonePushPublicKeyDescriptor(
+                    installationID: key.installationID,
+                    keyID: key.keyID,
+                    publicKey: key.publicKeyData
+                )
+            },
+            iosBuildID: { bundleID },
+            pinPeerDescriptor: { descriptor, context in
+                let tuple = PhonePushDeviceTuple(
+                    accountID: context.accountID,
+                    teamID: context.teamID,
+                    iosBuildID: context.iosBuildID,
+                    iosInstallationID: context.iosInstallationID,
+                    macDeviceID: context.macDeviceID,
+                    macInstanceTag: context.macInstanceTag,
+                    macBuildID: context.macBuildID
+                )
+                PhonePushPeerKeyStore().pin(
+                    descriptor.publicKey,
+                    keyID: descriptor.keyID,
+                    for: tuple
+                )
+            }
+        )
+    }
+
+    @MainActor
+    package func makeStore(
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
+        simulatorStreamStore: MobileSimulatorStreamStore? = nil
+    ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
         let identityProvider = AuthCoordinatorIdentityProvider(
@@ -310,49 +494,76 @@ public struct CMUXMobileRootScene: View {
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
         let restoreBoundary = PairedMacRestoreBoundary()
+        // Overlay the demonstration computer OUTSIDE the build-scope/team/
+        // backup stack, so the demo row is account-flag-gated, never persisted,
+        // and never synced, while every store consumer (Computers list,
+        // reconnect, registry route lookup) sees it through the same loadAll
+        // path a real pairing uses.
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(
             restoreBoundary: restoreBoundary,
-            buildScope: buildScope
-        )
+            buildScope: buildScope,
+            buildCompatibilityPolicy: buildCompatibilityPolicy
+        ).map { store -> any MobilePairedMacStoring in
+            DemoContentPairedMacStore(
+                inner: store,
+                isEnabled: { await identityProvider.demonstrationContentEnabled }
+            )
+        }
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
-        let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
+        let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
         #if DEBUG
-        return CMUXMobileShellStore(
+        if UITestConfig.successfulComputerForgetEnabled {
+            resolvedPersonalIrohForget = SuccessfulComputerForgetUITestStub()
+        } else {
+            resolvedPersonalIrohForget = personalIrohForget
+        }
+        #else
+        resolvedPersonalIrohForget = personalIrohForget
+        #endif
+        let store = CMUXMobileShellStore(
             runtime: runtime,
+            macListAuthState: macListAuthState,
             pairedMacStore: backedUpPairedMacStore,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
-            presence: makePresenceClient(),
+            personalIrohDiscovery: personalIrohDiscovery,
+            personalIrohForget: resolvedPersonalIrohForget,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
+            phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
+            hiddenMacStore: hiddenMacStore,
             analytics: analytics,
+            terminalLatencyObserver: terminalLatencyObserver,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            // Persistent, unlike the composite's in-memory default: opening a
+            // workspace must restore its last opened tab across app relaunches.
+            lastTabStore: MobileWorkspaceLastTabStore(defaults: .standard),
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(
+                defaults: .standard,
+                diagnosticLog: diagnosticLog
+            ),
+            browserStreamEvents: browserStreamEvents,
+            simulatorStreamStore: simulatorStreamStore
         )
-        #else
-        return CMUXMobileShellStore(
-            runtime: runtime,
-            pairedMacStore: backedUpPairedMacStore,
-            pairedMacRestoreBoundary: restoreBoundary,
-            deviceRegistry: deviceRegistry,
-            presence: makePresenceClient(),
-            identityProvider: identityProvider,
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
-            analytics: analytics,
-            feedbackEmailSubmitter: feedbackEmailSubmitter,
-            feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
-        )
+        #if os(iOS)
+        // Install the cached (or baked) Mac minimum-version list before the
+        // store is handed to any view, so the first stored-Mac reconnect can
+        // never race the root view's async policy push and admit a Mac under
+        // a stale floor. The root view still refreshes from the network and
+        // pushes updates.
+        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
         #endif
+        return store
     }
 }

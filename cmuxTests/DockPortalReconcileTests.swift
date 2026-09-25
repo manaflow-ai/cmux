@@ -49,6 +49,147 @@ struct DockPortalReconcileTests {
         #expect(panel.surface.debugPortalHostLease().paneId == dockPane.id)
     }
 
+    @Test("Detached replacement cannot displace a rearmed Dock portal host")
+    @MainActor
+    func detachedReplacementCannotDisplaceRearmedDockPortalHost() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let liveHost = NSView()
+        let detachedReplacement = NSView()
+        let pane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(liveHost),
+            paneId: pane,
+            instanceSerial: 1,
+            ownershipGeneration: 1,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.liveHost"
+        ))
+        #expect(panel.surface.preparePortalHostReplacementIfOwned(
+            hostId: ObjectIdentifier(liveHost),
+            instanceSerial: 1,
+            reason: "test.dock.liveHostDismantled"
+        ))
+
+        #expect(!panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(detachedReplacement),
+            paneId: pane,
+            instanceSerial: 2,
+            ownershipGeneration: 2,
+            inWindow: false,
+            bounds: .zero,
+            reason: "test.dock.detachedReplacement"
+        ))
+        #expect(
+            panel.surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(liveHost))
+        )
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(detachedReplacement),
+            paneId: pane,
+            instanceSerial: 2,
+            ownershipGeneration: 2,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.attachedReplacement"
+        ))
+    }
+
+    @Test("Detached browser destination cannot displace its live source host")
+    @MainActor
+    func detachedBrowserDestinationCannotDisplaceLiveSourceHost() {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        let liveSourceHost = NSView()
+        let detachedDestinationHost = NSView()
+        let laterSamePaneHost = NSView()
+        let sourcePane = PaneID()
+        let destinationPane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 210, height: 510)
+
+        #expect(panel.claimPortalHost(
+            hostId: ObjectIdentifier(liveSourceHost),
+            paneId: sourcePane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.liveSource"
+        ))
+        panel.preparePortalHostReplacementForNextDistinctClaim(
+            inPane: destinationPane,
+            reason: "test.dock.browser.moveRearm"
+        )
+
+        #expect(!panel.claimPortalHost(
+            hostId: ObjectIdentifier(detachedDestinationHost),
+            paneId: destinationPane,
+            inWindow: false,
+            bounds: .zero,
+            reason: "test.dock.browser.detachedDestination"
+        ))
+        #expect(panel.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(liveSourceHost),
+            reason: "test.dock.browser.sourceDismantled"
+        ))
+        #expect(!panel.claimPortalHost(
+            hostId: ObjectIdentifier(detachedDestinationHost),
+            paneId: destinationPane,
+            inWindow: false,
+            bounds: .zero,
+            reason: "test.dock.browser.detachedDestinationAfterSourceRelease"
+        ))
+
+        #expect(panel.claimPortalHost(
+            hostId: ObjectIdentifier(detachedDestinationHost),
+            paneId: destinationPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.attachedDestination"
+        ))
+        #expect(!panel.claimPortalHost(
+            hostId: ObjectIdentifier(laterSamePaneHost),
+            paneId: destinationPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.laterSamePaneHost"
+        ))
+
+        let survivingPanel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { survivingPanel.close() }
+        let survivingHost = NSView()
+        let survivingPane = PaneID()
+        let laterSurvivingPaneHost = NSView()
+
+        #expect(survivingPanel.claimPortalHost(
+            hostId: ObjectIdentifier(survivingHost),
+            paneId: sourcePane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.survivingSource"
+        ))
+        survivingPanel.preparePortalHostReplacementForNextDistinctClaim(
+            inPane: survivingPane,
+            reason: "test.dock.browser.survivingMoveRearm"
+        )
+        #expect(survivingPanel.claimPortalHost(
+            hostId: ObjectIdentifier(survivingHost),
+            paneId: survivingPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.survivingDestination"
+        ))
+        #expect(!survivingPanel.claimPortalHost(
+            hostId: ObjectIdentifier(laterSurvivingPaneHost),
+            paneId: survivingPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.laterSurvivingPaneHost"
+        ))
+    }
+
     @Test("Newer stale workspace host is rejected by live Dock ownership")
     @MainActor
     func newerStaleWorkspaceHostIsRejectedByLiveDockOwnership() {
@@ -113,6 +254,7 @@ struct DockPortalReconcileTests {
         ))
         panel.surface.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(dockHost),
+            instanceSerial: 20,
             reason: "test.dock.rollback"
         )
 
@@ -395,6 +537,7 @@ struct DockPortalReconcileTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
@@ -402,7 +545,7 @@ struct DockPortalReconcileTests {
             let workspace = try #require(manager.tabs.first)
             let sourcePanel = try #require(workspace.panels.values.first)
             let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
-            let dock = workspace.dockSplit
+            let dock = workspace.requiredDockSplitForTesting
             let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)
             dock.clearDockPortalReconcile()
@@ -416,6 +559,47 @@ struct DockPortalReconcileTests {
 
             #expect(moved)
             #expect(dock.dockPortalReconcileState.scheduledRequestCount > 0)
+        }
+    }
+
+    @Test("Simulator surface stays with workspace owner")
+    @MainActor
+    func simulatorSurfaceCannotMoveIntoDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let simulator = try #require(workspace.newSimulatorSurface(inPane: pane, focus: false))
+            let sourceTabId = try #require(workspace.surfaceIdFromPanelId(simulator.id))
+            let dock = workspace.requiredDockSplitForTesting
+            let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+            #expect(!appDelegate.canMoveSurfaceIntoDock(
+                sourceTabId: sourceTabId.uuid,
+                destinationDock: dock
+            ))
+            #expect(!appDelegate.moveSurfaceIntoDock(
+                sourceTabId: sourceTabId.uuid,
+                destinationDock: dock,
+                destination: .insert(targetPane: rootPane, targetIndex: nil)
+            ))
+            #expect(workspace.panels[simulator.id] === simulator)
+            #expect(dock.panel(for: sourceTabId) == nil)
         }
     }
 
@@ -434,13 +618,14 @@ struct DockPortalReconcileTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
 
             let sourceWorkspace = try #require(manager.tabs.first)
             let destinationWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
-            let dock = sourceWorkspace.dockSplit
+            let dock = sourceWorkspace.requiredDockSplitForTesting
             let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -471,6 +656,7 @@ struct DockPortalReconcileTests {
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
@@ -494,6 +680,7 @@ struct DockPortalReconcileTests {
             shellActivityState: nil,
             restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
+            managedAgentResumeBinding: nil,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,

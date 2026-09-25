@@ -95,6 +95,61 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 
 @MainActor
 final class CmuxMainWindow: NSWindow {
+    private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
+
+    private var zoomIntent = MainWindowZoomIntentState()
+    private var pendingManagedPlacementFrame: NSRect?
+    private(set) var isApplyingManagedPlacement = false
+
+    /// Preserves the user's zoom intent even if AppKit temporarily applies a
+    /// smaller frame while the app is inactive or displays are reconnecting.
+    var cmuxWantsZoomedFrame: Bool {
+        zoomIntent.wantsZoomedFrame || isZoomed
+    }
+
+    /// Clears remembered zoom after a confirmed user move, resize, or restore.
+    func recordUserPlacement() {
+        pendingManagedPlacementFrame = nil
+        zoomIntent.recordUserPlacement()
+    }
+
+    /// Returns true when a resize callback belongs to the last cmux-managed frame.
+    /// The pending frame survives `setFrame` so delayed AppKit callbacks still keep
+    /// display/activation repair from being mistaken for external placement.
+    func consumeManagedPlacementResizeCallback() -> Bool {
+        guard let pendingFrame = pendingManagedPlacementFrame else { return false }
+        pendingManagedPlacementFrame = nil
+        return frame == pendingFrame
+    }
+
+    /// Applies display repair without discarding the user's remembered zoom intent.
+    func setFrameForManagedPlacement(_ frameRect: NSRect, display flag: Bool) {
+        let wasApplyingManagedPlacement = isApplyingManagedPlacement
+        isApplyingManagedPlacement = true
+        pendingManagedPlacementFrame = frameRect
+        defer {
+            isApplyingManagedPlacement = wasApplyingManagedPlacement
+            if pendingManagedPlacementFrame != nil {
+                pendingManagedPlacementFrame = frame
+            }
+        }
+        setFrame(frameRect, display: flag)
+    }
+
+    /// Restores explicit saved geometry and retires any earlier zoom intent.
+    func setFrameForRestoredPlacement(_ frameRect: NSRect, display flag: Bool) {
+        recordUserPlacement()
+        setFrame(frameRect, display: flag)
+    }
+
+    override func becomeKey() {
+        let switchInterval = workspaceSwitchSignposts.begin(
+            "ws.switch.window-become-key",
+            "window=\(identifier?.rawValue ?? "unknown")"
+        )
+        super.becomeKey()
+        workspaceSwitchSignposts.end(switchInterval)
+    }
 
     /// No content may resize this window past the attached display union. The content view
     /// hosts AppKit subtrees whose subviews carry REQUIRED autoresizing-mask
@@ -105,15 +160,34 @@ final class CmuxMainWindow: NSWindow {
     /// (observed live: the window at 29,000 points wide, growing every
     /// pass). The user sizes this window; layout does not.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        let frame = styleMask.contains(.fullScreen)
-            ? frameRect
-            : Self.frameByCappingOversizedDimensions(
-                frameRect,
-                displayFrames: NSScreen.screens.map {
-                    (frame: $0.frame, visibleFrame: $0.visibleFrame)
-                }
-            )
-        super.setFrame(frame, display: flag)
+        if inLiveResize {
+            recordUserPlacement()
+        }
+        guard !styleMask.contains(.fullScreen) else {
+            super.setFrame(frameRect, display: flag)
+            return
+        }
+        let capped = Self.frameByCappingOversizedDimensions(
+            frameRect,
+            displayFrames: NSScreen.screens.map {
+                (frame: $0.frame, visibleFrame: $0.visibleFrame)
+            }
+        )
+        super.setFrame(
+            Self.frameByRaisingUndersizedDimensions(
+                capped,
+                minimumSize: Self.minimumContentSize,
+                currentFrame: frame,
+                isLiveResize: inLiveResize
+            ),
+            display: flag
+        )
+    }
+
+    /// Remembers AppKit's resulting zoom state for later display reconciliation.
+    override func zoom(_ sender: Any?) {
+        super.zoom(sender)
+        zoomIntent.recordZoom(isZoomed: isZoomed)
     }
 
     /// Caps runaway content-derived dimensions to the display union while
@@ -158,6 +232,55 @@ final class CmuxMainWindow: NSWindow {
         return capped
     }
 
+    /// Raises undersized dimensions to the policy floor. On macOS 26 the
+    /// edge-drag resize affordance delivers below-`minSize` frames straight
+    /// through `setFrame` (observed live: a 116pt-tall window on a build
+    /// whose `minSize` height was 200), and programmatic paths (session
+    /// restore math, display reconfiguration, automation) were never bounded
+    /// by `minSize` at all — either way the sidebar footer, update pill, and
+    /// tab bar overlap and clip. Frames that already fit are returned
+    /// byte-for-byte.
+    ///
+    /// During a live drag (`isLiveResize`) the raise anchors the edge the
+    /// gesture is holding still, inferred by comparing the proposal against
+    /// `currentFrame`: a proposal that keeps the current bottom (top-edge
+    /// drag) is pinned at that bottom so the top edge stops at the floor, and
+    /// likewise for a kept right edge. Outside live resize the inference is
+    /// meaningless — a programmatic shrink that happens to share the current
+    /// origin is not a drag — so every programmatic raise keeps the
+    /// proposal's top-left corner: the titlebar stays where the caller put it
+    /// and the raise extends downward.
+    nonisolated static func frameByRaisingUndersizedDimensions(
+        _ proposedFrame: NSRect,
+        minimumSize: NSSize,
+        currentFrame: NSRect,
+        isLiveResize: Bool
+    ) -> NSRect {
+        var raised = proposedFrame
+        raised.size.width = max(raised.width, minimumSize.width)
+        raised.size.height = max(raised.height, minimumSize.height)
+        guard raised.size != proposedFrame.size else { return proposedFrame }
+
+        let epsilon: CGFloat = 0.5
+        if raised.height != proposedFrame.height {
+            let keepsBottomEdge = isLiveResize
+                && abs(proposedFrame.minY - currentFrame.minY) <= epsilon
+                && abs(proposedFrame.maxY - currentFrame.maxY) > epsilon
+            if !keepsBottomEdge {
+                raised.origin.y = proposedFrame.maxY - raised.height
+            }
+        }
+        if raised.width != proposedFrame.width {
+            let keepsRightEdge = isLiveResize
+                && abs(proposedFrame.maxX - currentFrame.maxX) <= epsilon
+                && abs(proposedFrame.minX - currentFrame.minX) > epsilon
+            if keepsRightEdge {
+                raised.origin.x = proposedFrame.maxX - raised.width
+            }
+        }
+        return raised
+    }
+
     static var minimumContentSize: NSSize {
         NSSize(
             width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
@@ -185,9 +308,9 @@ final class CmuxMainWindow: NSWindow {
     ///
     /// Declaring `.fullScreenPrimary` here makes native fullscreen reachable
     /// regardless of the OS's implicit default. It is idempotent where AppKit
-    /// would have granted it anyway, and composes with the temporary
-    /// `.fullScreenDisallowsTiling` opt-out the window factory applies when
-    /// spawning a window out of an existing fullscreen Space.
+    /// would have granted it anyway. `.fullScreenDisallowsTiling` is also set
+    /// permanently so macOS Full Screen Tile does not trap cmux in a managed
+    /// tile Space that breaks Mission Control and horizontal Space swipes.
     override init(
         contentRect: NSRect,
         styleMask: NSWindow.StyleMask,
@@ -210,9 +333,11 @@ final class CmuxMainWindow: NSWindow {
 
     /// Returns `base` guaranteed to carry `.fullScreenPrimary` (and never
     /// `.fullScreenNone`) so a cmux main window can always enter a native
-    /// fullscreen Space. Pure and `nonisolated` so it can be unit-tested
-    /// without constructing a window; see ``init(contentRect:styleMask:backing:defer:)``
-    /// for why declaring the capability explicitly is required.
+    /// fullscreen Space, plus `.fullScreenDisallowsTiling` so AppKit does not
+    /// route the window into macOS Full Screen Tile. Pure and `nonisolated` so
+    /// it can be unit-tested without constructing a window; see
+    /// ``init(contentRect:styleMask:backing:defer:)`` for why declaring the
+    /// capability explicitly is required.
     nonisolated static func canonicalCollectionBehavior(
         _ base: NSWindow.CollectionBehavior
     ) -> NSWindow.CollectionBehavior {
@@ -222,6 +347,7 @@ final class CmuxMainWindow: NSWindow {
         // suppressed.
         behavior.remove(.fullScreenNone)
         behavior.insert(.fullScreenPrimary)
+        behavior.insert(.fullScreenDisallowsTiling)
         return behavior
     }
 
@@ -276,13 +402,12 @@ final class CmuxMainWindow: NSWindow {
     /// otherwise be stranded off-screen (e.g. a display was disconnected), so a
     /// genuinely lost window can still be pulled back into view.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        if Self.shouldPreserveFrameDuringConstrain(
-            frameRect,
-            visibleFrames: NSScreen.screens.map(\.visibleFrame)
-        ) {
-            return frameRect
-        }
-        return super.constrainFrameRect(frameRect, to: screen)
+        // AppKit's constrainer can synchronously call back into setFrame while
+        // WindowServer is processing a display reconfiguration. Returning the
+        // proposed frame avoids that _adjustWindowToScreen → setFrame → layout
+        // cycle. Stranded windows are repaired by the display reconciliation
+        // pass, which has the complete display topology available.
+        return frameRect
     }
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that
@@ -301,10 +426,10 @@ final class CmuxMainWindow: NSWindow {
     /// is what stops the sleep/wake drift (#6305).
     ///
     /// Delegates to the shared ``isTitlebarReachable(frame:visibleFrame:)``
-    /// predicate, which the startup/restore-path clamp
-    /// (`AppDelegate.shouldPreserveAccessibleFrame`) also uses, so the runtime
-    /// constrain pass and the restore-time clamp can never disagree on what
-    /// counts as reachable.
+    /// predicate used by the reactive titlebar-stranding safety net. Persisted
+    /// frames and display-topology changes use the stricter visible-frame fit
+    /// policy instead: restored windows must be fully covered by current
+    /// displays even when this lenient drag-reachability test passes.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect]
@@ -315,8 +440,8 @@ final class CmuxMainWindow: NSWindow {
     /// Whether a grabbable slice of `frame`'s titlebar — its top strip — is
     /// visible on `visibleFrame`. This is the single source of truth for "can
     /// the user still grab this window", shared by the runtime constrain veto
-    /// (``shouldPreserveFrameDuringConstrain``) and the reactive/restore-time
-    /// clamp (`AppDelegate`).
+    /// (``shouldPreserveFrameDuringConstrain``) and AppDelegate's reactive
+    /// titlebar-stranding safety net.
     ///
     /// The window is non-movable (``configureCmuxMainWindowDragBehavior`` sets
     /// `isMovable = false`) and can only be dragged by ``WindowDragHandleView``

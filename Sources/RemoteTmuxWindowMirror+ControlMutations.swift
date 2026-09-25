@@ -1,66 +1,178 @@
+import CmuxRemoteSession
 import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
+    struct PendingControlPaneFocusRequest {
+        let requestID: UUID
+        let paneID: Int
+        let previousPaneID: Int?
+        var completions: [(Bool) -> Void]
+    }
+
+    /// Applies one pane-selection mutation optimistically so keyboard routing
+    /// follows the requested projected pane immediately. The request remains
+    /// pending until tmux publishes that pane as authoritative; a rejected
+    /// command rolls the mirror back to its previous live pane.
+    func requestControlFocus(
+        pane tmuxPaneID: Int,
+        sendTracked: (
+            _ command: String,
+            _ completion: @escaping (Bool) -> Void
+        ) -> Bool,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard !isTornDown, panelsByPaneId[tmuxPaneID] != nil else { return false }
+        if pendingControlPaneFocusRequest?.paneID == tmuxPaneID {
+            pendingControlPaneFocusRequest?.completions.append(completion)
+            return true
+        }
+        cancelPendingControlPaneFocus()
+        let command = "select-pane -t @\(windowId).%\(tmuxPaneID)"
+        if activePaneId == tmuxPaneID {
+            let accepted = sendTracked(command, completion)
+            if !accepted {
+                completion(false)
+            }
+            return accepted
+        }
+
+        let requestID = UUID()
+        pendingControlPaneFocusRequest = PendingControlPaneFocusRequest(
+            requestID: requestID,
+            paneID: tmuxPaneID,
+            previousPaneID: activePaneId,
+            completions: [completion]
+        )
+        projectActivePane(tmuxPaneID)
+
+        let accepted = sendTracked(command) { [weak self] succeeded in
+            guard !succeeded else { return }
+            self?.rejectPendingControlPaneFocus(requestID: requestID)
+        }
+        if !accepted {
+            rejectPendingControlPaneFocus(requestID: requestID)
+        }
+        return accepted
+    }
+
+    func resolvePendingControlPaneFocus(authoritativePaneID: Int) {
+        guard let request = pendingControlPaneFocusRequest,
+              request.paneID == authoritativePaneID else { return }
+        pendingControlPaneFocusRequest = nil
+        request.completions.forEach { $0(true) }
+    }
+
+    func cancelPendingControlPaneFocus(competingPaneID: Int) {
+        guard pendingControlPaneFocusRequest?.paneID != competingPaneID else { return }
+        cancelPendingControlPaneFocus()
+    }
+
+    func cancelPendingControlPaneFocus() {
+        guard let request = pendingControlPaneFocusRequest else { return }
+        pendingControlPaneFocusRequest = nil
+        rollbackPendingControlPaneFocus(request)
+        request.completions.forEach { $0(false) }
+    }
+
+    private func rejectPendingControlPaneFocus(requestID: UUID) {
+        guard let request = pendingControlPaneFocusRequest,
+              request.requestID == requestID else { return }
+        pendingControlPaneFocusRequest = nil
+        rollbackPendingControlPaneFocus(request)
+        request.completions.forEach { $0(false) }
+    }
+
+    private func rollbackPendingControlPaneFocus(
+        _ request: PendingControlPaneFocusRequest
+    ) {
+        let shouldRestoreFirstResponder =
+            panelsByPaneId[request.paneID]?.hostedView.isSurfaceViewFirstResponder() == true
+        guard activePaneId == request.paneID,
+              let previousPaneID = request.previousPaneID,
+              let previousPanel = panelsByPaneId[previousPaneID] else { return }
+        projectActivePane(previousPaneID)
+        if shouldRestoreFirstResponder {
+            previousPanel.hostedView.moveFocus()
+        }
+    }
+
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool {
         guard let data = text.data(using: .utf8) else { return false }
         return connectionSendKeys(paneID: tmuxPaneID, data: data)
     }
 
     func sendKey(toPane tmuxPaneID: Int, name: String) -> RemoteTmuxControlKeySendResult {
-        guard let key = Self.tmuxKeyName(name) else { return .unknownKey }
-        return sendControlCommand("send-keys -t %\(tmuxPaneID) \(key)") ? .sent : .rejected
-    }
-
-    static func tmuxKeyName(_ raw: String) -> String? {
-        let normalized = raw.lowercased().replacingOccurrences(of: "+", with: "-")
-        let aliases: [String: String] = [
-            "enter": "Enter", "return": "Enter", "tab": "Tab",
-            "escape": "Escape", "esc": "Escape", "backspace": "BSpace",
-            "delete": "DC", "del": "DC", "forward_delete": "DC",
-            "up": "Up", "arrow_up": "Up", "arrowup": "Up",
-            "down": "Down", "arrow_down": "Down", "arrowdown": "Down",
-            "left": "Left", "arrow_left": "Left", "arrowleft": "Left",
-            "right": "Right", "arrow_right": "Right", "arrowright": "Right",
-            "shift-tab": "BTab", "backtab": "BTab", "home": "Home",
-            "end": "End", "pageup": "PPage", "page_up": "PPage",
-            "pagedown": "NPage", "page_down": "NPage", "space": "Space",
-            "sigint": "C-c", "eof": "C-d", "sigtstp": "C-z", "sigquit": "C-\\",
-        ]
-        if let alias = aliases[normalized] { return alias }
-        let parts = normalized.split(separator: "-").map(String.init)
-        guard let base = parts.last, base.utf8.count == 1,
-              let byte = base.utf8.first,
-              (byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 122) else {
-            return nil
-        }
-        let modifiers = parts.dropLast().compactMap { modifier -> String? in
-            switch modifier {
-            case "ctrl", "control": return "C"
-            case "shift": return "S"
-            case "alt", "opt", "option": return "M"
-            default: return nil
-            }
-        }
-        guard modifiers.count == parts.count - 1 else { return nil }
-        return (modifiers + [base]).joined(separator: "-")
+        guard let key = RemoteTmuxKeyName(rawName: name) else { return .unknownKey }
+        guard let connection else { return .rejected }
+        return connection.sendKey(paneId: tmuxPaneID, key: key) ? .sent : .rejected
     }
 
     /// Requests pane selection. The next tmux publication remains authoritative
     /// even after the writer accepts this command. Distinct from the UI's
     /// fire-and-forget `focus(pane:)`.
     @discardableResult
-    func controlFocus(pane tmuxPaneID: Int) -> Bool {
-        sendControlCommand("select-pane -t @\(windowId).%\(tmuxPaneID)")
+    func controlFocus(
+        pane tmuxPaneID: Int,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard let connection else { return false }
+        return requestControlFocus(
+            pane: tmuxPaneID,
+            sendTracked: { command, trackedCompletion in
+                connection.sendTracked(command, completion: trackedCompletion)
+            },
+            completion: completion
+        )
     }
 
     /// Splits the addressed tmux pane. The new pane arrives through the next
     /// authoritative layout publication.
     @discardableResult
-    func requestSplit(fromPane tmuxPaneID: Int, vertical: Bool) -> Bool {
-        sendControlCommand(
-            "split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(tmuxPaneID)"
-        )
+    func requestSplit(
+        fromPane tmuxPaneID: Int,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        insertBefore: Bool,
+        shellCommand: String?,
+        workingDirectory: String?
+    ) -> Bool {
+        let command: String
+        if let shellCommand {
+            guard let forkCommand = focusIntent.agentForkCommand(
+                vertical: vertical,
+                windowID: windowId,
+                paneID: tmuxPaneID,
+                insertBefore: insertBefore,
+                shellCommand: shellCommand,
+                workingDirectory: workingDirectory
+            ) else {
+                return false
+            }
+            command = forkCommand
+        } else {
+            command = focusIntent.command(
+                vertical: vertical,
+                windowID: windowId,
+                paneID: tmuxPaneID,
+                insertBefore: insertBefore
+            )
+        }
+        guard focusIntent == .focusCreatedPane else {
+            return sendControlCommand(command)
+        }
+        guard let connection else { return false }
+        let requestID = UUID()
+        let accepted = connection.sendNewPane(command) { [weak self] paneID in
+            self?.resolvePendingCreatedPaneFocus(
+                requestID: requestID,
+                createdPaneID: paneID
+            )
+        }
+        if accepted {
+            noteCreatedPaneFocusRequestAccepted(requestID: requestID)
+        }
+        return accepted
     }
 
     /// Resizes the addressed tmux pane by `amountCells` relative to one of its

@@ -12,6 +12,40 @@ struct SidebarWorkspaceChecklistPopoverModel: Equatable {
     /// Bumped by the container when "Add Checklist Item…" wants the add
     /// field armed on open.
     let addFieldActivationToken: Int
+    /// Whether the remote controls flag allows adding new checklist items.
+    let canAddItems: Bool
+}
+
+enum SidebarWorkspaceChecklistPopoverViewportModel {
+    static let maximumVisibleRowCount = 6
+
+    static func visibleRowCount(forItemCount count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(count, maximumVisibleRowCount)
+    }
+
+    static func requiresScrolling(forItemCount count: Int) -> Bool {
+        count > maximumVisibleRowCount
+    }
+
+    static func viewportHeight<ID: Hashable>(
+        orderedIds: [ID],
+        rowFrames: [ID: CGRect],
+        fallbackRowHeight: CGFloat,
+        fallbackSpacing: CGFloat
+    ) -> CGFloat {
+        let visibleCount = visibleRowCount(forItemCount: orderedIds.count)
+        guard visibleCount > 0 else { return 0 }
+        let visibleIds = orderedIds.prefix(visibleCount)
+        let visibleFrames = visibleIds.compactMap { rowFrames[$0] }
+        if visibleFrames.count == visibleCount,
+           let first = visibleFrames.first,
+           let last = visibleFrames.last {
+            return max(0, last.maxY - first.minY)
+        }
+        return fallbackRowHeight * CGFloat(visibleCount)
+            + fallbackSpacing * CGFloat(visibleCount - 1)
+    }
 }
 
 /// The checklist popover anchored to a workspace row's summary line
@@ -32,6 +66,7 @@ struct SidebarWorkspaceChecklistPopover: View {
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
     @State private var editingText = ""
+    @State private var editingOriginalText = ""
     @FocusState private var editFieldFocused: Bool
     /// The keyboard-highlighted item: Up/Down from the add field moves it,
     /// Return toggles it when the add field is empty, and Cmd+Return always
@@ -77,7 +112,6 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// ``visibleRowCount`` rows instead of the previous flat 460pt cap
     /// (≈23 rows).
     private static let itemRowHeightEstimate: CGFloat = itemFontSize + 6
-    private static let visibleRowCount = 6
     private static let rowSpacing: CGFloat = 2
 
     /// Distance above a text line's baseline to its optical vertical center
@@ -90,14 +124,15 @@ struct SidebarWorkspaceChecklistPopover: View {
         return (font.ascender + font.descender) / 2
     }
 
-    /// Content height for `count` rows, capped at ``visibleRowCount`` rows —
-    /// short lists get exactly their own height (no dead space), longer
-    /// lists get the 6-row cap and scroll for the rest.
-    private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        let visibleCount = min(count, Self.visibleRowCount)
-        return Self.itemRowHeightEstimate * CGFloat(visibleCount)
-            + Self.rowSpacing * CGFloat(visibleCount - 1)
+    /// Content height for the capped scrolling case. Short lists don't use a
+    /// scroll view at all, so they size naturally to their rendered rows.
+    private func scrollViewportHeight(forItems items: [WorkspaceChecklistItem]) -> CGFloat {
+        SidebarWorkspaceChecklistPopoverViewportModel.viewportHeight(
+            orderedIds: items.map(\.id),
+            rowFrames: itemRowFrames,
+            fallbackRowHeight: Self.itemRowHeightEstimate,
+            fallbackSpacing: Self.rowSpacing
+        )
     }
 
     var body: some View {
@@ -108,30 +143,13 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .padding(.top, 10)
                 .padding(.bottom, 6)
             if !ordered.isEmpty {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(ordered) { item in
-                                itemRow(item)
-                                    .id(item.id)
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                    }
-                    .frame(height: scrollViewportHeight(forItemCount: ordered.count))
-                    // `anchor: nil` scrolls the minimal distance needed to
-                    // bring the highlighted row fully into view — a no-op if
-                    // it's already visible, matching arrow-key nav that
-                    // should only move the viewport when it must.
-                    .onChange(of: highlightedItemId) { _, newValue in
-                        guard let newValue else { return }
-                        proxy.scrollTo(newValue, anchor: nil)
-                    }
-                }
+                itemList(ordered)
             }
-            addItemRow(visible: ordered)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
+            if model.canAddItems {
+                addItemRow(visible: ordered)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+            }
             Divider()
             footer
         }
@@ -158,15 +176,21 @@ struct SidebarWorkspaceChecklistPopover: View {
         // remove-item "x" stops revealing on hover. `SidebarWorkspaceStatusPopover`
         // already carries this same fix for its own popover.
         .background(PopoverKeyWindowElevator())
-        .onAppear { addFieldFocused = true }
+        .onAppear { if model.canAddItems { addFieldFocused = true } }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
+        }
+        .onChange(of: editingText) { _, newValue in
+            guard let editingItemId,
+                  let item = model.items.first(where: { $0.id == editingItemId }),
+                  newValue != item.text else { return }
+            actions.editItem(editingItemId, newValue)
         }
         // The round-5 first-responder policy lets native TextFields in the
         // popover child window keep focus over the terminal-backed pane.
         // Bump-driven add activations still explicitly re-arm the add field.
         .task(id: model.addFieldActivationToken) {
-            guard model.addFieldActivationToken > 0 else { return }
+            guard model.canAddItems, model.addFieldActivationToken > 0 else { return }
             addFieldFocused = true
         }
         .accessibilityIdentifier("SidebarWorkspaceChecklistPopover")
@@ -190,6 +214,38 @@ struct SidebarWorkspaceChecklistPopover: View {
 
     // MARK: Item rows
 
+    @ViewBuilder
+    private func itemList(_ ordered: [WorkspaceChecklistItem]) -> some View {
+        if SidebarWorkspaceChecklistPopoverViewportModel.requiresScrolling(forItemCount: ordered.count) {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    itemRows(ordered)
+                        .padding(.horizontal, 8)
+                }
+                .frame(height: scrollViewportHeight(forItems: ordered))
+                // `anchor: nil` scrolls the minimal distance needed to bring
+                // the highlighted row fully into view — a no-op if it's
+                // already visible.
+                .onChange(of: highlightedItemId) { _, newValue in
+                    guard let newValue else { return }
+                    proxy.scrollTo(newValue, anchor: nil)
+                }
+            }
+        } else {
+            itemRows(ordered)
+                .padding(.horizontal, 8)
+        }
+    }
+
+    private func itemRows(_ ordered: [WorkspaceChecklistItem]) -> some View {
+        VStack(alignment: .leading, spacing: Self.rowSpacing) {
+            ForEach(ordered) { item in
+                itemRow(item)
+                    .id(item.id)
+            }
+        }
+    }
+
     private func itemRow(_ item: WorkspaceChecklistItem) -> some View {
         let isCompleted = item.state == .completed
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -198,9 +254,9 @@ struct SidebarWorkspaceChecklistPopover: View {
             } label: {
                 CmuxSystemSymbolImage(
                     systemName: checkboxSymbolName(for: item.state),
-                    pointSize: Self.checkboxPointSize
+                    pointSize: Self.checkboxPointSize,
+                    tint: isCompleted ? .secondary : .primary
                 )
-                .foregroundColor(isCompleted ? .secondary : .primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -213,12 +269,23 @@ struct SidebarWorkspaceChecklistPopover: View {
             if editingItemId == item.id {
                 TextField(
                     String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    text: $editingText
+                    text: $editingText,
+                    axis: .vertical
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: Self.itemFontSize))
                 .foregroundColor(.primary)
                 .focused($editFieldFocused)
+                .lineLimit(1...8)
+                .fixedSize(horizontal: false, vertical: true)
+                .onKeyPress { press in
+                    guard press.key == .return else { return .ignored }
+                    if press.modifiers == EventModifiers.shift {
+                        editingText.append("\n")
+                        return .handled
+                    }
+                    return .ignored
+                }
                 .onSubmit { commitItemEdit(item.id) }
                 .onExitCommand(perform: cancelItemEdit)
                 .accessibilityIdentifier("SidebarChecklistPopoverEditItemField")
@@ -238,6 +305,16 @@ struct SidebarWorkspaceChecklistPopover: View {
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
+            WorkspaceChecklistAttachmentMenu(
+                item: item,
+                iconPointSize: Self.checkboxPointSize - 2,
+                foregroundColor: .secondary,
+                countFont: .system(size: Self.itemFontSize - 1),
+                addAttachments: actions.addAttachments,
+                removeAttachment: actions.removeAttachment,
+                openAttachments: actions.openAttachments
+            )
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             removeItemButton(for: item)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
@@ -301,8 +378,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         return Button {
             actions.removeItem(item.id)
         } label: {
-            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2, tint: .secondary)
                 .frame(width: Self.checkboxPointSize + 6, height: Self.checkboxPointSize + 6, alignment: .center)
                 .contentShape(Rectangle())
         }
@@ -324,20 +400,22 @@ struct SidebarWorkspaceChecklistPopover: View {
         return HStack(alignment: .center, spacing: 6) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
-            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize, tint: .secondary)
             TextField(
                 placeholder,
-                text: $pendingItemText
+                text: $pendingItemText,
+                axis: .vertical
             )
             .font(.system(size: Self.itemFontSize))
             .textFieldStyle(.plain)
             .foregroundColor(.primary)
             .focused($addFieldFocused)
+            .lineLimit(1...8)
+            .fixedSize(horizontal: false, vertical: true)
             .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
             .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
-            .onKeyPress(.return) { handleAddFieldReturn(visible: visible) }
             .onKeyPress(.delete) { handleAddFieldDelete(visible: visible) }
+            .onKeyPress { press in handleAddFieldKeyPress(press, visible: visible) }
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
             .onChange(of: pendingItemText) { _, newValue in
@@ -372,7 +450,17 @@ struct SidebarWorkspaceChecklistPopover: View {
         return .handled
     }
 
-    private func handleAddFieldReturn(visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+    private func handleAddFieldKeyPress(
+        _ press: KeyPress,
+        visible: [WorkspaceChecklistItem]
+    ) -> KeyPress.Result {
+        guard press.key == .return else { return .ignored }
+        if press.modifiers == EventModifiers.shift {
+            pendingItemText.append("\n")
+            highlightedItemId = nil
+            return .handled
+        }
+        guard press.modifiers.isEmpty else { return .ignored }
         guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .ignored
         }
@@ -445,29 +533,45 @@ struct SidebarWorkspaceChecklistPopover: View {
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
         editingText = item.text
+        editingOriginalText = item.text
         editFieldFocused = true
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         cancelItemEdit()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 
     private func finishItemEditOnFocusLoss() {
         guard let id = editingItemId else { return }
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         editingItemId = nil
         editingText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = model.items.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            actions.editItem(id, editingOriginalText)
+        }
         editingItemId = nil
         editingText = ""
+        editingOriginalText = ""
         editFieldFocused = false
     }
 
@@ -482,7 +586,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             actions.openPane()
         } label: {
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11)
+                CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11, tint: .secondary)
                 Text(String(localized: "sidebar.checklist.openAsPane", defaultValue: "Open as Pane"))
                     .font(.system(size: 12))
             }

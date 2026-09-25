@@ -10,11 +10,13 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     private var relayProfile: CmxIrohEndpointRelayProfile
     private var relayConfigurations: [String: CmxIrohEndpointRelayProfile.Relay]
     private var addressWatch: WatchHandle?
+    private var relayDiagnosticWatch: WatchHandle?
     private var onlineTask: Task<Void, Never>?
     private var closureTask: Task<Void, Never>?
     private var closing = false
     private var closed = false
     private var reachedOnline = false
+    private var observedAddressSnapshot: EndpointAddr?
     private var terminalHealthEvent: CmxIrohEndpointHealthEvent?
     private var observers: [
         UUID: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
@@ -38,12 +40,15 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
 
     func startMonitoring() {
         guard addressWatch == nil, closureTask == nil else { return }
+        relayDiagnosticWatch = driver.watchRelayConnectionDiagnostics(
+            callback: CmxIrohRelayDiagnosticObserver()
+        )
         // Iroh's `network_change()` is an input that tells the endpoint to
         // rescan, not an observable event. `watchAddr` is the authoritative
         // output for route changes after Iroh's native network monitor runs.
         addressWatch = driver.watchAddr(
-            callback: CmxIrohLibAddressChangeCallback { [weak self] in
-                await self?.recordHealthEvent(.networkChanged)
+            callback: CmxIrohLibAddressChangeCallback { [weak self] address in
+                await self?.recordAddressSnapshot(address)
             }
         )
         let driver = driver
@@ -64,7 +69,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     }
 
     func address() -> CmxIrohEndpointAddress {
-        let address = driver.addr()
+        let address = observedAddressSnapshot ?? driver.addr()
         let now = Date()
         let expiresAt = now.addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
         var hints: [CmxIrohPathHint] = []
@@ -99,7 +104,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     func localDirectAddresses() -> [String] {
         transportVerificationMode == .relayOnly
             ? []
-            : driver.addr().directAddresses()
+            : (observedAddressSnapshot ?? driver.addr()).directAddresses()
     }
 
     func connect(
@@ -111,7 +116,18 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         for endpointAddress in try endpointAddresses(address) {
             do {
                 try Task.checkCancellation()
-                let connection = try await driver.connect(addr: endpointAddress, alpn: alpn)
+                // Dial through the fork's cancellable ConnectAttempt so Swift task
+                // cancellation crosses the FFI boundary: onCancel fires the attempt's
+                // CancellationToken and the Rust side fails the dial immediately.
+                // Cancel racing completion is benign: the fork's select! is biased
+                // toward cancellation, and a completed-but-cancelled connection is
+                // dropped (dropping the last handle closes it).
+                let attempt = try driver.beginConnect(addr: endpointAddress, alpn: alpn)
+                let connection = try await withTaskCancellationHandler(operation: {
+                    try await attempt.connect()
+                }, onCancel: {
+                    attempt.cancel()
+                })
                 let wrapped = try CmxIrohLibConnection(driver: connection)
                 guard await wrapped.remoteIdentity() == address.identity else {
                     await wrapped.close(errorCode: 1, reason: "identity_mismatch")
@@ -202,6 +218,9 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
             if reachedOnline {
                 continuation.yield(.online)
             }
+            if observedAddressSnapshot != nil {
+                continuation.yield(.networkChanged)
+            }
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeObserver(observerID) }
             }
@@ -221,6 +240,8 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         closureTask = nil
         await addressWatch?.stop()
         addressWatch = nil
+        await relayDiagnosticWatch?.stop()
+        relayDiagnosticWatch = nil
         try? await driver.close()
         closed = true
         finishObservers()
@@ -280,6 +301,8 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         closureTask = nil
         await addressWatch?.stop()
         addressWatch = nil
+        await relayDiagnosticWatch?.stop()
+        relayDiagnosticWatch = nil
         finishObservers()
     }
 
@@ -289,6 +312,18 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
             reachedOnline = true
         }
         for continuation in observers.values { continuation.yield(event) }
+    }
+
+    func recordAddressSnapshot(_ address: EndpointAddr) {
+        guard !closing, !closed,
+              let identity = try? CmxIrohLibIdentity.peerIdentity(address.id()),
+              identity == peerIdentity else {
+            return
+        }
+        observedAddressSnapshot = address
+        for continuation in observers.values {
+            continuation.yield(.networkChanged)
+        }
     }
 
     private func removeObserver(_ id: UUID) {

@@ -2,9 +2,8 @@ import CryptoKit
 public import CMUXMobileCore
 public import Foundation
 
-/// Stores a bounded set of signed pair authorities for connectivity-only fallback.
+/// Stores signed pair authorities for connectivity-only fallback.
 public actor CmxIrohClientOfflinePolicyCache {
-    public static let maximumTargetCount = 32
     private static let storageAccount = "active-client-policies"
 
     private let secureStore: any CmxIrohSecureCredentialStoring
@@ -24,7 +23,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         self.verifier = verifier
     }
 
-    /// Merges one online-verified target into the bounded active-account cache.
+    /// Merges one online-verified target into the active-account cache.
     public func save(
         localBinding: CmxIrohBrokerBinding,
         targetBinding: CmxIrohBrokerBinding,
@@ -64,9 +63,10 @@ public actor CmxIrohClientOfflinePolicyCache {
            record.version == CmxIrohStoredClientPolicyRecord.currentVersion,
            record.scopeDigest == Self.scopeDigest(for: expectation),
            Self.sameAuthority(record.localBinding, localBinding) {
+            let currentBindings = Self.bindingAuthorityIndex(discovery.bindings)
             for stored in record.targets {
                 guard let fresh = Self.uniqueBinding(
-                    in: discovery.bindings,
+                    in: currentBindings,
                     matchingAuthorityOf: stored.binding
                 ),
                     fresh.platform == .mac,
@@ -90,13 +90,9 @@ public actor CmxIrohClientOfflinePolicyCache {
         )
         var merged = [candidate]
         merged.append(contentsOf: retained.filter {
-            $0.binding.deviceID != targetBinding.deviceID
-                && $0.binding.endpointID != targetBinding.endpointID
+            $0.binding.endpointID != targetBinding.endpointID
                 && $0.binding.bindingID != targetBinding.bindingID
         })
-        if merged.count > Self.maximumTargetCount {
-            merged.removeLast(merged.count - Self.maximumTargetCount)
-        }
         let record = CmxIrohStoredClientPolicyRecord(
             version: CmxIrohStoredClientPolicyRecord.currentVersion,
             scopeDigest: Self.scopeDigest(for: expectation),
@@ -265,7 +261,6 @@ public actor CmxIrohClientOfflinePolicyCache {
             let record = try JSONDecoder().decode(CmxIrohStoredClientPolicyRecord.self, from: data)
             guard record.version == CmxIrohStoredClientPolicyRecord.currentVersion,
                   record.scopeDigest == Self.scopeDigest(for: expectation),
-                  record.targets.count <= Self.maximumTargetCount,
                   Set(record.relayFleet) == expectation.managedRelayURLs,
                   record.relayFleet.count == expectation.managedRelayURLs.count,
                   expectation.localBindingExpectation.matches(record.localBinding),
@@ -293,9 +288,10 @@ public actor CmxIrohClientOfflinePolicyCache {
         now: Date
     ) throws -> CmxIrohStoredClientPolicyRecord {
         var targets: [CmxIrohStoredClientPolicyTarget] = []
+        let currentBindings = Self.bindingAuthorityIndex(currentTargets)
         for stored in record.targets {
             guard let current = Self.uniqueBinding(
-                in: currentTargets,
+                in: currentBindings,
                 matchingAuthorityOf: stored.binding
             ),
                 current.platform == .mac,
@@ -318,7 +314,7 @@ public actor CmxIrohClientOfflinePolicyCache {
             relayFleet: record.relayFleet,
             grantVerificationKeys: keys,
             lanRendezvous: lanRendezvous,
-            targets: Array(targets.prefix(Self.maximumTargetCount))
+            targets: targets
         )
     }
 
@@ -422,12 +418,35 @@ public actor CmxIrohClientOfflinePolicyCache {
         }
     }
 
+    private static func bindingAuthorityIndex(
+        _ bindings: [CmxIrohBrokerBinding]
+    ) -> (
+        byBindingID: [String: CmxIrohBrokerBinding],
+        duplicateBindingIDs: Set<String>
+    ) {
+        var byBindingID: [String: CmxIrohBrokerBinding] = [:]
+        var duplicateBindingIDs: Set<String> = []
+        for binding in bindings {
+            if byBindingID.updateValue(binding, forKey: binding.bindingID) != nil {
+                duplicateBindingIDs.insert(binding.bindingID)
+            }
+        }
+        return (byBindingID, duplicateBindingIDs)
+    }
+
     private static func uniqueBinding(
-        in bindings: [CmxIrohBrokerBinding],
+        in index: (
+            byBindingID: [String: CmxIrohBrokerBinding],
+            duplicateBindingIDs: Set<String>
+        ),
         matchingAuthorityOf expected: CmxIrohBrokerBinding
     ) -> CmxIrohBrokerBinding? {
-        let matches = bindings.filter { sameAuthority($0, expected) }
-        return matches.count == 1 ? matches[0] : nil
+        guard !index.duplicateBindingIDs.contains(expected.bindingID),
+              let binding = index.byBindingID[expected.bindingID],
+              sameAuthority(binding, expected) else {
+            return nil
+        }
+        return binding
     }
 
     private static func sameAuthority(
@@ -437,6 +456,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         left.bindingID == right.bindingID
             && left.deviceID == right.deviceID
             && left.appInstanceID == right.appInstanceID
+            && left.clientNamespace == right.clientNamespace
             && left.tag == right.tag
             && left.platform == right.platform
             && left.endpointID == right.endpointID
@@ -450,7 +470,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         for expectation: CmxIrohClientOfflinePolicyExpectation
     ) -> String {
         let transcript = Data(
-            "cmux/iroh/offline-client-policy-scope/v1\0\(expectation.accountID)\0\(expectation.localBindingExpectation.appInstanceID)".utf8
+            "cmux/iroh/offline-client-policy-scope/v2\0\(expectation.accountID)\0\(expectation.localBindingExpectation.clientNamespace)\0\(expectation.localBindingExpectation.appInstanceID)".utf8
         )
         return SHA256.hash(data: transcript)
             .map { String(format: "%02x", $0) }

@@ -5,15 +5,21 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        let isMuted: Bool
+        let cloudWorkspaceLabel: String?
+        let deviceWorkspaceLabel: String?
         let customColorHex: String?
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
+        let hasManualTaskStatus: Bool
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -21,15 +27,21 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
+            isMuted: isMuted,
+            cloudWorkspaceLabel: cloudWorkspaceLabel,
+            deviceWorkspaceLabel: deviceWorkspaceLabel,
             customColorHex: customColorHex,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
+            todoStatusMenuModel: todoStatusMenuModel,
+            hasManualTaskStatus: hasManualTaskStatus,
             checklistItems: checklistItems,
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
-            activeCodingAgentCount: activeCodingAgentCount
+            activeCodingAgentCount: activeCodingAgentCount,
+            taskStatusInput: taskStatusInput
         )
     }
 
@@ -40,7 +52,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: snapshot.title,
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,
+            isMuted: snapshot.isMuted,
             customColorHex: snapshot.customColorHex,
+            cloudWorkspaceLabel: snapshot.cloudWorkspaceLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -69,10 +83,14 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             // submenu, Mark as Done, checkbox clicks), so the done-row dim and
             // checklist must reflect the change immediately, not on menu close.
             taskStatus: snapshot.taskStatus,
+            todoStatusMenuModel: snapshot.todoStatusMenuModel,
+            hasManualTaskStatus: snapshot.hasManualTaskStatus,
             checklistItems: snapshot.checklistItems,
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,
-            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText
+            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
+            taskStatusInput: snapshot.taskStatusInput,
+            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel
         )
     }
 }

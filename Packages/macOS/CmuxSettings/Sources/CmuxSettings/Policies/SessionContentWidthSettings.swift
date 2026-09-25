@@ -26,9 +26,6 @@ public struct SessionContentWidthSettings: Sendable {
     /// The smallest supported content width, in points.
     public static let minimumWidth = 320.0
 
-    /// The largest supported content width, in points.
-    public static let maximumWidth = 2400.0
-
     /// The width restored when enabling the cap without a remembered value.
     public static let defaultConfiguredMaximumWidth = 980.0
 
@@ -38,20 +35,21 @@ public struct SessionContentWidthSettings: Sendable {
     /// Returns the effective maximum width for a stored value.
     ///
     /// - Parameter storedValue: The persisted width value.
-    /// - Returns: A clamped width when the cap is enabled, or `nil`.
+    /// - Returns: A normalized width when the cap is enabled, or `nil`.
     public func configuredMaximumWidth(from storedValue: Double) -> Double? {
         guard storedValue.isFinite, storedValue > 0 else { return nil }
         return clampedMaximumWidth(storedValue)
     }
 
-    /// Clamps a requested maximum width to the supported range.
+    /// Normalizes a requested maximum width to the supported minimum and step.
     ///
     /// - Parameter value: The requested width in points.
-    /// - Returns: A finite, stepped width within the supported bounds.
+    /// - Returns: A finite width at or above the supported minimum.
     public func clampedMaximumWidth(_ value: Double) -> Double {
         guard value.isFinite else { return Self.defaultConfiguredMaximumWidth }
         let roundedToStep = (value / Self.widthStep).rounded() * Self.widthStep
-        return min(Self.maximumWidth, max(Self.minimumWidth, roundedToStep))
+        guard roundedToStep.isFinite else { return max(Self.minimumWidth, value) }
+        return max(Self.minimumWidth, roundedToStep)
     }
 
     /// Returns the width displayed by the settings editor.

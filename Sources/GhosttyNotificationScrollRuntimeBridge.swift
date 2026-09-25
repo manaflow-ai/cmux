@@ -44,6 +44,25 @@ extension GhosttyNSView {
         return { retention.release() }
     }
 
+    /// Retains rendered-frame notifications for only this terminal view.
+    func retainLocalRenderedFrameNotifications() -> () -> Void {
+        let retention = localRenderedFrameNotificationDemand.retain()
+        return { retention.release() }
+    }
+
+    var renderedFrameNotificationDemandIsActive: Bool {
+        GhosttyApp.renderedFrameNotificationDemand.isActive
+            || localRenderedFrameNotificationDemand.isActive
+    }
+
+    var localRenderedFrameNotificationDemandIsActive: Bool {
+        localRenderedFrameNotificationDemand.isActive
+    }
+
+    var renderedFrameSequence: UInt64 {
+        (layer as? GhosttyMetalLayer)?.renderedFrameSequence ?? 0
+    }
+
     @objc dynamic func readAuthoritativeScrollbar(
         _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
     ) -> Bool {

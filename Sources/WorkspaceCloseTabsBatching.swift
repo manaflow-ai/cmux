@@ -5,10 +5,12 @@ import Foundation
 struct CloseOtherTabsConfirmationPrompt: Sendable {
     let title: String
     let message: String
+    let details: String
 
     init(titles: [String]) {
         let count = titles.count
         let titleLines = titles.map { "• \($0)" }.joined(separator: "\n")
+        details = titleLines
         title = String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?")
 
         if count == 1 {
@@ -75,6 +77,7 @@ extension Workspace {
             guard confirmationManager.confirmClose(
                 title: prompt.title,
                 message: prompt.message,
+                scrollableDetails: prompt.details,
                 acceptCmdD: false
             ) else { return }
         }

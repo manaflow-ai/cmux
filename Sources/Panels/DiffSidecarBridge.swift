@@ -1,6 +1,21 @@
 import Foundation
 import WebKit
 
+// Swift 6.0 cannot mark nested type declarations `nonisolated`. File scope
+// keeps these process-result values outside the bridge's main-actor domain.
+private enum InvocationCompletion: Sendable {
+    case ready(Bool)
+    case terminated(Int32)
+    case timedOut
+    case missingTermination
+    case cancelled
+}
+
+private enum InvocationError: Error {
+    case timedOut
+    case missingTermination
+}
+
 /// Reply-capable transport for the Rust diff sidecar. Each request is a bounded
 /// stdin/stdout exchange with a short-lived child process. The sidecar never
 /// opens a socket, and WebKit never receives filesystem paths or process access.
@@ -8,19 +23,6 @@ import WebKit
 final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let handlerName = "cmuxDiff"
     static let shared = DiffSidecarBridge()
-
-    nonisolated private enum InvocationCompletion: Sendable {
-        case ready(Bool)
-        case terminated(Int32)
-        case timedOut
-        case missingTermination
-        case cancelled
-    }
-
-    nonisolated private enum InvocationError: Error {
-        case timedOut
-        case missingTermination
-    }
 
     private static var handlerInstalledKey: UInt8 = 0
     private static let maximumRequestBytes = 1024 * 1024

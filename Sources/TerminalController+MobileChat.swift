@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import CmuxTerminal
 import Foundation
 
@@ -29,7 +30,11 @@ extension TerminalController {
 
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
-    func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatDispatch(
+        method: String,
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         switch method {
         case "mobile.chat.sessions":
             return await v2MobileChatSessions(params: params)
@@ -46,7 +51,10 @@ extension TerminalController {
         case "mobile.chat.artifact.stat":
             return await v2MobileChatArtifactStat(params: params)
         case "mobile.chat.artifact.fetch":
-            return await v2MobileChatArtifactFetch(params: params)
+            return await v2MobileChatArtifactFetch(
+                params: params,
+                executionContext: executionContext
+            )
         case "mobile.chat.artifact.thumbnail":
             return await v2MobileChatArtifactThumbnail(params: params)
         case "mobile.chat.artifact.list":
@@ -119,7 +127,7 @@ extension TerminalController {
             return .ok(["sessions": []])
         }
         let workspace = resolved.workspace
-        let terminalSurfaceIDs = Set(workspace.panels.compactMap { panelID, panel in panel is TerminalPanel ? panelID : nil })
+        let terminalSurfaceIDs = Set(mobileTerminalPanels(in: workspace).map(\.id))
         // Workspace GUI pulls force a scoped scan and wait only to a local deadline.
         let observedBeforeListing = await service.observeAgentProcessesForListing(
             surfaceIDs: terminalSurfaceIDs,
@@ -138,7 +146,7 @@ extension TerminalController {
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
-                  workspace.terminalPanel(for: surfaceUUID) != nil else {
+                  workspace.terminalInputTarget(forPanelID: surfaceUUID) != nil else {
                 #if DEBUG
                 dropNotInWorkspace += 1
                 #endif
@@ -267,12 +275,12 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        let clearResult = mobileChatClearPrompt(terminalPanel)
+        let clearResult = clearAgentPrompt(terminalTarget)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
         }
@@ -294,7 +302,12 @@ extension TerminalController {
             // dropped separator corrupts that shape; surface it.
             let needsSeparator = index < attachments.count - 1 || !text.isEmpty
             if needsSeparator {
-                let separatorResult = terminalPanel.surface.sendInputResult(" ")
+                guard let currentTarget = mobileCanonicalTerminalTarget(params: terminalParams)?.target else {
+                    return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
+                        "session_id": sessionID
+                    ])
+                }
+                let separatorResult = currentTarget.sendInputResult(" ")
                 switch separatorResult {
                 case .sent, .queued:
                     break
@@ -311,24 +324,17 @@ extension TerminalController {
             // Attachment-only send: the image path is sitting pasted at the
             // agent's prompt; submit it so the send actually reaches the
             // agent instead of idling in the line editor.
-            let keyResult = terminalPanel.sendNamedKeyResult("return")
+            guard let currentTarget = mobileCanonicalTerminalTarget(params: terminalParams)?.target else {
+                return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
+                    "session_id": sessionID
+                ])
+            }
+            let keyResult = currentTarget.sendNamedKeyResult("return")
             return .ok(["submitted": keyResult.accepted])
         }
         var pasteParams = terminalParams
         pasteParams["text"] = text
         return v2MobileTerminalPaste(params: pasteParams)
-    }
-
-    /// Clears any stale text already sitting in the agent's terminal prompt
-    /// before the mobile chat prompt is pasted and submitted.
-    private func mobileChatClearPrompt(_ terminalPanel: TerminalPanel) -> TerminalSurface.NamedKeySendResult {
-        var latestAccepted: TerminalSurface.NamedKeySendResult = .sent
-        for keyName in ["ctrl+a", "ctrl+k", "ctrl+u"] {
-            let result = terminalPanel.sendNamedKeyResult(keyName)
-            guard result.accepted else { return result }
-            latestAccepted = result
-        }
-        return latestAccepted
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
@@ -338,19 +344,19 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let hard = (params["hard"] as? Bool) ?? false
-        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        let keyResult = terminalPanel.sendNamedKeyResult(hard ? "ctrl+c" : "escape")
+        let keyResult = terminalTarget.sendNamedKeyResult(hard ? "ctrl+c" : "escape")
         guard keyResult.accepted else {
             return .err(code: "surface_unavailable", message: String(
                 localized: "mobile.chat.error.interruptNotAccepted",
                 defaultValue: "Interrupt key was not accepted"
             ), data: nil)
         }
-        terminalPanel.surface.forceRefresh(reason: "mobileHost.chatInterrupt")
+        terminalTarget.forceRefresh(reason: "mobileHost.chatInterrupt")
         return .ok(["interrupted": true, "hard": hard])
     }
 
@@ -361,7 +367,7 @@ extension TerminalController {
               let optionIndex = v2Int(params, "option_index"), optionIndex >= 0, optionIndex < 9 else {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
         }
-        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -372,10 +378,10 @@ extension TerminalController {
         let digit = String(optionIndex + 1)
         let isCodex = agentChatTranscriptService?.sessionRecord(sessionID: sessionID)?.agentKind == .codex
         let answerKeys = isCodex ? "\(digit)\r" : digit
-        let sendResult = terminalPanel.surface.sendInputResult(answerKeys)
+        let sendResult = terminalTarget.sendInputResult(answerKeys)
         switch sendResult {
         case .sent, .queued:
-            terminalPanel.surface.forceRefresh(reason: "mobileHost.chatAnswer")
+            terminalTarget.forceRefresh(reason: "mobileHost.chatAnswer")
             return .ok(["answered": true, "option_index": optionIndex])
         case .inputQueueFull, .surfaceUnavailable, .processExited:
             return .err(code: "surface_unavailable", message: String(
@@ -425,7 +431,7 @@ extension TerminalController {
         let params: [String: Any] = ["workspace_id": workspaceID, "surface_id": surfaceID]
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.controlSocketTerminalTarget(for: surfaceId) != nil else {
             return false
         }
         return true
@@ -440,7 +446,7 @@ extension TerminalController {
     /// the very value that goes stale after a Mac relaunch — so use this only
     /// for the no-filter path. The workspace-filtered path
     /// (``v2MobileChatSessions``) resolves the surface to its CURRENT workspace
-    /// and calls ``mobileChatRecordMatchesAgent(record:workspace:terminalPanel:)``
+    /// and calls ``mobileChatRecordMatchesAgent(record:)``
     /// directly.
     private func mobileChatBindingIsCurrentAgent(_ record: AgentChatSessionRecord) -> Bool {
         guard let workspaceID = record.workspaceID,
@@ -450,7 +456,7 @@ extension TerminalController {
                   requireTerminal: true
               ),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.controlSocketTerminalTarget(for: surfaceId) != nil else {
             return false
         }
         return mobileChatRecordMatchesAgent(record: record)
@@ -475,7 +481,7 @@ extension TerminalController {
         return kill(pid_t(pid), 0) == 0 || errno == EPERM
     }
 
-    private func mobileChatTerminalPanel(sessionID: String) async -> TerminalPanel? {
+    private func mobileChatTerminalTarget(sessionID: String) async -> ControlTerminalSocketTarget? {
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID),
               let resolved = mobileResolveWorkspaceAndSurface(params: terminalParams, requireTerminal: true),
               let surfaceId = resolved.surfaceId else {
@@ -484,7 +490,7 @@ extension TerminalController {
             #endif
             return nil
         }
-        return resolved.workspace.terminalPanel(for: surfaceId)
+        return resolved.workspace.controlSocketTerminalTarget(for: surfaceId)
     }
 
 }

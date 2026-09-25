@@ -1,13 +1,24 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
+@testable import CmuxMobileShell
 
-actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
+actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-    private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
+    // Keep an id with each parked read so release and cancellation can race
+    // without resuming another load's continuation.
+    private var blockers: [String: [(id: UUID, continuation: CheckedContinuation<Void, Never>)]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
     private var recordReplacement: (
@@ -15,6 +26,8 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         teamKey: String,
         records: [MobilePairedMac]
     )?
+    private var loadAllFailuresRemaining = 0
+    private var loadAllFailureCalls: Set<Int> = []
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
     private var upsertStartedIDs: Set<String> = []
@@ -25,6 +38,12 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var removeStartedIDs: Set<String> = []
     private var removeStartWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var removeBlockers: [String: CheckedContinuation<Void, Never>] = [:]
+    private var backupCancellationCallCount = 0
+    private var gatedBackupCancellationCalls: Set<Int> = []
+    private var backupCancellationStartedCalls: Set<Int> = []
+    private var backupCancellationStartWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var backupCancellationBlockers: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var backupCancellationObservedCancellation: [Int: Bool] = [:]
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -140,12 +159,39 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         loadAllCount += 1
+        let failsByCount = loadAllFailuresRemaining > 0
+        if failsByCount || loadAllFailureCalls.remove(loadAllCount) != nil {
+            if failsByCount {
+                loadAllFailuresRemaining -= 1
+            }
+            throw NSError(
+                domain: "DelayedTeamPairedMacStore.loadAll",
+                code: 1
+            )
+        }
         let key = teamID ?? ""
         markStarted(key)
         if blockedTeams.contains(key) {
-            await withCheckedContinuation { continuation in
-                blockers[key] = continuation
+            let blockerID = UUID()
+            // Canceled aggregation tasks must release their fake read just as
+            // the real store releases a canceled I/O operation.
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    guard !Task.isCancelled else {
+                        continuation.resume()
+                        return
+                    }
+                    blockers[key, default: []].append((
+                        id: blockerID,
+                        continuation: continuation
+                    ))
+                }
+            } onCancel: {
+                Task {
+                    await self.cancelLoadAllBlocker(key: key, id: blockerID)
+                }
             }
+            try Task.checkCancellation()
         }
         let result: [MobilePairedMac]
         if key.isEmpty {
@@ -206,6 +252,41 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     }
     func removeAll() async throws {}
 
+    func refreshFromBackup(stackUserID _: String?) async {}
+
+    func cancelInFlightRestores() async {
+        backupCancellationCallCount += 1
+        let call = backupCancellationCallCount
+        backupCancellationStartedCalls.insert(call)
+        let waiters = backupCancellationStartWaiters.removeValue(forKey: call) ?? []
+        for waiter in waiters { waiter.resume() }
+        if gatedBackupCancellationCalls.contains(call) {
+            await withCheckedContinuation { continuation in
+                backupCancellationBlockers[call] = continuation
+            }
+        }
+        backupCancellationObservedCancellation[call] = Task.isCancelled
+    }
+
+    func gateBackupCancellation(call: Int) {
+        gatedBackupCancellationCalls.insert(call)
+    }
+
+    func waitUntilBackupCancellationStarted(call: Int) async {
+        if backupCancellationStartedCalls.contains(call) { return }
+        await withCheckedContinuation { continuation in
+            backupCancellationStartWaiters[call, default: []].append(continuation)
+        }
+    }
+
+    func releaseBackupCancellation(call: Int) {
+        backupCancellationBlockers.removeValue(forKey: call)?.resume()
+    }
+
+    func backupCancellationWasCancelled(call: Int) -> Bool? {
+        backupCancellationObservedCancellation[call]
+    }
+
     func waitUntilLoadStarted(teamID: String?) async {
         let key = teamID ?? ""
         if startedTeams.contains(key) { return }
@@ -214,9 +295,38 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    func didStartLoad(teamID: String?) -> Bool {
+        startedTeams.contains(teamID ?? "")
+    }
+
+    func isLoadBlocked(teamID: String?) -> Bool {
+        !(blockers[teamID ?? ""]?.isEmpty ?? true)
+    }
+
     func release(teamID: String?) {
         let key = teamID ?? ""
-        blockers.removeValue(forKey: key)?.resume()
+        guard var queued = blockers[key], !queued.isEmpty else { return }
+        let blocker = queued.removeFirst()
+        if queued.isEmpty {
+            blockers.removeValue(forKey: key)
+        } else {
+            blockers[key] = queued
+        }
+        blocker.continuation.resume()
+    }
+
+    private func cancelLoadAllBlocker(key: String, id: UUID) {
+        guard var queued = blockers[key],
+              let index = queued.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let blocker = queued.remove(at: index)
+        if queued.isEmpty {
+            blockers.removeValue(forKey: key)
+        } else {
+            blockers[key] = queued
+        }
+        blocker.continuation.resume()
     }
 
     func waitUntilUpsertCount(_ count: Int) async {
@@ -244,6 +354,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func currentLoadAllCount() -> Int {
         loadAllCount
+    }
+
+    func failNextLoadAll(_ count: Int = 1) {
+        loadAllFailuresRemaining += count
+    }
+
+    func failLoadAll(call: Int) {
+        loadAllFailureCalls.insert(call)
     }
 
     func gateUpsert(macDeviceID: String) {
