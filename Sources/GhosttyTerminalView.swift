@@ -3978,6 +3978,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var tabId: UUID?
     var selectionTranslationHostView: NSView?
     var firstResponderFocusTransactionId: UUID?
+    /// Marks the synchronous AppKit request that may be replayed after reparent suppression.
+    fileprivate var isExplicitFirstResponderRequestInFlight = false
     var onFocus: (() -> Void)?
     private var pendingSuppressedFirstResponderFocus = false
     private var pendingSuppressedFirstResponderFocusTransactionId: UUID?
@@ -6231,8 +6233,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
-                pendingSuppressedFirstResponderFocus = true
-                pendingSuppressedFirstResponderFocusTransactionId = firstResponderFocusTransactionId
+                if isExplicitFirstResponderRequestInFlight {
+                    pendingSuppressedFirstResponderFocus = true
+                    pendingSuppressedFirstResponderFocusTransactionId = firstResponderFocusTransactionId
+                }
                 let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
                 if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
                     terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
@@ -6277,6 +6281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return result
     }
 
+    /// Delivers the workspace and Ghostty focus side effects for a confirmed first-responder transition.
     private func applyFirstResponderFocus(focusTransactionId: UUID? = nil) {
         let previousFocusTransactionId = firstResponderFocusTransactionId
         self.firstResponderFocusTransactionId = focusTransactionId
@@ -6328,6 +6333,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.forceRefresh(reason: "focus.firstResponder")
     }
 
+    /// Replays an explicit focus request that AppKit delivered while reparent suppression was active.
     @discardableResult
     func replaySuppressedFirstResponderFocusIfNeeded() -> Bool {
         guard pendingSuppressedFirstResponderFocus,
@@ -6354,6 +6360,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    /// Drops a suppressed focus request when a newer focus owner makes it stale.
     func discardSuppressedFirstResponderFocus() {
         pendingSuppressedFirstResponderFocus = false
         pendingSuppressedFirstResponderFocusTransactionId = nil
@@ -11763,12 +11770,10 @@ final class GhosttySurfaceScrollView: NSView {
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()
             }
-            let previousFocusTransactionId = self.surfaceView.firstResponderFocusTransactionId
-            self.surfaceView.firstResponderFocusTransactionId = focusTransactionId
-            defer {
-                self.surfaceView.firstResponderFocusTransactionId = previousFocusTransactionId
-            }
-            let result = window.makeFirstResponder(self.surfaceView)
+            let result = self.makeSurfaceViewFirstResponder(
+                in: window,
+                focusTransactionId: focusTransactionId
+            )
 #if DEBUG
             cmuxDebugLog(
                 "find.moveFocus.apply to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -11888,7 +11893,7 @@ final class GhosttySurfaceScrollView: NSView {
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> Bool {
         guard let window = uiWindow else { return false }
-        window.makeFirstResponder(surfaceView)
+        _ = makeSurfaceViewFirstResponder(in: window, focusTransactionId: nil)
 
         let timestamp = ProcessInfo.processInfo.systemUptime
         guard let keyDown = NSEvent.keyEvent(
@@ -12133,9 +12138,12 @@ final class GhosttySurfaceScrollView: NSView {
         focusTransactionId: UUID?
     ) -> Bool {
         let previousFocusTransactionId = surfaceView.firstResponderFocusTransactionId
+        let previousExplicitRequestState = surfaceView.isExplicitFirstResponderRequestInFlight
         surfaceView.firstResponderFocusTransactionId = focusTransactionId
+        surfaceView.isExplicitFirstResponderRequestInFlight = true
         defer {
             surfaceView.firstResponderFocusTransactionId = previousFocusTransactionId
+            surfaceView.isExplicitFirstResponderRequestInFlight = previousExplicitRequestState
         }
         return window.makeFirstResponder(surfaceView)
     }
