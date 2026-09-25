@@ -72,6 +72,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
     let loadPortSummary: @MainActor (String) async throws -> VMSummary
+
+    func publishPortDiscovery() {
+        guard isRegisteredInCatalog() else { return }
+        info.portDiscoveryState = portDiscovery.state
+        catalog.updateMachine(info, from: self)
+    }
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.
     var materializedPanels: Set<UUID> = []
