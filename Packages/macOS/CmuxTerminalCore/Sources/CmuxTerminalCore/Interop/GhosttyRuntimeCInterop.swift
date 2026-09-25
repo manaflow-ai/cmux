@@ -38,6 +38,10 @@ public struct GhosttyRuntimeCInterop {
         }
 
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+        // ghostty_init applies the user's locale. Config parsing can now be the
+        // first caller, before GhosttyApp's own re-pin, so restore the
+        // CoreUI-safe numeric locale here for every caller.
+        _ = setlocale(LC_NUMERIC, "C")
         initializationResult = result
         return result
     }
