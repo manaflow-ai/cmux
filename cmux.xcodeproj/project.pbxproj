@@ -637,6 +637,7 @@
 		9C23A4FD07C6BBFEB282D230 /* CLIKiroFeedPermissionModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */; };
 		74346B19AC8D55243926D168 /* CLILegacyCodexRestoreLeaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */; };
 		A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */; };
+		D96230000000000000000002 /* CLILocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96230000000000000000001 /* CLILocalizationTests.swift */; };
 		C10657000000000000000003 /* CLILocalTmuxIdentityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */; };
 		C10657000000000000000001 /* CLILocalTmuxReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000002 /* CLILocalTmuxReviewRegressionTests.swift */; };
 		C10657000000000000000005 /* CLILocalTmuxSurfaceRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */; };
@@ -4787,6 +4788,7 @@
 		537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIKiroFeedPermissionModeTests.swift"; sourceTree = "<group>"; };
 		1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLILegacyCodexRestoreLeaseTests.swift"; sourceTree = "<group>"; };
 		A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILegacyHookAliasTests.swift; sourceTree = "<group>"; };
+		D96230000000000000000001 /* CLILocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalizationTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxIdentityRegressionTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000002 /* CLILocalTmuxReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxReviewRegressionTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxSurfaceRecoveryTests.swift; sourceTree = "<group>"; };
@@ -8257,6 +8259,7 @@
 			isa = PBXGroup;
 			children = (
 				C1175700000000000000000E /* BundledCLITestSupport.swift */,
+				D96230000000000000000001 /* CLILocalizationTests.swift */,
 				C1175700000000000000000F /* CLIClaudeHookTimeoutRegressionTests.swift */,
 				C11757000000000000000010 /* CLICoderouterBootstrapTests.swift */,
 				C11757000000000000000011 /* CLICodexHookPathQuotingRegressionTests.swift */,
@@ -12978,6 +12981,7 @@
 				C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
+				D96230000000000000000002 /* CLILocalizationTests.swift in Sources */,
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
 				C11757000000000000000032 /* CLISSHPTYResizeInputTests.swift in Sources */,
