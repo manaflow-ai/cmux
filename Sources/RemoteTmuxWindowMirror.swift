@@ -50,6 +50,10 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         ((TerminalPanel) -> Void)?
     @ObservationIgnored var onTerminalPanelRemoved:
         ((TerminalPanel) -> Void)?
+    // Mutated on the main actor; deinit removes tokens after all actor use ends.
+    @ObservationIgnored nonisolated(unsafe) var paneColorObserverTokens: [NSObjectProtocol] = []
+    @ObservationIgnored var pendingPaneColorRefreshes: Set<Int> = []
+    @ObservationIgnored let paneColorsSource: ((TerminalPanel) -> RemoteTmuxPaneColors?)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -301,6 +305,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
         onPaneSurfaceProgress: ((Int) -> Void)? = nil,
+        paneColorsSource: ((TerminalPanel) -> RemoteTmuxPaneColors?)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -313,13 +318,19 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         self.controlPaneID = controlPaneID
         self.onControlSurfaceChanged = onControlSurfaceChanged
         self.onPaneSurfaceProgress = onPaneSurfaceProgress
+        self.paneColorsSource = paneColorsSource
         self.layout = layout
         let initialConfiguration = workspaceBonsplitController?.configuration
             ?? BonsplitConfiguration(appearance: appearance)
         self.bonsplitController = Self.makeController(configuration: initialConfiguration)
         configureBonsplitController()
         observeWorkspaceBonsplitConfiguration()
+        observePaneColors()
         reconcile(layout: layout)
+    }
+
+    deinit {
+        paneColorObserverTokens.forEach(NotificationCenter.default.removeObserver)
     }
 
     /// All tmux pane ids currently in the window, depth-first left→right.
@@ -379,6 +390,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             // dereferenced by a later Core Animation commit.
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            removePaneColorsIfOwned(paneId: paneId)
             onControlSurfaceChanged?(paneId, nil)
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
@@ -478,6 +490,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             self?.handlePaneSurfaceProgress()
         }
         surface.onRuntimeReady = { [weak self, weak surface] in
+            self?.reportPaneColors(paneId: paneId)
             if let sample = surface?.rawSizingSample() {
                 self?.handleSizingSample(sample, paneId: paneId)
             }
@@ -488,6 +501,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if let sample = surface.rawSizingSample() {
             handleSizingSample(sample, paneId: paneId)
         }
+        reportPaneColors(paneId: paneId)
         if needsSeed { connection?.seedPane(paneId: paneId) }
     }
 
@@ -568,6 +582,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func teardown() {
         guard !isTornDown else { return }
         isTornDown = true
+        for token in paneColorObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        paneColorObserverTokens.removeAll()
+        pendingPaneColorRefreshes.removeAll()
         isVisibleForSizing = false
         sizingPassScheduled = false
         lastCompletedSizingInputs = nil
@@ -585,6 +604,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         // which unsubscribes per removed pane. Without this, a control connection that
         // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
         for paneId in panelsByPaneId.keys {
+            removePaneColorsIfOwned(paneId: paneId)
             activeConnection?.unsubscribePanePath(paneId: paneId)
             activeConnection?.unsubscribePaneReflow(paneId: paneId)
             activeConnection?.unsubscribePaneHeader(paneId: paneId)
