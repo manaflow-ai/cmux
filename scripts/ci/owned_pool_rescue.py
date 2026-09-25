@@ -493,8 +493,11 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     e2e = path in DISPATCH_WORKFLOW_PATHS
     on_main = (path == CI_WORKFLOW_PATH and run.get("event") == "workflow_dispatch"
             and run.get("head_branch") == MAIN_BRANCH)
+    # test-ios.yml also runs for pull requests: watched as an E2E run, but
+    # against its pull request's head like a CI run.
+    ios_pull = path == IOS_TEST_WORKFLOW_PATH and run.get("event") == "pull_request"
     expected = "workflow_dispatch" if e2e else "pull_request"
-    if run.get("event") != expected and not on_main:
+    if run.get("event") != expected and not on_main and not ios_pull:
         what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
@@ -503,7 +506,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     attempt = int(run.get("run_attempt") or 0)
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
-    if e2e:
+    if e2e and not ios_pull:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True, path=str(path))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True)
@@ -511,7 +514,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  side=side, path=str(path))
+                  e2e=e2e, side=side, path=str(path))
 
 
 def marker_name(target: Target) -> str:
@@ -645,7 +648,7 @@ def next_attempt(target: Target) -> str:
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does."""
-    if target.e2e:
+    if target.e2e and not target.pr_number:
         return ""  # a dispatch has no head to move; a newer one cancels it by concurrency
     if target.main:
         head = read(lambda: api.branch_head(MAIN_BRANCH), sleep, log)
@@ -786,7 +789,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if ((env.get("LATE_PLACEMENT") or "").strip() == "1" and target.attempt == 1
             and not (target.e2e or target.main or target.side)):
         target = dataclasses.replace(target, late=True)
-    subject = ("an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
+    subject = (f"pull request #{target.pr_number}'s {target.path}" if target.pr_number else
+               "an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
         else f"pull request #{target.pr_number}"
     if target.side:
