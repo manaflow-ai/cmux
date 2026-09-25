@@ -793,7 +793,10 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func qrPairingWhileOfflineFailsFastWithoutDial() async throws {
-    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    // The preflight runs only when the ticket has a route this build may
+    // dial. A scanned QR under Automatic dials Iroh, never a raw Tailscale
+    // host, so the route here is Iroh.
+    let route = try irohPeerRoute()
     let ticket = try CmxAttachTicket(
         workspaceID: UUID().uuidString,
         terminalID: nil,
@@ -805,7 +808,7 @@ final class TerminalOutputCollector {
     )
     let dials = TransportDialRecorder()
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.iroh],
         transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
     )
     let store = CMUXMobileShellStore(
@@ -833,7 +836,10 @@ final class TerminalOutputCollector {
     // with no dial — reconnecting and rescanning the same code is expected
     // to work, so "offline" is the honest, actionable message.
     let ticketExpiresAt = Date().addingTimeInterval(60)
-    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    // The preflight runs only when the ticket has a route this build may
+    // dial. A scanned QR under Automatic dials Iroh, never a raw Tailscale
+    // host, so the route here is Iroh.
+    let route = try irohPeerRoute()
     let ticket = try CmxAttachTicket(
         workspaceID: UUID().uuidString,
         terminalID: nil,
@@ -846,7 +852,7 @@ final class TerminalOutputCollector {
     )
     let dials = TransportDialRecorder()
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.iroh],
         transportFactory: RecordingNeverConnectTransportFactory(dials: dials),
         now: { ticketExpiresAt.addingTimeInterval(1) }
     )
@@ -1818,8 +1824,9 @@ final class TerminalOutputCollector {
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
     // routes point at the phone itself fails closed with copy that names the
-    // actual fix (Iroh), instead of dialing 127.0.0.1 and burning the
-    // whole request timeout before a generic connect error.
+    // actual fix (scan a fresh code from the Mac's pairing window), instead
+    // of dialing 127.0.0.1 and burning the whole request timeout before a
+    // generic connect error.
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
@@ -1828,9 +1835,9 @@ final class TerminalOutputCollector {
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
-    #expect(store.connectionError?.contains("Iroh") == true)
-    // The loopback failure must name the fix (Iroh), not fall through to
-    // the generic invalid-code copy.
+    // The loopback failure must name the fix, not fall through to the
+    // generic invalid-code copy.
+    #expect(store.connectionError == MobilePairingFailureCategory.loopbackRejected.message)
     #expect(store.connectionError != MobilePairingFailureCategory.invalidCode.message)
 }
 
@@ -2563,7 +2570,13 @@ struct TerminalStreamTests {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
+    // Render-grid transport: grid frames, never the raw byte stream. The rest
+    // of the topic list (sync, notifications, browser, simulator) grows with
+    // features and is owned by `TerminalOutputTransport.eventTopics`.
+    let topics = try #require(subscribeRequests.first?.topics)
+    #expect(topics == MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics)
+    #expect(topics.contains("terminal.render_grid"))
+    #expect(!topics.contains("terminal.bytes"))
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
@@ -3189,6 +3202,19 @@ private func rpcAttachTicketFrame(
     encoder.dateEncodingStrategy = .iso8601
     let ticketObject = try JSONSerialization.jsonObject(with: encoder.encode(ticket))
     return try rpcResultFrame(result: ["ticket": ticketObject])
+}
+
+private func irohPeerRoute() throws -> CmxAttachRoute {
+    try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            id: String(repeating: "a", count: 64),
+            relayHint: nil,
+            directAddrs: [],
+            relayURL: nil
+        )
+    )
 }
 
 private func hostPortRoute(
@@ -4243,6 +4269,20 @@ struct InertPushRegistration: PushRegistering {
     )
 }
 
+/// Models a (re)attach delivering its workspace snapshot: the live
+/// connection, the foreground Mac's status, and a fresh list. The push
+/// coordinator navigates only on an authoritative list, and setting
+/// `connectionState` alone leaves the Mac status unavailable, which is the
+/// retained-cache state during recovery.
+@MainActor func deliverConnectedWorkspaceSnapshot(
+    to store: CMUXMobileShellStore,
+    _ workspaces: [MobileWorkspacePreview] = PreviewMobileHost.workspaces
+) {
+    store.connectionState = .connected
+    store.macConnectionStatus = .connected
+    store.replaceForegroundWorkspaceState(workspaces)
+}
+
 /// Cold launch from a notification tap: `didReceive` fires before the root
 /// view has mounted, so no store is bound yet. The tap must survive until the
 /// store binds and its workspace list loads, then navigate. Pre-fix the tap
@@ -4268,14 +4308,17 @@ struct InertPushRegistration: PushRegistering {
 /// driven by the root view's workspace-list change hook.
 @Test @MainActor func notificationTapBeforeAttachAppliesWhenWorkspaceArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    // Not attached yet. A connected store with an empty list would be an
+    // authoritative "workspace is gone" and correctly spend the tap.
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
     // Target not loaded yet: no navigation to an absent workspace.
     #expect(store.selectedWorkspaceID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4301,7 +4344,7 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedTerminalID == nil)
     #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.connectionState = .connected
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
@@ -4322,7 +4365,7 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedTerminalID == nil)
     #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.connectionState = .connected
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4372,14 +4415,15 @@ struct InertPushRegistration: PushRegistering {
 /// retry, stranding the user on the home screen.
 @Test @MainActor func surfaceOnlyNotificationTapWaitsForOwningWorkspace() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: nil, surfaceId: "terminal-notes")
     // Nothing loaded yet: the tap must stay parked, not be spent.
     #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4406,8 +4450,7 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
 
-    store.connectionState = .connected
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
