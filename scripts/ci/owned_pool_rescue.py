@@ -77,13 +77,15 @@ sibling wait and a build.
 
 Main's full-suite dispatch of ci.yml (ci-main-full-suite.yml, a
 workflow_dispatch on main) is watched exactly like a pull request run:
-pr_runner_pool.py may put it on an owned pool when the whole run fits with
-CI_OWNED_MAIN_RESERVE machines left free, and its `changes` job uploads the
+pr_runner_pool.py may put it on an owned pool like a pull request, and its
+`changes` job uploads the
 same marker. It has no pull request, so in place of the pull request head it
 checks main's HEAD: once main has moved past the run's commit, a stuck run is
 cancelled but not re-run, because its completion makes
 ci-main-full-suite.yml dispatch the newer HEAD, and a re-run would only queue
-the older commit behind it in main's CI concurrency group.
+the older commit behind it in main's CI concurrency group. A refused job's
+failed jobs are re-run whether or not main moved, so a fleet refusal never
+leaves main's run red.
 
 Dispatches of test-ios.yml and ios-screenshots.yml are watched exactly like an
 E2E run (DISPATCH_WORKFLOW_PATHS). Their `runner` job runs ios_runner_pool.py,
@@ -620,7 +622,19 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     may be re-run: an E2E run stuck in the queue that then finished was
     likely cancelled by a newer dispatch, which re-running it would cancel.
     """
-    moved = pull_moved(api, target, sleep, log)
+    # Main's run is re-run after a refusal whether or not main moved: the
+    # refusal is the fleet's, and a red run would open main's red-CI issue.
+    keep_main = target.main and failed_only
+    moved = "" if keep_main else pull_moved(api, target, sleep, log)
+    if moved and target.main:
+        # Main's stuck run holds its concurrency group, so nothing newer can
+        # start until it finishes: cancel it, and its completion dispatches
+        # the new HEAD.
+        run = read(lambda: api.run(target.run_id), sleep, log)
+        if run.get("status") == "completed":
+            return f"not rescued: {moved}"
+        api.cancel(target.run_id)
+        return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
         return f"not rescued: {moved}"
     run = read(lambda: api.run(target.run_id), sleep, log)
@@ -662,7 +676,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             raise Aborted(f"run {target.run_id} did not finish {CANCEL_WAIT_SECONDS}s after cancel; not re-run")
     # A push during the cancel starts the new head's run; re-running the old
     # head now would join its concurrency group and cancel it.
-    moved = pull_moved(api, target, sleep, log)
+    moved = "" if keep_main else pull_moved(api, target, sleep, log)
     if moved:
         return f"cancelled but not re-run: {moved}"
     if failed_only:

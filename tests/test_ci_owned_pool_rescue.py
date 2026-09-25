@@ -952,13 +952,16 @@ class MainDispatch(unittest.TestCase):
         self.assertEqual(api.calls[-1], "rerun")
         self.assertIn("cancel", api.calls)
 
-    def test_a_stuck_main_run_is_left_to_the_dispatcher_once_main_moves(self):
+    def test_a_stuck_main_run_is_cancelled_not_rerun_once_main_moves(self):
+        # The stuck run holds main's concurrency group; cancelling it lets the
+        # dispatcher start the new HEAD when it completes.
         clock = Clock()
         api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40)
         _, summary = run_main(api, clock, payload=main_event())
-        self.assertNotIn("cancel", api.calls)
+        self.assertIn("cancel", api.calls)
         self.assertNotIn("rerun", api.calls)
         self.assertIn("main has moved on", summary)
+        self.assertIn("not re-run", summary)
         # Main moving during the cancel: cancelled, and its completion dispatches the new HEAD.
         clock = Clock()
         api = FakeAPI(clock, persistent_run(), marker=True)
@@ -969,6 +972,30 @@ class MainDispatch(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)
         self.assertIn("cancelled but not re-run", summary)
 
+    def test_a_dispatch_naming_main_s_run_watches_it(self):
+        # ci.yml's owned-pool-watch job dispatches the rescue for main's run
+        # too; the run the API returns is main's dispatch.
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        live_run = api.run
+        api.run = lambda run_id: {**main_event()["workflow_run"], **live_run(run_id)}
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)},
+                                 payload={"inputs": {"run_id": str(RUN_ID)}})
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[0], "run")
+        self.assertIn(f"watching run {RUN_ID} of main's full-suite dispatch", summary)
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_a_main_run_queued_on_purpose_gets_the_round_budget(self):
+        # The picker places main like a pull request, queue allowance included.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(compile_started_at=40 + 600), marker=True, queued=True)
+        code, summary = run_main(api, clock, payload=main_event(),
+                                 env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertEqual(code, 0)
+        self.assertIn(f"budget {30 + rescue.QUEUE_ROUND_SECONDS}s", summary)
+        self.assertNotIn("cancel", api.calls)
+
     def test_a_refused_main_job_reruns_the_failed_jobs(self):
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True)
@@ -977,6 +1004,12 @@ class MainDispatch(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("pull", api.calls)
         self.assertIn("refused", summary)
+        # Even once main moved: a fleet refusal must not leave main's run red.
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True, head="b" * 40)
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-failed", api.calls)
 
 
 class Workflow(unittest.TestCase):

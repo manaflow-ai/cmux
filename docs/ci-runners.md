@@ -284,7 +284,8 @@ marker), the watcher confirms the
 pull request head has not moved, cancels the run, and re-runs it. For main's
 full-suite dispatch it checks main's HEAD instead: once main has moved past
 the run's commit, the run is cancelled but not re-run, because its completion
-makes `ci-main-full-suite.yml` dispatch the newer HEAD. A retry
+makes `ci-main-full-suite.yml` dispatch the newer HEAD; a refused job on
+main's run gets its failed jobs re-run whether or not main moved. A retry
 attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
 whole, and so does a manual "Re-run all jobs".
 
