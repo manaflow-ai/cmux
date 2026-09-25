@@ -24,6 +24,47 @@ struct ClaudeHookLiveDeliveryTargetTests {
     private static let otherSurfaceId = "55555555-5555-5555-5555-555555555555"
     private static let fallbackSurfaceId = "44444444-4444-4444-4444-444444444444"
 
+    /// A Claude `/rename` arrives through UserPromptSubmit before the
+    /// background Stop auto-name pass. Persisting that ownership decision is
+    /// what prevents the later pass from replacing the explicit title.
+    @Test func renamePromptMarksSessionAsUserOwnedForAutoNaming() throws {
+        let context = try Harness.makeContext(name: "rename-auto-name-ownership")
+        defer { context.cleanup() }
+        let sessionId = "rename-auto-name-ownership-session"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path,
+            pid: 43208
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43208"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"UserPromptSubmit","cwd":"\#(context.root.path)","prompt":"/rename User chosen title"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let record = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        #expect(record["autoNameUserOwned"] as? Bool == true)
+    }
+
     /// A Claude `SubagentStop` must remain telemetry even if an older or
     /// duplicated hook configuration invokes the visible `stop` command for
     /// that event. Only the parent `Stop` event may publish completion
