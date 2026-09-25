@@ -2869,6 +2869,7 @@ jobs:
             CmuxTerminalCore
             CmuxUpdater
             CMUXAgentLaunch
+            CmuxAgentHooks
             CmuxAgentJournal
             CmuxFilePreviewCore
             CmuxSyntaxHighlighting

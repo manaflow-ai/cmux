@@ -1,6 +1,8 @@
 import CmuxSurfaceCatalogModel
 import Foundation
 import CMUXAgentLaunch
+import CmuxAgentHooks
+import CmuxBrowser
 import CmuxAgentJournal
 import CmuxControlSocket
 import CmuxFoundation
@@ -102,193 +104,36 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
     guard let socketPath = agentHookDebugNonEmpty(socketPath) else { return "nil" }
     return URL(fileURLWithPath: socketPath).lastPathComponent
 }
-#endif
-struct ClaudeHookSessionRecord: Codable {
-    /// Persisted beside the session record because it is only meaningful as
-    /// the command identity for this record's Cursor approval lifecycle.
-    struct PendingCursorShellApproval: Codable, Equatable {
-        private static let hexadecimal = Array("0123456789abcdef".utf8)
-        let commandFingerprint: String
-        let commandLength: Int
-        let displayCommand: String
-        let toolUseId: String?
-        /// Opaque identity of the notification created for this approval.
-        /// It lets completion clear one entry without scanning or clearing a
-        /// newer notification on the same surface.
-        let notificationCorrelationKey: String?
-        let createdAt: TimeInterval
-        let requiresToolUseId: Bool
 
-        init(
-            command: String,
-            toolUseId: String?,
-            createdAt: TimeInterval,
-            requiresToolUseId: Bool = false,
-            notificationCorrelationKey: String? = UUID().uuidString.lowercased()
-        ) {
-            let normalized = Self.normalizedCommand(command)
-            self.commandFingerprint = Self.fingerprint(for: normalized)
-            self.commandLength = normalized.utf8.count
-            self.displayCommand = Self.redactedPreview(for: normalized)
-            self.toolUseId = toolUseId
-            self.notificationCorrelationKey = notificationCorrelationKey
-                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
-                ?? UUID().uuidString.lowercased()
-            self.createdAt = createdAt
-            self.requiresToolUseId = requiresToolUseId
-        }
-
-        static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
-            (
-                fingerprint: fingerprint(for: normalizedCommand),
-                length: normalizedCommand.utf8.count
-            )
-        }
-
-        private static func normalizedCommand(_ value: String) -> String {
-            value
-                .replacingOccurrences(of: "\r\n", with: "\n")
-                .replacingOccurrences(of: "\r", with: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        private static func fingerprint(for value: String) -> String {
-            var encoded: [UInt8] = []
-            encoded.reserveCapacity(64)
-            for byte in SHA256.hash(data: Data(value.utf8)) {
-                encoded.append(hexadecimal[Int(byte >> 4)])
-                encoded.append(hexadecimal[Int(byte & 0x0f)])
-            }
-            return String(decoding: encoded, as: UTF8.self)
-        }
-
-        private static func redactedPreview(for value: String) -> String {
-            _ = value
-            return String(
-                localized: "agent.generic.notification.body.approvalNeeded",
-                defaultValue: "Approval needed"
-            )
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case commandFingerprint
-            case commandLength
-            case displayCommand
-            case toolUseId
-            case notificationCorrelationKey
-            case createdAt
-            case requiresToolUseId
-            case legacyCommand = "command"
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            if let fingerprint = try container.decodeIfPresent(String.self, forKey: .commandFingerprint),
-               let length = try container.decodeIfPresent(Int.self, forKey: .commandLength) {
-                commandFingerprint = fingerprint
-                commandLength = length
-                displayCommand = try container.decodeIfPresent(String.self, forKey: .displayCommand) ?? ""
-            } else {
-                let legacy = try container.decodeIfPresent(String.self, forKey: .legacyCommand) ?? ""
-                let normalized = Self.normalizedCommand(legacy)
-                commandFingerprint = Self.fingerprint(for: normalized)
-                commandLength = normalized.utf8.count
-                displayCommand = Self.redactedPreview(for: normalized)
-            }
-            toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
-            let decodedCorrelationKey = try container.decodeIfPresent(String.self, forKey: .notificationCorrelationKey)
-            notificationCorrelationKey = decodedCorrelationKey
-                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
-                ?? UUID().uuidString.lowercased()
-            createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
-            requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
-        }
-
-        /// Encodes the persisted approval fields without emitting the
-        /// decode-only legacy command. The legacy key is retained only for
-        /// decoding stores written by older builds.
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(commandFingerprint, forKey: .commandFingerprint)
-            try container.encode(commandLength, forKey: .commandLength)
-            try container.encode(displayCommand, forKey: .displayCommand)
-            try container.encodeIfPresent(toolUseId, forKey: .toolUseId)
-            try container.encodeIfPresent(notificationCorrelationKey, forKey: .notificationCorrelationKey)
-            try container.encode(createdAt, forKey: .createdAt)
-            try container.encode(requiresToolUseId, forKey: .requiresToolUseId)
-        }
+/// Test-only coordination for exercising hook callbacks that race between
+/// their unlocked routing snapshot and the locked state mutation. The barrier
+/// is compiled out of release builds and is inert unless explicitly enabled
+/// by a Debug test process.
+private func agentHookDebugWaitForTestBarrier(event: String, env: [String: String]) {
+    let barrierEnvironmentKey: String?
+    switch event {
+    case "session-end":
+        barrierEnvironmentKey = "CMUX_TEST_AGENT_HOOK_SESSION_END_BARRIER"
+    case "stop":
+        barrierEnvironmentKey = "CMUX_TEST_AGENT_HOOK_STOP_BARRIER"
+    case "notification":
+        barrierEnvironmentKey = "CMUX_TEST_AGENT_HOOK_NOTIFICATION_BARRIER"
+    default:
+        barrierEnvironmentKey = nil
     }
-
-    var sessionId: String
-    var workspaceId: String
-    var surfaceId: String
-    var cwd: String?
-    var title: String? = nil
-    var transcriptPath: String?
-    var pid: Int?
-    /// Exact process-generation identity captured when the hook recorded `pid`.
-    var pidStartSeconds: Int64? = nil
-    var pidStartMicroseconds: Int64? = nil
-    /// Recent process generations retained so a delayed SessionEnd can be
-    /// matched after a same-session resume updates the current PID.
-    var priorProcessGenerations: [ClaudeHookProcessGeneration]? = nil
-    var launchCommand: AgentHookLaunchCommandRecord?
-    /// Last hook-observed `permission_mode`, re-applied on user-owned restore (#8066).
-    var lastPermissionMode: String?
-    var isRestorable: Bool?
-    var agentLifecycle: AgentHibernationLifecycleState?
-    /// The hook event that most recently established the persisted lifecycle.
-    /// Optional so records written by older builds continue to decode.
-    var hookEventName: String? = nil
-    var lastSubtitle: String?
-    var lastBody: String?
-    var lastNotificationStatus: AgentHookNotificationStatus?
-    var lastEmittedNotificationFingerprint: String?
-    var lastEmittedNotificationAt: TimeInterval?
-    var recentEmittedNotificationFingerprints: [String: TimeInterval]?
-    var runtimeStatus: AgentHookRuntimeStatus?
-    var activePromptDepth: Int?
-    var activePromptTurnId: String?
-    var activePromptTurnIds: [String]?
-    var lastPromptTurnId: String?
-    var terminalPromptTurnIds: [String]?
-    var startedAt: TimeInterval
-    var updatedAt: TimeInterval
-    /// Immutable age anchor for a demoted record awaiting external cleanup.
-    /// Optional for compatibility with stores written before cleanup retries
-    /// became durable.
-    var supersededCleanupEnqueuedAt: TimeInterval? = nil
-    /// Retry ordering metadata. Attempts must not rewrite `updatedAt`, because
-    /// that timestamp is also the normal session-state expiry anchor.
-    var supersededCleanupLastAttemptAt: TimeInterval? = nil
-    var supersededCleanupAttemptCount: Int? = nil
-    // Auto-naming engine state (all optional so stores written before the
-    // feature decode unchanged). The durable baseline advances only after a
-    // confirmed title apply; the in-flight marker dedupes concurrent Stops.
-    var autoNameLastTitle: String?
-    var autoNameLastLineCount: Int?
-    var autoNameLastNamedAt: TimeInterval?
-    var autoNameInFlightAt: TimeInterval?
-    /// Last summarization attempt, including failures, for cooldown enforcement.
-    var autoNameLastAttemptAt: TimeInterval?
-    var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
-    var autoNameMessageSequence: Int?
-    var hadPendingBackgroundWorkAtStop: Bool?
-    /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
-    /// after/failure hooks do not carry a native approval decision, so the
-    /// command identity is the only safe completion correlation available.
-    var pendingCursorShellApprovals: [PendingCursorShellApproval]? = nil
-    /// Command fingerprints cleared at a turn boundary. A recently reused
-    /// command requires a stable tool id on completion because Cursor's
-    /// command-only callback cannot distinguish an old delayed completion from
-    /// the new turn's approval.
-    var recentlyClearedCursorShellCommandFingerprints: [String: TimeInterval]? = nil
-    /// Once the bounded command-only fence overflows, command-only
-    /// correlation remains disabled for this session; re-enabling it after
-    /// eviction would let an old delayed callback consume a newer approval.
-    var cursorShellCommandOnlyCorrelationDisabled: Bool? = nil
+    guard let barrierEnvironmentKey,
+          let barrierPath = agentHookDebugNonEmpty(env[barrierEnvironmentKey]) else {
+        return
+    }
+    let readyPath = barrierPath + ".ready"
+    FileManager.default.createFile(atPath: readyPath, contents: Data())
+    let deadline = Date().addingTimeInterval(10)
+    while FileManager.default.fileExists(atPath: barrierPath), Date() < deadline {
+        usleep(1_000)
+    }
+    try? FileManager.default.removeItem(atPath: readyPath)
 }
-
+#endif
 struct ClaudeHookActiveSessionRecord: Codable {
     var sessionId: String
     var turnId: String?
@@ -375,12 +220,15 @@ final class ClaudeHookSessionStore {
 
     private let statePath: String
     private let fileManager: FileManager
+    private let promptDepthPolicy: AgentHookPromptDepthPolicy
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
+
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        promptDepthPolicy: AgentHookPromptDepthPolicy = .balanced
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
@@ -394,6 +242,7 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.promptDepthPolicy = promptDepthPolicy
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -1126,6 +975,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         turnId: String? = nil,
+        invocationNumber: Int? = nil,
         previousActivePromptTurnIsTerminal: Bool = false,
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
@@ -1176,6 +1026,14 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
+            if promptDepthPolicy.closesActivePrompt {
+                record.beginAuthoritativePrompt(
+                    turnId: normalizedTurnId,
+                    invocationNumber: invocationNumber
+                )
+                state.sessions[normalized] = record
+                return (staleTerminalTurn: false, nested: false)
+            }
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
@@ -1248,10 +1106,13 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
+        settleOnlyIfPromptActive: Bool = false,
+        enforcePromptLifecycleRevision: Bool = false,
+        expectedPromptLifecycleRevision: Int64? = nil,
         autoNameMessages: [AutoNamingTranscriptMessage] = []
-    ) throws -> Bool {
+    ) throws -> PromptStopResult {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return .applied(nested: false) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
@@ -1262,7 +1123,48 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
-            let depthAfterStop = max(0, depthBeforeStop - 1)
+            let promptRevisionMatches: Bool = {
+                guard let expectedPromptLifecycleRevision else {
+                    // A nil revision is the legacy representation. It is a
+                    // valid match only while the record remains legacy; the
+                    // first new prompt assigns a revision and invalidates a
+                    // delayed legacy SessionEnd.
+                    return record.promptLifecycleRevision == nil
+                }
+                return record.promptLifecycleRevision == expectedPromptLifecycleRevision
+            }()
+            // The lifecycle fence protects against a terminal event captured
+            // before a newer authoritative prompt began. A matching revision
+            // is still authoritative when the prompt is already idle: Stop
+            // and completion Notification are allowed to project their final
+            // status, notification summary, and resume binding in that case.
+            guard !enforcePromptLifecycleRevision || promptRevisionMatches else {
+                return .rejectedByLifecycleFence
+            }
+            // SessionEnd is the only caller that requires an active prompt at
+            // commit time. Its unlocked routing snapshot can race a Stop that
+            // has already settled the depth-zero state; preserve that accepted
+            // state instead of replaying the stale idle projection.
+            guard !settleOnlyIfPromptActive || depthBeforeStop > 0 else {
+                return .alreadySettled
+            }
+            let shouldSettleAuthoritativeBoundary = promptDepthPolicy.closesActivePrompt
+            let depthAfterStop = promptDepthPolicy.closesActivePrompt
+                ? 0
+                : max(0, depthBeforeStop - 1)
+            let lifecycleWhenClosed: AgentHibernationLifecycleState? = promptDepthPolicy.closesActivePrompt
+                ? (shouldSettleAuthoritativeBoundary ? (agentLifecycle ?? .idle) : nil)
+                : agentLifecycle
+            let runtimeWhenClosed: AgentHookRuntimeStatus? = promptDepthPolicy.closesActivePrompt
+                ? (shouldSettleAuthoritativeBoundary ? (runtimeStatus ?? .idle) : nil)
+                : runtimeStatus
+            // A nested balanced stop must not overwrite a still-running
+            // session with its child completion's idle/error status. An
+            // authoritative boundary, or an explicit running status from
+            // active background work, is safe to persist immediately.
+            let shouldUpdateRuntimeStatus = updateRuntimeStatus
+                && (!settleOnlyIfPromptActive || depthBeforeStop > 0)
+                && (depthAfterStop == 0 || runtimeStatus == .running)
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1272,18 +1174,27 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: nil,
-                agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
+                agentLifecycle: depthAfterStop == 0 ? lifecycleWhenClosed : .running,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus,
+                runtimeStatus: depthAfterStop == 0 ? runtimeWhenClosed : runtimeStatus,
+                // Some authoritative-boundary callers omit updateRuntimeStatus;
+                // this OR keeps their idle/running result persisted and is
+                // intentionally load-bearing rather than redundant.
+                updateRuntimeStatus: shouldUpdateRuntimeStatus
+                    || shouldSettleAuthoritativeBoundary,
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
+            if promptDepthPolicy.closesActivePrompt {
+                record.endAuthoritativePrompt()
+                state.sessions[normalized] = record
+                return .applied(nested: false)
+            }
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
                 var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
@@ -1314,7 +1225,7 @@ final class ClaudeHookSessionStore {
                         )
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                         state.sessions[normalized] = record
-                        return nested
+                        return .applied(nested: nested)
                     }
                     if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
                         turnStack.remove(at: staleIndex)
@@ -1333,16 +1244,16 @@ final class ClaudeHookSessionStore {
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                     }
                     state.sessions[normalized] = record
-                    return true
+                    return .applied(nested: true)
                 }
                 if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
-                    return true
+                    return .applied(nested: true)
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if totalDepthBeforeStop == 0 {
                     state.sessions[normalized] = record
-                    return false
+                    return .applied(nested: false)
                 }
                 let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
                 if depthAfterTurnStop == 0 {
@@ -1353,7 +1264,7 @@ final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
                 state.sessions[normalized] = record
-                return totalDepthBeforeStop > 1
+                return .applied(nested: totalDepthBeforeStop > 1)
             }
             if depthAfterStop == 0 {
                 record.activePromptDepth = nil
@@ -1376,7 +1287,7 @@ final class ClaudeHookSessionStore {
                 }
             }
             state.sessions[normalized] = record
-            return depthBeforeStop > 1
+            return .applied(nested: depthBeforeStop > 1)
         }
     }
 
@@ -1440,6 +1351,9 @@ final class ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
+            if promptDepthPolicy.closesActivePrompt, agentLifecycle == .unknown {
+                record.clearPromptStartState()
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1625,7 +1539,15 @@ final class ClaudeHookSessionStore {
             if codexSessionStartIsStale(record, incomingPID: pid) {
                 return false
             }
-            clearCodexSessionStartTurnState(on: &record)
+            // A PID-bearing restart must retain the completed-turn marker so a
+            // duplicate SessionStart from that same process remains stale. A
+            // PID-less start cannot establish that identity and keeps the
+            // historical full reset behavior.
+            if pid != nil {
+                record.clearActivePromptState()
+            } else {
+                record.clearPromptStartState()
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1704,6 +1626,7 @@ final class ClaudeHookSessionStore {
     func codexSessionStartIsStale(
         sessionId: String,
         incomingPID: Int?,
+        includeLastPromptTurnId: Bool = true,
         includeTerminalPromptTurnIds: Bool = true
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
@@ -1713,6 +1636,7 @@ final class ClaudeHookSessionStore {
             return codexSessionStartIsStale(
                 record,
                 incomingPID: incomingPID,
+                includeLastPromptTurnId: includeLastPromptTurnId,
                 includeTerminalPromptTurnIds: includeTerminalPromptTurnIds
             )
         }
@@ -1845,12 +1769,13 @@ final class ClaudeHookSessionStore {
     private func codexSessionStartIsStale(
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int?,
+        includeLastPromptTurnId: Bool = true,
         includeTerminalPromptTurnIds: Bool = true
     ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
             return CodexSessionTurnOwnerAdmission.recordedTurnOwnerMayStillBeAlive(record)
         }
-        let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
+        let hasCompletedTurnState = (includeLastPromptTurnId && normalizeOptional(record.lastPromptTurnId) != nil)
             || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
         guard hasCompletedTurnState,
               let incomingPID,
@@ -1858,13 +1783,6 @@ final class ClaudeHookSessionStore {
             return false
         }
         return incomingPID == existingPID
-    }
-
-    private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
-        record.activePromptDepth = nil
-        record.activePromptTurnId = nil
-        record.activePromptTurnIds = nil
-        record.lastPromptTurnId = nil
     }
 
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
@@ -5530,27 +5448,16 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
-                var rows: [(String, String, String, String, String)] = []
-                rows.reserveCapacity(vms.count)
-                for vm in vms {
+                let rows: [(String, String, String, String, String)] = vms.map { vm in
                     let id = (vm["id"] as? String) ?? "?"
-                    let displayName = vm["displayName"] as? String
-                    let slug = vm["slug"] as? String
-                    let label: String
-                    if let displayName, !displayName.isEmpty {
-                        label = displayName
-                    } else if let slug, !slug.isEmpty {
-                        label = slug
-                    } else {
-                        label = id
-                    }
-                    rows.append((
-                        id,
-                        label,
-                        (vm["status"] as? String) ?? "unknown",
-                        (vm["provider"] as? String) ?? "?",
-                        (vm["image"] as? String) ?? "?"
-                    ))
+                    let displayName = (vm["displayName"] as? String)
+                        .flatMap { $0.isEmpty ? nil : $0 }
+                    let slug = (vm["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    let label = displayName ?? slug ?? id
+                    let state = (vm["status"] as? String) ?? "unknown"
+                    let provider = (vm["provider"] as? String) ?? "?"
+                    let image = (vm["image"] as? String) ?? "?"
+                    return (id, label, state, provider, image)
                 }
                 let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
@@ -34035,7 +33942,8 @@ export default CMUXSessionRestore;
             processEnv: env.merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
-            )
+            ),
+            promptDepthPolicy: def.promptDepthPolicy
         )
 
         let hookCwd = relayOrigin
@@ -35238,9 +35146,14 @@ export default CMUXSessionRestore;
             )
             var supersededOMPRecords: [ClaudeHookSessionRecord] = []
             func codexSessionStartWentStaleAfterAccept() -> Bool {
+                // A fresh PID-bearing start retains the completed-turn marker so
+                // a later duplicate is rejected. This probe runs after our own
+                // PID write, so completed markers must be ignored here; only a
+                // competing active prompt should invalidate the accepted start.
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
                     incomingPID: pid,
+                    includeLastPromptTurnId: false,
                     includeTerminalPromptTurnIds: false
                 )) == true)
             }
@@ -35572,6 +35485,8 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: transcriptPathForStore,
                         turnId: input.turnId,
+                        invocationNumber: (input.rawObject?["invocationNum"] as? NSNumber)?.intValue
+                            ?? (input.rawObject?["invocation_num"] as? NSNumber)?.intValue,
                         previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
@@ -35800,6 +35715,9 @@ export default CMUXSessionRestore;
 
         case .stop:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+#if DEBUG
+            agentHookDebugWaitForTestBarrier(event: "stop", env: env)
+#endif
             let effectiveCodexStopTurnID = def.name == "codex" && isCodexSettledStopRetry
                 ? (normalizedHookValue(input.turnId) ?? settledStopTurnID)
                 : input.turnId
@@ -35885,9 +35803,6 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            if def.name != "cursor" {
-                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            }
             let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let codexFailure: CodexHookFailureSummary?
             if def.name == "codex" {
@@ -35960,12 +35875,22 @@ export default CMUXSessionRestore;
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
-            var lifecycleAfterStop: AgentHibernationLifecycleState = {
+            func lifecycleAndRuntimeStatus(
+                hasActiveBackgroundWork: Bool,
+                stopNotificationStatus: AgentHookNotificationStatus
+            ) -> (AgentHibernationLifecycleState, AgentHookRuntimeStatus?) {
                 if hasActiveBackgroundWork && stopNotificationStatus == .idle {
-                    return .running
+                    return (.running, .running)
                 }
-                return stopNotificationStatus == .idle ? .idle : .needsInput
-            }()
+                return (
+                    stopNotificationStatus == .idle ? .idle : .needsInput,
+                    runtimeStatus(for: stopNotificationStatus)
+                )
+            }
+            var (lifecycleAfterStop, runtimeStatusAfterStop) = lifecycleAndRuntimeStatus(
+                hasActiveBackgroundWork: hasActiveBackgroundWork,
+                stopNotificationStatus: stopNotificationStatus
+            )
             var staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             // Current tokenized launches settle only from CodexTurnLedger. Keep
@@ -35997,6 +35922,7 @@ export default CMUXSessionRestore;
             } else {
                 terminalActivePromptTurnIdsForStop = []
             }
+            var promptStopRejectedByLifecycleFence = false
             let nestedPromptStop: Bool
             if skipCodexLegacyPromptStop {
                 nestedPromptStop = false
@@ -36012,7 +35938,7 @@ export default CMUXSessionRestore;
                 // a prior pending Stop's tombstone make it look nested.
                 nestedPromptStop = false
             } else if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
-                nestedPromptStop = (try? store.recordPromptStop(
+                let promptStopResult = try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -36026,15 +35952,34 @@ export default CMUXSessionRestore;
                     hookEventName: persistedHookEventName,
                     lastSubtitle: nil,
                     lastBody: nil,
+                    runtimeStatus: runtimeStatusAfterStop,
+                    updateRuntimeStatus: true,
+                    settleOnlyIfPromptActive: false,
+                    enforcePromptLifecycleRevision: def.promptDepthPolicy.closesActivePrompt,
+                    expectedPromptLifecycleRevision: def.promptDepthPolicy.closesActivePrompt
+                        ? mapped?.promptLifecycleRevision
+                        : nil,
                     autoNameMessages: autoNamingMessages(
                         for: def,
                         parsedInput: input,
                         client: client,
                         workspaceId: workspaceId
                     )
-                )) ?? false
+                )
+                promptStopRejectedByLifecycleFence = promptStopResult?.wasRejectedByLifecycleFence ?? false
+                nestedPromptStop = promptStopResult?.nested ?? false
             } else {
                 nestedPromptStop = false
+            }
+            guard !promptStopRejectedByLifecycleFence else {
+                // The same session now owns a newer prompt. Reject every
+                // completion projection, including the deferred Feed fallback.
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            if def.name != "cursor" {
+                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
             // The prompt-depth record is a compatibility ownership signal for
             // legacy same-session nested turns. Do not settle the Codex ledger
@@ -36074,9 +36019,10 @@ export default CMUXSessionRestore;
             if def.name == "codex" {
                 codexHasActiveBackgroundWork = (codexStopDecision?.activeChildCount ?? 0) > 0
                 hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
-                lifecycleAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
-                    ? .running
-                    : (stopNotificationStatus == .idle ? .idle : .needsInput)
+                (lifecycleAfterStop, runtimeStatusAfterStop) = lifecycleAndRuntimeStatus(
+                    hasActiveBackgroundWork: hasActiveBackgroundWork,
+                    stopNotificationStatus: stopNotificationStatus
+                )
                 staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                     hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             }
@@ -36098,7 +36044,7 @@ export default CMUXSessionRestore;
                     nestedPromptEvent: nestedPromptStop,
                     precomputedNestedDetection: isNestedAgentSession,
                     env: env
-                ) || staleIdleStopHasNewerRunningSession
+                ) || staleIdleStopHasNewerRunningSession || promptStopRejectedByLifecycleFence
             }
             if def.name == "cursor", !sessionId.isEmpty {
                 guard acquireCursorLifecycleLease(surfaceId: surfaceId) else {
@@ -36172,7 +36118,7 @@ export default CMUXSessionRestore;
                                   lastBody: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : body,
                                   lastNotificationStatus: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : stopNotificationStatus,
                                   updateLastNotificationStatus: true,
-                                  runtimeStatus: (hasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
+                                  runtimeStatus: runtimeStatusAfterStop,
                                   updateRuntimeStatus: true)
                 if def.name == "codex", codexHasActiveBackgroundWork {
                     try? store.clearNotificationSummary(sessionId: sessionId)
@@ -36512,6 +36458,9 @@ export default CMUXSessionRestore;
             let mapped = sessionId.isEmpty
                 ? nil
                 : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
+#if DEBUG
+            agentHookDebugWaitForTestBarrier(event: "notification", env: env)
+#endif
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 emitJournal(.stateChanged, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
@@ -36733,6 +36682,7 @@ export default CMUXSessionRestore;
                 return
             }
 
+            var notificationPromptStopRejectedByLifecycleFence = false
             if !sessionId.isEmpty {
                 let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
                 let launchCommand = agentLaunchCommandFromEnvironment(
@@ -36749,7 +36699,7 @@ export default CMUXSessionRestore;
                         || def.name == "grok"
                         || def.name == "antigravity"),
                    summary.status == .idle || summary.status == .error {
-                    _ = try? store.recordPromptStop(
+                    let promptStopResult = try? store.recordPromptStop(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -36766,6 +36716,11 @@ export default CMUXSessionRestore;
                         updateLastNotificationStatus: true,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
+                        settleOnlyIfPromptActive: false,
+                        enforcePromptLifecycleRevision: def.promptDepthPolicy.closesActivePrompt,
+                        expectedPromptLifecycleRevision: def.promptDepthPolicy.closesActivePrompt
+                            ? mapped?.promptLifecycleRevision
+                            : nil,
                         autoNameMessages: autoNamingMessages(
                             for: def,
                             parsedInput: input,
@@ -36773,6 +36728,7 @@ export default CMUXSessionRestore;
                             workspaceId: workspaceId
                         )
                     )
+                    notificationPromptStopRejectedByLifecycleFence = promptStopResult?.wasRejectedByLifecycleFence ?? false
                 } else {
                     _ = try? store.upsert(
                         sessionId: sessionId,
@@ -36793,6 +36749,14 @@ export default CMUXSessionRestore;
                         deadline: cursorShellNeedsApproval ? cursorShellDeadline : nil
                     )
                 }
+            }
+
+            guard !notificationPromptStopRejectedByLifecycleFence else {
+                // A rejected completion is not a fact about the current prompt
+                // in either the journal or Feed, even when its route is valid.
+                didSendFeedTelemetry = true
+                print("{}")
+                return
             }
 
             // Journal the semantic event: the native hook event name maps
@@ -36824,7 +36788,7 @@ export default CMUXSessionRestore;
                 category: summary.notifyCategory,
                 body: summary.body
             )
-            if !summary.body.isEmpty {
+            if !summary.body.isEmpty, !notificationPromptStopRejectedByLifecycleFence {
                 // One ancestry walk per delivered notification, feeding the
                 // notify payload's subagent tag below.
                 let notificationEventPID = preferredAgentHookEventPID(
@@ -36914,33 +36878,35 @@ export default CMUXSessionRestore;
 #endif
             }
 
-            switch summary.status {
-            case .needsInput? where suppressPendingWaitingState:
-                // Suppressed pending waiting cue: leave the Running pill in
-                // place; the fullyIdle turn boundary reconciles.
-                break
-            case .needsInput?:
-                let statusValue = agentNeedsInputStatusValue(for: def)
-                if cursorShellNeedsApproval {
-                    sendCursorCriticalCommand(
-                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-                    )
-                } else {
+            if !notificationPromptStopRejectedByLifecycleFence {
+                switch summary.status {
+                case .needsInput? where suppressPendingWaitingState:
+                    // Suppressed pending waiting cue: leave the Running pill in
+                    // place; the fullyIdle turn boundary reconciles.
+                    break
+                case .needsInput?:
+                    let statusValue = agentNeedsInputStatusValue(for: def)
+                    if cursorShellNeedsApproval {
+                        sendCursorCriticalCommand(
+                            "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        )
+                    } else {
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    }
+                case .error?:
+                    let statusValue = agentErrorStatusValue(for: def)
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
+                case .idle?:
+                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                case nil:
+                    break
                 }
-            case .error?:
-                let statusValue = agentErrorStatusValue(for: def)
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
-            case .idle?:
-                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
-            case nil:
-                break
             }
             cursorLifecycleLease?.release()
             cursorLifecycleLease = nil
@@ -36964,17 +36930,22 @@ export default CMUXSessionRestore;
             }
             if def.sessionEndIsTurnBoundary {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                    // These providers use session-end as their per-turn
-                    // boundary (the cmux-tui mapping table's antigravity /
-                    // hermes special case), so it journals as a completed
-                    // turn, not a session teardown.
-                    emitJournal(
-                        .turnCompleted,
-                        workspaceId: mapped.workspaceId,
-                        surfaceId: mapped.surfaceId
-                    )
-                    sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
-                    _ = try? store.recordPromptStop(
+#if DEBUG
+                    agentHookDebugWaitForTestBarrier(event: "session-end", env: env)
+#endif
+                    // An authoritative SessionEnd closes abandoned prompt frames. Only
+                    // force idle while a prompt is still active: a preceding Stop or
+                    // Notification may have already settled the turn to a durable
+                    // running/needs-input/error state (for example, background work),
+                    // which this per-turn boundary must preserve.
+                    let hasAbandonedPrompt = (mapped.activePromptDepth ?? 0) > 0
+                    let sessionEndLifecycle = def.promptDepthPolicy.closesActivePrompt && hasAbandonedPrompt
+                        ? AgentHibernationLifecycleState.idle
+                        : mapped.agentLifecycle
+                    let sessionEndRuntimeStatus = def.promptDepthPolicy.closesActivePrompt && hasAbandonedPrompt
+                        ? AgentHookRuntimeStatus.idle
+                        : mapped.runtimeStatus
+                    let sessionEndResult = try? store.recordPromptStop(
                         sessionId: sessionId,
                         workspaceId: mapped.workspaceId,
                         surfaceId: mapped.surfaceId,
@@ -36982,8 +36953,18 @@ export default CMUXSessionRestore;
                         transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: localAgentPID(mapped: mapped),
                         launchCommand: relayOrigin ? nil : mapped.launchCommand,
+                        agentLifecycle: sessionEndLifecycle,
                         lastSubtitle: nil,
                         lastBody: nil,
+                        runtimeStatus: sessionEndRuntimeStatus,
+                        updateRuntimeStatus: sessionEndRuntimeStatus != nil,
+                        // The lookup above is only a routing snapshot. If a
+                        // Stop settles the prompt after that lookup, preserve
+                        // the newer durable running/needs-input/error state
+                        // instead of replaying the stale idle decision.
+                        settleOnlyIfPromptActive: true,
+                        enforcePromptLifecycleRevision: true,
+                        expectedPromptLifecycleRevision: mapped.promptLifecycleRevision,
                         autoNameMessages: autoNamingMessages(
                             for: def,
                             parsedInput: input,
@@ -36991,6 +36972,22 @@ export default CMUXSessionRestore;
                             workspaceId: mapped.workspaceId
                         )
                     )
+                    // Publish the per-turn boundary only after the locked store
+                    // accepts its generation. A delayed SessionEnd rejected for
+                    // a newer prompt must not complete that prompt in the journal
+                    // or Feed while the durable state correctly remains running.
+                    if let sessionEndResult, !sessionEndResult.wasRejectedByLifecycleFence {
+                        emitJournal(
+                            .turnCompleted,
+                            workspaceId: mapped.workspaceId,
+                            surfaceId: mapped.surfaceId
+                        )
+                        sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
+                    } else {
+                        // The generic deferred telemetry fallback must not
+                        // republish a boundary rejected by the lifecycle fence.
+                        didSendFeedTelemetry = true
+                    }
                 }
 #if DEBUG
                 agentHookDebugLog(

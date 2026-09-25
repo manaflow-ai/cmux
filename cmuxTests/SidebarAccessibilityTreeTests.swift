@@ -94,6 +94,10 @@ struct SidebarAccessibilityTreeTests {
         // a later main-loop turn than the AppKit layout above. Walk until it has.
         var walk = SidebarAccessibilityTreeWalk()
         _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            // A mounted hosting view still needs its display pass before it
+            // publishes SwiftUI accessibility children on a headless runner.
+            projectView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
             walk = SidebarAccessibilityTreeWalk()
             walk.visit(window)
             return walk.cycle != nil || walk.textValues.contains { $0.contains("Context.swift") }
