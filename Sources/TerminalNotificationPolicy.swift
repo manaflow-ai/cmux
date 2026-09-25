@@ -70,15 +70,44 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
     }
 }
 
-private struct TerminalNotificationPolicyEffectsPatch: Decodable {
+/// A partial effects override: what a hook emits under `effects`, and what a
+/// `cmux notify --desktop false` request carries in before hooks run.
+struct TerminalNotificationPolicyEffectsPatch: Codable, Sendable, Equatable {
+    /// Overrides `record`, the history and Notifications panel entry.
     var record: Bool?
+    /// Overrides `markUnread`, the workspace and surface unread state.
     var markUnread: Bool?
+    /// Overrides `reorderWorkspace`, the sidebar reorder.
     var reorderWorkspace: Bool?
+    /// Overrides `desktop`, the native macOS banner.
     var desktop: Bool?
+    /// Overrides `sound`.
     var sound: Bool?
+    /// Overrides `command`, the user's `notifications.command`.
     var command: Bool?
+    /// Overrides `paneFlash`, the pane ring.
     var paneFlash: Bool?
 
+    /// Creates a patch from the given field overrides; every field defaults to absent.
+    init(
+        record: Bool? = nil,
+        markUnread: Bool? = nil,
+        reorderWorkspace: Bool? = nil,
+        desktop: Bool? = nil,
+        sound: Bool? = nil,
+        command: Bool? = nil,
+        paneFlash: Bool? = nil
+    ) {
+        self.record = record
+        self.markUnread = markUnread
+        self.reorderWorkspace = reorderWorkspace
+        self.desktop = desktop
+        self.sound = sound
+        self.command = command
+        self.paneFlash = paneFlash
+    }
+
+    /// Returns `effects` with every present field of this patch applied.
     func merged(into effects: TerminalNotificationPolicyEffects) -> TerminalNotificationPolicyEffects {
         var merged = effects
         if let record {
@@ -262,6 +291,11 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let agent: TerminalNotificationPolicyAgentContext?
     let soundContext: NotificationSoundOverrideContext?
     let origin: TerminalNotificationOrigin
+    /// The caller's effects override (`cmux notify --desktop false`). `nil`
+    /// keeps the policy defaults. Hooks receive the merged result as the
+    /// envelope's starting effects and may still override it.
+    let effects: TerminalNotificationPolicyEffectsPatch?
+    /// Creates a request; the defaulted parameters describe optional caller context.
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -277,7 +311,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         isFocusedPanel: Bool,
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
-        origin: TerminalNotificationOrigin = .local
+        origin: TerminalNotificationOrigin = .local,
+        effects: TerminalNotificationPolicyEffectsPatch? = nil
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
@@ -294,6 +329,13 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.agent = agent
         self.soundContext = soundContext
         self.origin = origin
+        self.effects = effects
+    }
+
+    /// The effects a delivery starts from before any hook runs: the defaults
+    /// with the caller's override merged in.
+    var baseEffects: TerminalNotificationPolicyEffects {
+        effects?.merged(into: TerminalNotificationPolicyEffects()) ?? TerminalNotificationPolicyEffects()
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
@@ -305,6 +347,7 @@ struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
 enum TerminalNotificationPolicyEngine {
     private static let maxOutputBytes = 1_048_576
 
+    /// Builds the hook envelope for `request`, seeded with the request's base effects, and runs `hooks` over it in order.
     #if compiler(>=6.2)
     @concurrent
     #else
@@ -331,7 +374,8 @@ enum TerminalNotificationPolicyEngine {
                 soundContext: request.soundContext
             ),
             agent: request.agent,
-            origin: request.origin.isRemote ? TerminalNotificationPolicyOriginContext(request.origin) : nil
+            origin: request.origin.isRemote ? TerminalNotificationPolicyOriginContext(request.origin) : nil,
+            effects: request.baseEffects
         )
 
         return await evaluate(envelope: initialEnvelope, hooks: hooks)

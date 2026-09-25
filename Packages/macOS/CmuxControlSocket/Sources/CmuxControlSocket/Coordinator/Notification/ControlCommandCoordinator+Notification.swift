@@ -42,6 +42,9 @@ extension ControlCommandCoordinator {
 
     /// `notification.create` — deliver to the resolved/focused surface.
     func notificationCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let effects = notificationEffects(params) else {
+            return .err(code: "invalid_params", message: notificationEffectsInvalidMessage, data: nil)
+        }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
@@ -51,7 +54,8 @@ extension ControlCommandCoordinator {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShapeWire: rawString(params, "reply_shape")
+            replyShapeWire: rawString(params, "reply_shape"),
+            effects: effects
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -81,6 +85,9 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        guard let effects = notificationEffects(params) else {
+            return .err(code: "invalid_params", message: notificationEffectsInvalidMessage, data: nil)
+        }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
@@ -90,7 +97,8 @@ extension ControlCommandCoordinator {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShapeWire: rawString(params, "reply_shape")
+            replyShapeWire: rawString(params, "reply_shape"),
+            effects: effects
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
     }
@@ -104,6 +112,9 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        guard let effects = notificationEffects(params) else {
+            return .err(code: "invalid_params", message: notificationEffectsInvalidMessage, data: nil)
+        }
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
@@ -114,9 +125,21 @@ extension ControlCommandCoordinator {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShapeWire: rawString(params, "reply_shape")
+            replyShapeWire: rawString(params, "reply_shape"),
+            effects: effects
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
+    }
+
+    /// The effects override a create request asks for: `.some(nil)` when the
+    /// key is absent or JSON null (policy defaults), `.some(patch)` for a strictly
+    /// decodable object, and `nil` when the key is present but undecodable,
+    /// which the caller rejects.
+    private func notificationEffects(_ params: [String: JSONValue]) -> ControlNotificationEffectsPatch?? {
+        guard hasNonNull(params, "effects") else { return .some(nil) }
+        guard let value = params["effects"],
+              let patch = ControlNotificationEffectsPatch(json: value) else { return nil }
+        return .some(patch)
     }
 
     /// The shared result shaping for `create_for_surface` / `create_for_target`.
@@ -518,8 +541,14 @@ extension ControlCommandCoordinator {
             clearWorkspaceIDInvalid: "Missing or invalid workspace_id",
             workspaceNotFound: "Workspace not found",
             surfaceNotFound: "Surface not found",
-            clearUnavailable: "Notifications are unavailable. Try again."
+            clearUnavailable: "Notifications are unavailable. Try again.",
+            effectsInvalid: "Missing or invalid effects"
         )
+    }
+
+    /// The localized message for a present but undecodable `effects` override.
+    private var notificationEffectsInvalidMessage: String {
+        notificationStrings.effectsInvalid
     }
 
     private var notificationDismissSelectorRequiredMessage: String {

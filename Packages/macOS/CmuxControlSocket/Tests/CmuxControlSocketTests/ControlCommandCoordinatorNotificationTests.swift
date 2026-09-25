@@ -12,15 +12,21 @@ private final class NotificationControlCommandContext: ControlCommandContext {
     private(set) var clearSurfaceID: UUID?
     private(set) var clearCallerWorkspaceID: UUID?
     private(set) var clearCallerSurfaceID: UUID?
+    /// The effects override each create verb handed over; `nil` records an
+    /// absent or null key so it stays distinguishable from an explicit patch.
+    private(set) var createEffects: [ControlNotificationEffectsPatch?] = []
 
+    /// Records the forwarded effects override and reports a fixed delivery.
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationCreateResolution {
+        createEffects.append(effects)
         .delivered(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
@@ -28,14 +34,17 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         )
     }
 
+    /// Records the forwarded effects override and reports a fixed delivery.
     func controlNotificationCreateForSurface(
         routing: ControlRoutingSelectors,
         surfaceID: UUID,
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution {
+        createEffects.append(effects)
         .delivered(
             workspaceID: workspaceID,
             surfaceID: self.surfaceID,
@@ -44,6 +53,7 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         )
     }
 
+    /// Records the forwarded effects override and reports a fixed delivery.
     func controlNotificationCreateForTarget(
         routing: ControlRoutingSelectors,
         workspaceID: UUID,
@@ -51,8 +61,10 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution {
+        createEffects.append(effects)
         .delivered(
             workspaceID: self.workspaceID,
             surfaceID: self.surfaceID,
@@ -154,6 +166,57 @@ struct ControlCommandCoordinatorNotificationTests {
             return
         }
         #expect(payload["id"] == .string(context.notificationID.uuidString))
+    }
+
+    /// Every create verb hands the decoded `effects` patch to the context, and an absent or null key hands `nil`.
+    @Test func createForwardsTheEffectsOverrideToTheContext() throws {
+        let context = NotificationControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = try #require(coordinator.handle(request("notification.create")))
+        _ = try #require(coordinator.handle(request("notification.create", ["effects": .null])))
+        _ = try #require(coordinator.handle(request("notification.create", [
+            "effects": .object(["desktop": .bool(false)]),
+        ])))
+        _ = try #require(coordinator.handle(request("notification.create_for_target", [
+            "workspace_id": .string(context.workspaceID.uuidString),
+            "surface_id": .string(context.surfaceID.uuidString),
+            "effects": .object(["desktop": .bool(false), "sound": .bool(false)]),
+        ])))
+        _ = try #require(coordinator.handle(request("notification.create_for_surface", [
+            "surface_id": .string(context.surfaceID.uuidString),
+            "effects": .object(["desktop": .bool(true)]),
+        ])))
+
+        #expect(context.createEffects == [
+            nil,
+            nil,
+            ControlNotificationEffectsPatch(desktop: false),
+            ControlNotificationEffectsPatch(desktop: false, sound: false),
+            ControlNotificationEffectsPatch(desktop: true),
+        ])
+    }
+
+    @Test(arguments: [
+        JSONValue.object(["desktop": .int(2)]),
+        .object(["desktop": .string("false")]),
+        .object(["banner": .bool(false)]),
+        .string("false"),
+        .bool(false),
+    ])
+    /// A present `effects` value that is not an object of known boolean fields is `invalid_params` and reaches no context.
+    func createRejectsAnUndecodableEffectsOverride(effects: JSONValue) throws {
+        let context = NotificationControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = try #require(coordinator.handle(request("notification.create", ["effects": effects])))
+
+        guard case let .err(code, message, _) = result else {
+            Issue.record("effects \(effects) was accepted: \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message == "Missing or invalid effects")
+        #expect(context.createEffects.isEmpty)
     }
 
     @Test func clearAcceptsWorkspaceAndSurfaceSelectors() throws {

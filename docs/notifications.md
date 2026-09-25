@@ -50,6 +50,10 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
+# Post to the panel only: record the entry in the Notifications panel, sidebar
+# badge and pane ring without a native banner, for a caller that shows its own
+cmux notify --title "Done" --desktop false
+
 # Notify a specific workspace/surface
 cmux notify --title "Done" --workspace workspace:1 --surface surface:1
 
@@ -82,9 +86,9 @@ Inside a machine:
 - `--title`, `--body`, and `--level info|warning|error` are honored; `--subtitle` is folded
   into the body (cmux-tui has no subtitle field) and the machine's name becomes the subtitle
   on the Mac.
-- `--workspace`, `--surface`, `--window`, `--tab`, `--panel`, and `--reply` are ignored: the
-  Mac decides where a machine's notification lands, and a machine never sees a Mac
-  workspace, surface, or socket.
+- `--workspace`, `--surface`, `--window`, `--tab`, `--panel`, `--reply`, and `--desktop` are
+  ignored: the Mac decides where a machine's notification lands and how it is delivered, and
+  a machine never sees a Mac workspace, surface, or socket.
 - Text is treated as untrusted: escape sequences, control characters, and bidi/invisible
   characters are stripped, titles are capped at 128 bytes and bodies at 1 KiB, and each
   machine gets a burst of 5 notifications refilling at 1 per second (identical text within
@@ -173,7 +177,7 @@ Hook input and output use this shape:
 }
 ```
 
-Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
+Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. When the caller passed `cmux notify --desktop false`, the request carries `effects: {"desktop": false}` (the same shape a hook emits) and the envelope's `effects.desktop` already starts out `false`, so a hook sees the request and can still override it. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
 
 ### Agent-event context
 
@@ -358,7 +362,7 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--desktop <true|false>] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 cmux list-notifications
 cmux dismiss-notification (--id <uuid|notification:<uuid>> | --all-read)
 cmux mark-notification-read (--id <uuid|notification:<uuid>> | --workspace <id|ref> [--surface <id|ref>] | --all)

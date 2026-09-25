@@ -12,13 +12,15 @@ import Foundation
 /// own self-contained resolver (`TerminalNotificationCallerResolver.swift`) and
 /// stays on the legacy app-side dispatcher.
 extension TerminalController: ControlNotificationContext {
+    /// `notification.create`: resolve the workspace and surface from `routing`, re-home a moved surface, and deliver.
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String? = nil
+        replyShapeWire: String? = nil,
+        effects: ControlNotificationEffectsPatch? = nil
     ) -> ControlNotificationCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -27,7 +29,7 @@ extension TerminalController: ControlNotificationContext {
             if let explicitSurfaceID,
                let rehomed = controlNotificationRehomedDelivery(
                    surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
-                   replyShapeWire: replyShapeWire
+                   replyShapeWire: replyShapeWire, effects: effects
                ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID,
@@ -40,7 +42,7 @@ extension TerminalController: ControlNotificationContext {
         if let explicitSurfaceID, !notificationWorkspace(ws, contains: explicitSurfaceID) {
             if let rehomed = controlNotificationRehomedDelivery(
                 surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
-                replyShapeWire: replyShapeWire
+                replyShapeWire: replyShapeWire, effects: effects
             ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID,
@@ -59,7 +61,8 @@ extension TerminalController: ControlNotificationContext {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire)
+            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire),
+            effects: notificationEffects(effects)
         )
         return .delivered(
             workspaceID: ws.id,
@@ -68,13 +71,15 @@ extension TerminalController: ControlNotificationContext {
         )
     }
 
+    /// `notification.create_for_surface`: deliver to a required surface, re-homing it when it moved.
     func controlNotificationCreateForSurface(
         routing: ControlRoutingSelectors,
         surfaceID: UUID,
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String? = nil
+        replyShapeWire: String? = nil,
+        effects: ControlNotificationEffectsPatch? = nil
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -89,7 +94,7 @@ extension TerminalController: ControlNotificationContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             if let rehomed = controlNotificationRehomedDelivery(
                 surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
-                replyShapeWire: replyShapeWire
+                replyShapeWire: replyShapeWire, effects: effects
             ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID,
@@ -103,7 +108,7 @@ extension TerminalController: ControlNotificationContext {
         guard notificationWorkspace(ws, contains: surfaceID) else {
             if let rehomed = controlNotificationRehomedDelivery(
                 surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
-                replyShapeWire: replyShapeWire
+                replyShapeWire: replyShapeWire, effects: effects
             ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID,
@@ -121,7 +126,8 @@ extension TerminalController: ControlNotificationContext {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire)
+            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire),
+            effects: notificationEffects(effects)
         )
         return .delivered(
             workspaceID: ws.id,
@@ -139,7 +145,8 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String? = nil
+        replyShapeWire: String? = nil,
+        effects: ControlNotificationEffectsPatch? = nil
     ) -> (workspaceID: UUID, surfaceID: UUID, windowID: UUID?, notificationID: UUID?)? {
         guard let owner = AppDelegate.shared?.notificationSurfaceOwner(surfaceID: surfaceID) else {
             return nil
@@ -150,7 +157,8 @@ extension TerminalController: ControlNotificationContext {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire)
+            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire),
+            effects: notificationEffects(effects)
         )
         return (
             owner.tabID,
@@ -160,6 +168,7 @@ extension TerminalController: ControlNotificationContext {
         )
     }
 
+    /// `notification.create_for_target`: deliver to a required workspace and surface without re-homing.
     func controlNotificationCreateForTarget(
         routing: ControlRoutingSelectors,
         workspaceID: UUID,
@@ -167,7 +176,8 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String? = nil
+        replyShapeWire: String? = nil,
+        effects: ControlNotificationEffectsPatch? = nil
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -196,7 +206,8 @@ extension TerminalController: ControlNotificationContext {
             subtitle: subtitle,
             body: body,
             replyShape: TerminalNotificationReplyShape(wire: replyShapeWire),
-            retargetsToLiveSurfaceOwner: false
+            retargetsToLiveSurfaceOwner: false,
+            effects: notificationEffects(effects)
         )
         return .delivered(
             workspaceID: ws.id,
@@ -347,6 +358,7 @@ extension TerminalController: ControlNotificationContext {
         return .cleared(workspaceID: target.workspaceId, surfaceID: target.surfaceId)
     }
 
+    /// The notification-domain error messages, resolved against the app catalog.
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
             dismissSelectorRequired: String(
@@ -416,6 +428,10 @@ extension TerminalController: ControlNotificationContext {
             clearUnavailable: String(
                 localized: "socket.notification.clear.unavailable",
                 defaultValue: "Notifications are unavailable. Try again."
+            ),
+            effectsInvalid: String(
+                localized: "socket.notification.effectsInvalid",
+                defaultValue: "Missing or invalid effects"
             )
         )
     }
@@ -486,5 +502,37 @@ extension TerminalController: ControlNotificationContext {
         formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
+    }
+}
+
+extension TerminalNotificationPolicyEffectsPatch {
+    /// Converts the socket wire patch into the policy patch field by field.
+    init(wire: ControlNotificationEffectsPatch) {
+        self.init(
+            record: wire.record,
+            markUnread: wire.markUnread,
+            reorderWorkspace: wire.reorderWorkspace,
+            desktop: wire.desktop,
+            sound: wire.sound,
+            command: wire.command,
+            paneFlash: wire.paneFlash
+        )
+    }
+}
+
+extension TerminalController {
+    /// The policy patch for a decoded wire override, or `nil` when the request carried none.
+    func notificationEffects(_ wire: ControlNotificationEffectsPatch?) -> TerminalNotificationPolicyEffectsPatch? {
+        wire.map(TerminalNotificationPolicyEffectsPatch.init(wire:))
+    }
+
+    /// The `effects` override in a legacy `[String: Any]` request, validated the
+    /// same way the coordinator validates the typed form: `.some(nil)` when the
+    /// key is absent or JSON null, `nil` when it is present but undecodable.
+    nonisolated static func notificationEffects(rawParam raw: Any?) -> TerminalNotificationPolicyEffectsPatch?? {
+        guard let raw, !(raw is NSNull) else { return .some(nil) }
+        guard let json = JSONValue(foundationObject: raw),
+              let wire = ControlNotificationEffectsPatch(json: json) else { return nil }
+        return .some(TerminalNotificationPolicyEffectsPatch(wire: wire))
     }
 }

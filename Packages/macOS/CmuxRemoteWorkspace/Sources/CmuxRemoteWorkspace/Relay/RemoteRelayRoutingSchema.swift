@@ -3,6 +3,7 @@ import Foundation
 /// Closed parameter contracts for the methods intentionally exposed to a relay.
 /// Adding a handler parameter does not expose it remotely until it is reviewed here.
 struct RemoteRelayRoutingSchema {
+    /// The closed parameter set a relay may send for `method`, or `nil` when the method is not relay-reachable.
     func parameters(for method: String) -> Set<String>? {
         let workspace: Set<String> = ["workspace_id"]
         let surface = workspace.union(["surface_id"])
@@ -38,7 +39,7 @@ struct RemoteRelayRoutingSchema {
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "notification.create_for_target":
-            return surface.union(["title", "subtitle", "body", "reply_shape"])
+            return surface.union(["title", "subtitle", "body", "reply_shape", "effects"])
         default: return nil
         }
     }
