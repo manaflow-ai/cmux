@@ -292,8 +292,6 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
     var launchFlavor: SurfaceResumeLaunchFlavor
-    /// Whether decoding observed a legacy binding without an execution location.
-    private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
 
     init(
@@ -365,7 +363,6 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
-        wasDecodedWithoutLaunchFlavor = decodedLaunchFlavor == nil
     }
 
     var isProcessDetected: Bool {
