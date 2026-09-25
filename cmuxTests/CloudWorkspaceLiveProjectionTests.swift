@@ -411,14 +411,17 @@ struct CloudWorkspaceLiveProjectionTests {
         defer { fixture.workspace.teardownAllPanels() }
         let catalog = fixture.catalog
         let provider = CloudPlacementTestProvider(machine: machine)
+        let desktop = CmuxTuiSnapshotParser.display(machine: machine)
+        // Only the browser pane binds its resource while being configured; the
+        // coordinator's own terminal materialization keeps its daemon tab.
         provider.registerDuringMaterialization = { projection in
+            guard projection.resource == desktop.id else { return }
             catalog.restore(
                 [SurfaceProjectionRecord(panelID: projection.panelID, resource: projection.resource)],
                 workspaceID: projection.workspaceID
             )
         }
         catalog.register(provider)
-        let desktop = CmuxTuiSnapshotParser.display(machine: machine)
         install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [desktop])
         await fixture.coordinator.waitForIdle()
         let opened = try await catalog.project(
