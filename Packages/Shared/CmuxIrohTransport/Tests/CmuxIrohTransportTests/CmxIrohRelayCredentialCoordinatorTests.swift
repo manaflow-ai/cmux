@@ -6,6 +6,84 @@ import Testing
 @Suite
 struct CmxIrohRelayCredentialCoordinatorTests {
     @Test
+    func hostAndClientRefreshSlotsStaySeparatedAcrossCredentialCycles() throws {
+        let hostIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "1a", count: 32)
+        )
+        let clientIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b7", count: 32)
+        )
+        let hostSchedule = CmxIrohRelayRefreshSchedule(
+            role: .host,
+            endpointIdentity: hostIdentity
+        )
+        let clientSchedule = CmxIrohRelayRefreshSchedule(
+            role: .client,
+            endpointIdentity: clientIdentity
+        )
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        var hostSeconds: [Int] = []
+        var clientSeconds: [Int] = []
+
+        for cycle in 1 ... 8 {
+            let refreshAfter = now.addingTimeInterval(TimeInterval(cycle * 240))
+            let hostDeadline = hostSchedule.deadline(
+                now: now,
+                refreshAfter: refreshAfter
+            )
+            let clientDeadline = clientSchedule.deadline(
+                now: now,
+                refreshAfter: refreshAfter
+            )
+            let hostSecond = Int(hostDeadline.timeIntervalSince1970) % 60
+            let clientSecond = Int(clientDeadline.timeIntervalSince1970) % 60
+            hostSeconds.append(hostSecond)
+            clientSeconds.append(clientSecond)
+
+            #expect((0 ... 14).contains(hostSecond))
+            #expect((30 ... 44).contains(clientSecond))
+            #expect(hostDeadline >= now)
+            #expect(clientDeadline >= now)
+            #expect(hostDeadline <= refreshAfter)
+            #expect(clientDeadline <= refreshAfter)
+        }
+
+        #expect(Set(hostSeconds).count == 1)
+        #expect(Set(clientSeconds).count == 1)
+    }
+
+    @Test
+    func refreshSlotsSpreadEndpointsWithinEachRole() throws {
+        let refreshAfter = Date(timeIntervalSince1970: 1_700_000_240)
+        let now = refreshAfter.addingTimeInterval(-240)
+        let hostSlots = try (0 ..< 16).map { index in
+            let identity = try CmxIrohPeerIdentity(
+                endpointID: String(format: "%064x", index + 1)
+            )
+            return Int(
+                CmxIrohRelayRefreshSchedule(role: .host, endpointIdentity: identity)
+                    .deadline(now: now, refreshAfter: refreshAfter)
+                    .timeIntervalSince1970
+            ) % 60
+        }
+        let clientSlots = try (0 ..< 16).map { index in
+            let identity = try CmxIrohPeerIdentity(
+                endpointID: String(format: "%064x", index + 1)
+            )
+            return Int(
+                CmxIrohRelayRefreshSchedule(role: .client, endpointIdentity: identity)
+                    .deadline(now: now, refreshAfter: refreshAfter)
+                    .timeIntervalSince1970
+            ) % 60
+        }
+
+        #expect(Set(hostSlots).count > 1)
+        #expect(hostSlots.allSatisfy { (0 ... 14).contains($0) })
+        #expect(Set(clientSlots).count > 1)
+        #expect(clientSlots.allSatisfy { (30 ... 44).contains($0) })
+    }
+
+    @Test
     func bootstrapInstallsCompleteFleetBeforeSleepingUntilRefresh() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)

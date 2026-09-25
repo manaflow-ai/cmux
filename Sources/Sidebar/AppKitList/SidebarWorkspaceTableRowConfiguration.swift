@@ -1,17 +1,9 @@
+import CmuxNotifications
 import SwiftUI
 
 struct SidebarWorkspaceTableContextMenuActions {
     let didOpen: () -> Void
     let didClose: () -> Void
-}
-
-/// Mutable, non-observed holder for the last-built table rows. The sidebar
-/// container freezes row building against it during interactive divider
-/// drags (rows cannot change while the resizer owns the mouse), so
-/// per-width-tick body evals skip the row-projection prelude.
-@MainActor
-final class SidebarAppKitFrozenRowsBox {
-    var rows: [SidebarWorkspaceTableRowConfiguration]?
 }
 
 /// Immutable description of one AppKit-owned sidebar row.
@@ -39,10 +31,17 @@ struct SidebarWorkspaceTableRowConfiguration {
     /// pump (metadata/branch/PR updates repaint one cell, no container render).
     let appKitWorkspaceRowWorkspace: Workspace?
     let appKitWorkspaceRowRebuild: (@MainActor () -> SidebarWorkspaceRowModel)?
+    /// Workspace ids whose unread summaries affect this row, plus factories
+    /// that repaint only the matching AppKit cell from the latest atomic
+    /// unread snapshot. They are intentionally excluded from row equality.
+    let appKitUnreadDependencyWorkspaceIds: Set<UUID>
+    let appKitWorkspaceUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarWorkspaceRowModel)?
+    let appKitGroupHeaderUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarGroupHeaderRowModel)?
 
     private let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
+    private let isHeightEquivalentValue: (Any) -> Bool
 
     private init(
         id: SidebarWorkspaceRenderItemID,
@@ -55,7 +54,8 @@ struct SidebarWorkspaceTableRowConfiguration {
         appKitWorkspaceRowModel: SidebarWorkspaceRowModel?,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
         equivalenceValue: Any,
-        isEquivalentValue: @escaping (Any) -> Bool
+        isEquivalentValue: @escaping (Any) -> Bool,
+        isHeightEquivalentValue: ((Any) -> Bool)? = nil
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -69,9 +69,13 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = nil
         self.appKitWorkspaceRowWorkspace = nil
         self.appKitWorkspaceRowRebuild = nil
+        self.appKitUnreadDependencyWorkspaceIds = []
+        self.appKitWorkspaceUnreadRebuild = nil
+        self.appKitGroupHeaderUnreadRebuild = nil
         self.environment = environment
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = isEquivalentValue
+        self.isHeightEquivalentValue = isHeightEquivalentValue ?? isEquivalentValue
     }
 
     init<Content: View & Equatable>(
@@ -97,17 +101,23 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = nil
         self.appKitWorkspaceRowWorkspace = nil
         self.appKitWorkspaceRowRebuild = nil
+        self.appKitUnreadDependencyWorkspaceIds = []
+        self.appKitWorkspaceUnreadRebuild = nil
+        self.appKitGroupHeaderUnreadRebuild = nil
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = { value in
             guard let value = value as? Content else { return false }
             return value == equivalenceValue
         }
+        self.isHeightEquivalentValue = self.isEquivalentValue
     }
 
     init(
         groupHeaderModel: SidebarGroupHeaderRowModel,
         actions: SidebarGroupHeaderRowActions,
-        environment: SidebarWorkspaceTableEnvironmentSnapshot
+        environment: SidebarWorkspaceTableEnvironmentSnapshot,
+        unreadDependencyWorkspaceIds: Set<UUID> = [],
+        unreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarGroupHeaderRowModel)? = nil
     ) {
         self.id = .group(groupHeaderModel.groupId)
         self.workspaceId = groupHeaderModel.anchorWorkspaceId
@@ -122,11 +132,15 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = nil
         self.appKitWorkspaceRowWorkspace = nil
         self.appKitWorkspaceRowRebuild = nil
+        self.appKitUnreadDependencyWorkspaceIds = unreadDependencyWorkspaceIds
+        self.appKitWorkspaceUnreadRebuild = nil
+        self.appKitGroupHeaderUnreadRebuild = unreadRebuild
         self.equivalenceValue = groupHeaderModel
         self.isEquivalentValue = { value in
             guard let value = value as? SidebarGroupHeaderRowModel else { return false }
             return value == groupHeaderModel
         }
+        self.isHeightEquivalentValue = self.isEquivalentValue
     }
 
     init(
@@ -136,7 +150,8 @@ struct SidebarWorkspaceTableRowConfiguration {
         isPinned: Bool,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
         workspace: Workspace? = nil,
-        rebuild: (@MainActor () -> SidebarWorkspaceRowModel)? = nil
+        rebuild: (@MainActor () -> SidebarWorkspaceRowModel)? = nil,
+        unreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarWorkspaceRowModel)? = nil
     ) {
         self.id = .workspace(workspaceRowModel.workspaceId)
         self.workspaceId = workspaceRowModel.workspaceId
@@ -151,16 +166,64 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitWorkspaceRowActions = actions
         self.appKitWorkspaceRowWorkspace = workspace
         self.appKitWorkspaceRowRebuild = rebuild
+        self.appKitUnreadDependencyWorkspaceIds = [workspaceRowModel.workspaceId]
+        self.appKitWorkspaceUnreadRebuild = unreadRebuild
+        self.appKitGroupHeaderUnreadRebuild = nil
         self.equivalenceValue = workspaceRowModel
         self.isEquivalentValue = { value in
             guard let value = value as? SidebarWorkspaceRowModel else { return false }
             return value == workspaceRowModel
+        }
+        self.isHeightEquivalentValue = { value in
+            guard let value = value as? SidebarWorkspaceRowModel else { return false }
+            return value.hasHeightEquivalentContent(to: workspaceRowModel)
         }
     }
 
     func hasEquivalentContent(to other: Self) -> Bool {
         environment.hasEquivalentPresentation(to: other.environment)
             && isEquivalentValue(other.equivalenceValue)
+    }
+
+    /// Content equality restricted to fields that can change the measured row
+    /// height. The height cache keys on this: a close shifts `index` /
+    /// `isFirstRow` for every row below it, and treating those rows as changed
+    /// would both re-measure the whole tail and drop the content-matched
+    /// entries the stale-width `height(for:)` fallback depends on.
+    func hasEquivalentHeightContent(to other: Self) -> Bool {
+        environment.hasEquivalentPresentation(to: other.environment)
+            && isHeightEquivalentValue(other.equivalenceValue)
+    }
+
+    func applyingUnreadSnapshot(_ snapshot: SidebarUnreadSnapshot) -> Self {
+        if let rebuild = appKitWorkspaceUnreadRebuild,
+           let actions = appKitWorkspaceRowActions {
+            let model = rebuild(snapshot)
+            guard model != appKitWorkspaceRowModel else { return self }
+            return Self(
+                workspaceRowModel: model,
+                actions: actions,
+                groupId: groupId,
+                isPinned: isPinned,
+                environment: environment,
+                workspace: appKitWorkspaceRowWorkspace,
+                rebuild: appKitWorkspaceRowRebuild,
+                unreadRebuild: rebuild
+            )
+        }
+        if let rebuild = appKitGroupHeaderUnreadRebuild,
+           let actions = appKitGroupHeaderActions {
+            let model = rebuild(snapshot)
+            guard model != appKitGroupHeaderModel else { return self }
+            return Self(
+                groupHeaderModel: model,
+                actions: actions,
+                environment: environment,
+                unreadDependencyWorkspaceIds: appKitUnreadDependencyWorkspaceIds,
+                unreadRebuild: rebuild
+            )
+        }
+        return self
     }
 
     /// Keeps the immutable paint model while dropping every live action,
@@ -177,7 +240,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             appKitWorkspaceRowModel: appKitWorkspaceRowModel,
             environment: environment,
             equivalenceValue: id,
-            isEquivalentValue: { ($0 as? SidebarWorkspaceRenderItemID) == id }
+            isEquivalentValue: { [id] in ($0 as? SidebarWorkspaceRenderItemID) == id }
         )
     }
 

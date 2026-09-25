@@ -25,7 +25,7 @@ struct BrowserDesignModeComposerHostingViewTests {
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
-            screenshotStore: BrowserDesignModeScreenshotStore(directory: URL.temporaryDirectory),
+            artifactStore: BrowserDesignModeArtifactStore(directory: URL.temporaryDirectory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
             canEnable: { true },
@@ -101,7 +101,7 @@ struct BrowserDesignModeComposerHostingViewTests {
         #expect(
             cell.accessibilityLabel() == String(
                 localized: "browser.designMode.context.remove",
-                defaultValue: "Remove h1 context"
+                defaultValue: "Remove \(selection.tagName) context"
             )
         )
         #expect(cell.accessibilityPerformPress())

@@ -14,10 +14,14 @@ import Testing
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [
+                    // Sibling builds are distinct processes, so each listens
+                    // on its own port; rows sharing one endpoint would be the
+                    // same instance and deliberately coalesce.
                     try Self.pairedMac(
                         id: "mac-a",
                         displayName: "Desk Mac",
                         host: "100.82.214.112",
+                        port: 50_901,
                         lastSeenAt: Date(timeIntervalSince1970: 20),
                         isActive: true,
                         customColor: "red",
@@ -27,6 +31,7 @@ import Testing
                         id: "mac-a",
                         displayName: "Desk Mac",
                         host: "100.82.214.112",
+                        port: 50_902,
                         lastSeenAt: Date(timeIntervalSince1970: 10),
                         isActive: false,
                         customColor: "blue",
@@ -48,10 +53,14 @@ import Testing
 
         let customizations = store.pairedMacCustomizationsByAliasID()
 
-        // The active pairing represents the device wherever state has no
-        // per-build dimension; the sibling must not overwrite it.
-        #expect(customizations["mac-a"]?.customColor == "red")
-        #expect(customizations["mac-a"]?.instanceTag == "nightly")
+        #expect(customizations[MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )]?.customColor == "red")
+        #expect(customizations[MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "stable"
+        )]?.customColor == "blue")
     }
 
     @Test func exactPairingConnectionStatusOnlyMatchesConnectedPairing() {
@@ -69,19 +78,68 @@ import Testing
         #expect(refine(.connected, connectedTag: "stable", rowTag: "stable") == .connected)
         #expect(refine(.connected, connectedTag: "stable", rowTag: "nightly") == nil)
         #expect(refine(.connected, connectedTag: nil, rowTag: "nightly") == nil)
-        // Legacy untagged rows keep the device-level status.
-        #expect(refine(.connected, connectedTag: "stable", rowTag: nil) == .connected)
-        // Non-connected statuses pass through untouched for every row.
-        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == .reconnecting)
+        // Legacy and sibling rows cannot borrow the connected build's status.
+        #expect(refine(.connected, connectedTag: "stable", rowTag: nil) == nil)
+        // A redial targeting one pairing must not mark the sibling build's
+        // row; with no known target the device status still passes through.
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == nil)
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "stable") == .reconnecting)
+        #expect(refine(.reconnecting, connectedTag: nil, rowTag: "nightly") == .reconnecting)
         #expect(refine(nil, connectedTag: "stable", rowTag: "nightly") == nil)
-        // A different device is unaffected by this device's connection.
+        // Tagged rows never consume the legacy physical-device fallback.
         #expect(MobileShellComposite.exactPairingConnectionStatus(
             deviceStatus: .connected,
             connectedMacDeviceID: "mac-b",
             connectedMacInstanceTag: "stable",
             rowMacDeviceID: "mac-a",
             rowInstanceTag: "nightly"
-        ) == .connected)
+        ) == nil)
+    }
+
+    @Test func siblingBuildsAreSeparateAggregationCandidates() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50922,
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "nightly"
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50923,
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "default"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        let candidates = store.secondaryAggregationCandidateMacs(
+            from: store.displayPairedMacs
+        )
+
+        // Previously coalescePairedMacsByCanonicalDeviceID collapsed sibling
+        // builds to one candidate per physical Mac.
+        #expect(candidates.count == 2)
+        #expect(Set(candidates.map(\.id)).count == 2)
+        #expect(Set(candidates.map(\.macDeviceID)) == ["mac-a"])
     }
 
     private static func pairedMac(

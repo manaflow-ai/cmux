@@ -37,6 +37,7 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         }
         let ordering = ChatArtifactGalleryOrdering()
         let stableItems = orderedItems ?? ordering.sorted(items)
+        let eligibility = ChatArtifactGalleryRowEligibility()
         let normalizedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
         let isSearch = normalizedQuery?.isEmpty == false
         let createdCandidates: [ChatArtifactIndexedReference]
@@ -47,9 +48,13 @@ public struct ChatArtifactGalleryBuilder: Sendable {
             attachedCandidates = []
             referencedCandidates = ordering.matching(stableItems, query: normalizedQuery)
         } else {
-            createdCandidates = stableItems.filter { $0.provenance == .created }
-            attachedCandidates = stableItems.filter { $0.provenance == .attached }
-            referencedCandidates = stableItems.filter { $0.provenance == .referenced }
+            let candidates = eligibility.defaultCandidates(
+                items,
+                orderedItems: stableItems
+            )
+            createdCandidates = candidates.created
+            attachedCandidates = candidates.attached
+            referencedCandidates = candidates.referenced
         }
         let count = max(1, pageSize)
         let starts = pageStarts(
@@ -91,11 +96,23 @@ public struct ChatArtifactGalleryBuilder: Sendable {
 
         return ChatArtifactGalleryPage(
             sessionID: sessionID,
-            created: isSearch ? [] : statItems(pageCreated, includeDirectories: includeDirectories),
+            created: isSearch ? [] : eligibility.rows(
+                pageCreated,
+                includeDirectories: includeDirectories,
+                includeMissing: true
+            ),
             createdTotal: createdCandidates.count,
-            attached: isSearch ? [] : statItems(pageAttached, includeDirectories: includeDirectories),
+            attached: isSearch ? [] : eligibility.rows(
+                pageAttached,
+                includeDirectories: includeDirectories,
+                includeMissing: true
+            ),
             attachedTotal: attachedCandidates.count,
-            referenced: statItems(pageReferenced, includeDirectories: includeDirectories),
+            referenced: eligibility.rows(
+                pageReferenced,
+                includeDirectories: includeDirectories,
+                includeMissing: true
+            ),
             referencedTotal: referencedCandidates.count,
             nextCursor: nextCursor,
             generation: generation
@@ -123,57 +140,4 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         return (created.count, attached.count, referenced.count - remaining.count)
     }
 
-    /// Counts immediate children for a gallery directory row without sorting
-    /// or per-entry metadata, stopping at the shared listing limit so the cost
-    /// never scales past the cap for large folders.
-    private func directoryChildCount(path: String) -> (count: Int, isCapped: Bool)? {
-        guard let enumerator = FileManager.default.enumerator(
-            at: URL(fileURLWithPath: path, isDirectory: true),
-            includingPropertiesForKeys: [],
-            options: [.skipsSubdirectoryDescendants]
-        ) else {
-            return nil
-        }
-        var count = 0
-        while enumerator.nextObject() != nil {
-            count += 1
-            if count > ArtifactByteReader.maximumDirectoryEntryCount {
-                return (count: ArtifactByteReader.maximumDirectoryEntryCount, isCapped: true)
-            }
-        }
-        return (count: count, isCapped: false)
-    }
-
-    private func statItems(
-        _ references: [ChatArtifactIndexedReference],
-        includeDirectories: Bool
-    ) -> [ChatArtifactGalleryItem] {
-        let reader = ArtifactByteReader()
-        return references.compactMap { reference in
-            do {
-                let stat = try reader.stat(path: reference.path)
-                guard includeDirectories || !stat.isDirectory else { return nil }
-                let children = stat.isDirectory ? directoryChildCount(path: reference.path) : nil
-                return ChatArtifactGalleryItem(
-                    path: reference.path,
-                    kind: stat.kind,
-                    displayName: URL(fileURLWithPath: reference.path).lastPathComponent,
-                    size: stat.size,
-                    modifiedAt: stat.modifiedAt,
-                    exists: stat.exists,
-                    childCount: children?.count,
-                    childCountIsCapped: children?.isCapped ?? false,
-                    provenance: reference.provenance
-                )
-            } catch {
-                return ChatArtifactGalleryItem(
-                    path: reference.path,
-                    kind: reader.kind(path: reference.path, isDirectory: false),
-                    displayName: URL(fileURLWithPath: reference.path).lastPathComponent,
-                    exists: false,
-                    provenance: reference.provenance
-                )
-            }
-        }
-    }
 }

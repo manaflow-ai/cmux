@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import CmuxTerminalCore
 import Combine
@@ -5,31 +6,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
-
-struct AgentHibernationPanelState {
-    let agent: SessionRestorableAgentSnapshot
-    let hibernatedAt: Date
-    let lastActivityAt: Date
-
-    var agentDisplayName: String {
-        agent.agentDisplayName
-    }
-}
-
-enum AgentHibernationResumePreparation: Equatable {
-    case unavailable
-    case resumed(queuedStartupInput: Bool)
-
-    var didResume: Bool {
-        if case .resumed = self { return true }
-        return false
-    }
-
-    var queuedStartupInput: Bool {
-        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
-        return false
-    }
-}
+import GhosttyKit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -47,6 +24,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    var fontSizePanelTransfer:
+        WorkspaceTerminalFontSizePanelTransfer?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -70,6 +49,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
     let shellActivity = TerminalPanelShellActivityModel()
+    let restoreRecovery = AgentRestoreRecoveryPresentation()
     let textBoxState = TerminalPanelTextBoxState()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
@@ -115,12 +95,22 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
-    @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+    @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// A native cloud pane's live attachment state (nil for local terminals).
+    /// Written only by the owning cloud session; the view shows it.
+    var cloudAttachment: CloudTerminalAttachmentStatus?
+    var deviceAttachment: DeviceTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
+    var onRequestAgentHibernationTerminationRetry: (() -> Void)?
+    /// Optional owner hook for a manual mirror that becomes the active pane.
+    /// Ordinary terminals leave this unset.
+    var onTerminalFocus: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
+    /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
+    private var attentionFlashActiveUntil: TimeInterval = 0
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -130,12 +120,6 @@ final class TerminalPanel: Panel, ObservableObject {
         "terminal.fill"
     }
 
-    func updateShellActivityState(_ state: PanelShellActivityState) {
-        if shellActivity.state != state {
-            shellActivity.state = state
-        }
-        textBoxState.updateShellActivityState(state)
-    }
 
     func recordTextBoxLaunchCommand(_ command: String) {
         guard let boundedContext = TextBoxAgentDetection.boundedLaunchCommandContext(from: command) else { return }
@@ -158,10 +142,6 @@ final class TerminalPanel: Panel, ObservableObject {
         false
     }
 
-    var isAgentHibernated: Bool {
-        agentHibernationState != nil
-    }
-
     /// The hosted NSView for embedding in SwiftUI
     var hostedView: GhosttySurfaceScrollView {
         surface.hostedView
@@ -175,6 +155,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -245,8 +226,8 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func updateTitle(_ newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && title != trimmed {
+        let trimmed = AutomaticTerminalTitle(newTitle)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty && title != trimmed {
             title = trimmed
         }
     }
@@ -356,6 +337,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func terminalDidBecomeFocused() {
+        onTerminalFocus?()
         guard isTextBoxActive else { return }
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -363,12 +345,23 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func handleTextBoxEscape() {
+        if containerAgentLifecycleStateForTextBoxEscape == .running {
+            _ = sendNamedKeyResult(TextBoxTerminalKey.escape.rawValue)
+        }
         let hadTextBoxView = textBoxInputView != nil
         let didFocusTerminal = focusTerminalSurface(
             respectForeignFirstResponder: false,
             clearTextBoxHideArm: false
         )
         shouldHideTextBoxOnNextEscape = isTextBoxActive && (hadTextBoxView || didFocusTerminal)
+    }
+
+    private var containerAgentLifecycleStateForTextBoxEscape: AgentHibernationLifecycleState {
+        if let dock = DockSplitStore.liveStore(containingPanel: id) {
+            return dock.agentLifecycleStateForTextBoxEscape(panelId: id)
+        }
+        return surface.owningWorkspace()?
+            .agentLifecycleStateForTextBoxEscape(panelId: id) ?? .unknown
     }
 
     @discardableResult
@@ -590,17 +583,25 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     func focus() {
+        focus(focusTransactionId: nil)
+    }
+
+    func focus(focusTransactionId: UUID?) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
-        focusTerminalSurface(respectForeignFirstResponder: true)
+        focusTerminalSurface(
+            respectForeignFirstResponder: true,
+            focusTransactionId: focusTransactionId
+        )
     }
 
     @discardableResult
     private func focusTerminalSurface(
         respectForeignFirstResponder: Bool,
-        clearTextBoxHideArm: Bool = true
+        clearTextBoxHideArm: Bool = true,
+        focusTransactionId: UUID? = nil
     ) -> Bool {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
@@ -637,7 +638,8 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.ensureFocus(
             for: workspaceId,
             surfaceId: id,
-            respectForeignFirstResponder: respectForeignFirstResponder
+            respectForeignFirstResponder: respectForeignFirstResponder,
+            focusTransactionId: focusTransactionId
         )
         return true
     }
@@ -658,6 +660,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+            workspaceId: workspaceId,
+            panelId: id
+        )
+        discardAgentHibernationPhaseForPermanentClose()
         discardTextBoxContentForClose()
         removeOwnedSessionScrollbackReplayArtifact()
         // Detach from the window portal on real close so stale hosted views
@@ -686,37 +693,6 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.teardownSurface()
     }
 
-    func enterAgentHibernation(
-        agent: SessionRestorableAgentSnapshot,
-        lastActivityAt: Date,
-        hibernatedAt: Date = Date()
-    ) {
-        agentHibernationState = AgentHibernationPanelState(
-            agent: agent,
-            hibernatedAt: hibernatedAt,
-            lastActivityAt: lastActivityAt
-        )
-        unfocus()
-        searchState = nil
-        hostedView.setVisibleInUI(false)
-        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
-        requestViewReattach()
-    }
-
-    @discardableResult
-    func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
-        guard let state = agentHibernationState else {
-            return .unavailable
-        }
-        let resumeStartupInput = state.agent.resumeStartupInput()
-        agentHibernationState = nil
-        surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
-        requestViewReattach()
-        surface.requestBackgroundSurfaceStartIfNeeded()
-        return .resumed(queuedStartupInput: resumeStartupInput != nil)
-    }
-
     func requestViewReattach() {
         viewReattachToken &+= 1
     }
@@ -736,8 +712,12 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func sendText(_ text: String) -> Bool {
+        sendTextResult(text).accepted
+    }
+
+    func sendTextResult(_ text: String) -> TerminalSurface.TextSendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendText(text)
+        return surface.sendTextResult(text)
     }
 
     func sendInput(_ text: String) {
@@ -808,15 +788,23 @@ final class TerminalPanel: Panel, ObservableObject {
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
 
+        let style = GhosttySurfaceScrollView.flashStyle(for: reason)
+        let now = ProcessInfo.processInfo.systemUptime
+        if case .notification = style,
+           now < attentionFlashActiveUntil {
+            return
+        }
+        attentionFlashActiveUntil = now + FocusFlashPattern.duration
+
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:
             if let onRequestWorkspacePaneFlash {
                 onRequestWorkspacePaneFlash(reason)
                 return
             }
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: style)
         case .surface, .tmuxActivePane:
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: style)
         }
     }
 

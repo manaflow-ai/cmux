@@ -5,27 +5,23 @@ import UIKit
 @MainActor
 final class WorkspaceListUITableView: UITableView {
     var layoutMetricsDidChange: (() -> Void)?
+    var scrollEdgeRegistrationNeedsUpdate: (() -> Void)?
 
     private var measuredWidth: CGFloat = 0
-    private let scrollEdgeCoordinator = WorkspaceListScrollEdgeCoordinator()
 
     override init(frame: CGRect, style: UITableView.Style) {
         super.init(frame: frame, style: style)
-        configureTopScrollEdgeEffect()
+        configureTable()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        configureTopScrollEdgeEffect()
+        configureTable()
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window == nil {
-            scrollEdgeCoordinator.unregister()
-        } else {
-            scrollEdgeCoordinator.registerIfNeeded(for: self)
-        }
+        requestScrollEdgeRegistrationUpdate()
     }
 
     override func layoutSubviews() {
@@ -34,9 +30,6 @@ final class WorkspaceListUITableView: UITableView {
         measuredWidth = bounds.width
         if previousWidth > 0, abs(previousWidth - measuredWidth) > 0.5 {
             layoutMetricsDidChange?()
-        }
-        if window != nil {
-            scrollEdgeCoordinator.registerIfNeeded(for: self)
         }
     }
 
@@ -48,10 +41,24 @@ final class WorkspaceListUITableView: UITableView {
         }
     }
 
-    private func configureTopScrollEdgeEffect() {
+    private func configureTable() {
+        // Row heights are exact values from the coordinator. Hosted content
+        // must never resize a row behind its back as previews and timestamps
+        // change, and no estimate may stand in for a real height.
+        selfSizingInvalidation = .disabled
+        estimatedRowHeight = 0
+        estimatedSectionHeaderHeight = 0
+        estimatedSectionFooterHeight = 0
+        contentInsetAdjustmentBehavior = .automatic
         if #available(iOS 26.0, *) {
             topEdgeEffect.style = .soft
+            // New Task is an overlay, so the tab bar owns this effect's edge.
+            bottomEdgeEffect.style = .soft
         }
+    }
+
+    func requestScrollEdgeRegistrationUpdate() {
+        scrollEdgeRegistrationNeedsUpdate?()
     }
 }
 #endif

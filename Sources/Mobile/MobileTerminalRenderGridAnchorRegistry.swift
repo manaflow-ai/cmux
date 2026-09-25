@@ -27,7 +27,7 @@ final class MobileTerminalRenderGridAnchorRegistry: Sendable {
     }
 
     func remove(connectionID: UUID) {
-        anchorsByConnectionID.withLock { $0.removeValue(forKey: connectionID) }
+        _ = anchorsByConnectionID.withLock { $0.removeValue(forKey: connectionID) }
     }
 
     /// The anchor this connection negotiated; `.viewport` when it never

@@ -50,6 +50,7 @@ describe("search discovery", () => {
     expect(feed).toContain("<language>ja</language>");
     expect(feed).toContain("<link>https://cmux.com/ja/blog</link>");
     expect(feed).toContain('href="https://cmux.com/ja/feed.xml"');
+    expect(feed).toContain("<title>30日で3670億トークンを使った方法</title>");
     expect(feed).toContain("<title>cmux Forkの紹介</title>");
     expect(feed).toContain(
       "<title>スーパーリポとClaude Codeが最良のワークツリー管理ツールである理由</title>",

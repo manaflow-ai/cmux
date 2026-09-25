@@ -22,8 +22,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
     private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
     private let plusButton = SidebarHeaderGlyphButton()
-    private let topDropIndicator = NSView()
-    private let bottomDropIndicator = NSView()
+    private let topDropIndicator = SidebarReorderIndicatorView()
+    private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
 
     private var model: SidebarGroupHeaderRowModel?
@@ -59,7 +59,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        pinImageView.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.8)
         addSubview(pinImageView)
 
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
@@ -85,7 +84,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(bottomDropIndicator)
 
         addSubview(hintPill)
-        installFocusClickRecognizer()
     }
 
     required init?(coder: NSCoder) {
@@ -123,7 +121,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
-        let requiresFullApply = actions == nil
+        let requiresFullApply = self.actions == nil
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
@@ -143,6 +141,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        let colorResolver = SidebarAppearanceColorResolver()
 
         pinImageView.isHidden = !model.isPinned
         if model.isPinned {
@@ -151,6 +151,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
+            pinImageView.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 
@@ -159,7 +160,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.chevronFontSize, percent: percent),
             weight: .semibold
         )
-        chevronButton.contentTintColor = .secondaryLabelColor
+        chevronButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
         chevronButton.setAccessibilityLabel(
             model.isCollapsed
                 ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
@@ -172,14 +173,17 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
             weight: .semibold
         )
-        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? .secondaryLabelColor
+        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) }
+            ?? colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
 
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive ? .labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+        nameField.textColor = model.isAnchorActive
+            ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
+            : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -205,18 +209,20 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.plusFontSize, percent: percent),
             weight: .medium
         )
-        plusButton.contentTintColor = .secondaryLabelColor
+        plusButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"
         ))
 
-        backgroundView.layer?.backgroundColor = model.isAnchorActive
-            ? NSColor.labelColor.withAlphaComponent(0.08).cgColor
-            : NSColor.clear.cgColor
+        backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
+            ? 6
+            : 4
+        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
 
@@ -236,8 +242,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Live drop-line painting during native reorder drags; see
     /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        let colorScheme: ColorScheme = model.map { $0.colorSchemeIsDark ? .dark : .light }
+            ?? SidebarAppearanceColorResolver().currentColorScheme()
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -267,21 +276,78 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// authoritative configure reconciles.
     func showOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        let labelColor = SidebarAppearanceColorResolver().resolvedColor(.labelColor, for: colorScheme)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
         CATransaction.commit()
-        nameField.textColor = .labelColor
+        nameField.textColor = labelColor
     }
 
-    /// Inverse of the press treatment: previewing a different row must peel a
-    /// pending header's optimistic anchor-active visuals. The authoritative
-    /// apply reconfigures only rows whose model changed, and a replaced
-    /// preview never changes this header's model — without an explicit clear
-    /// the painted treatment would linger indefinitely.
-    func clearOptimisticAnchorActive() {
-        guard let model, !model.isAnchorActive else { return }
+    /// Modifier-click preview: paints the same dim membership tint as an
+    /// unfocused multi-selected workspace row.
+    func showOptimisticMultiSelection() {
+        guard let model, !model.isAnchorActive, !model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
+        CATransaction.commit()
+    }
+
+    /// Plain-click counterpart: clears active and multi-selected header paint
+    /// while the authoritative single selection is applied.
+    func showOptimisticDeselection() {
+        guard let model, model.isAnchorActive || model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        CATransaction.commit()
+        let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+        nameField.textColor = SidebarAppearanceColorResolver().resolvedColor(
+            .labelColor,
+            for: colorScheme,
+            opacity: 0.9
+        )
+    }
+
+    /// Rollback for optimistic press paint: reapplies the stored model
+    /// unconditionally, mirroring the workspace cell. This must not skip
+    /// active models — `showOptimisticDeselection` can clear a header whose
+    /// model is still anchor-active, and a press that never produces an
+    /// authoritative apply (swallowed, superseded, became a drag) would
+    /// otherwise leave that header visually deselected until the next render.
+    func restoreStoredModelPaint() {
+        guard let model else { return }
         applyModel(model)
+    }
+
+    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
+        if model.isAnchorActive {
+            let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+            return SidebarAppearanceColorResolver().resolvedColor(
+                .labelColor,
+                for: colorScheme,
+                opacity: 0.08
+            )
+        }
+        if model.isMultiSelected {
+            return headerMultiSelectionBackgroundColor(for: model)
+        }
+        return .clear
+    }
+
+    private func headerMultiSelectionBackgroundColor(
+        for model: SidebarGroupHeaderRowModel
+    ) -> NSColor {
+        let style = model.multiSelectionBackgroundStyle
+        guard let color = style.color else { return .clear }
+        return color.withAlphaComponent(
+            color.alphaComponent * style.opacity
+        )
     }
 
     /// True when a press at this view should not repaint selection (chevron
@@ -371,16 +437,13 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             unreadBadgeView.needsDisplay = true
         }
 
-        let indicatorX: CGFloat = 8
-        let indicatorWidth = max(0, bounds.width - indicatorX - 8)
         let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
-        topDropIndicator.frame = NSRect(x: indicatorX, y: topOffset, width: indicatorWidth, height: 2)
+        topDropIndicator.position(in: bounds, at: topOffset)
         let bottomInset = metrics.groupScopedBottomDropIndicatorLeadingInset
-        bottomDropIndicator.frame = NSRect(
-            x: 8 + bottomInset,
-            y: bounds.height - 2 + model.rowSpacing / 2,
-            width: max(0, bounds.width - (8 + bottomInset) - 8),
-            height: 2
+        bottomDropIndicator.position(
+            in: bounds,
+            at: bounds.height - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2,
+            leadingInset: bottomInset
         )
 
         let pillSize = hintPill.fittingPillSize()
@@ -394,29 +457,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Interaction
 
-    /// Click-to-focus is a gesture recognizer, not a mouseDown override, so
-    /// the table view keeps receiving the raw mouse events it needs to start
-    /// a row drag from the header's name area (parity with the SwiftUI
-    /// header's coexisting onTapGesture + onDrag).
-    private func installFocusClickRecognizer() {
-        let recognizer = NSClickGestureRecognizer(target: self, action: #selector(didClickFocusArea(_:)))
-        recognizer.delaysPrimaryMouseButtonEvents = false
-        addGestureRecognizer(recognizer)
-    }
-
-    @objc private func didClickFocusArea(_ recognizer: NSClickGestureRecognizer) {
-        let point = recognizer.location(in: self)
-        // Chevron/plus are buttons and take their own hits before this runs.
-        let innerRect = NSRect(
-            x: iconImageView.frame.minX,
-            y: 0,
-            width: max(0, plusButton.frame.minX - iconImageView.frame.minX),
-            height: bounds.height
-        )
-        if innerRect.contains(point) {
-            actions?.onFocusAnchor()
-        }
-    }
+    // Selection has exactly one click owner: the table view's action
+    // (`SidebarWorkspaceTableController.didClickTableRow`), same as workspace
+    // rows. A cell-level click recognizer here would fire a second
+    // `onFocusAnchor` for the same click, which cancels a modifier-click
+    // toggle (add then remove) and made header multi-selection impossible.
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -507,6 +552,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private func makeHeaderMenu() -> NSMenu {
         guard let model, let actions else { return NSMenu() }
         let menu = trackedMenu()
+        // Resolve availability at menu-open time. The row may have retained an
+        // older anchor snapshot while the group was being promoted, but the
+        // action bundle owns the authoritative live notification check.
+        let notificationState = actions.notificationState()
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.plus.contextMenu.newWorkspace", defaultValue: "New Workspace in Group"),
             action: actions.onTapPlus
@@ -525,37 +574,39 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),
-            enabled: model.canMarkRead,
+            enabled: notificationState.canMarkRead,
             action: actions.onMarkRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markUnread", defaultValue: "Mark Group as Unread"),
-            enabled: model.canMarkUnread,
+            enabled: notificationState.canMarkUnread,
             action: actions.onMarkUnread
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
-            enabled: model.hasLatestNotifications,
+            enabled: notificationState.hasLatestNotifications,
             action: actions.onClearLatestNotifications
         ))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllRead", defaultValue: "Mark All Workspaces in Group as Read"),
-            enabled: model.canMarkAllRead,
+            enabled: notificationState.canMarkAllRead,
             action: actions.onMarkAllRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllUnread", defaultValue: "Mark All Workspaces in Group as Unread"),
-            enabled: model.canMarkAllUnread,
+            enabled: notificationState.canMarkAllUnread,
             action: actions.onMarkAllUnread
         ))
         menu.addItem(.separator())
         appendConfigAndDocsItems(to: menu)
         menu.addItem(.separator())
-        menu.addItem(menuItem(
-            String(localized: "workspaceGroup.contextMenu.ungroup", defaultValue: "Ungroup Workspaces"),
-            action: actions.onUngroup
-        ))
+        if !model.isPinned || model.memberCount > 0 {
+            menu.addItem(menuItem(
+                String(localized: "workspaceGroup.contextMenu.ungroup", defaultValue: "Ungroup Workspaces"),
+                action: actions.onUngroup
+            ))
+        }
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.delete", defaultValue: "Delete Group"),
             action: actions.onDelete

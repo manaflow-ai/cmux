@@ -14,11 +14,14 @@ import Testing
         let scheduler = LockedJobScheduler()
         let cache = SurfaceResumeApprovalSigningSecretCache(
             loader: { loader.call() },
-            schedule: { scheduler.append($0) }
+            schedule: {
+                scheduler.append($0)
+                return nil
+            }
         )
 
-        #expect(cache.value(isMainThread: true) == nil)
-        #expect(cache.value(isMainThread: true) == nil)
+        #expect(cache.value(isMainThread: true) == .pending)
+        #expect(cache.value(isMainThread: true) == .pending)
         #expect(loader.callCount == 0, "main-thread reads must not run the Keychain loader")
         #expect(scheduler.count == 1, "concurrent autosave panels must share one pending load")
 
@@ -29,11 +32,134 @@ import Testing
 
         scheduler.runNext()
 
-        #expect(cache.value(isMainThread: true) == expected)
+        #expect(cache.value(isMainThread: true) == .ready(expected))
         #expect(cache.isReady)
         #expect(completion.values == [expected])
         #expect(loader.callCount == 1)
         #expect(scheduler.count == 0)
+    }
+
+    @Test func resumeApprovalSigningSecretRetainsScheduledTaskUntilResolution() async throws {
+        let expected = Data("issue-8759-retained-task-secret".utf8)
+        let loader = LockedCallCounter(result: expected)
+        let completion = LockedResultRecorder()
+        let gate = AsyncStream<Void>.makeStream()
+        let taskRecorder = LockedTaskRecorder()
+        let cache = SurfaceResumeApprovalSigningSecretCache(
+            loader: { loader.call() },
+            schedule: { job in
+                let task = Task.detached {
+                    var iterator = gate.stream.makeAsyncIterator()
+                    _ = await iterator.next()
+                    guard !Task.isCancelled else { return }
+                    job()
+                }
+                taskRecorder.record(task)
+                return task
+            }
+        )
+
+        #expect(cache.value(isMainThread: true) == .pending)
+        cache.preload { completion.record($0) }
+        let task = try #require(taskRecorder.task)
+
+        gate.continuation.yield()
+        gate.continuation.finish()
+        await task.value
+
+        #expect(cache.value(isMainThread: true) == .ready(expected))
+        #expect(completion.values == [expected])
+        #expect(loader.callCount == 1)
+    }
+
+    @Test func resumeApprovalSigningSecretCancelsScheduledTaskOnDeinit() async throws {
+        let loader = LockedCallCounter(result: Data("unused-secret".utf8))
+        let suspension = AsyncStream<Void>.makeStream()
+        let taskRecorder = LockedTaskRecorder()
+        var cache: SurfaceResumeApprovalSigningSecretCache? = SurfaceResumeApprovalSigningSecretCache(
+            loader: { loader.call() },
+            schedule: { job in
+                let task = Task.detached {
+                    for await _ in suspension.stream {}
+                    guard !Task.isCancelled else { return }
+                    job()
+                }
+                taskRecorder.record(task)
+                return task
+            }
+        )
+
+        #expect(cache?.value(isMainThread: true) == .pending)
+        let task = try #require(taskRecorder.task)
+        cache = nil
+
+        #expect(task.isCancelled)
+        suspension.continuation.finish()
+        await task.value
+        #expect(loader.callCount == 0)
+    }
+
+    @Test func resumeApprovalLookupWaitsForSigningSecretResolution() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            autoResume: true,
+            approvalPolicy: .auto,
+            approvalRecordId: "unverified-record"
+        )
+        let missingStore = URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json")
+
+        let pending = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
+            to: binding,
+            fileURL: missingStore,
+            signingSecretResolution: .pending
+        )
+        guard case .pendingSigningSecret = pending else {
+            Issue.record("a pending secret must not produce an approval decision")
+            return
+        }
+        let pendingPresentation = SurfaceResumeApprovalStore.bindingWithoutStoredApproval(to: binding)
+        #expect(pendingPresentation.command == binding.command)
+        #expect(pendingPresentation.approvalPolicy == .manual)
+        #expect(!pendingPresentation.allowsAutomaticResume)
+        #expect(pendingPresentation.approvalRecordId == nil)
+
+        let unavailable = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
+            to: binding,
+            fileURL: missingStore,
+            signingSecretResolution: .ready(nil)
+        )
+        guard case let .resolved(effectiveBinding) = unavailable else {
+            Issue.record("a definitively unavailable secret must resolve the existing fallback policy")
+            return
+        }
+        #expect(effectiveBinding.approvalPolicy == .manual)
+        #expect(!effectiveBinding.allowsAutomaticResume)
+        #expect(effectiveBinding.approvalRecordId == nil)
+    }
+
+    @Test func trustedResumeProposalsDoNotWaitForSigningSecretResolution() {
+        for source in ["agent-hook", "process-detected"] {
+            let binding = SurfaceResumeBindingSnapshot(
+                command: "codex resume trusted-session",
+                cwd: "/tmp/project",
+                source: source,
+                autoResume: true
+            )
+
+            let result = SurfaceResumeApprovalStore.approvalProposalContext(
+                for: binding,
+                signingSecretResolution: .pending
+            )
+            guard case let .resolved(context) = result else {
+                Issue.record("\(source) must not depend on the signing secret")
+                continue
+            }
+            #expect(context.effectiveBinding.allowsAutomaticResume)
+            #expect(context.effectiveBinding.approvalPolicy == .auto)
+            #expect(context.existingRecord == nil)
+        }
     }
 
     @Test func hangWatchdogCapturesOncePerStarvationEpisode() {
@@ -149,6 +275,21 @@ private final class LockedResultRecorder: @unchecked Sendable {
     func record(_ value: Data?) {
         if let value {
             lock.withLock { recorded.append(value) }
+        }
+    }
+}
+
+private final class LockedTaskRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedTask: Task<Void, Never>?
+
+    var task: Task<Void, Never>? {
+        lock.withLock { recordedTask }
+    }
+
+    func record(_ task: Task<Void, Never>) {
+        lock.withLock {
+            recordedTask = task
         }
     }
 }

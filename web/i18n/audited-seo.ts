@@ -20,6 +20,7 @@ export type AuditedBlogPostKey =
   | "cmuxHome"
   | "introducingCmux"
   | "claudeCodeBestWorktreeManager"
+  | "tokenMultitasking"
   | "zenOfCmux"
   | "cmdShiftU"
   | "unreadShortcuts"
@@ -36,6 +37,13 @@ const blogDescriptionCandidateKeys: Record<
   cmuxHome: ["summary", "p2", "p3", "p4"],
   introducingCmux: ["summary", "p1", "whyP"],
   claudeCodeBestWorktreeManager: ["summary", "p1"],
+  tokenMultitasking: [
+    "summary",
+    "p1",
+    "workflowIntro",
+    "workflowClose",
+    "closing",
+  ],
   zenOfCmux: ["summary", "p1", "p2", "p3", "p4"],
   cmdShiftU: ["summary", "p1"],
   unreadShortcuts: ["summary", "p1", "p2", "p3", "p4", "p5"],
@@ -59,7 +67,8 @@ export type AuditedDocsPageKey =
   | "dock"
   | "keyboardShortcuts"
   | "gettingStarted"
-  | "remoteTmux";
+  | "remoteTmux"
+  | "managedPolicies";
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 
@@ -312,6 +321,49 @@ export function landingPageSeoCopy(
       completeCandidates,
       contextFragments,
     }),
+  };
+}
+
+/**
+ * Selects bounded metadata using only platform-specific browser download copy.
+ * Generic site fallbacks describe the macOS terminal and must not leak into
+ * Windows or Linux search results.
+ */
+export function browserDownloadSeoCopy(
+  locale: string,
+  t: SeoMessageLookup,
+  browserLabel: string,
+) {
+  const metaTitle = t("metaTitle");
+  const name = t("name");
+  const subtitle = completeMetadataSentence(locale, t("subtitle"));
+  const installBody = completeMetadataSentence(locale, t("installBody"));
+  const requirements = completeMetadataSentence(locale, t("requirements"));
+
+  return {
+    title: seoTitle(locale, metaTitle, {
+      minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
+      fallbackCandidates: [
+        `${metaTitle} — ${browserLabel}`,
+        `${name} — ${browserLabel}`,
+      ],
+      appendLocalizedContext: false,
+    }),
+    description: seoDescription(
+      locale,
+      completeMetadataSentence(locale, t("metaDescription")),
+      {
+        minLength: 110,
+        fallbackCandidates: [
+          subtitle,
+          installBody,
+          joinMetadataSentences(locale, subtitle, requirements),
+          joinMetadataSentences(locale, installBody, requirements),
+          joinMetadataSentences(locale, subtitle, installBody),
+        ],
+        appendLocalizedContext: false,
+      },
+    ),
   };
 }
 

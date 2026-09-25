@@ -1,5 +1,7 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import Foundation
+import GhosttyKit
 import UIKit
 
 /// Bridges libghostty C callbacks (which run on the IO read thread or
@@ -13,10 +15,10 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     private let lock = NSLock()
     // Deliberately STRONG: libghostty holds the raw view pointer
     // (`ghostty_platform_ios_s.uiview`, passUnretained in `makeSurface`), so
-    // the view must outlive queued surface operations. Surface creation gives
-    // libghostty an owned bridge retain; dismantle detaches this reference to
-    // break the view<->bridge cycle, and final C-surface destruction releases
-    // the bridge only after internal callbacks and app-action leases stop.
+    // the view must outlive queued surface operations. Surface creation stores
+    // a retained bridge pointer; dismantle detaches this reference to break the
+    // view<->bridge cycle, and the host releases the retain only after
+    // synchronous C-surface teardown has stopped every callback.
     private var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {
@@ -60,8 +62,55 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
 
     func handleRenderPresented(token: UInt64) {
         Task { @MainActor [weak self] in
-            self?.surfaceView?.handleVerifiedReplayRenderPresented(token: token)
+            guard let surfaceView = self?.surfaceView else { return }
+            // A verified replay owns the gate until its readback and layer
+            // presentation fence both settle. Ordinary and local-scroll
+            // frames still release the gate directly from this callback.
+            if surfaceView.handleVerifiedReplayRenderPresented(token: token) {
+                surfaceView.finishRenderSubmission(token: token)
+            }
         }
+    }
+
+    func handleRenderFailed(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        Task { @MainActor [weak self] in
+            guard let surfaceView = self?.surfaceView else { return }
+            MobileDebugLog.anchormux(
+                "render.callback_failed token=\(token) status=\(status.rawValue)"
+            )
+            surfaceView.handleRenderSubmissionFailure(token: token, status: status)
+        }
+    }
+
+    static let ioWriteCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UnsafePointer<CChar>?,
+        UInt
+    ) -> Void = { userdata, buf, len in
+        guard let buf, len > 0 else { return }
+        let data = Data(bytes: buf, count: Int(len))
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleWrite(data)
+    }
+
+    static let renderPresentedCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UInt64
+    ) -> Void = { userdata, token in
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+    }
+
+    static let renderFailedCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UInt64,
+        ghostty_render_presentation_status_e
+    ) -> Void = { userdata, token, status in
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderFailed(
+            token: token,
+            status: status
+        )
     }
 
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {

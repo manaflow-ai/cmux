@@ -10,6 +10,44 @@ import type {
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
 
+/**
+ * The provider-neutral part of a durable cmux agent message that an ACP
+ * session needs in order to answer in context. Keeping this translation at
+ * the adapter boundary lets a future mailbox deliver messages without making
+ * ACP providers aware of cmux's storage or routing implementation.
+ */
+export interface AcpMailMessage {
+  /** Same field names as the durable `MailEnvelope`, without importing it. */
+  id: string;
+  threadId: string;
+  sender: string;
+  recipients: readonly string[];
+  subject?: string;
+  inReplyTo?: string;
+  body: string;
+}
+
+/**
+ * Render a durable message as ordinary ACP prompt text. The existing ACP
+ * `session/prompt` request remains unchanged; callers pass this result to
+ * `adapter.send` just like any other prompt. JSON keeps untrusted fields
+ * structurally separate while leaving the body readable to the receiving agent.
+ */
+export function acpPromptFromMail(message: AcpMailMessage): string {
+  return [
+    "cmux-agent-message-json-v1:",
+    JSON.stringify({
+      messageId: message.id,
+      threadId: message.threadId,
+      from: message.sender,
+      to: [...message.recipients],
+      ...(message.subject === undefined ? {} : { subject: message.subject }),
+      ...(message.inReplyTo === undefined ? {} : { inReplyTo: message.inReplyTo }),
+      body: message.body,
+    }, null, 2),
+  ].join("\n");
+}
+
 // Generic Agent Client Protocol (https://agentclientprotocol.com) client over
 // stdio NDJSON JSON-RPC. One adapter covers every ACP-speaking agent:
 // `opencode acp`, `gemini --experimental-acp`, `claude-code-acp`, goose, ...

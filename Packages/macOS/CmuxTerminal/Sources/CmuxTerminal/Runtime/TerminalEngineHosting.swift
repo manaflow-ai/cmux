@@ -1,3 +1,4 @@
+public import Foundation
 public import GhosttyKit
 
 /// Read access to the embedded Ghostty engine the surface model spawns
@@ -22,4 +23,38 @@ public protocol TerminalEngineHosting: AnyObject {
 
     /// The executable user shell resolved before Ghostty config finalization.
     var resolvedUserShell: String? { get }
+
+    /// Monotonic generation of the terminal font configuration currently
+    /// applied to the runtime.
+    var terminalFontConfigurationGeneration: UInt64 { get }
+
+    /// Current configured runtime font size, including global magnification.
+    var terminalFontConfigurationRuntimePoints: Float32 { get }
+
+    /// Defers native surface creation until an in-flight engine configuration
+    /// reload has applied its replacement config.
+    ///
+    /// - Parameter surfaceID: Stable identity used to coalesce repeated create
+    ///   requests for the same surface while the reload is active.
+    /// - Returns: True when `action` was accepted for deferred execution.
+    func deferRuntimeSurfaceCreationForConfigurationReload(
+        surfaceID: UUID,
+        _ action: @escaping @MainActor () -> Void
+    ) -> Bool
+}
+
+/// Default behavior for engine hosts without a configuration-reload barrier.
+public extension TerminalEngineHosting {
+    /// Runs immediately when the engine does not provide a reload barrier.
+    ///
+    /// Concrete engine owners override this default to defer creation while a
+    /// replacement runtime configuration is being committed.
+    ///
+    /// - Returns: Always `false`, indicating that `action` was not deferred.
+    func deferRuntimeSurfaceCreationForConfigurationReload(
+        surfaceID: UUID,
+        _ action: @escaping @MainActor () -> Void
+    ) -> Bool {
+        false
+    }
 }

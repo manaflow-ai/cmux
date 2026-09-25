@@ -1,21 +1,18 @@
 import SwiftUI
+
 #if os(iOS)
-/// Extends the workspace table under the vertical bars on iOS 26, where the
-/// scroll edge effect and `WorkspaceListScrollEdgeCoordinator`'s bar
-/// registration render the App Store-style soft blur over the underlap.
+/// Gives the native iOS 26 soft scroll-edge effects table pixels to process
+/// beneath the navigation and tab bars.
 ///
-/// SwiftUI fits a `UIViewRepresentable` inside the safe area, so without this
-/// the table's frame starts below the search drawer and ends above the tab
-/// bar: rows hard-clip at the chrome and no scroll edge effect can render.
-/// The real UIKit bars still contribute safe area, so the table's automatic
-/// content-inset adjustment keeps rows and indicators clear of the chrome,
-/// and the keyboard region stays respected. Earlier releases keep the fitted
-/// frame: the coordinator's registration is iOS 26-gated, and underlapping
-/// without it would scroll full-opacity rows beneath legacy bars.
+/// The table remains a normal UIKit scroll view, so UIKit supplies its safe
+/// area and adjusted content inset while the table itself remains visually
+/// present beneath the bars' effects.
 struct WorkspaceListBarUnderlap: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.ignoresSafeArea(.container, edges: .vertical)
+            // The terminal or composer owns keyboard avoidance. Keep the
+            // workspace table full height during their keyboard transitions.
+            content.ignoresSafeArea([.container, .keyboard], edges: .vertical)
         } else {
             content
         }

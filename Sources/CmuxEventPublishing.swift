@@ -79,10 +79,14 @@ extension CmuxEventBus {
         )
     }
 
+    /// - Parameter submittedLength: the prompt's length as submitted, when the
+    ///   producer reported it. `message` may already be truncated by the time it
+    ///   reaches us, so counting it would report the cap instead of the prompt.
     func publishWorkspacePromptSubmitted(
         workspaceId: UUID,
         message: String?,
         preview: String?,
+        submittedLength: Int? = nil,
         source: String = "workspace.prompt_submit"
     ) {
         publish(
@@ -94,7 +98,7 @@ extension CmuxEventBus {
                 "workspace_id": workspaceId.uuidString,
                 "message": NSNull(),
                 "message_preview": preview ?? NSNull(),
-                "message_length": message?.count ?? 0,
+                "message_length": submittedLength ?? message?.count ?? 0,
                 "redacted_fields": ["message"]
             ]
         )
@@ -447,10 +451,12 @@ extension CmuxEventBus {
             "surface_id": event.surfaceId ?? NSNull(),
             "cwd": event.cwd ?? NSNull(),
             "tool_name": event.toolName ?? NSNull(),
+            "is_error": event.isError ?? NSNull(),
             "_opencode_request_id": event.requestId ?? NSNull(),
             "_ppid": event.ppid ?? NSNull(),
             "_received_at": Self.isoTimestamp(event.receivedAt)
         ]
+        payload["prompt_length"] = event.submittedPromptLength
         var redactedFields: [String] = []
         if let toolInputJSON = event.toolInputJSON {
             payload["tool_input"] = NSNull()
@@ -474,7 +480,6 @@ extension CmuxEventBus {
         }
         return payload
     }
-
     private static func encodedByteCount<T: Encodable>(_ value: T) -> Int? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
