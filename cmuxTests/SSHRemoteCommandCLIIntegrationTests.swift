@@ -30,10 +30,19 @@ struct SSHRemoteCommandCLIIntegrationTests {
         let configureParams = try #require(Self.params(for: "workspace.remote.configure", in: run.requests))
         let initialCommand = try #require(createParams["initial_command"] as? String)
         let terminalStartupCommand = try #require(configureParams["terminal_startup_command"] as? String)
+        let initialScript = Self.decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+        let terminalStartupScript =
+            Self.decodedReusableStartupScript(from: terminalStartupCommand) ?? terminalStartupCommand
 
         #expect(configureParams["terminal_transport"] as? String == "ssh")
-        #expect(!initialCommand.contains("cmux_mosh"), "Mosh fallback must not start after workspace creation: \(initialCommand)")
-        #expect(!terminalStartupCommand.contains("cmux_mosh"), "Mosh fallback must not be persisted: \(terminalStartupCommand)")
+        #expect(
+            !initialScript.contains("cmux_mosh"),
+            "Mosh fallback must not start after workspace creation: \(initialScript)"
+        )
+        #expect(
+            !terminalStartupScript.contains("cmux_mosh"),
+            "Mosh fallback must not be persisted: \(terminalStartupScript)"
+        )
         #expect(run.stderr.contains("Mosh is not installed locally"), Comment(rawValue: run.stderr))
     }
 
