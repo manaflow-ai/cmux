@@ -308,6 +308,10 @@ class CanonicalRecipeTests(unittest.TestCase):
                 if "-scheme" in args and "-resolvePackageDependencies" not in args
             ]
             self.assertEqual(built, expected_schemes)
+            # cmux-numeric-locale reuses the cmux-unit product instead of being
+            # built again; tests/test_app_host_test_products.py holds the two
+            # schemes equivalent.
+            self.assertNotIn("cmux-numeric-locale", built)
             canonical_src = str((root / "src").resolve())
             for cwd, args in records:
                 self.assertEqual(cwd, canonical_src)
@@ -409,7 +413,10 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
         builds = [r for r in records if "build-for-testing" in r["args"]]
-        self.assertEqual(len(builds), 4)
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import product_input_identity as identity
+
+        self.assertEqual(len(builds), len(identity.profile_schemes("app-host")))
         for record in builds:
             self.assertEqual(record["mode"], "checksum-only", record["args"])
 
