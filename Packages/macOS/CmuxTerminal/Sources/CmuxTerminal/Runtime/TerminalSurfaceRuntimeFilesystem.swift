@@ -11,7 +11,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         @Sendable (
             _ wrapperDirectoryURL: URL,
             _ surfaceId: UUID,
-            _ temporaryDirectory: URL,
+            _ rootDirectory: URL,
             _ enabledCommands: Set<TerminalSurfaceAgentCommand>
         ) async -> TerminalSurfaceAgentCommandShimSet?
 
@@ -25,7 +25,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
             @escaping @Sendable (
                 _ wrapperDirectoryURL: URL,
                 _ surfaceId: UUID,
-                _ temporaryDirectory: URL,
+                _ rootDirectory: URL,
                 _ enabledCommands: Set<TerminalSurfaceAgentCommand>
             ) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
@@ -43,17 +43,17 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
             @escaping @Sendable (
                 _ wrapperDirectoryURL: URL,
                 _ surfaceId: UUID,
-                _ temporaryDirectory: URL
+                _ rootDirectory: URL
             ) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
         self.init(
             agentCommandShimRootDirectory: agentCommandShimRootDirectory,
-            installAgentCommandShims: { wrapperDirectoryURL, surfaceId, temporaryDirectory, _ in
+            installAgentCommandShims: { wrapperDirectoryURL, surfaceId, rootDirectory, _ in
                 await installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
-                    temporaryDirectory
+                    rootDirectory
                 )
             },
             isExecutableFile: isExecutableFile

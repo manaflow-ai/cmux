@@ -42,25 +42,25 @@ extension TerminalSurface {
             // checker cannot analyze the legacy closure's implicit captures
             // and in-closure default-argument evaluation.
             let runtimeFilesystem = runtimeFilesystem
-            let temporaryDirectory = runtimeFilesystem.agentCommandShimRootDirectory
+            let rootDirectory = runtimeFilesystem.agentCommandShimRootDirectory
             let enabledCommands = spawnPolicy.enabledAgentCommandShims
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, enabledCommands] in
+                [wrapperDirectoryURL, surfaceId, rootDirectory, runtimeFilesystem, enabledCommands] in
                 await runtimeFilesystem.installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
-                    temporaryDirectory,
+                    rootDirectory,
                     enabledCommands
                 )
             }
             #else
             let installOperation: @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, enabledCommands] in
+                [wrapperDirectoryURL, surfaceId, rootDirectory, runtimeFilesystem, enabledCommands] in
                 await runtimeFilesystem.installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
-                    temporaryDirectory,
+                    rootDirectory,
                     enabledCommands
                 )
             }

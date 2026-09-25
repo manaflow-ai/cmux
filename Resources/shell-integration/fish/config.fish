@@ -341,7 +341,7 @@ if test "$_cmux_integration_enabled" != 0
         end
         set -l tmp_root /tmp
         if set -q TMPDIR; and test -n "$TMPDIR"
-            set tmp_root "$TMPDIR"
+            set tmp_root (string trim -r -c / -- "$TMPDIR")
         end
         set -l legacy_shim_root "$tmp_root/cmux-cli-shims/$surface_component"
         set -l durable_shim_root ""
@@ -349,11 +349,8 @@ if test "$_cmux_integration_enabled" != 0
             set durable_shim_root "$HOME/.cmuxterm/cmux-cli-shims/$surface_component"
         end
         if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"; or test "$shim_root" = "$legacy_shim_root"
-            if test -n "$durable_shim_root"
-                set shim_root "$durable_shim_root"
-            else
-                set shim_root "$legacy_shim_root"
-            end
+            string match -q '/*' -- "$HOME"; or return 0
+            set shim_root "$durable_shim_root"
         end
         set -l shim_path "$shim_root/$command_name"
         mkdir -p "$shim_root" >/dev/null 2>&1; or return 0

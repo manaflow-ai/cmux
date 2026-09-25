@@ -130,7 +130,8 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_issue_7028_claude_shim_persistence.py"
-lane = "macos-cli-no-socket"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["fish"]
 
 [[test]]
 path = "tests/test_claude_wrapper_user_binary_resolution.py"
