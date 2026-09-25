@@ -2751,6 +2751,8 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSurfaceCatalogModel
+            CmuxSwiftRender
+            CmuxSwiftRenderUI
             CmuxSudoBroker
             CmuxSudoBrokerUI
             CmuxTerminal
