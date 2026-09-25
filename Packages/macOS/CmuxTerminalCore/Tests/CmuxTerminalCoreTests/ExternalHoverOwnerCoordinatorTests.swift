@@ -391,6 +391,26 @@ struct ExternalHoverOwnerCoordinatorTests {
         #expect(coordinator.currentMailbox.pending == nil)
     }
 
+    @Test("A delayed setter cannot recreate pending state after teardown")
+    func delayedSetterAfterTeardownIsRejected() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let coordinator = makeCoordinator(queue: queue, recorder: recorder)
+
+        coordinator.teardown()
+
+        let minted = coordinator.callSetterAndRecordPending(
+            event: 2,
+            path: "/tmp/stale"
+        ) {
+            Self.token(2)
+        }
+
+        #expect(minted == nil)
+        #expect(coordinator.currentMailbox.pending == nil)
+        #expect(coordinator.currentMailbox.acceptedOwner == nil)
+    }
+
     @Test("A projection task queued and run, THEN teardown, still tombstones correctly")
     func teardownAfterProjectionAlreadyRan() {
         let queue = DeterministicMainQueue()
