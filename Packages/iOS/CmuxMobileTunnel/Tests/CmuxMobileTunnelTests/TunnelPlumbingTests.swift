@@ -84,10 +84,10 @@ import Testing
     @Test func loopbackHostsAreRecognized() {
         for host in ["localhost", "LOCALHOST.", "app.localhost", "127.0.0.1", "127.9.8.7", "::1", "[::1]",
                      "0:0:0:0:0:0:0:1", "0.0.0.0", "::", "::ffff:127.0.0.1"] {
-            #expect(TunnelLoopbackHost.isLoopback(host), "\(host)")
+            #expect(host.isTunnelLoopbackHost, "\(host)")
         }
         for host in ["example.com", "localhost.example.com", "10.0.0.1", "127.1", "128.0.0.1", "::2", "fe80::1"] {
-            #expect(!TunnelLoopbackHost.isLoopback(host), "\(host)")
+            #expect(!host.isTunnelLoopbackHost, "\(host)")
         }
     }
 }
@@ -157,7 +157,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func aStalledSinkBoundsReads() async throws {
         let source = CountingSource()
         let sink = GatedSink()
-        let relay = Task { await TunnelRelay.run(source, sink) }
+        let relay = Task { await TunnelRelay(source, sink).run() }
         while sink.writes < 1 { try await Task.sleep(for: .milliseconds(5)) }
         try await Task.sleep(for: .milliseconds(50))
         #expect(source.reads == 1)

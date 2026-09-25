@@ -7,10 +7,14 @@ import NIOCore
 /// The channel must have `autoRead` off. Reads are pulled: a `read()` with
 /// nothing buffered asks the channel for one read, so at most one read's
 /// worth of bytes waits here and the kernel/SSH window holds the rest.
+///
+/// Every mutable property below is confined to the channel's event loop:
+/// the handler's callbacks already run there, and `read()` and `close()`
+/// hop onto it, so the state needs no lock.
 public final class NIOChannelByteStream: TunnelByteStream, @unchecked Sendable {
     public let channel: any Channel
 
-    private let lock = NSLock()
+    // Event-loop confined.
     private var buffered: [Data] = []
     private var ended = false
     private var failure: (any Error)?
@@ -40,28 +44,25 @@ public final class NIOChannelByteStream: TunnelByteStream, @unchecked Sendable {
 
     public func read() async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
-            if !buffered.isEmpty {
-                let chunk = buffered.removeFirst()
-                lock.unlock()
-                continuation.resume(returning: chunk)
-                return
+            onLoop { stream in
+                if !stream.buffered.isEmpty {
+                    continuation.resume(returning: stream.buffered.removeFirst())
+                    return
+                }
+                if let failure = stream.failure {
+                    continuation.resume(throwing: failure)
+                    return
+                }
+                if stream.ended {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                stream.waiter = continuation
+                if !stream.readRequested {
+                    stream.readRequested = true
+                    stream.channel.read()
+                }
             }
-            if let failure {
-                lock.unlock()
-                continuation.resume(throwing: failure)
-                return
-            }
-            if ended {
-                lock.unlock()
-                continuation.resume(returning: nil)
-                return
-            }
-            waiter = continuation
-            let request = !readRequested
-            readRequested = true
-            lock.unlock()
-            if request { requestRead() }
         }
     }
 
@@ -84,59 +85,56 @@ public final class NIOChannelByteStream: TunnelByteStream, @unchecked Sendable {
     }
 
     public func close() async {
-        finish(error: nil)
+        onLoop { $0.finish(error: nil) }
         try? await channel.close().get()
     }
 
-    private func requestRead() {
-        let channel = channel
+    /// Runs `body` on the channel's event loop, inline when already there.
+    private func onLoop(_ body: @escaping @Sendable (NIOChannelByteStream) -> Void) {
         if channel.eventLoop.inEventLoop {
-            channel.read()
+            body(self)
         } else {
-            channel.eventLoop.execute { channel.read() }
+            channel.eventLoop.execute { body(self) }
         }
     }
 
     // MARK: Event-loop callbacks
 
     fileprivate func deliver(_ chunk: Data) {
-        lock.lock()
+        channel.eventLoop.assertInEventLoop()
         if let waiter {
             self.waiter = nil
-            lock.unlock()
             waiter.resume(returning: chunk)
         } else {
             buffered.append(chunk)
-            lock.unlock()
         }
     }
 
     /// A read requested before the channel was active is dropped by the
     /// transport; issue it again now.
     fileprivate func becameActive() {
-        let pending = lock.withLock { readRequested }
-        if pending { requestRead() }
+        channel.eventLoop.assertInEventLoop()
+        if readRequested { channel.read() }
     }
 
     fileprivate func readComplete() {
-        lock.lock()
+        channel.eventLoop.assertInEventLoop()
         readRequested = false
         // Woken with nothing (a read can complete empty): ask again.
-        let again = waiter != nil && !ended && failure == nil
-        if again { readRequested = true }
-        lock.unlock()
-        if again { requestRead() }
+        if waiter != nil, !ended, failure == nil {
+            readRequested = true
+            channel.read()
+        }
     }
 
     /// End of input (`error` nil) or failure. Wakes a pending read.
     fileprivate func finish(error: (any Error)?) {
-        lock.lock()
+        channel.eventLoop.assertInEventLoop()
         if let error, failure == nil, !ended { failure = error }
         ended = true
         let waiter = self.waiter
         self.waiter = nil
         let pending = buffered.isEmpty ? nil : buffered.removeFirst()
-        lock.unlock()
         guard let waiter else { return }
         if let pending {
             waiter.resume(returning: pending)

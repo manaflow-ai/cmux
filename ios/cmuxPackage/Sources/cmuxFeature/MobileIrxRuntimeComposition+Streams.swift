@@ -161,7 +161,7 @@ extension MobileIrxRuntimeComposition {
         let peerHex = try peerTarget(for: request)
         let session = try await ensureSession(forPeer: peerHex, trigger: "tunnel-lane")
         do {
-            let lane = try await IrxTunnelClient.connect(on: session.connection, host: host, port: port)
+            let lane = try await IrxTunnelClient(connection: session.connection).connect(host: host, port: port)
             return IrxTunnelLaneConnection(lane: lane)
         } catch let error as IrxTunnelOpenError {
             throw error.mobileFailure
@@ -176,7 +176,7 @@ extension MobileIrxRuntimeComposition {
     ) async throws -> MobileTunnelListeningPorts {
         let peerHex = try peerTarget(for: request)
         let session = try await ensureSession(forPeer: peerHex, trigger: "tunnel-ports")
-        let reply = try await IrxTunnelClient.listeningPorts(on: session.connection)
+        let reply = try await IrxTunnelClient(connection: session.connection).listeningPorts()
         var ports: [Int: String] = [:]
         for entry in reply.ports where (1...65_535).contains(entry.port) {
             ports[entry.port] = entry.address

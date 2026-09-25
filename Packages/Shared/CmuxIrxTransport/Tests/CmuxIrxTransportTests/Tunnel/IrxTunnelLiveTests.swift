@@ -58,7 +58,7 @@ struct IrxTunnelLiveTests {
         let server = try TunnelTestTCPServer(mode: .echo)
         defer { server.stop() }
         let pair = try await connectPair()
-        let lane = try await IrxTunnelClient.connect(on: pair.client, host: "localhost", port: server.port)
+        let lane = try await IrxTunnelClient(connection: pair.client).connect(host: "localhost", port: server.port)
         let payload = Data((0..<200_000).map { UInt8($0 % 251) })
         try await lane.writer.write(payload)
         // Half-close: the server sees EOF, then answers with a trailer.
@@ -81,10 +81,10 @@ struct IrxTunnelLiveTests {
             return probe.port
         }()
         await #expect(throws: IrxTunnelOpenError(status: .refused)) {
-            _ = try await IrxTunnelClient.connect(on: pair.client, host: "127.0.0.1", port: closedPort)
+            _ = try await IrxTunnelClient(connection: pair.client).connect(host: "127.0.0.1", port: closedPort)
         }
         await #expect(throws: IrxTunnelOpenError(status: .denied)) {
-            _ = try await IrxTunnelClient.connect(on: pair.client, host: "169.254.169.254", port: 80)
+            _ = try await IrxTunnelClient(connection: pair.client).connect(host: "169.254.169.254", port: 80)
         }
         await pair.close()
     }
@@ -94,7 +94,7 @@ struct IrxTunnelLiveTests {
         let server = try TunnelTestTCPServer(mode: .echo)
         defer { server.stop() }
         let pair = try await connectPair()
-        let reply = try await IrxTunnelClient.listeningPorts(on: pair.client)
+        let reply = try await IrxTunnelClient(connection: pair.client).listeningPorts()
         #expect(reply.ports.contains(IrxListeningPort(port: server.port, address: "127.0.0.1")))
         #expect(reply.allowsNonLoopbackHosts == false)
         await pair.close()

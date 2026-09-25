@@ -84,7 +84,7 @@ struct IrxTunnelPolicyTests {
             .init(port: 9000, address: IrxTunnelIPAddress("127.0.0.2")!, ipv6Only: false),
             .init(port: 9100, address: IrxTunnelIPAddress("192.168.1.4")!, ipv6Only: false),
         ]
-        #expect(IrxListeningPortScanner.reachableFromLoopback(listeners) == [
+        #expect(IrxListeningPortScanner().reachableFromLoopback(listeners) == [
             IrxListeningPort(port: 3000, address: "127.0.0.1"),
             IrxListeningPort(port: 5173, address: "::1"),
             IrxListeningPort(port: 8080, address: "::1"),
@@ -97,7 +97,7 @@ struct IrxTunnelPolicyTests {
     func scannerSeesOwnListener() throws {
         let server = try TunnelTestTCPServer(mode: .echo)
         defer { server.stop() }
-        let ports = IrxListeningPortScanner.loopbackListeningPorts()
+        let ports = IrxListeningPortScanner().loopbackListeningPorts()
         #expect(ports.contains(IrxListeningPort(port: server.port, address: "127.0.0.1")), "\(ports.count) ports")
     }
     #endif

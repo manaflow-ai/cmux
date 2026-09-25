@@ -6,9 +6,16 @@ import Foundation
 /// the Mac, and relays bytes. A `listeningPorts` lane lists the Mac's
 /// loopback listeners so the phone can mirror them onto its own loopback,
 /// because iOS never sends loopback destinations to a proxy.
-public enum IrxTunnelCapability {
+public struct IrxTunnelCapability: Sendable {
+    /// The capability this build speaks.
+    public static let current = IrxTunnelCapability()
+
     /// Advertised in `mobile.host.status` by a Mac that serves both lanes.
-    public static let identifier = "browser.tunnel.v1"
+    public let identifier: String
+
+    public init(identifier: String = "browser.tunnel.v1") {
+        self.identifier = identifier
+    }
 }
 
 /// Mac -> phone, the first frame on a `tcpConnect` lane. After `connected`

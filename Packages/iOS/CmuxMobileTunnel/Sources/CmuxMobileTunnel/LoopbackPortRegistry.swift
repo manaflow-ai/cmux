@@ -7,10 +7,11 @@ import Foundation
 /// page being opened now wants its own computer's, so a mirror evicts another
 /// owner's forward on the same port instead of silently reaching the wrong
 /// machine. Proxies register as pinned: a mirror never takes their port.
+///
+/// The composition root creates one and injects it wherever the app binds
+/// loopback listeners, so every computer consults the same owners.
 @MainActor
 public final class LoopbackPortRegistry {
-    public static let shared = LoopbackPortRegistry()
-
     public struct Entry {
         public let owner: String
         /// Pinned entries (proxy listeners) are never evicted by a mirror.

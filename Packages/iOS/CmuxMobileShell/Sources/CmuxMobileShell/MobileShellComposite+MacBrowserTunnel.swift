@@ -28,7 +28,7 @@ public enum MacBrowserTunnelAvailability: Equatable, Sendable {
 /// workspace belongs to, so a page can never leave through a different Mac.
 extension MobileShellComposite {
     /// Capability a Mac advertises once it serves tunnel lanes (the Mac's
-    /// `IrxTunnelCapability.identifier`).
+    /// `IrxTunnelCapability.current.identifier`).
     public static let macBrowserTunnelCapability = "browser.tunnel.v1"
 
     /// Tunnel availability for a workspace on `macDeviceID` (nil means the
@@ -80,7 +80,10 @@ extension MobileShellComposite {
                     return try self.macTunnelLaneTarget(macDeviceID: macDeviceID)
                 }
                 return try await provider.listPorts(request)
-            }
+            },
+            // One loopback for SSH hosts and Macs alike, so a Mac's mirror
+            // evicts an SSH host's forward on the same port and vice versa.
+            registry: sshComputers.loopbackPorts
         )
         macBrowserNetworks[macDeviceID] = network
         return network

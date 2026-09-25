@@ -93,7 +93,7 @@ public actor IrxTunnelHost {
         policy: @escaping @Sendable () -> IrxTunnelDestinationPolicy,
         isAuthorized: @escaping @Sendable () -> Bool,
         listPorts: @escaping @Sendable () async -> [IrxListeningPort] = {
-            await Task.detached(priority: .utility) { IrxListeningPortScanner.loopbackListeningPorts() }.value
+            await Task.detached(priority: .utility) { IrxListeningPortScanner().loopbackListeningPorts() }.value
         },
         journal: IrxJournal? = nil,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
