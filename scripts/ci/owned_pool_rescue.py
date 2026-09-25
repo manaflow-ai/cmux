@@ -413,9 +413,11 @@ class GitHub:
         with urllib.request.urlopen(request, timeout=20) as response:
             body = response.read()
             self.remaining = response.headers.get("X-RateLimit-Remaining") or self.remaining
+            self.limit = response.headers.get("X-RateLimit-Limit") or self.limit
         return json.loads(body) if body else None
 
     remaining = ""  # the token's requests left this hour, from the last response
+    limit = ""  # and its hourly limit
 
     def marked_runs(self, name: str, count: int) -> list[tuple[int, dt.datetime | None]]:
         """Runs with an artifact named `name`, newest first, with when each was uploaded (sweep())."""
@@ -919,17 +921,34 @@ class Stopping(Aborted):
     pass
 
 
-def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool) -> Target | str:
-    """The target for a marked run, resuming the attempt its rescue re-ran (LAST_OWNED_ATTEMPT at most)."""
+# A run that finished this long before a sweeper started is left alone: the
+# sweeper before it was running then and has already acted on it.
+SWEEP_FINISHED_SECONDS = 30 * 60
+
+
+def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_rerun: bool = False,
+                 since: dt.datetime | None = None) -> Target | str:
+    """The target for a marked run, resuming the attempt its rescue re-ran (LAST_OWNED_ATTEMPT at most).
+
+    A finished run is only worth a look when it failed after `since`: a
+    refusal nobody re-ran yet. `full_rerun` says attempt 2 re-ran the picker
+    (a stuck run's re-run under CI_OWNED_LIGHT_RETRY).
+    """
     attempt = int(run.get("run_attempt") or 0)
     if attempt < 1 or attempt > LAST_OWNED_ATTEMPT:
         return f"attempt {attempt}"
+    if run.get("status") == "completed":
+        if run.get("conclusion") != "failure":
+            return f"finished ({run.get('conclusion')})"
+        finished = parse_time(run.get("updated_at"))
+        if since is not None and finished is not None and finished < since:
+            return "finished before this sweeper's predecessor stopped"
     target = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
     if isinstance(target, str):
         return target
     if attempt > 1:
-        # A re-run of failed jobs (a rescue, or a person): follow its owned jobs, if any.
-        return dataclasses.replace(target, attempt=attempt)
+        # A re-run (a rescue, or a person): follow its owned jobs, if any.
+        return dataclasses.replace(target, attempt=attempt, full_rerun=full_rerun)
     if late and not (target.e2e or target.main or target.side):
         return dataclasses.replace(target, late=True)
     return target
@@ -947,6 +966,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     threads: list[threading.Thread] = []
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
+    since = started - dt.timedelta(seconds=SWEEP_FINISHED_SECONDS)
 
     def watch_sleep(delay: float) -> None:
         if stopping.wait(delay):
@@ -980,7 +1000,18 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             seen.discard(run_id)  # the next tick tries again
             log(f"[run {run_id}] could not read the run ({error})")
             return
-        target = sweep_target(run, repository, late=late)
+        full_rerun = False
+        if light_retry and int(run.get("run_attempt") or 0) > 1:
+            # A full re-run ran the picker again; a re-run of failed jobs kept attempt 1's.
+            try:
+                jobs = read(lambda: client.jobs(run_id, int(run["run_attempt"])), wait, log)
+            except READ_ERRORS as error:
+                seen.discard(run_id)
+                log(f"[run {run_id}] could not read attempt {run['run_attempt']} ({error})")
+                return
+            picker = E2E_PICKER_JOB if run.get("path") in DISPATCH_WORKFLOW_PATHS else PICKER_JOB
+            full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1 for job in jobs)
+        target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
             return
@@ -1002,7 +1033,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                     continue
                 adopt(run_id, late)
         threads = [thread for thread in threads if thread.is_alive()]
-        log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} API requests left this hour")
+        log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} of "
+            f"{client.limit or '?'} API requests left this hour")
         wait(tick_seconds)
     log("handing over: stopping watches; rescues under way finish")
     stopping.set()

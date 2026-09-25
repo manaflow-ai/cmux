@@ -1089,10 +1089,14 @@ class MainDispatch(unittest.TestCase):
 class SweepAPI:
     """The sweeper's own reads: marker listings and the runs they name."""
 
-    def __init__(self, runs, *, picker=(), late=(), created=0):
+    def __init__(self, runs, *, picker=(), late=(), created=0, attempt_jobs=None):
         self.runs = {run["id"]: run for run in runs}
         self.marked = {rescue.WATCH_MARKER: list(picker), rescue.LATE_WATCH_MARKER: list(late)}
-        self.created, self.remaining, self.reads = created, "900", []
+        self.created, self.remaining, self.limit, self.reads = created, "900", "1000", []
+        self.attempt_jobs = attempt_jobs or {}
+
+    def jobs(self, run_id, attempt):
+        return self.attempt_jobs.get(run_id, [])
 
     def marked_runs(self, name, count):
         return [(run_id, START + dt.timedelta(seconds=self.created)) for run_id in self.marked[name]][:count]
@@ -1109,15 +1113,16 @@ def listed(run_id, **overrides):
 
 
 class Sweeper(unittest.TestCase):
-    def sweep(self, api, *, follow=None, ticks=3):
+    def sweep(self, api, *, follow=None, ticks=3, light_retry=False):
         clock, watched = Clock(), []
 
         def fake_follow(client, target, **kwargs):
-            watched.append((target.run_id, target.attempt, target.late))
+            watched.append((target.run_id, target.attempt, target.late) if not light_retry
+                           else (target.run_id, target.attempt, target.full_rerun))
             return follow(kwargs["sleep"]) if follow else "stopped: the run finished"
 
         with unittest.mock.patch.object(rescue, "follow", fake_follow):
-            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=False,
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=light_retry,
                                     now=clock.now, log=lambda text: None, sweep_seconds=ticks * 60,
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
@@ -1142,6 +1147,22 @@ class Sweeper(unittest.TestCase):
         api = SweepAPI([listed(1, run_attempt=2), listed(2, run_attempt=3)], picker=[1, 2])
         # Attempt 3 and later always take Blacksmith: nothing to watch.
         self.assertEqual(self.sweep(api)[0], [(1, 2, False)])
+
+    def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
+        recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)
+        runs = [listed(1, status="completed", conclusion="success", updated_at=recent),
+                listed(2, status="completed", conclusion="failure", updated_at=old),
+                listed(3, status="completed", conclusion="failure", updated_at=recent),
+                listed(4, status="in_progress")]
+        # Only a recent failure can be a refusal nobody re-ran; a run in flight is watched as ever.
+        self.assertEqual(self.sweep(SweepAPI(runs, picker=[1, 2, 3, 4]))[0], [(3, 1, False), (4, 1, False)])
+
+    def test_a_resumed_full_re_run_waits_for_its_picker(self):
+        full = [dict(job("changes", status="completed"), run_attempt=2)]
+        failed_only = [dict(job("changes", status="completed"), run_attempt=1)]
+        api = SweepAPI([listed(1, run_attempt=2), listed(2, run_attempt=2)], picker=[1, 2],
+                       attempt_jobs={1: full, 2: failed_only})
+        self.assertEqual(self.sweep(api, light_retry=True)[0], [(1, 2, True), (2, 2, False)])
 
     def test_leaves_runs_past_the_longest_watch(self):
         api = SweepAPI([listed(1)], picker=[1], created=-rescue.SWEEP_MAX_AGE_SECONDS - 60)
