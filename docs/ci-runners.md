@@ -210,7 +210,7 @@ names no owned pool.
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
-| `CI_OWNED_MAIN_RESERVE` | `4` | machines, and root runners, main's full-suite dispatch leaves free when it takes an owned pool (below) |
+| `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
 | `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online, idle runners carrying an owned label are that pool's free machines, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age. Any failure falls back to them |
 | `CI_OWNED_LIGHT_RETRY` | unset (off) | `1` lets attempt 2, the full re-run the rescue starts for a job stuck on a full `std` pool, take the `light` pool when the run's whole owned peak is free there and `github-actions[bot]` started the re-run (a person's re-run of attempt 2 stays on Blacksmith). The rescue watches that attempt like attempt 1, and a job stuck or refused there goes to Blacksmith on attempt 3. Only while it is on do the janitor and the picker look up attempt 2's marker. Order: std, light, Blacksmith |
 
@@ -218,15 +218,15 @@ Main's full suite: `ci-main-full-suite.yml` dispatches `ci.yml` on main about
 32 times a day, each a full suite. Until this change every one ran compile
 admission and the seven app-host shards on Blacksmith (p50 wall about 37
 minutes; admission 887 s on 6vcpu against 663 s on a mini with a 2 s queue).
-The dispatch runs main's own code, so the picker routes it too, with lower
-priority than pull requests: it takes an owned pool only when the whole run
-fits there with `CI_OWNED_MAIN_RESERVE` machines and as many root runners
-still free (no split), and never takes a Blacksmith pick, so otherwise it keeps
-`MACOS_RUNNER_PR` as before. Its run holds 9 root runners at peak (admission's,
-then 7 shards, tests-build-and-lag and cli-product-tests); the Claude wrapper
-and remote daemon lanes route only for pull requests, so they are not counted.
-With 14 root runners a reserve above 5 would keep main off the fleet; the
-default 4 lets it in when at least 13 are idle. Main's CI concurrency group
+The dispatch runs main's own code, so the picker places it like a
+same-repository pull request, split and the `CI_PR_POOL_QUEUE_ROUNDS` queue
+allowance included, on the owned pools only: jobs that do not fit keep
+`MACOS_RUNNER_PR` as before. Its run holds 9 root runners
+at peak (admission's, then 7 shards, tests-build-and-lag and cli-product-tests);
+the Claude wrapper and remote daemon lanes route only for pull requests, so they
+are not counted. `CI_OWNED_MAIN_RESERVE` above 0 holds that many machines and
+root runners back for pull requests, and then main takes the pool only whole
+and only while its peak is free now, with no queue allowance. Main's CI concurrency group
 runs one dispatch at a time, so main never holds more than one run's machines.
 Its marker, the janitor's `committed` count, the route replay in newer picks,
 the owned Mac's kept build state and the rescue all treat it like a

@@ -185,12 +185,13 @@ Main's full suite: ci-main-full-suite.yml dispatches ci.yml on main about
 tests-build-and-lag, cli-product-tests). That is main's own code, so it may
 take an owned pool like a same-repository pull request, and ci-macos.yml
 already routes a `workflow_dispatch` on `refs/heads/main` through the same
-inputs. It yields to pull requests: it takes an owned pool only when its
-whole run fits there (no split) with CI_OWNED_MAIN_RESERVE machines, and as
-many root runners, still free afterwards (DEFAULT_MAIN_RESERVE when unset).
-Otherwise it gets no pick and keeps its own route (MACOS_RUNNER_PR), exactly
-as before, since only an owned pool is a candidate for it (the Blacksmith
-pools still absorb the replayed runs). Its side lanes (the Claude wrapper and
+inputs. It is placed like a pull request, split and queue allowance
+(CI_PR_POOL_QUEUE_ROUNDS) included, on the owned pools only; what does not
+fit keeps its own route (MACOS_RUNNER_PR), since only an owned pool is a
+candidate for it. CI_OWNED_MAIN_RESERVE (0 when unset) holds that many
+machines and root runners back for pull requests; with a reserve it takes
+an owned pool only whole, and only while its peak is free now (no queue
+allowance). Its side lanes (the Claude wrapper and
 remote daemon) route only for pull requests, so they are not in its plan.
 Main's CI concurrency group holds one run at a time, so main holds at most
 one run's machines. ci-owned-pool-rescue.yml watches it like a pull request.
@@ -268,11 +269,9 @@ LIGHT_CLASS = "light"
 RESCUE_ACTOR = "github-actions[bot]"
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
-# Its run holds 9 root runners at peak (admission's, then 7 shards, lag and
-# cli-product), and the fleet had 14 on 2026-09-25, so a reserve above 5
-# would keep main off the fleet entirely; 4 lets it in only when the fleet
-# is nearly idle (13 of 14 root runners free).
-DEFAULT_MAIN_RESERVE = 4
+# 0: main takes the minis like a pull request. Its run holds 9 root runners
+# at peak, so a reserve only lets it in whole when the fleet is nearly idle.
+DEFAULT_MAIN_RESERVE = 0
 # The ref of main's full-suite dispatch (ci-main-full-suite.yml).
 MAIN_REF = "refs/heads/main"
 MAIN_BRANCH = "main"
@@ -1146,8 +1145,8 @@ def choose(
     """The pool for this run and the snapshot it was read from (None when none was read).
 
     Main's full-suite dispatch (`workflow_dispatch` on MAIN_REF) may take an
-    owned pool only, whole, with `main_reserve` machines and root runners
-    left free (see "Main's full suite" above); anything else keeps its route.
+    owned pool only, placed like a pull request unless `main_reserve` holds
+    machines back (see "Main's full suite" above); anything else keeps its route.
 
     `queue_rounds` is CI_PR_POOL_QUEUE_ROUNDS as settings() reads it; a fork
     run reads the janitor's copy instead.
@@ -1170,8 +1169,8 @@ def choose(
             return Choice("", "", f"{MAIN_RESERVE_VARIABLE} is not a number"), None
         if reserve < 0:
             return Choice("", "", f"{MAIN_RESERVE_VARIABLE} is negative"), None
-        # Main's own code: the same repository by definition, and never split.
-        head_repo, split = repo, ""
+        # Main's own code: the same repository by definition.
+        head_repo = repo
     if not head_repo:
         return Choice("", "", "pull request head repository unknown"), None
     fork = head_repo != repo

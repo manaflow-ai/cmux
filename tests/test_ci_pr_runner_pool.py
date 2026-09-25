@@ -1709,7 +1709,7 @@ def sim_fleet(running=0, queued=0, committed=0, **kwargs) -> dict:
 
 
 class MainFullSuite(unittest.TestCase):
-    """Main's full-suite dispatch takes an owned pool whole, and only with a reserve left for pull requests."""
+    """Main's full-suite dispatch takes the owned pools like a pull request, or whole behind a reserve."""
 
     SLOTS = json.dumps({MINI: 36, ROOT_MINI: 14})
     PLAN = dataclasses.replace(pool.FULL_RUN, side=())
@@ -1729,25 +1729,27 @@ class MainFullSuite(unittest.TestCase):
 
     def test_its_run_holds_nine_machines_and_nine_root_runners(self):
         self.assertEqual((pool.owned_peak(self.PLAN), pool.root_peak(self.PLAN)), (9, 9))
-        # 14 root runners less 9 leaves 5: a default above that never routes main.
-        self.assertLessEqual(pool.DEFAULT_MAIN_RESERVE, 14 - 9)
+        # By default main holds nothing back: it takes the minis like a pull request.
+        self.assertEqual(pool.DEFAULT_MAIN_RESERVE, 0)
 
     def test_an_idle_fleet_takes_the_whole_run(self):
         choice = self.main_choice(self.snap())
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
         self.assertIn("main's full-suite dispatch", choice.reason)
-        self.assertIn(f"{pool.DEFAULT_MAIN_RESERVE} kept free for pull requests", choice.reason)
         self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
                          ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
 
     def test_the_reserve_holds_root_runners_and_machines_back_for_pull_requests(self):
-        # 14 - 2 busy = 12 root runners free: 9 for main leaves 3, under the default reserve of 4.
+        # 14 - 2 busy = 12 root runners free: 9 for main leaves 3, under a reserve of 4.
         for snap in (self.snap(roots_busy=2), self.snap(busy=24)):
-            choice = self.main_choice(snap)
+            choice = self.main_choice(snap, reserve="4")
             self.assertEqual(choice.runner, "", choice.reason)
             self.assertIn("left free for pull requests", choice.reason)
-        # Split never applies to main, however many machines are free.
-        self.assertEqual(self.main_choice(self.snap(roots_busy=2), split="1").runner, "")
+        self.assertIn("4 kept free for pull requests", self.main_choice(self.snap(), reserve="4").reason)
+        # Behind a reserve main never splits, however many machines are free.
+        self.assertEqual(self.main_choice(self.snap(roots_busy=2), split="1", reserve="4").runner, "")
+        # With none (the default) it splits like a pull request: what fits takes the minis.
+        self.assertEqual(self.main_choice(self.snap(roots_busy=6), split="1").runner, MINI)
         # A smaller reserve lets it in; the variable is read as a count.
         self.assertEqual(self.main_choice(self.snap(roots_busy=2), reserve="3").runner, MINI)
         self.assertEqual(self.main_choice(self.snap(roots_busy=5), reserve="0").runner, MINI)
@@ -1755,6 +1757,26 @@ class MainFullSuite(unittest.TestCase):
         # A pull request with the same load is not held to the reserve.
         pull = owned_choice(self.snap(roots_busy=5), owned_slots=self.SLOTS, jobs=9, root_jobs=9)
         self.assertEqual(pull.runner, MINI)
+
+    def test_queues_a_round_like_a_pull_request_unless_a_reserve_is_set(self):
+        # Every mini busy: a round of queue (CI_PR_POOL_QUEUE_ROUNDS=1) lets a
+        # pull request and main take the fleet anyway, and the picker says the
+        # placed jobs queue on purpose (the rescue's longer budget).
+        full = self.snap(busy=36, roots_busy=14)
+        pull = owned_choice(full, owned_slots=self.SLOTS, jobs=9, root_jobs=9, queue_rounds="1")
+        self.assertEqual(pull.runner, MINI)
+        choice = self.main_choice(full, queue_rounds="1")
+        self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI), choice.reason)
+        self.assertIn("may queue behind them", choice.reason)
+        owned_jobs = pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0]
+        self.assertTrue(pool.used_queue(choice, self.PLAN, owned_jobs, len(owned_jobs)))
+        # Rounds 0 is the old rule for both: the run's peak must be free now.
+        self.assertEqual(self.main_choice(full, queue_rounds="0").runner, "")
+        # A reserve keeps main off the queue allowance: it takes the pool only
+        # while its peak and the reserve are free now.
+        self.assertEqual(self.main_choice(full, queue_rounds="1", reserve="1").runner, "")
+        self.assertEqual(self.main_choice(self.snap(roots_busy=5), queue_rounds="1", reserve="1").runner, "")
+        self.assertEqual(self.main_choice(self.snap(roots_busy=4), queue_rounds="1", reserve="1").runner, MINI)
 
     def test_never_a_blacksmith_pick(self):
         # A pull request would overflow to 12vcpu here; main keeps MACOS_RUNNER_PR.
