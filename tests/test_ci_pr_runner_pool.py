@@ -2341,6 +2341,68 @@ class IOSRouting(unittest.TestCase):
         outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
         self.assertEqual((outputs["jobs"], outputs["sim_jobs"]), ("1", "0"))
 
+class E2EQueueRounds(unittest.TestCase):
+    """e2e_runner_pool.py queues for an owned pool within CI_PR_POOL_QUEUE_ROUNDS, as pull requests do."""
+
+    LIGHT = "glaeda-light-xcode-26.6"
+    ROOT_LIGHT = "glaeda-root-light-xcode-26.6"
+    SLOTS = {MINI: 32, "glaeda-light-xcode-26.6": 4, ROOT_MINI: 15, "glaeda-root-light-xcode-26.6": 2}
+
+    def snapshot(self):
+        """The janitor snapshot of 2026-09-25 12:34:57 UTC that run 36136190497 read."""
+        snap = backlog(small=62, large=23, old=29)
+        snap["pools"][SMALL]["running"] = 5
+        snap["pools"][OLD]["reserved_queued"] = 1
+        snap["pools"][MINI] = {"queued": 15, "running": 8, "committed": 43}
+        snap["pools"][ROOT_MINI] = {"queued": 15, "running": 8, "committed": 42}
+        snap["pools"][self.LIGHT] = {"queued": 3, "running": 1, "committed": 5}
+        snap["pools"][self.ROOT_LIGHT] = {"queued": 3, "running": 1, "committed": 5}
+        return snap
+
+    def choice(self, queue_rounds, pull_requests_since, snap=None):
+        limits = e2e_pool.settings("", "", "1", PR_XCODE, queue_rounds)
+        return e2e_pool.decide(e2e_pool.PoolLoad(snap or self.snapshot(), {}, pull_requests_since), limits,
+                               now=NOW, owned_slots=self.SLOTS)
+
+    def test_the_incident_snapshot_queues_for_a_mini_with_the_rounds(self):
+        # Without the rounds `committed` reads every owned pool full: Blacksmith.
+        for rounds in (None, "0"):
+            choice = self.choice(rounds, 13)
+            self.assertFalse(pool.persistent(choice.runner), rounds)
+            self.assertIn("every pool is full", choice.reason)
+        # With 2 rounds the run joins an owned root queue that starts it within 20 minutes.
+        choice = self.choice("2", 13)
+        self.assertTrue(pool.persistent(choice.runner))
+        self.assertTrue(choice.root_runner.startswith(pool.ROOT_PREFIX))
+        self.assertIn("queue places", choice.reason)
+
+    def test_with_no_owned_room_the_blacksmith_pick_is_the_headroom_rules(self):
+        # The rounds decide only whether an owned pool takes the run.
+        for pull_requests_since in (22, 40):
+            without = self.choice("0", pull_requests_since)
+            within = self.choice("2", pull_requests_since)
+            self.assertFalse(pool.persistent(within.runner))
+            self.assertEqual(within.runner, without.runner, pull_requests_since)
+            self.assertIn("no owned pool within 2 queue round(s)", within.reason)
+        # A free 12vcpu machine still wins on the headroom rule, not the least expected wait.
+        snap = backlog(small=0, large=0)
+        snap["pools"][LARGE]["running"] = 4
+        for label in (MINI, ROOT_MINI, self.LIGHT, self.ROOT_LIGHT):
+            snap["pools"][label] = {"queued": 60, "running": 40, "committed": 99}
+        self.assertEqual(self.choice("2", 0, snap).runner, LARGE)
+
+    def test_the_workflow_and_launchers_pass_the_rounds(self):
+        doc = yaml.safe_load((WORKFLOWS / "test-e2e.yml").read_text())
+        step = next(step for step in doc["jobs"]["runner"]["steps"] if step.get("id") == "pool")
+        self.assertEqual(step["env"]["POOL_QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
+        self.assertIn('--queue-rounds "$POOL_QUEUE_ROUNDS"', step["run"])
+        for name in ("test-macos-suite.yml", "main-regression-bisect.yml"):
+            text = (WORKFLOWS / name).read_text()
+            self.assertIn("CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}", text, name)
+        self.assertIn("pool.QUEUE_ROUNDS_VARIABLE, QUEUE_ROUNDS_ENV",
+                      (ROOT / "scripts/ci/dispatch-focused-test.py").read_text())
+
+
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
 

@@ -1237,6 +1237,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}": overflow,
             "${{ vars.CI_PR_POOL_ORDER }}": order,
             "${{ vars.CI_PR_POOL_MAX_QUEUED }}": max_queued,
+            "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}": "",
             "${{ vars.CI_PR_POOL_OWNED }}": "1",
             "${{ vars.CI_OWNED_POOL_SLOTS }}": json.dumps({MINI: 8}),
             "${{ vars.CMUX_CI_XCODE_APP_PR }}": "/Applications/Xcode_26.6.app",
