@@ -1607,6 +1607,13 @@ class RootRunners(unittest.TestCase):
                          {"queued": 1, "running": 1, "committed": 5})
         self.assertEqual({key: snap["pools"][MINI][key] for key in ("queued", "running", "committed")},
                          {"queued": 1, "running": 2, "committed": 7})
+        # Side lanes on the side label (side_runner) leave the root share the same.
+        jobs = {1: [job(ROOT_MINI, "in_progress"), job(ROOT_MINI, "queued"), job(SIDE_MINI, "in_progress"),
+                    job(SIDE_MINI, "completed")]}
+        snap = janitor.pool_load_snapshot([run], jobs, now=NOW, markers={1: (MINI, 7)})
+        self.assertEqual(snap["pools"][ROOT_MINI]["committed"], 5)
+        self.assertEqual({key: snap["pools"][MINI][key] for key in ("queued", "running", "committed")},
+                         {"queued": 1, "running": 2, "committed": 7})
         # An E2E marker names the root label: one root runner, one machine.
         e2e = {"id": 2, "name": "E2E", "path": ".github/workflows/test-e2e.yml", "status": "in_progress"}
         snap = janitor.pool_load_snapshot([e2e], {2: []}, now=NOW, markers={2: (ROOT_MINI, 1)})
