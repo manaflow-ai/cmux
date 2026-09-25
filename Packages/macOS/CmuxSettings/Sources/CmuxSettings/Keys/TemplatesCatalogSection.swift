@@ -22,11 +22,11 @@ public struct PanelTemplateCatalog: SettingCatalogSection {
     public let footerExtensions: JSONKey<String>
 
     public init(prefix: String, fontSize: Double = 15, lineHeight: Double = 1.5) {
-        font = JSONKey(id: "\(prefix).font", defaultValue: "")
-        fontSize = JSONKey(id: "\(prefix).fontSize", defaultValue: fontSize)
-        lineHeight = JSONKey(id: "\(prefix).lineHeight", defaultValue: lineHeight)
-        cssOverlay = JSONKey(id: "\(prefix).cssOverlay", defaultValue: "")
-        headerExtensions = JSONKey(id: "\(prefix).headerExtensions", defaultValue: "")
-        footerExtensions = JSONKey(id: "\(prefix).footerExtensions", defaultValue: "")
+        self.font = JSONKey(id: "\(prefix).font", defaultValue: "")
+        self.fontSize = JSONKey(id: "\(prefix).fontSize", defaultValue: fontSize)
+        self.lineHeight = JSONKey(id: "\(prefix).lineHeight", defaultValue: lineHeight)
+        self.cssOverlay = JSONKey(id: "\(prefix).cssOverlay", defaultValue: "")
+        self.headerExtensions = JSONKey(id: "\(prefix).headerExtensions", defaultValue: "")
+        self.footerExtensions = JSONKey(id: "\(prefix).footerExtensions", defaultValue: "")
     }
 }
