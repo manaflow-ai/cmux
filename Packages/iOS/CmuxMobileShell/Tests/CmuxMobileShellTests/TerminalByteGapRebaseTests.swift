@@ -14,9 +14,10 @@ import Testing
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: surfaceID)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
-    try await waitForReplayResponsesServed(
-        1,
+    try await waitForColdReplayApplied(
+        store: store,
         router: router,
+        surfaceID: surfaceID,
         "the cold replay response must settle before testing byte-gap delivery"
     )
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
@@ -56,9 +57,10 @@ import Testing
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: surfaceID)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
-    try await waitForReplayResponsesServed(
-        1,
+    try await waitForColdReplayApplied(
+        store: store,
         router: router,
+        surfaceID: surfaceID,
         "the cold replay response must settle before testing byte-gap replay replacement"
     )
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
@@ -89,4 +91,26 @@ import Testing
 
     await router.releaseAllHeld()
     collector.unmount()
+}
+
+/// The router counts a replay response as served when it builds the frame,
+/// before the store applies it. The response resumes the replay task and a
+/// pushed event resumes the listener loop, and the two reach the main actor in
+/// either order. A live chunk that wins that race lands on the still-armed
+/// cold-attach barrier and is dropped, and the empty scripted follow-up replay
+/// never restores it. Wait until the store has cleared the barrier so the
+/// first live chunk is delivered as live output.
+@MainActor
+private func waitForColdReplayApplied(
+    store: MobileShellComposite,
+    router: LivenessHostRouter,
+    surfaceID: String,
+    _ message: String
+) async throws {
+    try await waitForReplayResponsesServed(1, router: router, message)
+    let applied = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(applied, "\(message)")
 }

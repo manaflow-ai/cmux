@@ -105,8 +105,21 @@ import Testing
         text: "partial-dropped-before-full-ack",
         full: false
     ))
+    // `deliver` only queues the frame for the read loop. Acknowledging the
+    // full frame before the listener handles the partial clears the barrier
+    // first, and the partial then lands as ordinary live output with nothing
+    // to repair. Wait until the barrier has actually dropped it.
+    let partialDropped = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(partialDropped, "the partial after the live full frame must be dropped behind the pending full-frame ack")
     await router.enqueueReplayPayload(text: "stale-held-replay", sequence: 5)
     await router.releaseAllHeld()
+    try await waitForReplayResponsesServed(
+        2,
+        router: router,
+        "the held stale replay must be answered before the full-frame ack"
+    )
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: fullChunk.streamToken)
 
     let followUpRequested = await router.waitForCount(
