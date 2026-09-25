@@ -540,7 +540,9 @@ extension ControlCommandCoordinator {
     /// never render.
     static func normalizeHexColor(_ value: String) -> String? {
         let body = value.hasPrefix("#") ? String(value.dropFirst()) : value
-        guard body.count == 6, body.allSatisfy({ $0.isHexDigit }) else { return nil }
+        // ASCII only: `Character.isHexDigit` also accepts fullwidth digits,
+        // which the renderer's `UInt64(_:radix:)` parse rejects.
+        guard body.count == 6, body.allSatisfy({ $0.isASCII && $0.isHexDigit }) else { return nil }
         return "#" + body.uppercased()
     }
 

@@ -110,7 +110,7 @@ struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
         // renders (it only accepts 6-digit RRGGBB), and the off-by-one
         // lengths are not hex colors at all; all must be rejected, not
         // stored or cleared.
-        for badValue in ["#F3A", "#F3AB", "#12345", "#1234567", "#FF3EA5C8", "#12", "#123456789"] {
+        for badValue in ["#F3A", "#F3AB", "#12345", "#1234567", "#FF3EA5C8", "#12", "#123456789", "#\u{FF26}\u{FF26}3EA5"] {
             guard case .err(let code, _, _) = coordinator.handle(request(
                 "workspace.group.set_color",
                 [
