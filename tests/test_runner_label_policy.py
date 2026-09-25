@@ -202,11 +202,16 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # The report is passed an explicit list rather than toJSON(vars), which
         # would print every repository variable in a public step log. A list
         # can fall behind; this is what keeps it complete.
+        # A *_RUNNERS variable lists runner machine names (e.g.
+        # CI_SEED_KEEP_LOCAL_RUNNERS), not a runs-on label, so the label report
+        # would only flag it as fleet drift.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
-            read |= set(
-                re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
-            )
+            read |= {
+                name
+                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
+                if not name.endswith("_RUNNERS")
+            }
         self.assertTrue(read)
         missing = read - reported_runner_variables()
         self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
