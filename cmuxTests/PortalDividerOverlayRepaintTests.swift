@@ -187,9 +187,15 @@ extension TerminalWindowPortalLifecycleTests {
         )
         fixture.portal.synchronizeHostedViewForAnchor(secondAnchor, syncLayout: false)
 
-        // Re-add the divider below the second hosted view, which by (or after
-        // a re-order) sits at or above the first hosted view: both intrude.
-        host.addSubview(divider, positioned: .below, relativeTo: secondHosted)
+        // Re-add the divider below the LOWER of the two hosted views, so both
+        // sit above it and both intrude. Binding order puts the first hosted
+        // view below the second, but pick by index so the premise holds either way.
+        let firstHostedIndexBeforeSink = try XCTUnwrap(host.subviews.firstIndex(of: fixture.hostedView))
+        let secondHostedIndexBeforeSink = try XCTUnwrap(host.subviews.firstIndex(of: secondHosted))
+        let lowestHosted: NSView = firstHostedIndexBeforeSink < secondHostedIndexBeforeSink
+            ? fixture.hostedView
+            : secondHosted
+        host.addSubview(divider, positioned: .below, relativeTo: lowestHosted)
 
         let dividerBeforeSync = try XCTUnwrap(
             host.subviews.firstIndex(of: divider),
@@ -204,11 +210,11 @@ extension TerminalWindowPortalLifecycleTests {
             "Second hosted view must still be a subview"
         )
         XCTAssertLessThan(
-            hostedIndex, dividerBeforeSync,
+            dividerBeforeSync, hostedIndex,
             "Premise: the FIRST hosted view sits above the divider after the sink"
         )
         XCTAssertLessThan(
-            secondIndex, dividerBeforeSync,
+            dividerBeforeSync, secondIndex,
             "Premise: the SECOND hosted view sits above the divider after the sink"
         )
 
