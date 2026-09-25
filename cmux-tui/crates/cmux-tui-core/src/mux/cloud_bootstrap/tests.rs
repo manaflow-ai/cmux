@@ -428,8 +428,15 @@ fn cloud_bootstrap_closed_starter_is_not_recreated_or_replayed() {
         panic!("ineligible first user")
     })
     .unwrap();
-    let surface = mux.with_state(|state| *state.surfaces.keys().next().unwrap());
-    mux.close_surface(surface).unwrap();
+    let surface = mux.with_state(|state| state.surfaces.values().next().unwrap().clone());
+    // Closing a local pane only detaches its view; it must not terminate the
+    // remote terminal. Exercise the explicit terminal-close path here so this
+    // test verifies that a terminated starter receipt cannot replay or rearm.
+    let identity = mux
+        .resource_terminal_host_identity(&surface)
+        .expect("first Cloud terminal has a durable host identity");
+    let closed = mux.close_terminal(&identity.terminal_id, &identity.incarnation).unwrap();
+    assert!(!closed.already_closed);
     let replay = mux
         .open_cloud_initial_terminal_with_renderer(true, Some("vm-first"), Some(&first), || {
             panic!("a closed first terminal never rearms the welcome")
@@ -437,4 +444,69 @@ fn cloud_bootstrap_closed_starter_is_not_recreated_or_replayed() {
         .unwrap();
     assert!(replay["created_path"].is_null());
     assert!(mux.with_state(|state| state.surfaces.is_empty()));
+}
+
+#[test]
+fn cloud_bootstrap_detached_starter_refuses_stale_placement_without_recreating() {
+    let mux = mux();
+    mux.reserve_cloud_initial_workspace().unwrap();
+    let first = mux.with_state(|state| state.workspaces[0].public_id.to_string());
+    let opened = mux
+        .open_cloud_initial_terminal_with_renderer(false, Some("vm-first"), Some(&first), || {
+            panic!("ineligible first user")
+        })
+        .unwrap();
+    let surface = mux.with_state(|state| state.surfaces.values().next().unwrap().clone());
+    assert!(mux.close_surface(surface.id).unwrap());
+    assert!(!surface.is_dead(), "detaching the view must preserve remote work");
+    let before = mux.workspace_registry.lock().unwrap().terminal_snapshot().unwrap();
+    let topology = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+    assert!(
+        !topology.tabs.iter().any(|tab| {
+            Some(tab.public_id.as_str()) == opened["created_path"]["tab_id"].as_str()
+        })
+    );
+    for requested in [Some(first.as_str()), None] {
+        let replay = mux
+            .open_cloud_initial_terminal_with_renderer(true, Some("vm-first"), requested, || {
+                panic!("a detached starter never rearms the welcome")
+            })
+            .unwrap();
+        assert!(replay["created_path"].is_null());
+        assert_eq!(replay["occupied"], true, "a retry must not create another terminal");
+    }
+    assert!(mux.with_state(|state| state.surfaces.is_empty()));
+    assert!(!surface.is_dead());
+    assert_eq!(before, mux.workspace_registry.lock().unwrap().terminal_snapshot().unwrap());
+}
+
+#[test]
+fn cloud_bootstrap_moved_starter_refuses_stale_placement_without_moving_it_back() {
+    let mux = mux();
+    mux.reserve_cloud_initial_workspace().unwrap();
+    let first = mux.with_state(|state| state.workspaces[0].public_id.to_string());
+    let opened = mux
+        .open_cloud_initial_terminal_with_renderer(false, Some("vm-first"), Some(&first), || {
+            panic!("ineligible first user")
+        })
+        .unwrap();
+    let surface = mux.with_state(|state| state.surfaces.values().next().unwrap().clone());
+    let destination = mux.create_empty_workspace(None, None, None).unwrap();
+    mux.move_tab_to_workspace(surface.id, Some(destination.workspace)).unwrap();
+    let moved_path = mux.created_resource_path(surface.id).unwrap();
+    assert_eq!(moved_path["tab_id"], opened["created_path"]["tab_id"]);
+    assert_ne!(moved_path["workspace_id"], first);
+    let before = mux.workspace_registry.lock().unwrap().terminal_snapshot().unwrap();
+    for requested in [Some(first.as_str()), None] {
+        let replay = mux
+            .open_cloud_initial_terminal_with_renderer(true, Some("vm-first"), requested, || {
+                panic!("a moved starter never rearms the welcome")
+            })
+            .unwrap();
+        assert!(replay["created_path"].is_null());
+        assert_eq!(replay["occupied"], true, "a retry must not create another terminal");
+    }
+    assert_eq!(mux.created_resource_path(surface.id).unwrap(), moved_path);
+    assert!(!surface.is_dead());
+    assert_eq!(before, mux.workspace_registry.lock().unwrap().terminal_snapshot().unwrap());
 }
