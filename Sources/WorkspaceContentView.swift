@@ -739,7 +739,6 @@ extension WorkspaceContentView {
     #endif
 }
 
-/// View shown for empty panes
 /// Keeps `isAvailable` in step with the browser availability gate for views
 /// that offer a browser affordance.
 ///
@@ -769,6 +768,7 @@ extension View {
     }
 }
 
+/// View shown for empty panes
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
