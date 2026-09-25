@@ -18,7 +18,7 @@ public struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
     public var iconGap: Double = 4
     public var machineVerticalPadding: Double = 2
 
-    static let `default` = Self()
+    public static let `default` = Self()
 
     public func copyPayload(styleID: String) -> String {
         let metrics = self
