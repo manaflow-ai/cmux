@@ -82,13 +82,14 @@ struct AgentSessionWebRendererTests {
     @MainActor
     func testAgentSessionSchemeHandlerContainsAndTypesBundledResources() throws {
         let fileManager = FileManager.default
-        let rootURL = fileManager.temporaryDirectory
+        let fixtureURL = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-agent-session-\(UUID().uuidString)", isDirectory: true)
+        let rootURL = fixtureURL.appendingPathComponent("root", isDirectory: true)
         let chunksURL = rootURL.appendingPathComponent("chunks", isDirectory: true)
         try fileManager.createDirectory(at: chunksURL, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: rootURL) }
+        defer { try? fileManager.removeItem(at: fixtureURL) }
         try Data("export {};".utf8).write(to: chunksURL.appendingPathComponent("main.mjs"))
-        try Data("private".utf8).write(to: rootURL.deletingLastPathComponent().appendingPathComponent("outside.mjs"))
+        try Data("private".utf8).write(to: fixtureURL.appendingPathComponent("outside.mjs"))
 
         let handler = AgentSessionWebRendererURLSchemeHandler(rootURL: rootURL, fileManager: fileManager)
         let resource = try handler.resourceURL(
