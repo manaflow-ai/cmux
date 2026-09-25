@@ -26,12 +26,24 @@ extension TabManager {
         tabId: UUID,
         title: String?,
         source: Workspace.CustomTitleSource = .user,
-        propagateToRemoteTmux: Bool = true
+        propagateToRemoteTmux: Bool = true,
+        propagateToCloud: Bool = true,
+        catalog: SurfaceCatalog? = nil
     ) -> Bool {
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
+        let previousCustomTitle = tabs[index].customTitle
+        let previousSource = tabs[index].effectiveCustomTitleSource
+        if propagateToCloud, source != .remote,
+           let submitted = catalog.submitCloudWorkspaceRename(
+               workspace: tabs[index], title: title, source: source
+           ) { return submitted }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let applied = tabs[index].setCustomTitle(title, source: source)
+        if applied {
+            recordWorkspaceCustomTitle(tabs[index], source: source)
+        }
         if applied, selectedTabId == tabId {
             updateWindowTitle(for: tabs[index])
         }
@@ -51,6 +63,16 @@ extension TabManager {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWorkspaceRenamed(
                 workspaceId: tabId,
                 title: title
+            )
+        }
+        // A local workspace standing for a cloud machine's cmux-tui workspace writes a
+        // USER rename through to that daemon (persisted there, broadcast to every
+        // client). Auto titles never propagate. Workspace names stay non-empty,
+        // so clearing remains a local title operation only.
+        if applied, propagateToCloud, source == .user {
+            catalog.propagateCloudWorkspaceRename(
+                workspace: tabs[index], localTitle: title, previousCustomTitle: previousCustomTitle,
+                previousCustomTitleSource: previousSource
             )
         }
         return applied

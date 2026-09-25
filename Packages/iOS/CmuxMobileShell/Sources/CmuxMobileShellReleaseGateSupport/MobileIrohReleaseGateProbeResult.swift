@@ -3,6 +3,8 @@
 public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
     /// Whether `mobile.host.status` decoded over the authenticated session.
     public let hostStatusVerified: Bool
+    /// Whether every mobile RPC required by this iOS build was advertised by the Mac.
+    public let rpcMethodInventoryVerified: Bool
     /// Whether a unique terminal marker traveled phone to Mac and back.
     public let terminalRoundTripVerified: Bool
     /// Whether a workspace was renamed and restored through RPC.
@@ -31,6 +33,8 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
     public let unrefreshedExpiryDisconnectVerified: Bool
     /// Whole seconds spent driving control traffic during rollover.
     public let soakDurationSeconds: Int
+    /// Successful per-operation durations from this probe, in seconds.
+    public let operationLatencies: [String: Double]
 
     /// Creates a successful probe result.
     /// - Parameters:
@@ -43,6 +47,7 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
     ///   - artifactScanCountVerified: Artifact count-only scan verification result.
     public init(
         hostStatusVerified: Bool,
+        rpcMethodInventoryVerified: Bool,
         terminalRoundTripVerified: Bool,
         workspaceMutationVerified: Bool,
         independentEventsVerified: Bool,
@@ -56,9 +61,11 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
         independentEventsContinuityVerified: Bool = false,
         artifactLaneVerified: Bool = false,
         unrefreshedExpiryDisconnectVerified: Bool = false,
-        soakDurationSeconds: Int = 0
+        soakDurationSeconds: Int = 0,
+        operationLatencies: [String: Double] = [:]
     ) {
         self.hostStatusVerified = hostStatusVerified
+        self.rpcMethodInventoryVerified = rpcMethodInventoryVerified
         self.terminalRoundTripVerified = terminalRoundTripVerified
         self.workspaceMutationVerified = workspaceMutationVerified
         self.independentEventsVerified = independentEventsVerified
@@ -73,6 +80,7 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
         self.artifactLaneVerified = artifactLaneVerified
         self.unrefreshedExpiryDisconnectVerified = unrefreshedExpiryDisconnectVerified
         self.soakDurationSeconds = soakDurationSeconds
+        self.operationLatencies = operationLatencies
     }
 }
 #endif

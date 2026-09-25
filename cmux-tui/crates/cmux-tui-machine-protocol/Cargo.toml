@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
+subtle.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

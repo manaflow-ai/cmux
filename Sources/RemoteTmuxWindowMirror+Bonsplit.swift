@@ -520,25 +520,11 @@ extension RemoteTmuxWindowMirror {
             )
     }
 
-    func seedActivePaneIfNeeded() {
-        let live = renderedLayout.paneIDsInOrder
-        let seed = connection?.activePaneByWindow[windowId] ?? live.first
-        if activePaneId.map({ live.contains($0) }) != true, let seed {
-            setActivePane(seed, fromTmux: true)
-        } else if let activePaneId {
-            setActivePane(activePaneId, fromTmux: true)
-        }
-    }
-
     func refreshPaneTitles() {
         for paneId in renderedLayout.paneIDsInOrder { updatePaneTitle(paneId) }
     }
 
     func tmuxPaneId(forTab tabId: TabID) -> Int? { paneIdByTabId[tabId] }
-
-    func isFocused(tabId: TabID) -> Bool {
-        tmuxPaneId(forTab: tabId).map { $0 == activePaneId } ?? false
-    }
 
     func updatePaneCwd(paneId: Int, path: String) {
         cwdByPaneId[paneId] = path
@@ -550,21 +536,13 @@ extension RemoteTmuxWindowMirror {
         bonsplitController.updateTab(tabId, title: title(forPane: paneId))
     }
 
-    func focusBonsplitPane(forTmuxPane paneId: Int) {
-        // Idempotence guard: reconciles re-assert the active pane on every
-        // %layout-change echo, and an unconditional focusPane would mutate
-        // Bonsplit focus state (and fire didFocusPane) each time, stealing
-        // first responder from whatever the user is typing in.
-        guard let bonsplitPane = paneIdByPaneId[paneId],
-              bonsplitController.focusedPaneId != bonsplitPane else { return }
-        isApplyingTmuxFocus = true
-        bonsplitController.focusPane(bonsplitPane)
-        isApplyingTmuxFocus = false
-    }
-
     func title(forPane paneId: Int) -> String {
         let index = paneIndexByPaneId[paneId] ?? 0
-        return Self.windowPaneTitle(windowTitle, paneIndex: index)
+        return Self.surfaceTitle(
+            windowTitle: windowTitle,
+            paneIndex: index,
+            paneTitleMetadata: paneTitleMetadataByPane[paneId]
+        )
     }
 
     func combined(children: [RemoteTmuxLayoutNode], orientation: SplitOrientation) -> RemoteTmuxLayoutNode {
@@ -630,7 +608,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     func splitTabBarDividerDragDidBegin(_ controller: BonsplitController) {
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
             owner: controller,
-            in: NSApp.currentEvent?.window ?? visibleHostingContext()?.window
+            in: TerminalWindowPortalRegistry.pointerEventWindow() ?? visibleHostingContext()?.window
         )
         dividerResizeSentSinceDragBegan = false
         // An imposition that moved a divider parks its baseline at nil,

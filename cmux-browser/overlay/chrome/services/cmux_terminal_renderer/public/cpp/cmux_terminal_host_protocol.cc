@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace cmux {
@@ -13,6 +14,10 @@ namespace {
 
 constexpr size_t kClientHelloLength = 60;
 constexpr size_t kHostHelloLength = 40;
+constexpr uint64_t kMaxKittyImageBytes = 10'000'000;
+constexpr uint64_t kMaxKittyInflightBytes = 13'595'480;
+constexpr uint64_t kMaxKittyImages = 4'096;
+constexpr uint64_t kMaxKittyPlacements = 16'384;
 
 void AppendU16(std::vector<uint8_t>* output, uint16_t value) {
   output->push_back(static_cast<uint8_t>(value));
@@ -88,6 +93,12 @@ std::optional<TerminalHostMessageKind> ParseMessageKind(uint16_t value) {
       return TerminalHostMessageKind::kCapability;
     case 16:
       return TerminalHostMessageKind::kResizeAck;
+    case 17:
+      return TerminalHostMessageKind::kClearHistoryAck;
+    case 18:
+      return TerminalHostMessageKind::kCellPixelSizeAck;
+    case 19:
+      return TerminalHostMessageKind::kKittyGraphicsLimitsAck;
     case 100:
       return TerminalHostMessageKind::kInput;
     case 101:
@@ -100,6 +111,14 @@ std::optional<TerminalHostMessageKind> ParseMessageKind(uint16_t value) {
       return TerminalHostMessageKind::kTerminate;
     case 105:
       return TerminalHostMessageKind::kMintCapability;
+    case 106:
+      return TerminalHostMessageKind::kSetDefaults;
+    case 107:
+      return TerminalHostMessageKind::kClearHistory;
+    case 108:
+      return TerminalHostMessageKind::kSetCellPixelSize;
+    case 109:
+      return TerminalHostMessageKind::kSetKittyGraphicsLimits;
     default:
       return std::nullopt;
   }
@@ -225,6 +244,15 @@ class PayloadReader {
     return true;
   }
 
+  bool U64(uint64_t* value) {
+    std::string_view bytes;
+    if (!value || !Take(8, &bytes)) {
+      return false;
+    }
+    *value = ReadU64(bytes, 0);
+    return true;
+  }
+
   bool Bytes(size_t limit, std::string_view* bytes) {
     uint32_t length = 0;
     return U32(&length) && length <= limit && Take(length, bytes);
@@ -266,6 +294,109 @@ class PayloadReader {
   const std::string_view payload_;
   size_t offset_ = 0;
 };
+
+TerminalHostProtocolError ValidateKittyImageAliases(
+    const std::vector<TerminalHostKittyImageAlias>& aliases) {
+  if (aliases.size() > kTerminalHostMaxKittyImageAliases) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
+  }
+  // Repeated image numbers preserve Kitty's assignment history. Image IDs
+  // remain unique identities within a snapshot.
+  std::unordered_set<uint32_t> image_ids;
+  image_ids.reserve(aliases.size());
+  for (const TerminalHostKittyImageAlias& alias : aliases) {
+    if (alias.image_id == 0 || alias.image_number == 0 ||
+        !image_ids.insert(alias.image_id).second) {
+      return TerminalHostProtocolError::kMalformedPayload;
+    }
+  }
+  return TerminalHostProtocolError::kNone;
+}
+
+void AppendKittyImageAliases(
+    std::vector<uint8_t>* output,
+    const std::vector<TerminalHostKittyImageAlias>& aliases) {
+  AppendU16(output, static_cast<uint16_t>(aliases.size()));
+  for (const TerminalHostKittyImageAlias& alias : aliases) {
+    AppendU32(output, alias.image_id);
+    AppendU32(output, alias.image_number);
+  }
+}
+
+TerminalHostProtocolError ReadKittyImageAliases(
+    PayloadReader* reader,
+    std::vector<TerminalHostKittyImageAlias>* aliases) {
+  uint16_t count = 0;
+  if (!reader || !aliases || !reader->U16(&count) ||
+      count > kTerminalHostMaxKittyImageAliases) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  std::vector<TerminalHostKittyImageAlias> decoded;
+  decoded.reserve(count);
+  for (size_t index = 0; index < count; ++index) {
+    TerminalHostKittyImageAlias alias;
+    if (!reader->U32(&alias.image_id) ||
+        !reader->U32(&alias.image_number)) {
+      return TerminalHostProtocolError::kMalformedPayload;
+    }
+    decoded.push_back(alias);
+  }
+  if (ValidateKittyImageAliases(decoded) !=
+      TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  *aliases = std::move(decoded);
+  return TerminalHostProtocolError::kNone;
+}
+
+TerminalHostProtocolError ValidateKittyReplayState(
+    const TerminalHostKittyReplayState& state) {
+  if (state.limits.image_bytes > kMaxKittyImageBytes ||
+      state.limits.inflight_bytes > kMaxKittyInflightBytes ||
+      state.limits.images > kMaxKittyImages ||
+      state.limits.placements > kMaxKittyPlacements ||
+      state.replay_next_image_ids.primary == 0 ||
+      state.next_image_ids.primary == 0 ||
+      state.replay_next_image_ids.alternate == 0 ||
+      state.next_image_ids.alternate == 0) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  return TerminalHostProtocolError::kNone;
+}
+
+void AppendKittyReplayState(std::vector<uint8_t>* output,
+                            const TerminalHostKittyReplayState& state) {
+  AppendU64(output, state.limits.image_bytes);
+  AppendU64(output, state.limits.inflight_bytes);
+  AppendU64(output, state.limits.images);
+  AppendU64(output, state.limits.placements);
+  AppendU32(output, state.replay_cursor_offset);
+  AppendU32(output, state.replay_next_image_ids.primary);
+  AppendU32(output, state.next_image_ids.primary);
+  AppendU32(output, state.replay_next_image_ids.alternate);
+  AppendU32(output, state.next_image_ids.alternate);
+}
+
+TerminalHostProtocolError ReadKittyReplayState(
+    PayloadReader* reader,
+    TerminalHostKittyReplayState* state) {
+  TerminalHostKittyReplayState decoded;
+  if (!reader || !state ||
+      !reader->U64(&decoded.limits.image_bytes) ||
+      !reader->U64(&decoded.limits.inflight_bytes) ||
+      !reader->U64(&decoded.limits.images) ||
+      !reader->U64(&decoded.limits.placements) ||
+      !reader->U32(&decoded.replay_cursor_offset) ||
+      !reader->U32(&decoded.replay_next_image_ids.primary) ||
+      !reader->U32(&decoded.next_image_ids.primary) ||
+      !reader->U32(&decoded.replay_next_image_ids.alternate) ||
+      !reader->U32(&decoded.next_image_ids.alternate) ||
+      ValidateKittyReplayState(decoded) != TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  *state = decoded;
+  return TerminalHostProtocolError::kNone;
+}
 
 bool AppendBytes(std::vector<uint8_t>* output,
                  std::string_view bytes,
@@ -786,6 +917,7 @@ TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
     std::string_view incarnation,
     std::string_view token,
     uint64_t rights,
+    uint64_t protocol_version,
     uint64_t ttl_ms,
     uint64_t expected_ttl_ms,
     TerminalHostRendererGrant* grant) {
@@ -811,6 +943,10 @@ TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
   if (rights != kRendererRights) {
     return TerminalHostRendererGrantError::kInvalidRights;
   }
+  if (protocol_version < kTerminalHostProtocolVersionV1 ||
+      protocol_version > kTerminalHostProtocolVersion) {
+    return TerminalHostRendererGrantError::kInvalidProtocolVersion;
+  }
   if (ttl_ms == 0 || ttl_ms > kTerminalHostMaxRendererCapabilityTtlMs ||
       expected_ttl_ms == 0 ||
       expected_ttl_ms > kTerminalHostMaxRendererCapabilityTtlMs ||
@@ -824,9 +960,22 @@ TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
   }
   decoded.endpoint = std::string(endpoint);
   decoded.rights = TerminalHostCapabilityRights::kRenderer;
+  decoded.protocol_version = static_cast<uint16_t>(protocol_version);
   decoded.ttl_ms = static_cast<uint32_t>(ttl_ms);
   *grant = std::move(decoded);
   return TerminalHostRendererGrantError::kNone;
+}
+
+TerminalHostClientHello TerminalHostClientHelloForRendererGrant(
+    const TerminalHostRendererGrant& grant) {
+  TerminalHostClientHello hello;
+  hello.min_version = grant.protocol_version;
+  hello.max_version = grant.protocol_version;
+  hello.role = TerminalHostClientRole::kRenderer;
+  hello.requested_rights = grant.rights;
+  hello.terminal_id = grant.terminal_id;
+  hello.token = grant.token;
+  return hello;
 }
 
 const char* TerminalHostRendererGrantErrorMessage(
@@ -844,6 +993,8 @@ const char* TerminalHostRendererGrantErrorMessage(
       return "invalid terminal-host one-use token";
     case TerminalHostRendererGrantError::kInvalidRights:
       return "invalid terminal-host renderer rights";
+    case TerminalHostRendererGrantError::kInvalidProtocolVersion:
+      return "invalid terminal-host protocol version";
     case TerminalHostRendererGrantError::kInvalidTtl:
       return "invalid terminal-host renderer TTL";
   }
@@ -852,6 +1003,26 @@ const char* TerminalHostRendererGrantErrorMessage(
 
 std::string EncodeTerminalHostId(const TerminalHostId& id) {
   return EncodeLowerHex(id);
+}
+
+bool TerminalHostKittyGraphicsLimits::operator==(
+    const TerminalHostKittyGraphicsLimits& other) const {
+  return image_bytes == other.image_bytes &&
+         inflight_bytes == other.inflight_bytes && images == other.images &&
+         placements == other.placements;
+}
+
+bool TerminalHostKittyImageIdCursors::operator==(
+    const TerminalHostKittyImageIdCursors& other) const {
+  return primary == other.primary && alternate == other.alternate;
+}
+
+bool TerminalHostKittyReplayState::operator==(
+    const TerminalHostKittyReplayState& other) const {
+  return limits == other.limits &&
+         replay_cursor_offset == other.replay_cursor_offset &&
+         replay_next_image_ids == other.replay_next_image_ids &&
+         next_image_ids == other.next_image_ids;
 }
 
 TerminalHostSnapshot::TerminalHostSnapshot() = default;
@@ -865,8 +1036,12 @@ TerminalHostSnapshot& TerminalHostSnapshot::operator=(TerminalHostSnapshot&&) =
 TerminalHostSnapshot::~TerminalHostSnapshot() = default;
 
 bool TerminalHostSnapshot::operator==(const TerminalHostSnapshot& other) const {
-  return cols == other.cols && rows == other.rows && pid == other.pid &&
-         replay == other.replay && cwd == other.cwd && command == other.command;
+  return cols == other.cols && rows == other.rows &&
+         cell_width == other.cell_width && cell_height == other.cell_height &&
+         pid == other.pid && replay == other.replay && cwd == other.cwd &&
+         command == other.command &&
+         kitty_image_aliases == other.kitty_image_aliases &&
+         kitty_state == other.kitty_state;
 }
 
 TerminalHostProtocolError EncodeTerminalHostSnapshot(
@@ -878,6 +1053,19 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
   if (snapshot.replay.size() > kTerminalHostMaxSnapshotReplay ||
       snapshot.command.size() > kTerminalHostMaxCommandArguments) {
     return TerminalHostProtocolError::kPayloadTooLarge;
+  }
+  const TerminalHostProtocolError aliases_error =
+      ValidateKittyImageAliases(snapshot.kitty_image_aliases);
+  if (aliases_error != TerminalHostProtocolError::kNone) {
+    return aliases_error;
+  }
+  const TerminalHostProtocolError state_error =
+      ValidateKittyReplayState(snapshot.kitty_state);
+  if (state_error != TerminalHostProtocolError::kNone) {
+    return state_error;
+  }
+  if (snapshot.kitty_state.replay_cursor_offset > snapshot.replay.size()) {
+    return TerminalHostProtocolError::kMalformedPayload;
   }
   std::vector<uint8_t> encoded;
   AppendU16(&encoded, snapshot.cols);
@@ -897,6 +1085,13 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
       return TerminalHostProtocolError::kMalformedPayload;
     }
   }
+  AppendKittyImageAliases(&encoded, snapshot.kitty_image_aliases);
+  AppendU16(&encoded, std::max<uint16_t>(snapshot.cell_width, 1));
+  AppendU16(&encoded, std::max<uint16_t>(snapshot.cell_height, 1));
+  AppendKittyReplayState(&encoded, snapshot.kitty_state);
+  if (encoded.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
+  }
   *payload = std::move(encoded);
   return TerminalHostProtocolError::kNone;
 }
@@ -904,8 +1099,23 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
 TerminalHostProtocolError DecodeTerminalHostSnapshot(
     std::string_view payload,
     TerminalHostSnapshot* snapshot) {
+  return DecodeTerminalHostSnapshotForVersion(
+      payload, kTerminalHostProtocolVersion, snapshot);
+}
+
+TerminalHostProtocolError DecodeTerminalHostSnapshotForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
+    TerminalHostSnapshot* snapshot) {
   if (!snapshot) {
     return TerminalHostProtocolError::kInvalidArgument;
+  }
+  if (protocol_version < kTerminalHostProtocolVersionV1 ||
+      protocol_version > kTerminalHostProtocolVersion) {
+    return TerminalHostProtocolError::kInvalidVersion;
+  }
+  if (payload.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
   }
   PayloadReader reader(payload);
   TerminalHostSnapshot decoded;
@@ -938,6 +1148,27 @@ TerminalHostProtocolError DecodeTerminalHostSnapshot(
     }
     decoded.command.push_back(std::move(argument));
   }
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
+      ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
+      (!reader.U16(&decoded.cell_width) ||
+       !reader.U16(&decoded.cell_height))) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      ReadKittyReplayState(&reader, &decoded.kitty_state) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      decoded.kitty_state.replay_cursor_offset > decoded.replay.size()) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  decoded.cell_width = std::max<uint16_t>(decoded.cell_width, 1);
+  decoded.cell_height = std::max<uint16_t>(decoded.cell_height, 1);
   if (!reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
@@ -955,7 +1186,11 @@ TerminalHostResize& TerminalHostResize::operator=(TerminalHostResize&&) =
 TerminalHostResize::~TerminalHostResize() = default;
 
 bool TerminalHostResize::operator==(const TerminalHostResize& other) const {
-  return cols == other.cols && rows == other.rows && replay == other.replay;
+  return cols == other.cols && rows == other.rows &&
+         cell_width == other.cell_width && cell_height == other.cell_height &&
+         replay == other.replay &&
+         kitty_image_aliases == other.kitty_image_aliases &&
+         kitty_state == other.kitty_state;
 }
 
 TerminalHostProtocolError EncodeTerminalHostResize(
@@ -967,32 +1202,91 @@ TerminalHostProtocolError EncodeTerminalHostResize(
   if (resize.replay.size() > kTerminalHostMaxSnapshotReplay) {
     return TerminalHostProtocolError::kPayloadTooLarge;
   }
+  const TerminalHostProtocolError aliases_error =
+      ValidateKittyImageAliases(resize.kitty_image_aliases);
+  if (aliases_error != TerminalHostProtocolError::kNone) {
+    return aliases_error;
+  }
+  const TerminalHostProtocolError state_error =
+      ValidateKittyReplayState(resize.kitty_state);
+  if (state_error != TerminalHostProtocolError::kNone) {
+    return state_error;
+  }
+  if (resize.kitty_state.replay_cursor_offset > resize.replay.size()) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
   std::vector<uint8_t> encoded;
-  encoded.reserve(8 + resize.replay.size());
+  encoded.reserve(14 + resize.replay.size() +
+                  resize.kitty_image_aliases.size() * 8);
   AppendU16(&encoded, resize.cols);
   AppendU16(&encoded, resize.rows);
   AppendU32(&encoded, static_cast<uint32_t>(resize.replay.size()));
   encoded.insert(encoded.end(), resize.replay.begin(), resize.replay.end());
+  AppendKittyImageAliases(&encoded, resize.kitty_image_aliases);
+  AppendU16(&encoded, std::max<uint16_t>(resize.cell_width, 1));
+  AppendU16(&encoded, std::max<uint16_t>(resize.cell_height, 1));
+  AppendKittyReplayState(&encoded, resize.kitty_state);
+  if (encoded.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
+  }
   *payload = std::move(encoded);
   return TerminalHostProtocolError::kNone;
 }
 
 TerminalHostProtocolError DecodeTerminalHostResize(std::string_view payload,
                                                    TerminalHostResize* resize) {
+  return DecodeTerminalHostResizeForVersion(
+      payload, kTerminalHostProtocolVersion, resize);
+}
+
+TerminalHostProtocolError DecodeTerminalHostResizeForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
+    TerminalHostResize* resize) {
   if (!resize) {
     return TerminalHostProtocolError::kInvalidArgument;
+  }
+  if (protocol_version < kTerminalHostProtocolVersionV1 ||
+      protocol_version > kTerminalHostProtocolVersion) {
+    return TerminalHostProtocolError::kInvalidVersion;
+  }
+  if (payload.size() > kTerminalHostMaxFramePayload) {
+    return TerminalHostProtocolError::kPayloadTooLarge;
   }
   PayloadReader reader(payload);
   TerminalHostResize decoded;
   std::string_view replay;
   if (!reader.U16(&decoded.cols) || !reader.U16(&decoded.rows) ||
-      !reader.Bytes(kTerminalHostMaxSnapshotReplay, &replay) ||
-      !reader.finished()) {
+      !reader.Bytes(kTerminalHostMaxSnapshotReplay, &replay)) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  decoded.replay.assign(replay.begin(), replay.end());
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
+      ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
+      (!reader.U16(&decoded.cell_width) ||
+       !reader.U16(&decoded.cell_height))) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      ReadKittyReplayState(&reader, &decoded.kitty_state) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      decoded.kitty_state.replay_cursor_offset > decoded.replay.size()) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (!reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   decoded.cols = std::max<uint16_t>(decoded.cols, 1);
   decoded.rows = std::max<uint16_t>(decoded.rows, 1);
-  decoded.replay.assign(replay.begin(), replay.end());
+  decoded.cell_width = std::max<uint16_t>(decoded.cell_width, 1);
+  decoded.cell_height = std::max<uint16_t>(decoded.cell_height, 1);
   *resize = std::move(decoded);
   return TerminalHostProtocolError::kNone;
 }

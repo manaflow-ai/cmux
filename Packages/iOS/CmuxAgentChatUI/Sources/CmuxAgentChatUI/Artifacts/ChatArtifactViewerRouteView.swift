@@ -9,27 +9,43 @@ import AppKit
 
 /// Renders one immutable artifact page snapshot without contributing navigation chrome.
 struct ChatArtifactViewerRouteView: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let retryGeneration: Int
+        let presentationGeneration: Int
+        let sourceIdentity: String?
+    }
+
     let snapshot: ChatArtifactViewerPageSnapshot
     let scope: ChatArtifactViewerScope
     let actions: ChatArtifactViewerPageActions
+    /// The host's live session state, so transport-failure copy can identify
+    /// whether the phone is disconnected or the Mac is unreachable.
+    var connectionHint: ChatArtifactConnectionHint = .connected
     let onDone: () -> Void
     let onImageMinimumZoomChanged: (Bool) -> Void
+    let onImageAction: (@MainActor (ChatArtifactAction) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.chatArtifactLoader) private var loader
     @State private var presentation = ChatArtifactViewerPresentationCoordinator()
 
     init(
         snapshot: ChatArtifactViewerPageSnapshot,
         scope: ChatArtifactViewerScope,
         actions: ChatArtifactViewerPageActions,
+        connectionHint: ChatArtifactConnectionHint = .connected,
         onImageMinimumZoomChanged: @escaping (Bool) -> Void = { _ in },
+        onImageAction: (@MainActor (ChatArtifactAction) -> Void)? = nil,
         onDone: @escaping () -> Void
     ) {
         self.snapshot = snapshot
         self.scope = scope
         self.actions = actions
+        self.connectionHint = connectionHint
         self.onDone = onDone
         self.onImageMinimumZoomChanged = onImageMinimumZoomChanged
+        self.onImageAction = onImageAction
     }
 
     var body: some View {
@@ -40,7 +56,12 @@ struct ChatArtifactViewerRouteView: View {
             .onDisappear {
                 presentation.dismiss()
             }
-            .task(id: "\(path)\u{0}\(snapshot.retryGeneration)\u{0}\(presentation.generation)") {
+            .task(id: LoadIdentity(
+                path: path,
+                retryGeneration: snapshot.retryGeneration,
+                presentationGeneration: presentation.generation,
+                sourceIdentity: loader.sourceIdentity
+            )) {
                 let didStart = await presentation.loadAfterPresentation {
                     await actions.load()
                 }
@@ -99,7 +120,8 @@ struct ChatArtifactViewerRouteView: View {
             if let image = UIImage(data: data) {
                 ChatArtifactZoomableImageView(
                     image: image,
-                    onMinimumZoomChanged: onImageMinimumZoomChanged
+                    onMinimumZoomChanged: onImageMinimumZoomChanged,
+                    onAction: onImageAction
                 )
                 .ignoresSafeArea(.container, edges: .bottom)
                 .onDisappear {
@@ -174,34 +196,19 @@ struct ChatArtifactViewerRouteView: View {
                 message: String(localized: "chat.artifact.preview_unavailable.message", defaultValue: "This file can't be previewed.", bundle: .module),
                 detail: formattedSize(stat.size)
             )
-        case .tooLarge(let actualSize, let limit):
-            unavailableView(
-                title: String(localized: "chat.artifact.too_large.title", defaultValue: "File too large to preview", bundle: .module),
-                message: tooLargeMessage(actualSize: actualSize, limit: limit)
+        case .failure(let error, let actualSize):
+            let failure = ChatArtifactFailurePresentation(
+                error: error,
+                scope: scope,
+                actualSize: actualSize
             )
-        case .unsupportedMedia:
+            let copy = error == .macUnreachable
+                ? connectionHint.unreachableCopy
+                : (title: failure.title, message: failure.message)
             unavailableView(
-                title: String(localized: "chat.artifact.preview_unavailable.title", defaultValue: "Preview unavailable", bundle: .module),
-                message: String(localized: "chat.artifact.preview_unavailable.message", defaultValue: "This file can't be previewed.", bundle: .module),
-                detail: nil
-            )
-        case .fileMissing:
-            unavailableView(
-                title: String(localized: "chat.artifact.file_missing.title", defaultValue: "File not found", bundle: .module),
-                message: String(localized: "chat.artifact.file_missing.message", defaultValue: "The file is no longer available on your Mac.", bundle: .module),
-                retry: false
-            )
-        case .macUnreachable:
-            unavailableView(
-                title: String(localized: "chat.artifact.mac_unreachable.title", defaultValue: "Mac unreachable", bundle: .module),
-                message: String(localized: "chat.artifact.mac_unreachable.message", defaultValue: "Check the connection to your Mac and try again.", bundle: .module),
-                retry: true
-            )
-        case .forbidden:
-            unavailableView(
-                title: String(localized: "chat.artifact.forbidden.title", defaultValue: "Preview unavailable", bundle: .module),
-                message: forbiddenMessage,
-                retry: false
+                title: copy.title,
+                message: copy.message,
+                retry: failure.allowsRetry
             )
         }
     }
@@ -345,27 +352,6 @@ struct ChatArtifactViewerRouteView: View {
         .padding()
     }
 
-    @ViewBuilder
-    private func artifactImage(data: Data) -> some View {
-        #if canImport(UIKit)
-        if let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-        } else {
-            Color.clear
-        }
-        #elseif canImport(AppKit)
-        if let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-        } else {
-            Color.clear
-        }
-        #else
-        Color.clear
-        #endif
-    }
-
     private var searchQueryBinding: Binding<String> {
         Binding(
             get: { snapshot.searchQuery },
@@ -380,64 +366,4 @@ struct ChatArtifactViewerRouteView: View {
         )
     }
 
-    private var forbiddenMessage: String {
-        switch scope {
-        case .chat:
-            String(
-                localized: "chat.artifact.forbidden.message",
-                defaultValue: "This file was not referenced by the conversation.",
-                bundle: .module
-            )
-        case .terminal:
-            String(
-                localized: "chat.artifact.forbidden.terminal_message",
-                defaultValue: "This file isn't visible in the current terminal view.",
-                bundle: .module
-            )
-        }
-    }
-
-    private func progressValue(fetched: Int64, total: Int64?) -> Double? {
-        guard let total, total > 0 else { return nil }
-        return Double(fetched) / Double(total)
-    }
-
-    private func progressText(fetched: Int64, total: Int64?) -> String {
-        if let total {
-            return "\(formattedSize(fetched)) / \(formattedSize(total))"
-        }
-        return formattedSize(fetched)
-    }
-
-    private func formattedSize(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private func tooLargeMessage(actualSize: Int64?, limit: Int64) -> String {
-        guard let actualSize else {
-            let format = String(
-                localized: "chat.artifact.too_large.limit_message",
-                defaultValue: "This preview is limited to %@.",
-                bundle: .module
-            )
-            return String.localizedStringWithFormat(format, formattedSize(limit))
-        }
-        let format = String(
-            localized: "chat.artifact.too_large.message",
-            defaultValue: "This file is %@; previews are limited to %@.",
-            bundle: .module
-        )
-        return String.localizedStringWithFormat(
-            format,
-            formattedSize(actualSize),
-            formattedSize(limit)
-        )
-    }
-}
-
-extension ChatArtifactStat {
-    /// Whether this artifact routes to the recursive folder browser.
-    func showsFolder(supportsDirectoryBrowsing: Bool) -> Bool {
-        isDirectory && supportsDirectoryBrowsing
-    }
 }

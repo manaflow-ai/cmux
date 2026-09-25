@@ -92,15 +92,18 @@ extension MobileCoreRPCSession {
             for try await chunk in stream {
                 try Task.checkCancellation()
                 guard !chunk.isEmpty else { continue }
-                guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
-                    throw MobileSyncFrameCodecError.frameTooLarge(buffer.count + chunk.count)
-                }
+                // The codec checks each frame's size, independent of how the
+                // transport groups adjacent frames into chunks.
                 buffer.append(chunk)
-                let frames = try MobileSyncFrameCodec.decodeFrames(
-                    from: &buffer,
-                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
-                )
-                for frame in frames { dispatch(frame: frame) }
+                while !Task.isCancelled, independentEventReader?.id == id {
+                    let frames = try MobileSyncFrameCodec.decodeFrames(
+                        from: &buffer,
+                        maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                    )
+                    for frame in frames { dispatch(frame: frame) }
+                    guard frames.count == Self.maximumDecodedFrameCountPerRead else { break }
+                    await Task.yield()
+                }
             }
         } catch {
             // The host falls back to control delivery after optional-lane failure.
@@ -129,14 +132,19 @@ extension MobileCoreRPCSession {
             return
         }
         guard let id = envelope["id"] as? String,
-              let cont = pending.removeValue(forKey: id) else { return }
-        requestTimeoutTasks.removeValue(forKey: id)?.cancel()
+              pending[id] != nil || pipelinedPending[id] != nil else { return }
         if (envelope["ok"] as? Bool) == true {
             let result = envelope["result"] ?? [:]
             if let data = try? JSONSerialization.data(withJSONObject: result) {
-                cont.resume(returning: .response(.success(data)))
+                settlePendingRequest(
+                    requestID: id,
+                    settlement: .response(.success(data))
+                )
             } else {
-                cont.resume(returning: .response(.failure(.invalidResponse)))
+                settlePendingRequest(
+                    requestID: id,
+                    settlement: .response(.failure(.invalidResponse))
+                )
             }
             return
         }
@@ -145,11 +153,20 @@ extension MobileCoreRPCSession {
         let code = errorPayload?["code"] as? String
         switch code {
         case "unauthorized":
-            cont.resume(returning: .response(.failure(.authorizationFailed(message))))
+            settlePendingRequest(
+                requestID: id,
+                settlement: .response(.failure(.authorizationFailed(message)))
+            )
         case "account_mismatch":
-            cont.resume(returning: .response(.failure(.accountMismatch(message))))
+            settlePendingRequest(
+                requestID: id,
+                settlement: .response(.failure(.accountMismatch(message)))
+            )
         default:
-            cont.resume(returning: .response(.failure(.rpcError(code, message))))
+            settlePendingRequest(
+                requestID: id,
+                settlement: .response(.failure(.rpcError(code, message)))
+            )
         }
     }
 }

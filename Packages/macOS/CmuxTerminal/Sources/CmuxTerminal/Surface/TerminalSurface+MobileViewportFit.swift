@@ -50,6 +50,16 @@ struct MobileViewportFitResult {
 }
 
 extension TerminalSurface {
+    static func mobileViewportLimitMatches(
+        current: (columns: Int, rows: Int)?,
+        requestedColumns: Int,
+        requestedRows: Int
+    ) -> Bool {
+        guard let current else { return false }
+        return current.columns == max(1, requestedColumns) &&
+            current.rows == max(1, requestedRows)
+    }
+
     /// Caps the surface grid to a paired iPhone's viewport.
     ///
     /// - Returns: The actual cell grid applied after capping to the Mac pane, or
@@ -65,12 +75,37 @@ extension TerminalSurface {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return nil
         }
-        if manualIO {
+        if ioMode.usesManualIO {
             // Remote/tmux mirrors keep legacy capping; their remote grid is
             // authoritative and font fitting is intentionally out of v1 scope.
             return legacyApplyMobileViewportLimit(surface: surface, columns: columns, rows: rows, reason: reason)
         }
-        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
+        let requestedLimit = (columns: max(1, columns), rows: max(1, rows))
+        if Self.mobileViewportLimitMatches(
+            current: mobileViewportCellLimit,
+            requestedColumns: requestedLimit.columns,
+            requestedRows: requestedLimit.rows
+        ) {
+            // Replaying the same logical viewport must never run the pixel/font
+            // fitter again. Under relay delay the phone can repeat a report
+            // after the first apply already landed; re-fitting the same cell
+            // grid can round to alternating pixel boxes and every set_size
+            // produces SIGWINCH + a full-screen TUI repaint.
+            let currentSize = ghostty_surface_size(surface)
+            #if DEBUG
+            Self.sizeLog(
+                "mobileViewportLimit.coalesced surface=\(id.uuidString.prefix(8)) " +
+                "cells=\(requestedLimit.columns)x\(requestedLimit.rows) " +
+                "live=\(max(Int(currentSize.columns), 1))x\(max(Int(currentSize.rows), 1)) " +
+                "reason=\(reason)"
+            )
+            #endif
+            return (
+                columns: max(Int(currentSize.columns), 1),
+                rows: max(Int(currentSize.rows), 1)
+            )
+        }
+        mobileViewportCellLimit = requestedLimit
         let baseWidth = lastUncappedPixelWidth
         let baseHeight = lastUncappedPixelHeight
         let currentSize = ghostty_surface_size(surface)
@@ -83,6 +118,46 @@ extension TerminalSurface {
             reason: reason
         )
         guard fit.width > 0, fit.height > 0 else { return nil }
+
+        // A changed report can still resolve to the grid Ghostty already has
+        // (for example when the Mac pane constrains both the old and new phone
+        // limits to 72x60). Pixel fitting may propose a different box for that
+        // same cell grid. Calling set_size for pixel-only drift updates the PTY
+        // winsize and emits SIGWINCH, which is exactly the replay trigger in
+        // #13474. Keep the live pixel box whenever the effective grid is
+        // already current.
+        let liveAfterFit = ghostty_surface_size(surface)
+        let liveGrid = (
+            columns: max(Int(liveAfterFit.columns), 1),
+            rows: max(Int(liveAfterFit.rows), 1)
+        )
+        if Self.mobileViewportLimitMatches(
+            current: liveGrid,
+            requestedColumns: fit.columns,
+            requestedRows: fit.rows
+        ) {
+            let liveWidth = liveAfterFit.width_px
+            let liveHeight = liveAfterFit.height_px
+            lastPixelWidth = liveWidth
+            lastPixelHeight = liveHeight
+            updateMobileViewportBorder(
+                appliedWidth: liveWidth,
+                appliedHeight: liveHeight,
+                baseWidth: baseWidth > 0 ? baseWidth : liveWidth,
+                baseHeight: baseHeight > 0 ? baseHeight : liveHeight
+            )
+            #if DEBUG
+            Self.sizeLog(
+                "mobileViewportLimit.gridCurrent surface=\(id.uuidString.prefix(8)) " +
+                "cells=\(fit.columns)x\(fit.rows) proposedPx=\(fit.width)x\(fit.height) " +
+                "livePx=\(liveWidth)x\(liveHeight) reason=\(reason)"
+            )
+            #endif
+            if fit.fontChanged {
+                ghostty_surface_refresh(surface)
+            }
+            return liveGrid
+        }
 
         let appliedWidth = fit.width
         let appliedHeight = fit.height
@@ -110,7 +185,12 @@ extension TerminalSurface {
             }
             return (fit.columns, fit.rows)
         }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.apply"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -159,7 +239,12 @@ extension TerminalSurface {
         #endif
 
         guard sizeChanged else { return (appliedColumns, appliedRows) }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.legacy"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -204,7 +289,12 @@ extension TerminalSurface {
             ghostty_surface_refresh(surface)
             return fontRestored
         }
-        ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        applySurfaceSize(
+            surface,
+            width: uncappedWidth,
+            height: uncappedHeight,
+            caller: "mobile.viewport.clear"
+        )
         lastPixelWidth = uncappedWidth
         lastPixelHeight = uncappedHeight
         ghostty_surface_refresh(surface)
@@ -220,7 +310,7 @@ extension TerminalSurface {
     ) -> MobileViewportFitResult {
         guard width > 0, height > 0 else { return .passthrough(width: width, height: height) }
         guard let mobileViewportCellLimit else { return .passthrough(width: width, height: height) }
-        if manualIO {
+        if ioMode.usesManualIO {
             guard let limit = mobileViewportPixelLimit(for: surface) else { return .passthrough(width: width, height: height) }
             return .passthrough(width: min(width, limit.width), height: min(height, limit.height), grantWidth: limit.width, grantHeight: limit.height)
         }
@@ -440,14 +530,16 @@ extension TerminalSurface {
                 fittedRuntimePointSize: points
             )
         } else {
-            mobileViewportFontFitState?.fittedRuntimePointSize = points
+            mobileViewportFontFitState?
+                .updateViewportFit(to: points)
         }
         return true
     }
 
     @MainActor
-    private func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
-        let action = String(format: "set_font_size:%.3f", points)
+    func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
+        let action =
+            ghosttySetFontSizeBindingAction(points)
         return performInternalBindingAction(action)
     }
 

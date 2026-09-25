@@ -7,6 +7,14 @@ import Foundation
 /// test can suspend a restore precisely inside its store write and prove the
 /// sign-out wipe is final.
 actor GatedUpsertStore: MobilePairedMacStoring {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     private let inner: MobilePairedMacStore
     private let failUpsert: Bool
     private let failRemove: Bool

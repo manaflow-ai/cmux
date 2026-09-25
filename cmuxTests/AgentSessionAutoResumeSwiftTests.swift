@@ -1,5 +1,7 @@
+import CmuxFoundation
 import Darwin
 import Foundation
+import CMUXAgentLaunch
 import CmuxCore
 import CmuxSidebar
 import Testing
@@ -12,6 +14,232 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
+    /// Regression for #9619: cmux-owned restore input is an implementation
+    /// detail, not a user or agent title. Preserve the automatic title captured
+    /// before relaunch through that bootstrap event, then accept the first real
+    /// title reported by the resumed session.
+    @MainActor
+    @Test(arguments: ["codex", "claude"])
+    func restoredAgentBootstrapDoesNotReplacePersistedAutomaticTitle(kind: String) throws {
+        let defaultsName = "cmux-issue-9619-\(kind)-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let checkpointID = "019fce9e-9619-7a11-8e20-123456789abc"
+        let persistedTitle = "Pre-restore \(kind.capitalized) task"
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        #expect(source.updatePanelTitle(panelId: sourcePanelID, title: persistedTitle))
+        #expect(source.customTitle == nil)
+        #expect(source.panelCustomTitles[sourcePanelID] == nil)
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.resumeBinding = SurfaceResumeBindingSnapshot(
+            name: kind.capitalized,
+            kind: kind,
+            command: "\(kind) --resume \(checkpointID)",
+            cwd: source.currentDirectory,
+            checkpointId: checkpointID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_777
+        )
+        terminalSnapshot.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        let restoredTabID = try #require(restored.surfaceIdFromPanelId(restoredPanelID))
+        let bootstrapInput =
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(checkpointID)\n"
+        let bootstrapTitle = bootstrapInput.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        #expect(restoredPanel.surface.debugInitialInputForTesting() == bootstrapInput)
+        #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
+        #expect(restored.title == persistedTitle)
+        #expect(restored.processTitle == persistedTitle)
+        #expect(restored.bonsplitController.tab(restoredTabID)?.title == persistedTitle)
+
+        // Ghostty can deliver the shell's command title before cmux receives the
+        // matching shell-activity transition. The internal event must be inert in
+        // either order.
+        #expect(!restored.updatePanelTitle(panelId: restoredPanelID, title: bootstrapTitle))
+        #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
+        #expect(restored.title == persistedTitle)
+        #expect(restored.processTitle == persistedTitle)
+        #expect(restored.bonsplitController.tab(restoredTabID)?.title == persistedTitle)
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
+        #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
+
+        let genuineTitle = "Resumed \(kind.capitalized) session"
+        #expect(restored.updatePanelTitle(panelId: restoredPanelID, title: genuineTitle))
+        #expect(restored.panelTitle(panelId: restoredPanelID) == genuineTitle)
+        #expect(restored.title == genuineTitle)
+        #expect(restored.processTitle == genuineTitle)
+        #expect(restored.bonsplitController.tab(restoredTabID)?.title == genuineTitle)
+    }
+
+    /// The same restore-title boundary applies to an ordinary shell with no
+    /// agent bootstrap. Startup's generic shell title stays hidden until a real
+    /// post-prompt command begins, after which normal title updates resume.
+    @MainActor
+    @Test func restoredPlainShellPreservesTitleUntilUserCommand() throws {
+        let persistedTitle = "Pre-restore shell task"
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        #expect(source.updatePanelTitle(panelId: sourcePanelID, title: persistedTitle))
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        let restoredTabID = try #require(restored.surfaceIdFromPanelId(restoredPanelID))
+
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(!restored.updatePanelTitle(panelId: restoredPanelID, title: "zsh"))
+        #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
+        #expect(restored.title == persistedTitle)
+        #expect(restored.processTitle == persistedTitle)
+        #expect(restored.bonsplitController.tab(restoredTabID)?.title == persistedTitle)
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        let commandTitle = "cd /tmp/cmux-issue-9619"
+        #expect(!restored.updatePanelTitle(panelId: restoredPanelID, title: commandTitle))
+        #expect(restored.title == persistedTitle)
+
+        // The title event and asynchronous shell-state report may arrive in
+        // either order. A buffered title becomes genuine at the command-running
+        // boundary and normal title ownership resumes from there.
+        restored.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
+        restored.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
+        #expect(restored.panelTitle(panelId: restoredPanelID) == commandTitle)
+        #expect(restored.title == commandTitle)
+        #expect(restored.processTitle == commandTitle)
+        #expect(restored.bonsplitController.tab(restoredTabID)?.title == commandTitle)
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        let directoryTitle = "/tmp/cmux-issue-9619"
+        #expect(restored.updatePanelTitle(panelId: restoredPanelID, title: directoryTitle))
+        #expect(restored.panelTitle(panelId: restoredPanelID) == directoryTitle)
+        #expect(restored.title == directoryTitle)
+        #expect(restored.processTitle == directoryTitle)
+        #expect(restored.bonsplitController.tab(restoredTabID)?.title == directoryTitle)
+    }
+
+    /// A restored terminal can move through a detached transfer before its
+    /// startup boundary has admitted a genuine title. The destination must
+    /// continue the same boundary instead of treating the next startup event as
+    /// a fresh, user-owned title.
+    @MainActor
+    @Test func restoredTitleBoundarySurvivesDetachedSurfaceTransfer() throws {
+        let persistedTitle = "Pre-transfer restored title"
+        let snapshotSource = Workspace()
+        defer { snapshotSource.teardownAllPanels() }
+        let snapshotPanelID = try #require(snapshotSource.focusedPanelId)
+        #expect(snapshotSource.updatePanelTitle(panelId: snapshotPanelID, title: persistedTitle))
+
+        let restoredSource = Workspace()
+        defer { restoredSource.teardownAllPanels() }
+        let restoredPanelIDs = restoredSource.restoreSessionSnapshot(
+            snapshotSource.sessionSnapshot(includeScrollback: false)
+        )
+        let restoredPanelID = try #require(restoredPanelIDs[snapshotPanelID])
+        let detached = try #require(restoredSource.detachSurface(panelId: restoredPanelID))
+        #expect(detached.restoredPanelTitleBoundary != nil)
+
+        let manager = TabManager()
+        let dockWorkspace = try #require(manager.selectedWorkspace)
+        let dock = try #require(dockWorkspace.dockSplit)
+        defer {
+            dock.closeAllPanels()
+            dockWorkspace.teardownAllPanels()
+        }
+        let dockPaneID = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                detached,
+                inPane: dockPaneID,
+                focus: false
+            ) == restoredPanelID
+        )
+        let dockTabID = try #require(dock.surfaceId(forPanelId: restoredPanelID))
+        let dockTerminal = try #require(dock.panels[restoredPanelID] as? TerminalPanel)
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: dock.workspaceId,
+                surfaceId: restoredPanelID,
+                title: "zsh",
+                sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
+            ).userInfo
+        )
+        dock.flushPendingTerminalTitleUpdates()
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
+
+        dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        let commandTitle = "cd /tmp/cmux-issue-9619-transfer"
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: dock.workspaceId,
+                surfaceId: restoredPanelID,
+                title: commandTitle,
+                sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
+            ).userInfo
+        )
+        dock.flushPendingTerminalTitleUpdates()
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
+
+        // A repeated prompt retires pre-prompt title provenance. The next
+        // command supplies a fresh preexec title before commandRunning.
+        dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == persistedTitle)
+        #expect(dock.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: dock.workspaceId,
+            surfaceId: restoredPanelID,
+            title: commandTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(dockTerminal.surface)
+        )))
+        dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
+        dock.flushPendingTerminalTitleUpdates()
+        #expect(dockTerminal.displayTitle == commandTitle)
+        #expect(dock.bonsplitController.tab(dockTabID)?.title == commandTitle)
+        let detachedFromDock = try #require(dock.detachSurface(panelId: restoredPanelID))
+        #expect(detachedFromDock.restoredPanelTitleBoundary == nil)
+
+        let destination = Workspace()
+        defer { destination.teardownAllPanels() }
+        let destinationPaneID = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(
+            destination.attachDetachedSurface(
+                detachedFromDock,
+                inPane: destinationPaneID,
+                focus: true
+            ) == restoredPanelID
+        )
+        let destinationTabID = try #require(destination.surfaceIdFromPanelId(restoredPanelID))
+        #expect(destination.panelTitle(panelId: restoredPanelID) == commandTitle)
+        #expect(destination.title == commandTitle)
+        #expect(destination.processTitle == commandTitle)
+        #expect(destination.bonsplitController.tab(destinationTabID)?.title == commandTitle)
+    }
+
     /// Regression for #8501: restoring an auto-resumed terminal reapplies the
     /// panel's friendly persisted title before workspace metadata. The
     /// workspace title must follow that restored focused panel instead of the
@@ -148,6 +376,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let sessionId = "claude-drifted-binding-session"
             let launchCwd = "/tmp/cmux-claude-launch"
@@ -181,26 +410,126 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_777
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
 
             #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == launchCwd)
             #expect(snapshot.panels.first?.terminal?.resumeBinding?.cwd == runtimeCwd)
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: [launchCwd, "--resume", sessionId],
-                scriptDoesNotContain: [runtimeCwd]
+                in: restored,
+                kind: "claude",
+                sessionID: sessionId,
+                commandContains: [launchCwd, "--resume", sessionId],
+                commandDoesNotContain: [runtimeCwd]
             )
             #expect(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.cwd == launchCwd
+            )
+        }
+    }
+
+    /// Regression for #10156: SessionStart is the first authoritative child
+    /// identity for a Claude fork. Close history can snapshot the pane before a
+    /// prompt completes, so the binding update must synchronously replace the
+    /// structured parent snapshot and carry the fork's worktree cwd through
+    /// close/reopen restore.
+    @MainActor
+    @Test func claudeForkSessionStartBindingImmediatelyReplacesParentRestoreIdentity() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let worktree = try makeTemporaryProjectDirectory(prefix: "cmux-fork-worktree")
+            defer { try? FileManager.default.removeItem(atPath: worktree) }
+            let parentSessionId = "019f436f-1111-4222-8333-aaaaaaaaaaaa"
+            let childSessionId = "019f436f-2222-4333-8444-bbbbbbbbbbbb"
+            let source = Workspace()
+            defer { source.teardownAllPanels() }
+            let sourcePanelId = try #require(source.focusedPanelId)
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .claude,
+                    sessionId: parentSessionId,
+                    workingDirectory: worktree,
+                    launchCommand: AgentLaunchCommandSnapshot(
+                        launcher: "claude",
+                        executablePath: "/usr/local/bin/claude",
+                        arguments: [
+                            "/usr/local/bin/claude",
+                            "--resume",
+                            parentSessionId,
+                            "--fork-session",
+                        ],
+                        workingDirectory: worktree,
+                        capturedAt: 1_777_777_776,
+                        source: "environment"
+                    )
+                ),
+                panelId: sourcePanelId
+            )
+
+            let childBinding = SurfaceResumeBindingSnapshot(
+                name: "Claude Code",
+                kind: "claude",
+                command: "'/usr/local/bin/claude' '--resume' '\(childSessionId)'",
+                cwd: worktree,
+                checkpointId: childSessionId,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "claude",
+                    executablePath: "/usr/local/bin/claude",
+                    arguments: [
+                        "/usr/local/bin/claude",
+                        "--resume",
+                        parentSessionId,
+                        "--fork-session",
+                    ],
+                    workingDirectory: worktree,
+                    capturedAt: 1_777_777_777,
+                    source: "environment"
+                ),
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            )
+            #expect(source.setSurfaceResumeBinding(childBinding, panelId: sourcePanelId))
+
+            let liveAgent = try #require(source.restoredAgentSnapshotForTesting(panelId: sourcePanelId))
+            #expect(liveAgent.sessionId == childSessionId)
+            #expect(liveAgent.workingDirectory == worktree)
+
+            let snapshot = try snapshotOfRunningAgent(in: source)
+            let savedTerminal = try #require(snapshot.panels.first?.terminal)
+            #expect(savedTerminal.agent?.sessionId == childSessionId)
+            #expect(savedTerminal.agent?.workingDirectory == worktree)
+            #expect(savedTerminal.resumeBinding?.checkpointId == childSessionId)
+            #expect(savedTerminal.resumeBinding?.cwd == worktree)
+
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
+            defer { restored.teardownAllPanels() }
+            let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+            let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+            let restoredAgent = try #require(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent
+            )
+            #expect(restoredAgent.sessionId == childSessionId)
+            #expect(restoredAgent.workingDirectory == worktree)
+            try assertAgentAutoResumeUsesStartupInput(
+                restoredPanel,
+                in: restored,
+                kind: "claude",
+                sessionID: childSessionId,
+                commandContains: [worktree, "--resume", childSessionId],
+                commandDoesNotContain: [parentSessionId]
             )
         }
     }
@@ -375,7 +704,10 @@ struct AgentSessionAutoResumeSwiftTests {
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
             try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
             #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
-            #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding == nil)
+            let retainedBinding = try #require(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding
+            )
+            #expect(retainedBinding.autoResume == false)
             restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
 
             var providerConsulted = false
@@ -426,7 +758,15 @@ struct AgentSessionAutoResumeSwiftTests {
                 orientation: .horizontal,
                 focus: false
             ))
-            #expect(split.requestedWorkingDirectory == projectDir)
+            // The split runs the workspace's SSH startup command, so since
+            // #12054 its cwd travels as the remote initial cwd instead of a
+            // local PTY cwd. The rescued session directory (not the clobbered
+            // tracked home) must still be the one handed over.
+            #expect(split.requestedWorkingDirectory == nil)
+            #expect(
+                split.surface.startupEnvironmentValue(Workspace.remoteInitialWorkingDirectoryEnvironmentKey)
+                    == projectDir
+            )
         }
     }
 
@@ -564,9 +904,11 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(clobberedTerminal.agent?.workingDirectory == projectDir)
             #expect(clobberedTerminal.resumeBinding == nil)
 
-            let secondRestore = Workspace()
+            let secondRestore = Workspace(restorableAgentIndexProvider: { .empty })
             secondRestore.restoreSessionSnapshot(clobberedSnapshot)
             let secondRestoredPanelId = try #require(secondRestore.focusedPanelId)
+            #expect(secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .awaitingAutoResumeCommand)
+            secondRestore.updatePanelShellActivityState(panelId: secondRestoredPanelId, state: .commandRunning)
             try #require(
                 secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .autoResumeCommandRunning
             )
@@ -610,7 +952,7 @@ struct AgentSessionAutoResumeSwiftTests {
             try #require(agentSessionId.hasPrefix("claude-"))
             let registrySessionId = String(agentSessionId.dropFirst("claude-".count))
 
-            let secondRestore = Workspace()
+            let secondRestore = Workspace(restorableAgentIndexProvider: { .empty })
             secondRestore.restoreSessionSnapshot(clobberedSnapshot)
             _ = try #require(secondRestore.focusedPanelId)
 
@@ -638,6 +980,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 cwd: .ignore
             )
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             source.currentDirectory = projectDir
             let sourcePanelId = try #require(source.focusedPanelId)
             source.updatePanelDirectory(panelId: sourcePanelId, directory: projectDir)
@@ -659,14 +1002,16 @@ struct AgentSessionAutoResumeSwiftTests {
                 panelId: sourcePanelId
             )
 
-            let snapshot = source.sessionSnapshot(includeScrollback: false)
+            let snapshot = try snapshotOfRunningAgent(in: source)
             let terminal = try #require(snapshot.panels.first?.terminal)
             #expect(terminal.agent?.workingDirectory == nil)
             #expect(terminal.agent?.launchCommand?.workingDirectory == projectDir)
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
             try #require(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
             )
@@ -967,6 +1312,7 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws -> (workspace: Workspace, panelId: UUID) {
         let sessionId = "claude-cmdt-resume-\(UUID().uuidString)"
         let source = Workspace()
+        defer { source.teardownAllPanels() }
         source.currentDirectory = savedDirectory
         let sourcePanelId = try #require(source.focusedPanelId)
 
@@ -1000,15 +1346,17 @@ struct AgentSessionAutoResumeSwiftTests {
             ),
         ])
 
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
+        let snapshot = try snapshotOfRunningAgent(
+            in: source,
             surfaceResumeBindingIndex: bindingIndex
         )
         #expect(snapshot.currentDirectory == savedDirectory)
 
-        let restored = Workspace()
+        let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         // Restore replays the persisted directory onto the workspace and panel.
         #expect(restored.currentDirectory == savedDirectory)
@@ -1026,6 +1374,7 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws -> (workspace: Workspace, panelId: UUID) {
         let sessionId = "claude-restorable-only-resume-\(UUID().uuidString)"
         let source = Workspace()
+        defer { source.teardownAllPanels() }
         source.currentDirectory = savedDirectory
         let sourcePanelId = try #require(source.focusedPanelId)
         source.updatePanelDirectory(panelId: sourcePanelId, directory: savedDirectory)
@@ -1047,13 +1396,15 @@ struct AgentSessionAutoResumeSwiftTests {
         source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
         source.setRestoredAgentSnapshotForTesting(agent, panelId: sourcePanelId)
 
-        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let snapshot = try snapshotOfRunningAgent(in: source)
         #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == savedDirectory)
         #expect(snapshot.panels.first?.terminal?.resumeBinding == nil)
 
-        let restored = Workspace()
+        let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
@@ -1071,6 +1422,7 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws -> (workspace: Workspace, panelId: UUID) {
         let sessionId = "claude-binding-only-resume-\(UUID().uuidString)"
         let source = Workspace()
+        defer { source.teardownAllPanels() }
         source.currentDirectory = savedDirectory
         let sourcePanelId = try #require(source.focusedPanelId)
         source.updatePanelDirectory(panelId: sourcePanelId, directory: savedDirectory)
@@ -1089,16 +1441,18 @@ struct AgentSessionAutoResumeSwiftTests {
             ),
         ])
 
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
+        let snapshot = try snapshotOfRunningAgent(
+            in: source,
             surfaceResumeBindingIndex: bindingIndex
         )
         #expect(snapshot.panels.first?.terminal?.agent == nil)
         #expect(snapshot.panels.first?.terminal?.resumeBinding?.cwd == savedDirectory)
 
-        let restored = Workspace()
+        let restored = Workspace(restorableAgentIndexProvider: { .empty })
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .awaitingAutoResumeCommand)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
 
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
@@ -1113,6 +1467,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let staleSessionId = "claude-stale-restored-session"
             let freshSessionId = "claude-fresh-binding-session"
@@ -1146,12 +1501,12 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
@@ -1164,10 +1519,13 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredBinding.command.contains(freshRuntimeCwd), Comment(rawValue: restoredBinding.command))
             #expect(!restoredBinding.command.contains(staleLaunchCwd), Comment(rawValue: restoredBinding.command))
             #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent == nil)
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: [freshRuntimeCwd, "--resume", freshSessionId],
-                scriptDoesNotContain: [staleLaunchCwd, staleSessionId]
+                in: restored,
+                kind: "claude",
+                sessionID: freshSessionId,
+                commandContains: [freshRuntimeCwd, "--resume", freshSessionId],
+                commandDoesNotContain: [staleLaunchCwd, staleSessionId]
             )
         }
     }
@@ -1179,6 +1537,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let claudeSessionId = "claude-stale-cross-kind-session"
             let codexSessionId = "codex-fresh-binding-session"
@@ -1212,12 +1571,12 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
@@ -1227,10 +1586,13 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredTerminal?.agent == nil)
             #expect(restoredBinding.kind == "codex")
             #expect(restoredBinding.checkpointId == codexSessionId)
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: ["codex", "resume", codexSessionId],
-                scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
+                in: restored,
+                kind: "codex",
+                sessionID: codexSessionId,
+                commandContains: ["codex", "resume", codexSessionId],
+                commandDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }
@@ -1242,6 +1604,7 @@ struct AgentSessionAutoResumeSwiftTests {
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let source = Workspace()
+            defer { source.teardownAllPanels() }
             let sourcePanelId = try #require(source.focusedPanelId)
             let claudeSessionId = "claude-stale-hibernated-session"
             let codexSessionId = "codex-fresh-hibernation-binding-session"
@@ -1278,8 +1641,8 @@ struct AgentSessionAutoResumeSwiftTests {
                     updatedAt: 1_777_777_778
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
-                includeScrollback: false,
+            let snapshot = try snapshotOfRunningAgent(
+                in: source,
                 surfaceResumeBindingIndex: bindingIndex
             )
             let terminalSnapshot = try #require(snapshot.panels.first?.terminal)
@@ -1288,15 +1651,18 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(terminalSnapshot.hibernation == nil)
             #expect(terminalSnapshot.resumeBinding?.kind == "codex")
 
-            let restored = Workspace()
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
-                scriptContains: ["codex", "resume", codexSessionId],
-                scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
+                in: restored,
+                kind: "codex",
+                sessionID: codexSessionId,
+                commandContains: ["codex", "resume", codexSessionId],
+                commandDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }
@@ -1477,26 +1843,53 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    private func assertAgentAutoResumeUsesStartupCommand(
+    private func assertAgentAutoResumeUsesStartupInput(
         _ panel: TerminalPanel,
-        scriptContains needles: [String],
-        scriptDoesNotContain excludedNeedles: [String] = []
+        in workspace: Workspace,
+        kind: String,
+        sessionID: String,
+        commandContains needles: [String],
+        commandDoesNotContain excludedNeedles: [String] = []
     ) throws {
-        let command = try #require(panel.surface.debugInitialCommand())
-        #expect(command.hasPrefix("/bin/zsh '"), Comment(rawValue: command))
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
-        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        #expect(panel.surface.debugInitialCommand() == nil)
+        let input = try #require(panel.surface.debugInitialInputForTesting())
+        #expect(input == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n")
+        let command: String
+        if let agent = workspace.restoredAgentSnapshotForTesting(panelId: panel.id) {
+            #expect(agent.kind.rawValue == kind)
+            #expect(agent.sessionId == sessionID)
+            command = try #require(agent.resumeCommand)
+        } else {
+            let binding = try #require(workspace.surfaceResumeBindingsByPanelId[panel.id])
+            #expect(binding.kind == kind)
+            #expect(binding.checkpointId == sessionID)
+            command = try #require(binding.inlineStartupInput)
+        }
         for needle in needles {
-            #expect(script.contains(needle), Comment(rawValue: script))
+            #expect(command.contains(needle), Comment(rawValue: command))
         }
         for needle in excludedNeedles {
-            #expect(!script.contains(needle), Comment(rawValue: script))
+            #expect(!command.contains(needle), Comment(rawValue: command))
         }
-        #expect(script.contains("CMUX_SHELL_INTEGRATION_DIR"), Comment(rawValue: script))
-        #expect(script.contains("CMUX_ZSH_ZDOTDIR"), Comment(rawValue: script))
-        #expect(script.contains("\"$_cmux_resume_shell\" -lic"), Comment(rawValue: script))
-        #expect(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), Comment(rawValue: script))
-        #expect(script.contains("exec -l \"$_cmux_resume_shell\""), Comment(rawValue: script))
+    }
+
+    /// Supplies the persisted liveness bit for restore-policy scenarios.
+    /// A shell command-running report alone cannot identify the agent that was alive at quit.
+    @MainActor
+    private func snapshotOfRunningAgent(
+        in workspace: Workspace,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) throws -> SessionWorkspaceSnapshot {
+        var snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+        let panelID = try #require(workspace.focusedPanelId)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == panelID })
+        var terminal = try #require(snapshot.panels[panelIndex].terminal)
+        terminal.wasAgentRunning = true
+        snapshot.panels[panelIndex].terminal = terminal
+        return snapshot
     }
 }

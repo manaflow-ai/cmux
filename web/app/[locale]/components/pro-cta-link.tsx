@@ -1,46 +1,31 @@
 "use client";
 
-import posthog from "posthog-js";
 import {
-  pricingActionClassName,
-  type PricingActionSize,
-} from "../../components/pricing-shared";
-import {
-  CheckoutPendingContent,
-  useCheckoutRedirect,
-} from "../../components/checkout-navigation";
+  PricingCheckoutButton,
+} from "../../components/pricing-checkout";
+import type { PricingActionSize } from "../../components/pricing-shared";
 
 export function ProCtaLink({
   checkoutHref,
+  requiresSignIn,
   children,
   size = "default",
   location = "pricing_page",
 }: {
   checkoutHref: string;
+  requiresSignIn?: boolean;
   children: React.ReactNode;
   size?: PricingActionSize;
   location?: string;
 }) {
-  const { pending, start } = useCheckoutRedirect();
   return (
-    <a
+    <PricingCheckoutButton
       href={checkoutHref}
-      onClick={(event) => {
-        posthog.capture("cmuxterm_pro_cta_clicked", {
-          location,
-          checkout: true,
-        });
-        start(checkoutHref, event);
-      }}
-      aria-busy={pending}
-      className={`${pricingActionClassName("primary", size)} relative`}
-      style={{
-        color: "var(--background)",
-        textDecoration: "none",
-        pointerEvents: pending ? "none" : undefined,
-      }}
+      requiresSignIn={requiresSignIn}
+      location={location}
+      size={size}
     >
-      <CheckoutPendingContent pending={pending}>{children}</CheckoutPendingContent>
-    </a>
+      {children}
+    </PricingCheckoutButton>
   );
 }
