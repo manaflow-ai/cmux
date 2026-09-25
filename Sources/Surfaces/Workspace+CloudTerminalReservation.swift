@@ -72,13 +72,13 @@ extension Workspace {
                 && $0.remoteWorkspaceID == remoteWorkspaceID
         }) else { return false }
         let tabID = resource.remoteViews?.first(where: { $0.workspace.id == remoteWorkspaceID })?.tabID
-        reservation.sourcePlacement = CloudTerminalSourcePlacement(
+        reservation.bind(sourcePlacement: CloudTerminalSourcePlacement(
             machine: reservation.machine,
             resource: resource,
             remoteWorkspaceID: remoteWorkspaceID,
             remoteTabID: tabID,
             pendingCreation: reservation.sourcePlacement.pendingCreation
-        )
+        ))
         return true
     }
 

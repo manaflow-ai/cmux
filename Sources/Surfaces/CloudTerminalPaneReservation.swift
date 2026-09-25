@@ -112,6 +112,10 @@ final class CloudTerminalPaneReservation {
 
     var machine: SurfaceMachineID { sourcePlacement.machine }
     var resourceID: SurfaceResourceID? { sourcePlacement.resource?.id ?? attachmentPlacement?.resource }
+
+    func bind(sourcePlacement: CloudTerminalSourcePlacement) {
+        self.sourcePlacement = sourcePlacement
+    }
     var remoteWorkspaceID: String? { sourcePlacement.remoteWorkspaceID }
     var remoteTabID: String? { sourcePlacement.remoteTabID }
     var elapsed: Duration { ContinuousClock.now - startedAt }
