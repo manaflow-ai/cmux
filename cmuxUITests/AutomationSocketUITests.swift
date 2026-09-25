@@ -295,7 +295,7 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected a control socket for the agent footer test. diagnostics=\(loadDiagnostics())"
         )
 
-        let command = #"printf '\033]699; agent=codex ; context=34%\033\\'; read -r _; printf '\033]699;agent=\033\\'; tail -f /dev/null"#
+        let command = #"printf '\033]699; agent=codex ; context=34%%\033\\'; read -r _; printf '\033]699;agent=\033\\'; tail -f /dev/null"#
         let workspace = try XCTUnwrap(
             socketResult(
                 method: "workspace.create",

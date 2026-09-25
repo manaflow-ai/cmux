@@ -33,12 +33,16 @@ extension GhosttyApp {
 #endif
 
         if let runtimeSurface {
-            TerminalAgentFooterUpdate.clear(surfaceID: runtimeSurface.id)
+            let runtimeSurfaceGeneration = runtimeSurface.runtimeSurfaceGeneration
             // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
             DispatchQueue.main.async {
-                runtimeSurface.markShellExited()
                 guard let app = AppDelegate.shared else { return }
-                guard GhosttyApp.terminalSurfaceRegistry.surface(id: runtimeSurface.id) === runtimeSurface else { return }
+                guard GhosttyApp.terminalSurfaceRegistry.surface(id: runtimeSurface.id) === runtimeSurface,
+                      runtimeSurface.runtimeSurfaceGeneration == runtimeSurfaceGeneration else {
+                    return
+                }
+                TerminalAgentFooterUpdate.clear(surfaceID: runtimeSurface.id)
+                runtimeSurface.markShellExited()
                 if !keepSurfaceVisible,
                    let surfaceId,
                    app.closeWindowDockRuntimeSurface(surfaceId: surfaceId, force: true) {
