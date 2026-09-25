@@ -168,14 +168,14 @@ extension CMUXCLI {
         // (`EventStreamReconnectPolicy`) so it can be unit-tested without the
         // CLI target; this wrapper only maps CLI spellings onto it.
         if let cliError = error as? CLIError {
-            return EventStreamReconnectPolicy.isTransient(
+            return EventStreamReconnectPolicy().isTransient(
                 socketFailureKind: cliError.socketFailureKind == .receiveTimeoutConfiguration
                     ? .receiveTimeoutConfiguration
                     : nil,
                 message: cliError.message
             )
         }
-        return EventStreamReconnectPolicy.isTransient(
+        return EventStreamReconnectPolicy().isTransient(
             message: "",
             untypedDescription: String(describing: error)
         )
