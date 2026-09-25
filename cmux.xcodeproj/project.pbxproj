@@ -391,14 +391,12 @@
 		D35A0000000000000000001C /* BrowserDesignModeController+Capture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001C /* BrowserDesignModeController+Capture.swift */; };
 		D35A00000000000000000020 /* BrowserDesignModeController+Handoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000020 /* BrowserDesignModeController+Handoff.swift */; };
 		D35A00000000000000000003 /* BrowserDesignModeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000003 /* BrowserDesignModeController.swift */; };
-		D35A00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */; };
 		D35C00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift */; };
 		D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */; };
 		D35A00000000000000000017 /* BrowserDesignModePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000017 /* BrowserDesignModePopover.swift */; };
 		D35A00000000000000000018 /* BrowserDesignModePopoverHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000018 /* BrowserDesignModePopoverHost.swift */; };
 		D35A00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */; };
 		D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */; };
-		D35A00000000000000000019 /* BrowserDesignModeSelectionChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000019 /* BrowserDesignModeSelectionChip.swift */; };
 		2BED74405D6940415E66B937 /* BrowserDesignModeSmoothScrollingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D667411DD4754221281982 /* BrowserDesignModeSmoothScrollingTests.swift */; };
 		D35A0000000000000000001B /* BrowserDesignModeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001B /* BrowserDesignModeSupport.swift */; };
 		D35A0000000000000000001D /* BrowserDesignModeTokenCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001D /* BrowserDesignModeTokenCell.swift */; };
@@ -421,22 +419,17 @@
 		C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
-		C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A020000000000000002 /* BrowserErrorPageContent.swift */; };
 		BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */; };
-		CF9713FB29354C27B790391B /* BrowserExternalURLPolicyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCDF8C8679E947F982BC0CFB /* BrowserExternalURLPolicyCache.swift */; };
 		129980000000000000000001 /* BrowserFailedNavigationReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129980000000000000000002 /* BrowserFailedNavigationReloadTests.swift */; };
 		D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 		A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindWebViewEvaluator.swift */; };
 		7B5F1A2E9C0D4B6A8E217302 /* BrowserFixtureInteractionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */; };
 		8478B0000000000000000002 /* BrowserFixtureSocketTestCase+PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */; };
-		B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */; };
 		B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */; };
-		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
 		7490C0017490C0017490C001 /* BrowserHiddenWebViewMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */; };
 		4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */; };
 		BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */; };
-		BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */; };
 		BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */; };
 		BABA25000000000000000003 /* BrowserHTTPBasicAuthPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */; };
 		C12791C00000000000000002 /* BrowserImportAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791C00000000000000001 /* BrowserImportAutomation.swift */; };
@@ -446,7 +439,6 @@
 		B75040040000000000000001 /* BrowserInsecureHTTPAlertTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */; };
 		B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */; };
 		B1F0C0020000000000000001 /* BrowserInspectorFocusHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */; };
-		D7C0DE00000000000000A109 /* BrowserJavaScriptCompletionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A108 /* BrowserJavaScriptCompletionBridge.swift */; };
 		C85390070000000000000001 /* BrowserLocalFileFinderMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390070000000000000002 /* BrowserLocalFileFinderMenu.swift */; };
 		BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */; };
 		BCBC0A0E0000000000000E11 /* BrowserMediaActivityAggregationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */; };
@@ -454,11 +446,9 @@
 		133720000000000000000002 /* BrowserNativeClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133720000000000000000001 /* BrowserNativeClickUITests.swift */; };
 		C13BE417A8C24EE79F00A102 /* BrowserNativeHoverUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13BE417A8C24EE79F00A101 /* BrowserNativeHoverUITests.swift */; };
 		A85970000000000000000001 /* BrowserNavigableURLPasteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85970000000000000000002 /* BrowserNavigableURLPasteTests.swift */; };
-		C67540080000000000000001 /* BrowserNavigationDebugURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540080000000000000002 /* BrowserNavigationDebugURL.swift */; };
 		BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000A /* BrowserNavigationDelegate.swift */; };
 		B424PWNP000000000000PW01 /* BrowserNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */; };
 		C67540100000000000000001 /* BrowserNavigationPopupPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */; };
-		B05F00000000000000000002 /* BrowserOffscreenRenderHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05F00000000000000000001 /* BrowserOffscreenRenderHost.swift */; };
 		B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */; };
 		D7C0DE00000000000000A107 /* BrowserOmnibarPageFocusAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A106 /* BrowserOmnibarPageFocusAdapter.swift */; };
 		B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */; };
@@ -478,7 +468,6 @@
 		9A126160000000000000000C /* BrowserPanel+CloudConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A126160000000000000000B /* BrowserPanel+CloudConnection.swift */; };
 		C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */; };
 		D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */; };
-		D7632B11A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B12A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift */; };
 		A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MX00 /* BrowserPanel+MediaPlayback.swift */; };
 		F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */; };
 		F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */; };
@@ -498,7 +487,6 @@
 		C42660040000000000000001 /* BrowserPDFPreviewActionRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42660040000000000000002 /* BrowserPDFPreviewActionRegressionTests.swift */; };
 		C42660010000000000000001 /* BrowserPDFPreviewActionUIDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42660010000000000000002 /* BrowserPDFPreviewActionUIDelegate.swift */; };
 		C42660050000000000000001 /* BrowserPDFPreviewActionUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42660050000000000000002 /* BrowserPDFPreviewActionUnitTests.swift */; };
-		C42660020000000000000001 /* BrowserPDFPrintOperationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42660020000000000000002 /* BrowserPDFPrintOperationRunner.swift */; };
 			C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */; };
 			C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540040000000000000002 /* BrowserPopupPanel.swift */; };
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
@@ -518,7 +506,6 @@
 		4472A0014472A0014472A001 /* BrowserScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0014472B0014472B001 /* BrowserScreenshot.swift */; };
 		A92100010000000000000009 /* BrowserScreenshotAnimationFrameWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9210001000000000000000A /* BrowserScreenshotAnimationFrameWaiter.swift */; };
 		A92100010000000000000003 /* BrowserScreenshotCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92100010000000000000004 /* BrowserScreenshotCaptureService.swift */; };
-		A92100010000000000000013 /* BrowserScreenshotContinuationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92100010000000000000014 /* BrowserScreenshotContinuationGate.swift */; };
 		8827C0010000000000000001 /* BrowserScreenshotCropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8827D0010000000000000001 /* BrowserScreenshotCropTests.swift */; };
 		A92100010000000000000005 /* BrowserScreenshotDOMProbeCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92100010000000000000006 /* BrowserScreenshotDOMProbeCollector.swift */; };
 		A9210001000000000000000F /* BrowserScreenshotJavaScriptRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92100010000000000000010 /* BrowserScreenshotJavaScriptRequest.swift */; };
@@ -534,31 +521,12 @@
 		C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */; };
 		C2035A080000000000000001 /* BrowserSSLTrustGrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */; };
 		C2035A040000000000000001 /* BrowserSSLTrustScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A040000000000000002 /* BrowserSSLTrustScope.swift */; };
-		C67540010000000000000001 /* BrowserSubframeDownloadIntentTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540010000000000000002 /* BrowserSubframeDownloadIntentTracker.swift */; };
 		C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */; };
-		0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */; };
-			D10535000000000000000001 /* BrowserURLAllowlistBlockedPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10535000000000000000002 /* BrowserURLAllowlistBlockedPage.swift */; };
 		905200000000000000000001 /* BrowserUserAgentPolicyWebKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905200000000000000000002 /* BrowserUserAgentPolicyWebKitTests.swift */; };
 		805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000003 /* BrowserValueTextFormatter.swift */; };
 		805500000000000000000005 /* BrowserValueTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000003 /* BrowserValueTextFormatter.swift */; };
-		8056B0000000000000000002 /* BrowserViewportHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8056B0000000000000000001 /* BrowserViewportHostView.swift */; };
 		D8072A02D8072A02D8072A02 /* BrowserViewportRuntimeLoadDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8072A01D8072A01D8072A01 /* BrowserViewportRuntimeLoadDelegate.swift */; };
 		D8072A04D8072A04D8072A04 /* BrowserViewportRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8072A03D8072A03D8072A03 /* BrowserViewportRuntimeTests.swift */; };
-		A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */; };
-		A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */; };
-		A50100000000000000000006 /* BrowserWebAuthnAssertionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */; };
-		A50100000000000000000008 /* BrowserWebAuthnAuthenticatorSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */; };
-		A5010000000000000000000A /* BrowserWebAuthnBinaryData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */; };
-		A50100000000000000000014 /* BrowserWebAuthnCreationPublicKeyOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */; };
-		A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */; };
-		A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */; };
-		A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */; };
-		A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */; };
-		A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007427 /* BrowserWebAuthnRequestParser.swift */; };
-		A5007424 /* BrowserWebAuthnSecurityOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007425 /* BrowserWebAuthnSecurityOrigin.swift */; };
-		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
-		A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */; };
-		A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
 		C0DE49870000000000000003 /* BrowserWebContentTerminationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000004 /* BrowserWebContentTerminationLifecycleTests.swift */; };
 		A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
@@ -1969,6 +1937,7 @@
 		C7261F030000000000000001 /* GhosttyNSView+PointerFocusActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */; };
 		124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */; };
 		265FFB2D782433ED46B87F32 /* GhosttyNSView+RemoteReconnect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */; };
+		C75200010000000000000001 /* GhosttyNSView+RevealInFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75200010000000000000002 /* GhosttyNSView+RevealInFinder.swift */; };
 		C75100010000000000000001 /* GhosttyNSView+SelectionTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */; };
 		EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010E02 /* GhosttyNSView+TerminalCustomUpload.swift */; };
 		C54860070000000000000001 /* GhosttyNSViewSurfaceLinkCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860070000000000000002 /* GhosttyNSViewSurfaceLinkCopy.swift */; };
@@ -2907,6 +2876,8 @@
 		A12481700000000000000001 /* SidebarDerivedStateScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */; };
 		EA1F00000000000000000003 /* SidebarDirectoryText.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1F00000000000000000004 /* SidebarDirectoryText.swift */; };
 		B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0270000000000000027 /* SidebarDividerTrackingView.swift */; };
+		A1B2C3D410248001A1B2C3D4E5F60718 /* SidebarEmptyAreaDoubleClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D410248002A1B2C3D4E5F60718 /* SidebarEmptyAreaDoubleClickUITests.swift */; };
+		B804C0010000000000009043 /* SidebarEmptyAreaNewWorkspaceActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804D0010000000000009043 /* SidebarEmptyAreaNewWorkspaceActionTests.swift */; };
 		9212A0019212A0019212A001 /* SidebarEmptyAreaWindowDragController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0019212B0019212B001 /* SidebarEmptyAreaWindowDragController.swift */; };
 		9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0049212B0049212B004 /* SidebarEmptyAreaWindowDragOutcome.swift */; };
 		9212A0069212A0069212A006 /* SidebarEmptyAreaWindowDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */; };
@@ -3699,7 +3670,6 @@
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
-		C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */; };
 		F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */; };
 		F76550010000000000000001 /* VaultAgentProcessScanner+ForkMarkers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550010000000000000002 /* VaultAgentProcessScanner+ForkMarkers.swift */; };
 		F0F0CF0C0000000000000001 /* VaultAgentProcessScanner+ForkParentFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0C0000000000000002 /* VaultAgentProcessScanner+ForkParentFallback.swift */; };
@@ -3796,9 +3766,6 @@
 		E30760080000000000000002 /* WindowTmuxWorkspacePaneOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760080000000000000001 /* WindowTmuxWorkspacePaneOverlayController.swift */; };
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
 		7A0CE1000000000000000050 /* WireGuardKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A0CE1000000000000000051 /* WireGuardKit */; };
-		905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */; };
-		805600000000000000000003 /* WKWebView+BrowserViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000004 /* WKWebView+BrowserViewport.swift */; };
-		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
 		5A0420D5417940C6815B1F9E /* Workspace+AgentResumeOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F89ED4F392842F08A685C41 /* Workspace+AgentResumeOwnership.swift */; };
@@ -3890,6 +3857,7 @@
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
 		CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */; };
 		B2929B53F4CC4C9D972771EC /* WorkspaceChecklistAttachmentQuickLookController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */; };
+		C12524000000000000000001 /* WorkspaceClosePanelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12524000000000000000002 /* WorkspaceClosePanelFallbackTests.swift */; };
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
 		D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */; };
 		ED4BE012ED4BE012ED4BE012 /* WorkspaceCloudBindingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4BE013ED4BE013ED4BE013 /* WorkspaceCloudBindingState.swift */; };
@@ -4526,14 +4494,12 @@
 		D35B0000000000000000001C /* BrowserDesignModeController+Capture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserDesignModeController+Capture.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000020 /* BrowserDesignModeController+Handoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserDesignModeController+Handoff.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000003 /* BrowserDesignModeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeController.swift; sourceTree = "<group>"; };
-		D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeJavaScriptEvaluator.swift; sourceTree = "<group>"; };
 		D35D00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeOffscreenSelectionHandoffTests.swift; sourceTree = "<group>"; };
 		D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeOverflowMenuButton.swift; sourceTree = "<group>"; };
 		D35B00000000000000000017 /* BrowserDesignModePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePopover.swift; sourceTree = "<group>"; };
 		D35B00000000000000000018 /* BrowserDesignModePopoverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePopoverHost.swift; sourceTree = "<group>"; };
 		D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeScreenshotEvaluator.swift; sourceTree = "<group>"; };
 		D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeScreenshotEvaluatorTests.swift; sourceTree = "<group>"; };
-		D35B00000000000000000019 /* BrowserDesignModeSelectionChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeSelectionChip.swift; sourceTree = "<group>"; };
 		65D667411DD4754221281982 /* BrowserDesignModeSmoothScrollingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDesignModeSmoothScrollingTests.swift"; sourceTree = "<group>"; };
 		D35B0000000000000000001B /* BrowserDesignModeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeSupport.swift; sourceTree = "<group>"; };
 		D35B0000000000000000001D /* BrowserDesignModeTokenCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeTokenCell.swift; sourceTree = "<group>"; };
@@ -4556,22 +4522,17 @@
 		C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadsToolbarButton.swift; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
-		C2035A020000000000000002 /* BrowserErrorPageContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPageContent.swift; sourceTree = "<group>"; };
 		BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationHandler.swift; sourceTree = "<group>"; };
-		BCDF8C8679E947F982BC0CFB /* BrowserExternalURLPolicyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalURLPolicyCache.swift; sourceTree = "<group>"; };
 		129980000000000000000002 /* BrowserFailedNavigationReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFailedNavigationReloadTests.swift; sourceTree = "<group>"; };
 		D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFileDropNavigationGuard.swift; sourceTree = "<group>"; };
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 		A5008372 /* BrowserFindWebViewEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindWebViewEvaluator.swift; sourceTree = "<group>"; };
 		7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFixtureInteractionUITests.swift; sourceTree = "<group>"; };
 		8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserFixtureSocketTestCase+PendingRequest.swift"; sourceTree = "<group>"; };
-		B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardManager.swift; sourceTree = "<group>"; };
 		B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHiddenWebViewDiscardMemoryPressureTests.swift; sourceTree = "<group>"; };
-		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
 		7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/BrowserHiddenWebViewMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHistorySuggestionCacheTests.swift; sourceTree = "<group>"; };
 		BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPrompt.swift; sourceTree = "<group>"; };
-		BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPromptCoordinator.swift; sourceTree = "<group>"; };
 		BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHTTPBasicAuthPromptCoordinatorTests.swift; sourceTree = "<group>"; };
 		BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHTTPBasicAuthPromptTests.swift; sourceTree = "<group>"; };
 		C12791C00000000000000001 /* BrowserImportAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserImportAutomation.swift"; sourceTree = "<group>"; };
@@ -4581,7 +4542,6 @@
 		B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserInsecureHTTPAlertTestSupport.swift; sourceTree = "<group>"; };
 		B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/BrowserInspectorFocusHandoff.swift; sourceTree = "<group>"; };
 		B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserInspectorFocusHandoffTests.swift; sourceTree = "<group>"; };
-		D7C0DE00000000000000A108 /* BrowserJavaScriptCompletionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserJavaScriptCompletionBridge.swift; sourceTree = "<group>"; };
 		C85390070000000000000002 /* BrowserLocalFileFinderMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserLocalFileFinderMenu.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivity.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivityAggregationTests.swift; sourceTree = "<group>"; };
@@ -4589,11 +4549,9 @@
 		133720000000000000000001 /* BrowserNativeClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserNativeClickUITests.swift; sourceTree = "<group>"; };
 		C13BE417A8C24EE79F00A101 /* BrowserNativeHoverUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserNativeHoverUITests.swift; sourceTree = "<group>"; };
 		A85970000000000000000002 /* BrowserNavigableURLPasteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserNavigableURLPasteTests.swift; sourceTree = "<group>"; };
-		C67540080000000000000002 /* BrowserNavigationDebugURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDebugURL.swift; sourceTree = "<group>"; };
 		BABA2500000000000000000A /* BrowserNavigationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDelegate.swift; sourceTree = "<group>"; };
 		B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationPolicy.swift; sourceTree = "<group>"; };
 		C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationPopupPolicy.swift; sourceTree = "<group>"; };
-		B05F00000000000000000001 /* BrowserOffscreenRenderHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOffscreenRenderHost.swift; sourceTree = "<group>"; };
 		B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarAppKitBridge.swift; sourceTree = "<group>"; };
 		D7C0DE00000000000000A106 /* BrowserOmnibarPageFocusAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPageFocusAdapter.swift; sourceTree = "<group>"; };
 		B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPerformanceSupport.swift; sourceTree = "<group>"; };
@@ -4613,7 +4571,6 @@
 		9A126160000000000000000B /* BrowserPanel+CloudConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+CloudConnection.swift"; sourceTree = "<group>"; };
 		C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+DisplayURL.swift"; sourceTree = "<group>"; };
 		D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+ElementPicker.swift"; sourceTree = "<group>"; };
-		D7632B12A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+InteractiveModalHostWindow.swift"; sourceTree = "<group>"; };
 		A500MX00 /* BrowserPanel+MediaPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MediaPlayback.swift"; sourceTree = "<group>"; };
 		F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserDialogs.swift"; sourceTree = "<group>"; };
 		F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserStreaming.swift"; sourceTree = "<group>"; };
@@ -4633,7 +4590,6 @@
 		C42660040000000000000002 /* BrowserPDFPreviewActionRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPDFPreviewActionRegressionTests.swift; sourceTree = "<group>"; };
 		C42660010000000000000002 /* BrowserPDFPreviewActionUIDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPDFPreviewActionUIDelegate.swift; sourceTree = "<group>"; };
 		C42660050000000000000002 /* BrowserPDFPreviewActionUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPDFPreviewActionUnitTests.swift; sourceTree = "<group>"; };
-		C42660020000000000000002 /* BrowserPDFPrintOperationRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPDFPrintOperationRunner.swift; sourceTree = "<group>"; };
 			C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPendingSSLTrustBypass.swift; sourceTree = "<group>"; };
 			C67540040000000000000002 /* BrowserPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupPanel.swift; sourceTree = "<group>"; };
 		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
@@ -4653,7 +4609,6 @@
 		4472B0014472B0014472B001 /* BrowserScreenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshot.swift; sourceTree = "<group>"; };
 		A9210001000000000000000A /* BrowserScreenshotAnimationFrameWaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotAnimationFrameWaiter.swift; sourceTree = "<group>"; };
 		A92100010000000000000004 /* BrowserScreenshotCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotCaptureService.swift; sourceTree = "<group>"; };
-		A92100010000000000000014 /* BrowserScreenshotContinuationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotContinuationGate.swift; sourceTree = "<group>"; };
 		8827D0010000000000000001 /* BrowserScreenshotCropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserScreenshotCropTests.swift; sourceTree = "<group>"; };
 		A92100010000000000000006 /* BrowserScreenshotDOMProbeCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotDOMProbeCollector.swift; sourceTree = "<group>"; };
 		A92100010000000000000010 /* BrowserScreenshotJavaScriptRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotJavaScriptRequest.swift; sourceTree = "<group>"; };
@@ -4669,30 +4624,11 @@
 		C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSSLTrustBypassStateTests.swift; sourceTree = "<group>"; };
 		C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustGrant.swift; sourceTree = "<group>"; };
 		C2035A040000000000000002 /* BrowserSSLTrustScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustScope.swift; sourceTree = "<group>"; };
-		C67540010000000000000002 /* BrowserSubframeDownloadIntentTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSubframeDownloadIntentTracker.swift; sourceTree = "<group>"; };
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
-		326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyWatcher.swift; sourceTree = "<group>"; };
-			D10535000000000000000002 /* BrowserURLAllowlistBlockedPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserURLAllowlistBlockedPage.swift; sourceTree = "<group>"; };
 		905200000000000000000002 /* BrowserUserAgentPolicyWebKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserUserAgentPolicyWebKitTests.swift; sourceTree = "<group>"; };
 		805500000000000000000003 /* BrowserValueTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserValueTextFormatter.swift; sourceTree = "<group>"; };
-		8056B0000000000000000001 /* BrowserViewportHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserViewportHostView.swift"; sourceTree = "<group>"; };
 		D8072A01D8072A01D8072A01 /* BrowserViewportRuntimeLoadDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewportRuntimeLoadDelegate.swift; sourceTree = "<group>"; };
 		D8072A03D8072A03D8072A03 /* BrowserViewportRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewportRuntimeTests.swift; sourceTree = "<group>"; };
-		A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionExtensions.swift; sourceTree = "<group>"; };
-		A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionPublicKeyOptions.swift; sourceTree = "<group>"; };
-		A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionRequest.swift; sourceTree = "<group>"; };
-		A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAuthenticatorSelection.swift; sourceTree = "<group>"; };
-		A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnBinaryData.swift; sourceTree = "<group>"; };
-		A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCreationPublicKeyOptions.swift; sourceTree = "<group>"; };
-		A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCreationRequest.swift; sourceTree = "<group>"; };
-		A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialDescriptor.swift; sourceTree = "<group>"; };
-		A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialParameter.swift; sourceTree = "<group>"; };
-		A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRelyingPartyDescriptor.swift; sourceTree = "<group>"; };
-		A5007427 /* BrowserWebAuthnRequestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRequestParser.swift; sourceTree = "<group>"; };
-		A5007425 /* BrowserWebAuthnSecurityOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSecurityOrigin.swift; sourceTree = "<group>"; };
-		A5007423 /* BrowserWebAuthnSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSupport.swift; sourceTree = "<group>"; };
-		A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransportSummary.swift; sourceTree = "<group>"; };
-		A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnUserDescriptor.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000004 /* BrowserWebContentTerminationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentTerminationLifecycleTests.swift; sourceTree = "<group>"; };
 		A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
@@ -5968,6 +5904,7 @@
 		C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+PointerFocusActivation.swift"; sourceTree = "<group>"; };
 		124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/GhosttyNSView+PreparedImageTransfer.swift"; sourceTree = SOURCE_ROOT; };
 		47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+RemoteReconnect.swift"; sourceTree = "<group>"; };
+		C75200010000000000000002 /* GhosttyNSView+RevealInFinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+RevealInFinder.swift"; sourceTree = "<group>"; };
 		C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+SelectionTranslation.swift"; sourceTree = "<group>"; };
 		EC010E02 /* GhosttyNSView+TerminalCustomUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+TerminalCustomUpload.swift"; sourceTree = "<group>"; };
 		C54860070000000000000002 /* GhosttyNSViewSurfaceLinkCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNSViewSurfaceLinkCopy.swift; sourceTree = "<group>"; };
@@ -6891,6 +6828,8 @@
 		A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SidebarDerivedStateScaleTests.swift; sourceTree = "<group>"; };
 		EA1F00000000000000000004 /* SidebarDirectoryText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDirectoryText.swift; sourceTree = "<group>"; };
 		B804B0270000000000000027 /* SidebarDividerTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDividerTrackingView.swift; sourceTree = "<group>"; };
+		A1B2C3D410248002A1B2C3D4E5F60718 /* SidebarEmptyAreaDoubleClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarEmptyAreaDoubleClickUITests.swift; sourceTree = "<group>"; };
+		B804D0010000000000009043 /* SidebarEmptyAreaNewWorkspaceActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarEmptyAreaNewWorkspaceActionTests.swift; sourceTree = "<group>"; };
 		9212B0019212B0019212B001 /* SidebarEmptyAreaWindowDragController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragController.swift; sourceTree = "<group>"; };
 		9212B0049212B0049212B004 /* SidebarEmptyAreaWindowDragOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragOutcome.swift; sourceTree = "<group>"; };
 		9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarEmptyAreaWindowDragTests.swift; sourceTree = "<group>"; };
@@ -7674,7 +7613,6 @@
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
-		C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/URLRequest+BrowserFailedNavigation.swift"; sourceTree = "<group>"; };
 		F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+CodexSessionCwd.swift"; sourceTree = "<group>"; };
 		F76550010000000000000002 /* VaultAgentProcessScanner+ForkMarkers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+ForkMarkers.swift"; sourceTree = "<group>"; };
 		F0F0CF0C0000000000000002 /* VaultAgentProcessScanner+ForkParentFallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+ForkParentFallback.swift"; sourceTree = "<group>"; };
@@ -7768,9 +7706,6 @@
 		A10507000000000000000004 /* WindowTitleWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleWriter.swift; sourceTree = "<group>"; };
 		E30760080000000000000001 /* WindowTmuxWorkspacePaneOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTmuxWorkspacePaneOverlayController.swift; sourceTree = "<group>"; };
 		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
-		905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+BrowserUserAgentPolicy.swift"; sourceTree = "<group>"; };
-		805600000000000000000004 /* WKWebView+BrowserViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+BrowserViewport.swift"; sourceTree = "<group>"; };
-		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
 		5F89ED4F392842F08A685C41 /* Workspace+AgentResumeOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentResumeOwnership.swift"; sourceTree = "<group>"; };
@@ -7862,6 +7797,7 @@
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
 		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCanvasHostView.swift"; sourceTree = "<group>"; };
 		3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChecklistAttachmentQuickLookController.swift; sourceTree = "<group>"; };
+		C12524000000000000000002 /* WorkspaceClosePanelFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceClosePanelFallbackTests.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
 		ED4BE013ED4BE013ED4BE013 /* WorkspaceCloudBindingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloudBindingState.swift; sourceTree = "<group>"; };
@@ -8354,6 +8290,7 @@
 				C0DE1223900000000000000A /* NewMachineSheetKindUITests.swift */,
 				B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
 				F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */,
+				A1B2C3D410248002A1B2C3D4E5F60718 /* SidebarEmptyAreaDoubleClickUITests.swift */,
 				A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */,
 				C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */,
 				B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */,
@@ -9649,6 +9586,7 @@
 				C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */,
 				47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */,
 				C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */,
+				C75200010000000000000002 /* GhosttyNSView+RevealInFinder.swift */,
 				D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */,
 				D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */,
 				D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */,
@@ -9954,11 +9892,9 @@
 				D35B00000000000000000003 /* BrowserDesignModeController.swift */,
 				D35B00000000000000000017 /* BrowserDesignModePopover.swift */,
 				D35B00000000000000000018 /* BrowserDesignModePopoverHost.swift */,
-				D35B00000000000000000019 /* BrowserDesignModeSelectionChip.swift */,
 				D35B0000000000000000001B /* BrowserDesignModeSupport.swift */,
 				D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */,
 				D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */,
-				D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */,
 				D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */,
 				D35B0000000000000000000B /* BrowserDesignModeToolbarButton.swift */,
 				D35B0000000000000000001D /* BrowserDesignModeTokenCell.swift */,
@@ -10138,8 +10074,6 @@
 				A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */,
 				C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */,
 				C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */,
-				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
-				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */,
 				B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */,
 				B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */,
@@ -10149,42 +10083,30 @@
 				AC7B24C10000000000000002 /* BrowserAuthCallbackNavigationPolicy.swift */,
 				D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */,
 				D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */,
-				BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */,
 				BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */,
 				BABA2500000000000000000A /* BrowserNavigationDelegate.swift */,
 				BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */,
-				BCDF8C8679E947F982BC0CFB /* BrowserExternalURLPolicyCache.swift */,
-				C67540080000000000000002 /* BrowserNavigationDebugURL.swift */,
 				C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */,
 				C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */,
 				8054A0080000000000000008 /* BrowserAutomationSnapshotResult.swift */,
-				D7C0DE00000000000000A108 /* BrowserJavaScriptCompletionBridge.swift */,
 				D7C0DE00000000000000A106 /* BrowserOmnibarPageFocusAdapter.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				9A126160000000000000000B /* BrowserPanel+CloudConnection.swift */,
-				B05F00000000000000000001 /* BrowserOffscreenRenderHost.swift */,
 				F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */,
 				F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */,
 				F11000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift */,
 				F11000000000000000000003 /* MobileBrowserPanelNativeSignal.swift */,
-				905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */,
 				805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */,
-				8056B0000000000000000001 /* BrowserViewportHostView.swift */,
-				805600000000000000000004 /* WKWebView+BrowserViewport.swift */,
 				805600000000000000000006 /* TerminalController+BrowserViewport.swift */,
 				A12451000000000000000003 /* TerminalController+BrowserDownloadHistory.swift */,
 				8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */,
 				B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */,
 				C2035A010000000000000002 /* BrowserErrorPage.swift */,
-				D10535000000000000000002 /* BrowserURLAllowlistBlockedPage.swift */,
-				C2035A020000000000000002 /* BrowserErrorPageContent.swift */,
 				C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */,
 				C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */,
 				C2035A040000000000000002 /* BrowserSSLTrustScope.swift */,
 				C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */,
-				C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */,
 				C42660030000000000000002 /* BrowserDownloadDelegate+PDFPreviewData.swift */,
-				C67540010000000000000002 /* BrowserSubframeDownloadIntentTracker.swift */,
 				B3770BA00000000000000002 /* BrowserAutomation.swift */,
 				C12791000000000000000002 /* BrowserDataImportCoordinator.swift */,
 				C12791C00000000000000003 /* TerminalController+BrowserImport.swift */,
@@ -10194,7 +10116,6 @@
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
 				A9210001000000000000000A /* BrowserScreenshotAnimationFrameWaiter.swift */,
 				A92100010000000000000004 /* BrowserScreenshotCaptureService.swift */,
-				A92100010000000000000014 /* BrowserScreenshotContinuationGate.swift */,
 				A92100010000000000000006 /* BrowserScreenshotDOMProbeCollector.swift */,
 				A92100010000000000000010 /* BrowserScreenshotJavaScriptRequest.swift */,
 				A15388300000000000000001 /* BrowserScreenshotPasteboardWriter.swift */,
@@ -10204,13 +10125,11 @@
 				C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */,
 				C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */,
 				129980000000000000000006 /* BrowserPanel+Reload.swift */,
-				D7632B12A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift */,
 				D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */,
 				30F3EF8FCFB8F4402A4F0DA9 /* CmuxWebViewAppHost.swift */,
 				C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */,
 				A500MX00 /* BrowserPanel+MediaPlayback.swift */,
 				B1F0C0050000000000000002 /* BrowserDeveloperToolsDockControlNormalizer.swift */,
-				D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */,
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */,
@@ -10221,12 +10140,10 @@
 				C71500050000000000000001 /* TerminalPaneBackgroundView.swift */,
 				BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */,
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
-				326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */,
 				A5001414 /* BrowserPanelView.swift */,
 				C85390070000000000000002 /* BrowserLocalFileFinderMenu.swift */,
 				C67540070000000000000002 /* BrowserPDFDocumentToolbarButtons.swift */,
 				C42660010000000000000002 /* BrowserPDFPreviewActionUIDelegate.swift */,
-				C42660020000000000000002 /* BrowserPDFPrintOperationRunner.swift */,
 				C67540090000000000000002 /* OmnibarAddressButtonStyle.swift */,
 				A9E010000000000000000001 /* AgentSessionProvider.swift */,
 				A9F100000000000000000001 /* AgentExecutableResolver.swift */,
@@ -10284,21 +10201,6 @@
 				C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */,
 				C67540040000000000000002 /* BrowserPopupPanel.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
-				A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */,
-				A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */,
-				A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */,
-				A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */,
-				A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */,
-				A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */,
-				A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */,
-				A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */,
-				A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */,
-				A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */,
-				A5007425 /* BrowserWebAuthnSecurityOrigin.swift */,
-				A5007427 /* BrowserWebAuthnRequestParser.swift */,
-				A5007423 /* BrowserWebAuthnSupport.swift */,
-				A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */,
-				A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				95528F9C36831CC37BC6C483 /* MarkdownPanel+Focus.swift */,
 				10200F1E0000000000000002 /* FileContentChangeCoordinator.swift */,
@@ -11488,6 +11390,7 @@
 				60D3266B6D154D5C9F14286E /* TerminalPortalReconciliationReentrancyTests.swift */,
 				D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 				C08363000000000000000002 /* WorkspaceSplitZoomTabCloseTests.swift */,
+				C12524000000000000000002 /* WorkspaceClosePanelFallbackTests.swift */,
 				804100000000000000000004 /* ReorderShortcutActionTests.swift */,
 				D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */,
 				4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */,
@@ -11916,6 +11819,7 @@
 				906900000000000000000003 /* CMUXCLIMemoryAttributionTests.swift */,
 				D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */,
 				B804D0010000000000000001 /* SidebarWorkspaceTableTests.swift */,
+				B804D0010000000000009043 /* SidebarEmptyAreaNewWorkspaceActionTests.swift */,
 				B804D0020000000000000002 /* SidebarSelectionCoalescerTests.swift */,
 				C0DE10085100000000000002 /* SidebarLeadingEdgeAnchorTests.swift */,
 				B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */,
@@ -13216,12 +13120,10 @@
 				D35A0000000000000000001C /* BrowserDesignModeController+Capture.swift in Sources */,
 				D35A00000000000000000020 /* BrowserDesignModeController+Handoff.swift in Sources */,
 				D35A00000000000000000003 /* BrowserDesignModeController.swift in Sources */,
-				D35A00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift in Sources */,
 				D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */,
 				D35A00000000000000000017 /* BrowserDesignModePopover.swift in Sources */,
 				D35A00000000000000000018 /* BrowserDesignModePopoverHost.swift in Sources */,
 				D35A00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift in Sources */,
-				D35A00000000000000000019 /* BrowserDesignModeSelectionChip.swift in Sources */,
 				D35A0000000000000000001B /* BrowserDesignModeSupport.swift in Sources */,
 				D35A0000000000000000001D /* BrowserDesignModeTokenCell.swift in Sources */,
 				D35A0000000000000000000B /* BrowserDesignModeToolbarButton.swift in Sources */,
@@ -13235,27 +13137,19 @@
 				D93410060000000000000001 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift in Sources */,
 				C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
-				C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */,
 				BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */,
-				CF9713FB29354C27B790391B /* BrowserExternalURLPolicyCache.swift in Sources */,
 				D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
-				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
-				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
 				7490C0017490C0017490C001 /* BrowserHiddenWebViewMemoryPressureResponder.swift in Sources */,
 				BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */,
-				BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */,
 				C12791C00000000000000002 /* BrowserImportAutomation.swift in Sources */,
 				C12791C00000000000000008 /* BrowserImportDestinationResolver.swift in Sources */,
 				B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */,
-				D7C0DE00000000000000A109 /* BrowserJavaScriptCompletionBridge.swift in Sources */,
 				C85390070000000000000001 /* BrowserLocalFileFinderMenu.swift in Sources */,
 				BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */,
-				C67540080000000000000001 /* BrowserNavigationDebugURL.swift in Sources */,
 				BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */,
 				B424PWNP000000000000PW01 /* BrowserNavigationPolicy.swift in Sources */,
 				C67540100000000000000001 /* BrowserNavigationPopupPolicy.swift in Sources */,
-				B05F00000000000000000002 /* BrowserOffscreenRenderHost.swift in Sources */,
 				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				D7C0DE00000000000000A107 /* BrowserOmnibarPageFocusAdapter.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
@@ -13269,7 +13163,6 @@
 				9A126160000000000000000C /* BrowserPanel+CloudConnection.swift in Sources */,
 				C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */,
 				D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */,
-				D7632B11A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift in Sources */,
 				A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */,
 				F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */,
 				F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */,
@@ -13283,7 +13176,6 @@
 				A5001404 /* BrowserPanelView.swift in Sources */,
 				C67540070000000000000001 /* BrowserPDFDocumentToolbarButtons.swift in Sources */,
 				C42660010000000000000001 /* BrowserPDFPreviewActionUIDelegate.swift in Sources */,
-				C42660020000000000000001 /* BrowserPDFPrintOperationRunner.swift in Sources */,
 				C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */,
 				C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
@@ -13297,7 +13189,6 @@
 				4472A0014472A0014472A001 /* BrowserScreenshot.swift in Sources */,
 				A92100010000000000000009 /* BrowserScreenshotAnimationFrameWaiter.swift in Sources */,
 				A92100010000000000000003 /* BrowserScreenshotCaptureService.swift in Sources */,
-				A92100010000000000000013 /* BrowserScreenshotContinuationGate.swift in Sources */,
 				A92100010000000000000005 /* BrowserScreenshotDOMProbeCollector.swift in Sources */,
 				A9210001000000000000000F /* BrowserScreenshotJavaScriptRequest.swift in Sources */,
 				A15388300000000000000002 /* BrowserScreenshotPasteboardWriter.swift in Sources */,
@@ -13311,25 +13202,6 @@
 				C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */,
 				C2035A080000000000000001 /* BrowserSSLTrustGrant.swift in Sources */,
 				C2035A040000000000000001 /* BrowserSSLTrustScope.swift in Sources */,
-				C67540010000000000000001 /* BrowserSubframeDownloadIntentTracker.swift in Sources */,
-				0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */,
-				D10535000000000000000001 /* BrowserURLAllowlistBlockedPage.swift in Sources */,
-				8056B0000000000000000002 /* BrowserViewportHostView.swift in Sources */,
-				A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */,
-				A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */,
-				A50100000000000000000006 /* BrowserWebAuthnAssertionRequest.swift in Sources */,
-				A50100000000000000000008 /* BrowserWebAuthnAuthenticatorSelection.swift in Sources */,
-				A5010000000000000000000A /* BrowserWebAuthnBinaryData.swift in Sources */,
-				A50100000000000000000014 /* BrowserWebAuthnCreationPublicKeyOptions.swift in Sources */,
-				A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */,
-				A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */,
-				A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */,
-				A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */,
-				A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */,
-				A5007424 /* BrowserWebAuthnSecurityOrigin.swift in Sources */,
-				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
-				A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */,
-				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				B1F0C00A0000000000000001 /* BrowserWindowPortalInspectorLayout.swift in Sources */,
 				F0ACC0E00000000000000001 /* CachedAgentProcessIdentityValidator.swift in Sources */,
@@ -13934,6 +13806,7 @@
 				C7261F030000000000000001 /* GhosttyNSView+PointerFocusActivation.swift in Sources */,
 				124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */,
 				265FFB2D782433ED46B87F32 /* GhosttyNSView+RemoteReconnect.swift in Sources */,
+				C75200010000000000000001 /* GhosttyNSView+RevealInFinder.swift in Sources */,
 				C75100010000000000000001 /* GhosttyNSView+SelectionTranslation.swift in Sources */,
 				EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */,
 				C54860070000000000000001 /* GhosttyNSViewSurfaceLinkCopy.swift in Sources */,
@@ -15120,7 +14993,6 @@
 			E7F100000000000000000001 /* UITestSocketSanityCoordinator.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
-				C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */,
 				F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */,
 				F76550010000000000000001 /* VaultAgentProcessScanner+ForkMarkers.swift in Sources */,
 				F0F0CF0C0000000000000001 /* VaultAgentProcessScanner+ForkParentFallback.swift in Sources */,
@@ -15178,9 +15050,6 @@
 				A10507000000000000000003 /* WindowTitleWriter.swift in Sources */,
 				E30760080000000000000002 /* WindowTmuxWorkspacePaneOverlayController.swift in Sources */,
 				A5001209 /* WindowToolbarController.swift in Sources */,
-				905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */,
-				805600000000000000000003 /* WKWebView+BrowserViewport.swift in Sources */,
-				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
 				5A0420D5417940C6815B1F9E /* Workspace+AgentResumeOwnership.swift in Sources */,
@@ -15659,6 +15528,7 @@
 				D10000000000000000A00014 /* SettingsTerminalBehaviorUITests.swift in Sources */,
 				D10000000000000000A00010 /* SettingsUITestSupport.swift in Sources */,
 				D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */,
+				A1B2C3D410248001A1B2C3D4E5F60718 /* SidebarEmptyAreaDoubleClickUITests.swift in Sources */,
 				B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 				B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */,
 				B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
@@ -16544,6 +16414,7 @@
 				B804C0030000000000000003 /* SidebarAppKitRowCellTests.swift in Sources */,
 				9BE45B94B05D471FA386203D /* SidebarCloudWorkspaceBadgeTests.swift in Sources */,
 				A12481700000000000000001 /* SidebarDerivedStateScaleTests.swift in Sources */,
+				B804C0010000000000009043 /* SidebarEmptyAreaNewWorkspaceActionTests.swift in Sources */,
 				9212A0069212A0069212A006 /* SidebarEmptyAreaWindowDragTests.swift in Sources */,
 				A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */,
 				B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */,
@@ -16759,6 +16630,7 @@
 				C7D41E01 /* WorkspaceActionSaveDialogAccessoryTests.swift in Sources */,
 				D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */,
 				A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */,
+				C12524000000000000000001 /* WorkspaceClosePanelFallbackTests.swift in Sources */,
 				D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */,
 				970900030000000000000001 /* WorkspaceColorMenuTests.swift in Sources */,
 				F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
