@@ -3772,6 +3772,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _renderedFrameFlushScheduled = false
     private var _pendingRenderedFrameDeliveryReasons:
         TerminalRenderedFrameDeliveryReasons = []
+    private var accessibilityScreenContentsCache: (value: String, expiresAt: CFTimeInterval)?
     /// Pane-local frame demand lets a terminal-specific consumer observe a
     /// late render without enabling notifications on every terminal surface.
     let localRenderedFrameNotificationDemand = RenderDemandCounter()
@@ -6098,14 +6099,88 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func accessibilityHelp() -> String? {
-        "Terminal content area"
+        String(localized: "terminal.accessibility.contentArea.help", defaultValue: "Terminal content area")
+    }
+
+    override func isAccessibilityFocused() -> Bool {
+        guard let window, window.isKeyWindow else { return false }
+        return window.firstResponder?.cmuxTerminalFocusOwningGhosttyView() === self
     }
 
     override func accessibilityValue() -> Any? {
-        // We don't keep a full terminal text snapshot in this layer.
-        // Expose selected text when available; otherwise provide an empty value
-        // so AX clients still treat this as an editable text area.
-        accessibilitySelectedText() ?? ""
+        accessibilityScreenContents()
+    }
+
+    override func accessibilityNumberOfCharacters() -> Int {
+        accessibilityScreenContents().utf16.count
+    }
+
+    override func accessibilityVisibleCharacterRange() -> NSRange {
+        let content = accessibilityScreenContents()
+        return NSRange(location: 0, length: content.utf16.count)
+    }
+
+    override func accessibilityLine(for index: Int) -> Int {
+        let content = accessibilityScreenContents()
+        let prefix = String(decoding: content.utf16.prefix(max(0, index)), as: UTF16.self)
+        return prefix.reduce(into: 0) { count, character in
+            if character == "\n" { count += 1 }
+        }
+    }
+
+    override func accessibilityString(for range: NSRange) -> String? {
+        let content = accessibilityScreenContents()
+        guard let swiftRange = Range(range, in: content) else { return nil }
+        return String(content[swiftRange])
+    }
+
+    override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
+        guard let plainString = accessibilityString(for: range) else { return nil }
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        if let surface,
+           let fontRaw = ghostty_surface_quicklook_font(surface) {
+            let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
+            attributes[.font] = font.takeUnretainedValue()
+            font.release()
+        }
+        return NSAttributedString(string: plainString, attributes: attributes)
+    }
+
+    private func accessibilityScreenContents() -> String {
+        let now = CACurrentMediaTime()
+        if let cached = accessibilityScreenContentsCache, cached.expiresAt > now {
+            return cached.value
+        }
+        guard let surface else { return "" }
+
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_SCREEN,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0
+            ),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_SCREEN,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
+            ),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        let value: String
+        if let ptr = text.text, text.text_len > 0 {
+            let data = Data(bytes: ptr, count: Int(text.text_len))
+            value = String(decoding: data, as: UTF8.self)
+        } else {
+            value = ""
+        }
+        accessibilityScreenContentsCache = (value: value, expiresAt: now + 0.5)
+        return value
     }
 
     override func setAccessibilityValue(_ value: Any?) {
@@ -6200,6 +6275,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
+        if result {
+            postAccessibilityFocusChanged()
+        }
         var shouldApplySurfaceFocus = false
         if result {
             imeConsumedKeyUps.removeAll()
@@ -6314,6 +6392,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
+            postAccessibilityFocusChanged()
+        }
+        if result {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
@@ -6332,6 +6413,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_focus(surface, false)
         }
         return result
+    }
+
+    private func postAccessibilityFocusChanged() {
+        guard let window else { return }
+        NSAccessibility.post(element: window, notification: .focusedUIElementChanged)
+        NSAccessibility.post(element: NSApp, notification: .focusedUIElementChanged)
     }
 
     // For NSTextInputClient - accumulates text during key events
