@@ -1,6 +1,6 @@
 # cmux-tui agent instructions
 
-Do not run `cargo`, `rustc`, or Zig on your local Mac. Do not use a local build as a fallback. Commit and push the exact branch head, then use the hosted entry point from the repository root:
+Maintainers do not run `cargo`, `rustc`, or Zig on their local Mac and do not use a local build as a fallback. Commit and push the exact branch head to manaflow-ai/cmux, then use the hosted entry point from the repository root:
 
 ```bash
 ./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
@@ -18,5 +18,7 @@ The script rejects dirty or unpushed work, verifies the exact commit in every ho
 Blacksmith Testbox gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
 and Zig builds: warm your own box before the build, and never compile cmux-tui on the Mac. The
 workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards live here. Quickest
-path: `./scripts/blacksmith-testbox-demo.sh`. Without Testbox access, use the hosted entry point
-above.
+path: `./scripts/blacksmith-testbox-demo.sh`.
+
+Outside contributors cannot dispatch the hosted verification from a fork. Run focused `cargo test`
+inside `cmux-tui/` locally and say so in the PR; a maintainer runs the hosted verification on it.
