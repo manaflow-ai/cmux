@@ -150,8 +150,12 @@ extension Workspace {
         guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
             return false
         }
-        let trimmedStable = stableTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let stable = (trimmedStable?.isEmpty == false) ? trimmedStable! : trimmed
+        // A cloud-projected terminal displays the cloud process title, so the
+        // local PTY's stable title must not leak into panelTitles or the
+        // workspace title there.
+        let trimmedStable = remote == nil
+            ? stableTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let stable = trimmedStable.flatMap { $0.isEmpty ? nil : $0 } ?? trimmed
 
         // Runs on every frame, which is what keeps the animation. It still
         // invalidates the tab bar's own SwiftUI subtree; what it avoids is the

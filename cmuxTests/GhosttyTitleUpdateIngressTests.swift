@@ -130,19 +130,21 @@ struct GhosttyTitleUpdateIngressTests {
             terminalLifecycleID: terminalLifecycleID,
             title: "pnpm run build"
         ))
-        await scheduler.awaitFirstSchedule()
-        await scheduler.fire()
+        // A schedule already exists from the first phase, so awaiting it would
+        // not wait for this submission. Poll until the change is delivered.
+        var labelChange: GhosttyTitleChange?
+        for _ in 0..<200 {
+            await Task.yield()
+            await scheduler.fire()
+            labelChange = observed.values.first { $0.title == "pnpm run build" }
+            if labelChange != nil { break }
+        }
 
         // A frame-free title: `isSpinnerFrameOnly` is `title != stableTitle`, so a
         // real label change only reads as one when the raw title has no frame in
         // it. That is the case a consumer must not skip.
-        let labelChanges = observed.values
-        let everyLabelChangeCarriesTheNewTitle = labelChanges
-            .allSatisfy { $0.stableTitle == "pnpm run build" }
-        let noLabelChangeIsMarkedSpinnerOnly = labelChanges.allSatisfy { !$0.isSpinnerFrameOnly }
-        #expect(!labelChanges.isEmpty)
-        #expect(everyLabelChangeCarriesTheNewTitle)
-        #expect(noLabelChangeIsMarkedSpinnerOnly)
+        #expect(labelChange?.stableTitle == "pnpm run build")
+        #expect(labelChange?.isSpinnerFrameOnly == false)
     }
 
     /// A repeated identical frame still dedups; only genuinely new frames pass.
