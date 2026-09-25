@@ -28288,7 +28288,7 @@ struct CMUXCLI {
                 case "Permission":
                     journalKind = .approvalRequested
                 case "Waiting":
-                    journalKind = suppressNeedsInputState ? .stateChanged : .questionRequested
+                    journalKind = suppressNeedsInputState ? .stateChanged : .idleObserved
                 case "Completed":
                     journalKind = .turnCompleted
                 case "Error":

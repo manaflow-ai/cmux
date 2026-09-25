@@ -109,8 +109,8 @@ rules, confirmation settle window, and resume behavior.
 ```
 
 - `enabled`: turn routine Agent Hibernation on. Default: `false`. Aggregate-pressure safety hibernation remains available when this is `false`.
-- `idleSeconds`: seconds a background idle agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
-- `maxLiveTerminals`: the target used only by opt-in routine hibernation before it hibernates the oldest idle background terminals. It is not a global memory or agent limit, and aggregate-pressure handling does not use it. Default: `12`. Range: `1`-`256`.
+- `idleSeconds`: seconds a background settled agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
+- `maxLiveTerminals`: the target used only by opt-in routine hibernation before it hibernates the oldest settled background terminals. It is not a global memory or agent limit, and aggregate-pressure handling does not use it. Default: `12`. Range: `1`-`256`.
 
 ### Aggregate memory-pressure safety policy
 

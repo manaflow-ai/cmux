@@ -13,7 +13,15 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     }
 
     var allowsHibernation: Bool {
-        self == .idle
+        switch self {
+        case .idle, .needsInput:
+            // A settled agent waiting for input is still safe to reclaim. The
+            // planner's protection, terminal-input, process-scope, transcript,
+            // and confirmation gates continue to apply before teardown.
+            true
+        case .unknown, .running:
+            false
+        }
     }
 
     func encode(to encoder: Encoder) throws {
