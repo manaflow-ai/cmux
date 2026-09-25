@@ -128,18 +128,43 @@ def parse_log(log: str) -> dict:
     }
 
 
-def run_reload(tag: str, derived: str, log_path: Path, extra_env: dict[str, str]) -> tuple[float, int]:
+def run_reload(tag: str, derived: str, log_path: Path, extra_env: dict[str, str]) -> tuple[float, int, dict]:
+    """Run reload.sh; also timestamp when xcodebuild starts and finishes in its log, which splits the
+    wall time into reload.sh's own work before xcodebuild, xcodebuild, and its work after."""
     env = dict(os.environ, CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS="1", **extra_env)
+    marks: dict[str, float] = {}
+    log_path.unlink(missing_ok=True)  # never match the previous run's markers
     started = time.monotonic()
-    proc = subprocess.run(["./scripts/reload.sh", "--tag", tag, "--derived-data", derived,
-                           "--swift-frontend-workaround"], cwd=ROOT, env=env, text=True,
-                          capture_output=True, check=False)
+    proc = subprocess.Popen(["./scripts/reload.sh", "--tag", tag, "--derived-data", derived,
+                             "--swift-frontend-workaround"], cwd=ROOT, env=env, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out_chunks: list[str] = []
+    import threading
+    reader = threading.Thread(target=lambda: out_chunks.append(proc.stdout.read()), daemon=True)
+    reader.start()
+    while proc.poll() is None:
+        try:
+            text = log_path.read_text(errors="replace") if log_path.exists() else ""
+        except OSError:
+            text = ""
+        now = time.monotonic() - started
+        if "xcodebuild_start" not in marks and "Command line invocation:" in text:
+            marks["xcodebuild_start"] = now
+        if "xcodebuild_end" not in marks and ("** BUILD SUCCEEDED **" in text or "** BUILD FAILED **" in text):
+            marks["xcodebuild_end"] = now
+        time.sleep(0.25)
+    reader.join(timeout=5)
     seconds = time.monotonic() - started
+    split = {}
+    if "xcodebuild_start" in marks and "xcodebuild_end" in marks:
+        split = {"before_xcodebuild": round(marks["xcodebuild_start"], 1),
+                 "xcodebuild": round(marks["xcodebuild_end"] - marks["xcodebuild_start"], 1),
+                 "after_xcodebuild": round(seconds - marks["xcodebuild_end"], 1)}
     if proc.returncode != 0:
-        sys.stderr.write(proc.stdout[-4000:] + proc.stderr[-4000:])
+        sys.stderr.write("".join(out_chunks)[-4000:])
         if log_path.exists():
             sys.stderr.write(log_path.read_text(errors="replace")[-8000:])
-    return seconds, proc.returncode
+    return seconds, proc.returncode, split
 
 
 def main() -> int:
@@ -163,10 +188,10 @@ def main() -> int:
             if wanted and name not in wanted and name != "prime":
                 continue
             edit(n)
-            seconds, code = run_reload(args.tag, args.derived_data, log_path, extra_env)
+            seconds, code, split = run_reload(args.tag, args.derived_data, log_path, extra_env)
             log = log_path.read_text(errors="replace") if log_path.exists() else ""
             record = {"variant": variant, "scenario": name, "models": what, "seconds": round(seconds, 1),
-                      "exit": code, **parse_log(log)}
+                      "exit": code, "split": split, **parse_log(log)}
         # The standalone driver prints no per-file SwiftCompile lines; reload.sh's driver
         # diagnostics summary counts what it scheduled for every driver alike.
         diag = Path(f"{log_path}.incremental.json")
@@ -188,13 +213,13 @@ def main() -> int:
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### App edit loop (reload.sh, incremental)\n\n")
-            handle.write("| variant | scenario | wall s | Swift files | driver scheduled | modules emitted | top phases |\n"
-                         "| --- | --- | --- | --- | --- | --- | --- |\n")
+            handle.write("| variant | scenario | wall s | before / xcodebuild / after | Swift files | driver scheduled | modules emitted | top phases |\n"
+                         "| --- | --- | --- | --- | --- | --- | --- | --- |\n")
             for r in results:
                 top = ", ".join(f"{k} {v:.1f}s" for k, v in list(r["phases"].items())[:4])
                 dc = r.get("driver_counts") or {}
                 sched = dc.get("initial_files", 0) + dc.get("dependency_cascade_files", 0) if dc else "-"
-                handle.write(f"| {r['variant']} | {r['scenario']} | {r['seconds']} | {r['swift_files_compiled']} | {sched} | "
+                handle.write(f"| {r['variant']} | {r['scenario']} | {r['seconds']} | {" / ".join(str(v) for v in r["split"].values()) or "-"} | {r['swift_files_compiled']} | {sched} | "
                              f"{', '.join(r['modules_emitted']) or '-'} | {top} |\n")
     return 0 if all(r["exit"] == 0 for r in results) else 1
 
