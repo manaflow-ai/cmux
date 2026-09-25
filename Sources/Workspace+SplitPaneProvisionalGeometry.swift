@@ -140,7 +140,8 @@ extension Workspace {
         // complete tree in bottom-left window coordinates using a presented
         // terminal's known position within the old tree. Hidden/browser panes
         // still contribute their full extent to the model projection.
-        let rootOrigin = terminalsByPane.lazy.compactMap { paneID, terminals -> NSPoint? in
+        let rootOrigin = terminalsByPane.lazy.compactMap { pair -> NSPoint? in
+            let (paneID, terminals) = pair
             guard let oldFrame = oldPaneFrames[paneID], let terminal = terminals.first,
                   let frame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(
                     for: terminal, transactionID: transactionID
