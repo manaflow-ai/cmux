@@ -77,6 +77,42 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func feedNeedsInputOverlayReplacesRunningStatusForSamePanel() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: "codex")
+
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            timestamp: Date(timeIntervalSince1970: 10)
+        )
+        workspace.recordAgentPID(
+            key: "codex.codex-session",
+            pid: 12_345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: attentionKey,
+            panelId: panelId,
+            lifecycle: .needsInput
+        )
+        workspace.statusEntries[attentionKey] = SidebarStatusEntry(
+            key: attentionKey,
+            value: FeedCoordinator.needsInputStatusValue,
+            icon: "bell.fill",
+            timestamp: Date(timeIntervalSince1970: 20)
+        )
+
+        let displayedKeys = Set(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key))
+
+        #expect(
+            displayedKeys == Set([attentionKey]),
+            "A Feed Needs input overlay and the agent's Running status must not render as two rows for one panel."
+        )
+    }
+
     @Test func terminalAgentContextDoesNotObserveAgentRuntimeMaps() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
