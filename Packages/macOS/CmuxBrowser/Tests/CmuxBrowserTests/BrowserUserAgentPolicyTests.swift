@@ -27,14 +27,17 @@ struct BrowserUserAgentPolicyTests {
         #expect(newerPolicy.safariCompatibleUserAgent.contains("Version/27.0 Safari/605.1.15"))
     }
 
-    @Test func googleSheetsKeepsEmbeddedWebKitIdentity() {
+    @Test func googleSheetsReceivesCurrentSafariCompatibleIdentity() {
         let sheetURL = URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
         let sheetsRedirectURL = URL(string: "https://sheets.google.com/")!
         let legacyRedirectURL = URL(string: "https://spreadsheets.google.com/")!
+        let expectedResolution = BrowserUserAgentPolicyResolution.custom(
+            policy.safariCompatibleUserAgent
+        )
 
-        #expect(policy.resolution(for: sheetURL) == .webKitDefault)
-        #expect(policy.resolution(for: sheetsRedirectURL) == .webKitDefault)
-        #expect(policy.resolution(for: legacyRedirectURL) == .webKitDefault)
+        #expect(policy.resolution(for: sheetURL) == expectedResolution)
+        #expect(policy.resolution(for: sheetsRedirectURL) == expectedResolution)
+        #expect(policy.resolution(for: legacyRedirectURL) == expectedResolution)
     }
 
     @Test func otherGoogleWorkspaceEditorsRemainSafariCompatible() {

@@ -385,6 +385,10 @@ case "$*" in
     fi
     printf '{}\n'
     ;;
+  *"hooks pi session-start"*)
+    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-session-test","source":"agent-hook","auto_resume":true,"approval_policy":"auto"}}\n' > "$CMUX_TEST_PI_BINDING_FILE"
+    printf '{"workspace_id":"workspace-pi-test","surface_id":"surface-pi-test"}\n'
+    ;;
   *"surface resume get"*)
     if [ -f "$CMUX_TEST_PI_BINDING_FILE" ]; then
       cat "$CMUX_TEST_PI_BINDING_FILE"
@@ -517,8 +521,25 @@ async function waitForFeedEvent(eventName, expectedCount) {
   }
   throw new Error(`timed out waiting for ${expectedCount} ${eventName} Feed events`);
 }
+async function waitForArgument(fragment) {
+    const path = process.env.CMUX_TEST_PI_ARGS_LOG;
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const lines = path && Bun.file(path).size
+        ? (await Bun.file(path).text()).split("\\n")
+        : [];
+      if (lines.some((line) => line.includes(fragment))) return;
+      await Bun.sleep(10);
+    }
+  throw new Error(`timed out waiting for ${fragment}`);
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
+await waitForArgument("hooks pi prompt-submit");
+const sessionStartBinding = JSON.parse(await Bun.file(process.env.CMUX_TEST_PI_BINDING_FILE).text()).resume_binding;
+if (sessionStartBinding?.auto_resume !== true || sessionStartBinding?.approval_policy !== "auto") {
+  throw new Error(`Pi session-start downgraded its resume binding: ${JSON.stringify(sessionStartBinding)}`);
+}
 await handlers.get("tool_execution_start")({
   id: "tool-event-start-should-not-be-turn-id",
   toolCallId: "tool-call-1",
@@ -611,6 +632,57 @@ await handlers.get("agent_settled")({}, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("shutdown after settlement emitted a duplicate stop");
+const abortedCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-aborted"; }
+  }
+};
+await handlers.get("session_start")({}, abortedCtx);
+await handlers.get("before_agent_start")({ prompt: "abort me" }, abortedCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "abort me" },
+    { role: "assistant", content: "partial response", stopReason: "aborted" }
+  ]
+}, abortedCtx);
+await handlers.get("agent_settled")({}, abortedCtx);
+completionCount += 1;
+await waitForCompletionHookCount(completionCount);
+await handlers.get("agent_settled")({}, abortedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("duplicate aborted settlement emitted completion twice");
+await handlers.get("session_shutdown")({ reason: "quit" }, abortedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("aborted shutdown emitted a duplicate stop");
+const immediateSubmitCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-immediate-submit"; }
+  }
+};
+await handlers.get("session_start")({}, immediateSubmitCtx);
+await handlers.get("before_agent_start")({ prompt: "replace me" }, immediateSubmitCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "replace me" },
+    {
+      role: "assistant",
+      content: "partial response",
+      stopReason: "stop",
+      cmuxSuppressNotification: true
+    }
+  ]
+}, immediateSubmitCtx);
+await handlers.get("agent_settled")({}, immediateSubmitCtx);
+completionCount += 1;
+await waitForCompletionHookCount(completionCount);
+await handlers.get("agent_settled")({}, immediateSubmitCtx);
+if (await completionHookCount() !== completionCount) throw new Error("duplicate immediate-submit settlement emitted completion twice");
+await handlers.get("session_shutdown")({ reason: "quit" }, immediateSubmitCtx);
+if (await completionHookCount() !== completionCount) throw new Error("immediate-submit shutdown emitted a duplicate stop");
 const interruptedCtx = {
   cwd: "/tmp/pi-project",
   isIdle() { return true; },
@@ -752,17 +824,17 @@ await waitForCompletionHookCount(completionCount);
 
         args_log = wait_for_text(
             fake_args_log,
-            38,
+            50,
             timeout=20.0,
             expected_substrings=("hooks feed --source pi --event PostToolUse",),
         )
         stdin_log = wait_for_text(
             fake_stdin_log,
-            38,
+            50,
             timeout=20.0,
             expected_substrings=('"hook_event_name":"PostToolUse"',),
         )
-        env_log = wait_for_text(fake_env_log, 38 * 3, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 50 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -773,8 +845,6 @@ await waitForCompletionHookCount(completionCount);
             "hooks feed --source pi --event PostCompact",
             "hooks feed --source pi --event SubagentStart",
             "hooks feed --source pi --event SubagentStop",
-            "surface resume get",
-            "surface resume set",
             "surface resume clear",
         ]:
             if expected not in args_log:
@@ -791,23 +861,13 @@ await waitForCompletionHookCount(completionCount);
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
+            "clear",
+            "clear",
         ]
         if resume_ops != expected_resume_ops:
-            print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
+            print(f"FAIL: extension emitted unexpected resume binding operations, got {resume_ops!r}")
             return 1
         payloads = payloads_from_log(stdin_log)
         for session_id in [
@@ -826,6 +886,23 @@ await waitForCompletionHookCount(completionCount);
             ]
             if completion_events != ["Notification", "Stop"]:
                 print(f"FAIL: completion hooks were out of order for {session_id}: {completion_events!r}")
+                return 1
+        for session_id in ["pi-session-aborted", "pi-session-immediate-submit"]:
+            completion_payloads = [
+                payload
+                for payload in payloads
+                if payload.get("session_id") == session_id
+                and payload.get("hook_event_name") in {"Notification", "Stop"}
+            ]
+            completion_events = [payload.get("hook_event_name") for payload in completion_payloads]
+            if completion_events != ["Stop"]:
+                print(f"FAIL: interrupted Pi turn emitted a completion notification for {session_id}: {completion_events!r}")
+                return 1
+            if completion_payloads[0].get("cmux_notification_routed") is not True:
+                print(
+                    f"FAIL: interrupted Pi stop did not suppress the native notification fallback for {session_id}: "
+                    f"{completion_payloads[0]!r}"
+                )
                 return 1
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
             print(f"FAIL: extension did not pass session id, got {payloads!r}")

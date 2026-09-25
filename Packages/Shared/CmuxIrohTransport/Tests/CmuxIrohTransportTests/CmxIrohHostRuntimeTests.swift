@@ -96,7 +96,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
@@ -220,7 +220,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
@@ -263,7 +263,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -297,7 +297,7 @@ struct CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func pendingRevocationFailureBlocksHostRegistrationAndCachedFallback() async throws {
+    func pendingRevocationFailureStopsAfterAuthenticatedRegistration() async throws {
         let fixture = try HostRuntimeFixture()
         let pendingRevocations = CmxIrohPendingRevocationOutbox(
             secureStore: TestSecureCredentialStore()
@@ -311,7 +311,7 @@ struct CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            revokeError: .connectivity
+            revokeError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
@@ -323,17 +323,52 @@ struct CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             try await runtime.start()
         }
 
-        #expect(await broker.observedRegistrationCount() == 0)
+        #expect(await broker.observedRegistrationCount() == 1)
         #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
         #expect(
             try await pendingRevocations.pending(
                 accountID: fixture.configuration.accountID
-            ) == [pending]
+        ) == [pending]
         )
+    }
+
+    @Test
+    func registrationReconcilesPendingBindingWithoutRevokingFreshBinding() async throws {
+        let fixture = try HostRuntimeFixture()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(
+            secureStore: TestSecureCredentialStore()
+        )
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: fixture.configuration.tag,
+            bindingID: fixture.binding.bindingID
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRevokedBindingIDs().isEmpty)
+        #expect(try await pendingRevocations.pending(
+            accountID: fixture.configuration.accountID
+        ).isEmpty)
+        await runtime.stop()
     }
 
 }
@@ -348,6 +383,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private let relayIssueHook: (@Sendable () async -> Void)?
     private let embedDiscoveryStartingAtRegistrationCount: Int?
+    private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
+    private let embeddedRegistrationDiscoveryIsComplete: Bool?
     private let registrationRevision: UInt64?
     private var preflightErrors: [CmxIrohBrokerCooldownError]
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
@@ -375,6 +412,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         relayIssueHook: (@Sendable () async -> Void)? = nil,
         embedDiscoveryInRegistration: Bool = false,
         embedDiscoveryStartingAtRegistrationCount: Int? = nil,
+        embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
+        embeddedRegistrationDiscoveryIsComplete: Bool? = nil,
         registrationRevision: UInt64? = nil,
         preflightErrors: [CmxIrohBrokerCooldownError] = [],
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
@@ -391,6 +430,9 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
             embedDiscoveryInRegistration
                 ? 1
                 : embedDiscoveryStartingAtRegistrationCount
+        self.embeddedRegistrationDiscovery = embeddedRegistrationDiscovery
+        self.embeddedRegistrationDiscoveryIsComplete =
+            embeddedRegistrationDiscoveryIsComplete
         self.registrationRevision = registrationRevision
         self.preflightErrors = preflightErrors
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
@@ -432,14 +474,17 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         let embedsDiscovery = embedDiscoveryStartingAtRegistrationCount
             .map { registrationCount >= $0 }
             ?? false
+        let embeddedDiscovery = embeddedRegistrationDiscovery
+            ?? (embedsDiscovery ? discoveryResponses[0] : nil)
         return CmxIrohRegistrationResponse(
             revision: registrationRevision
-                ?? (embedsDiscovery ? discoveryResponses[0].revision : nil),
+                ?? embeddedDiscovery?.revision,
             binding: binding,
             relay: .unavailable,
-            discovery: embedsDiscovery
-                ? discoveryResponses[0]
-                : nil
+            discovery: embeddedDiscovery,
+            discoveryComplete: embeddedRegistrationDiscovery == nil
+                ? (embedsDiscovery ? true : nil)
+                : embeddedRegistrationDiscoveryIsComplete
         )
     }
 
@@ -477,6 +522,10 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     func revoke(bindingID: String) throws {
         revokedBindingIDs.append(bindingID)
         if let revokeError { throw revokeError }
+    }
+
+    func revokeStale(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
     }
 
     func observedRegistrationCount() -> Int { registrationCount }

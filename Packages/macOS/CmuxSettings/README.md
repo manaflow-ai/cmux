@@ -12,6 +12,10 @@ Settings live in one of two stores:
 - **`JSONConfigStore`** — wraps `~/.config/cmux/cmux.json`. Structured config
   authored by users (hooks, shortcut bindings) or MDM profiles.
 
+MDM-enforced (configuration-profile forced) policy values are resolved by
+`ManagedDevicePolicy` in `Policies/`; see `docs/managed-device-policies.md`
+at the repo root for the administrator-facing contract.
+
 Each setting is declared once on a `SettingCatalog` instance with the typed
 backend it belongs to. The two stores accept only their respective flavor
 of key — wrong-store mismatches are compile errors, not runtime traps.

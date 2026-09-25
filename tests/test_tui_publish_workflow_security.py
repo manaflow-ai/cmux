@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import subprocess
 import tempfile
 import time
@@ -62,6 +63,100 @@ def workflow_dispatch_input(text: str, name: str) -> str:
     return match.group(1)
 
 
+def test_sdk_ci_tracks_tui_verification_and_packaging_workflows() -> None:
+    triggers = workflow_triggers(workflow("cmux-tui-sdks.yml"))
+    required_paths = {
+        ".github/workflows/cmux-tui-build-package.yml",
+        ".github/workflows/cmux-tui.yml",
+    }
+
+    for event in ("push", "pull_request"):
+        event_config = triggers[event]
+        assert isinstance(event_config, dict)
+        paths = event_config["paths"]
+        assert isinstance(paths, list)
+        assert required_paths <= set(paths)
+
+
+def test_spec_inventory_checks_are_not_duplicated_in_sdk_contract() -> None:
+    spec = workflow("cmux-tui-spec.yml")
+    sdk_contract = workflow_job(workflow("cmux-tui-sdks.yml"), "contract")
+
+    inventory_checks = (
+        "python3 cmux-tui/scripts/test_check_spec_inventory.py",
+        "python3 cmux-tui/scripts/check-spec-inventory.py",
+    )
+    for command in inventory_checks:
+        assert command in spec
+        assert command not in sdk_contract
+
+
+def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
+    tui = workflow("cmux-tui.yml")
+    test_job = workflow_job(tui, "test")
+
+    assert "name: Use short temporary directory for macOS socket tests" in test_job
+    assert "if: runner.os == 'macOS'" in test_job
+    assert 'echo "TMPDIR=/tmp" >> "$GITHUB_ENV"' in test_job
+
+
+def valgrind_build_step() -> str:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+    marker = "      - name: Build test binaries\n"
+    assert marker in job
+    return job.split(marker, 1)[1].split(
+        "      - name: Verify baseline terminal replay behavior", 1
+    )[0]
+
+
+def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
+    build = valgrind_build_step()
+
+    assert re.findall(
+        r"(?m)^\s+-p ([A-Za-z0-9_-]+) --(bin|test) "
+        r"([A-Za-z0-9_-]+) \\\s*$",
+        build,
+    ) == [
+        ("cmux-tui", "bin", "cmux-tui"),
+        ("ghostty-vt", "test", "terminal"),
+    ]
+    assert re.search(
+        r"cargo test \\\s+-p cmux-tui --bin cmux-tui \\\s+"
+        r"-p ghostty-vt --test terminal \\\s+"
+        r"--locked --no-run --message-format=json",
+        build,
+    )
+    assert "cargo test --workspace" not in build
+    assert build.count("cargo test") == 1
+
+
+def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+
+    assert "matrix.shard" not in job
+    assert "VALGRIND_SHARD: startup" in job
+    assert "name: Verify baseline terminal replay behavior" in job
+    baseline_step = job.split(
+        "      - name: Verify baseline terminal replay behavior", 1
+    )[1].split("      - name: Run test binaries under valgrind", 1)[0]
+    assert "if: matrix.shard == 'startup'" not in baseline_step
+    assert "pending_wrap_replay_preserves_cursor_with_origin_mode: test" in job
+    assert '"$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \\\n' in job
+    assert job.count("pending_wrap_replay_preserves_cursor_with_origin_mode") == 4
+    assert 're.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name)' in job
+    assert 'if not seen:\n              raise SystemExit("cargo did not report any test binaries")' in job
+    assert 'if not selected:\n              raise SystemExit(f"Valgrind shard {shard} selected no test binaries")' in job
+    assert 'if [[ -z "$cmux_tui_bin" || -z "$terminal_bin" ]]; then' in job
+    assert 'require_exact_test()' in job
+    assert 'pending_wrap_replay_preserves_cursor_with_origin_mode' in job
+    for test_name in (
+        "config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
+        "config::tests::ghostty_file_reader_enforces_byte_limit_during_read",
+        "config::tests::ghostty_config_helper_output_reader_enforces_byte_limit",
+    ):
+        assert test_name in job
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(
@@ -84,6 +179,16 @@ def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     assert 'DIST_NAME = "cmux"' in tui_pypi
     assert 'PACKAGE_NAME = "cmux_tui"' in tui_pypi
     assert "cmux = cmux_tui._main:main" in tui_pypi
+
+
+def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    releasing = (ROOT / "cmux-tui" / "bindings" / "RELEASING.md").read_text()
+    assert artifacts.count('"architecture":') >= 4
+    assert artifacts.count('"libc": "none"') >= 4
+    assert '"arch":' not in artifacts
+    assert "architecture: x86_64" in releasing
+    assert "libc: none" in releasing
 
 
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
@@ -117,8 +222,8 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     for job in ("build", "preflight", "verify"):
         block = workflow_job(bootstrap, job)
         assert (
-            "runs-on: ${{ vars.LINUX_RUNNER || "
-            "'blacksmith-4vcpu-ubuntu-2404' }}" in block
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in block
         )
     assert (
         "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
@@ -130,7 +235,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "npm test" in bootstrap
     assert "npm pack --pack-destination" in bootstrap
     assert "CMUX_NPM_PACKAGE" in bootstrap
-    assert 'npm publish "${packages[0]}"' in bootstrap
+    assert 'npm publish "$(realpath "${packages[0]}")"' in bootstrap
     assert "--tag bootstrap" in bootstrap
     assert "--provenance" in bootstrap
     assert "--access public" in bootstrap
@@ -151,7 +256,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -214,7 +319,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
@@ -613,7 +718,7 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
@@ -1292,6 +1397,7 @@ def test_workflow_guard_runs_for_every_workflow_it_validates() -> None:
         "cmux-tui-release-cut.yml",
         "cmux-tui-release.yml",
         "cmux-tui-sdks.yml",
+        "relay-publish-npm.yml",
         "sdk-bootstrap-crates.yml",
         "sdk-publish-crates.yml",
         "sdk-publish-go.yml",
@@ -1351,6 +1457,61 @@ def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
 def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
     text = workflow("tui-publish-pypi.yml")
     assert "push:\n    tags:" not in text
+
+
+def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
+    cases = (
+        (
+            "tui-publish-pypi.yml",
+            "publish",
+            "Publish package distributions to PyPI",
+            "Verify every PyPI wheel after upload",
+            "${{ inputs.version }}",
+        ),
+        (
+            "cmux-tui-nightly.yml",
+            "publish-pypi",
+            "Publish nightly package distributions to PyPI",
+            "Verify every nightly PyPI wheel after upload",
+            "${{ needs.version.outputs.pypi_version }}",
+        ),
+    )
+
+    for name, job_name, publish_name, verify_name, version in cases:
+        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
+        assert isinstance(document, dict)
+        jobs = document.get("jobs")
+        assert isinstance(jobs, dict)
+        job = jobs.get(job_name)
+        assert isinstance(job, dict)
+        steps = job.get("steps")
+        assert isinstance(steps, list)
+        names = [step.get("name", "") for step in steps]
+        publish_index = names.index(publish_name)
+        verify_index = names.index(verify_name)
+        assert publish_index < verify_index
+        assert verify_index == len(steps) - 1
+
+        verify_step = steps[verify_index]
+        assert isinstance(verify_step, dict)
+        assert verify_step.get("env", {}).get("VERSION") == version
+        run = verify_step.get("run", "")
+        assert "bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist \"$VERSION\"" in run
+        assert "secrets." not in run
+        assert "gh-action-pypi-publish" not in run
+        assert "twine " not in run
+
+
+def test_tui_pypi_reconciliation_behavior_test_is_in_tui_ci() -> None:
+    text = workflow("cmux-tui-sdks.yml")
+    triggers = workflow_triggers(text)
+    for event in ("push", "pull_request"):
+        event_config = triggers[event]
+        assert isinstance(event_config, dict)
+        paths = event_config["paths"]
+        assert isinstance(paths, list)
+        assert "tests/test_tui_pypi_postpublish_reconcile.sh" in paths
+    assert "run: bash tests/test_tui_pypi_postpublish_reconcile.sh" in text
 
 
 def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
@@ -1435,6 +1596,441 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
 
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)
+
+
+def test_tui_delivery_is_checked_independently_of_artifact_completion() -> None:
+    delivery = workflow("cmux-tui-release-delivery.yml")
+    triggers = workflow_triggers(delivery)
+    assert triggers["workflow_run"]["workflows"] == ["cmux-tui release binaries"]
+    assert "schedule" in triggers
+    assert "contents: read" in delivery
+    assert "contents: write" not in delivery
+    assert "check_release_delivery.py" in delivery
+    assert "head_sha" not in delivery
+    assert "persist-credentials: false" in delivery
+    build = workflow("cmux-tui-build-package.yml")
+    wheel_smoke = build.split("- name: Smoke verify PyPI wheels", 1)[1].split("- name:", 1)[0]
+    assert "/tmp/cmux-tui-wheel-smoke/bin/cmux remote-probe --json" in wheel_smoke
+    assert '"build_identity": os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]' in wheel_smoke
+    assert '"distribution_version": os.environ["NPM_VERSION"]' in wheel_smoke
+
+
+def test_installed_pypi_wheel_probe_rejects_stale_executable() -> None:
+    document = yaml.safe_load(workflow("cmux-tui-build-package.yml"))
+    smoke = next(
+        step["run"]
+        for job in document["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "Smoke verify PyPI wheels"
+    )
+    validation = smoke.rsplit("python3 - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    expected = {"build_identity": "a" * 40, "distribution_version": "0.13.2"}
+    env = dict(os.environ, NPM_VERSION="0.13.2", CMUX_TUI_EXPECTED_BUILD_IDENTITY="a" * 40)
+    for key in (None, "build_identity", "distribution_version"):
+        probe = dict(expected)
+        if key:
+            probe[key] = "stale"
+        result = subprocess.run(
+            ["python3", "-c", validation],
+            env=dict(env, CMUX_TUI_WHEEL_PROBE=json.dumps(probe)),
+            capture_output=True,
+            text=True,
+        )
+        assert (result.returncode == 0) == (key is None), result.stderr
+
+
+def test_native_tui_releases_do_not_gate_on_separately_deployed_worker() -> None:
+    """No shipping lane may be gated on the separately deployed Worker.
+
+    This used to be enforced caller by caller: the Worker was a job inside
+    cmux-tui-build-package.yml behind `build_cloudflare_relay`, and each release
+    caller passed false. relay-publish-npm.yml never did, so it inherited the
+    default of true and ran the Worker's `cargo clippy -- -D warnings` and
+    `npm audit --audit-level=high` inside a publishing run, where `publish`
+    needs `build-package`. A third-party advisory or a new lint -- neither of
+    them a change to this repository -- could therefore stop cmux-relay
+    shipping.
+
+    The Worker now has its own lane, so there is no input left to pass and no
+    caller left to get it wrong.
+    """
+    shared = workflow("cmux-tui-build-package.yml")
+    assert "build_cloudflare_relay" not in shared
+    assert "cloudflare-relay:" not in shared
+    assert "cloudflare-do" not in shared
+
+    for name in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        if name.name == "cloudflare-relay.yml":
+            continue
+        text = name.read_text(encoding="utf-8")
+        assert "relays/cloudflare-do" not in text, (
+            f"{name.name} references the Worker directory; verifying it outside "
+            "cloudflare-relay.yml risks gating a shipping lane on it again"
+        )
+
+
+def test_cloudflare_worker_is_verified_on_the_pull_request_that_changes_it() -> None:
+    """The Worker's only lane must be triggered by changes to the Worker.
+
+    Before it had its own workflow the verification ran only during a
+    cmux-relay publish, which last succeeded 2026-08-27 -- so edits to
+    cmux-tui/relays/cloudflare-do went unverified between releases, and the
+    verification was discovered only at the moment it could block one.
+    """
+    document = yaml.safe_load(workflow("cloudflare-relay.yml"))
+    triggers = document.get("on") or document.get(True)
+    assert "pull_request" in triggers, "the Worker must be verified on pull requests"
+
+    component = "cmux-tui/relays/cloudflare-do/**"
+    for event in ("pull_request", "push"):
+        paths = triggers[event]["paths"]
+        assert component in paths, f"{event} must cover {component}"
+        assert ".github/workflows/cloudflare-relay.yml" in paths, (
+            f"{event} must re-run the lane when the lane itself changes"
+        )
+
+    body = workflow("cloudflare-relay.yml")
+    for check in (
+        "python3 tests/validate_wrangler_config.py",
+        "cargo clippy --locked --all-targets -- -D warnings",
+        "npm audit --audit-level=high",
+        "wrangler deploy --dry-run",
+    ):
+        assert check in body, f"the Worker lane lost {check!r}"
+
+
+def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
+    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
+        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
+        assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
+        assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
+    publisher = workflow("tui-publish-npm.yml")
+    assert 'if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then' in publisher
+    platform_block = publisher.split("packages=(", 1)[1].split(")", 1)[0]
+    assert "cmux-tui-win32-x64" not in platform_block
+    assert "packages+=(cmux-tui-win32-x64)" in publisher
+
+
+def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
+    # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
+    # family. If the coordinated TUI publish or the nightly lane ever grows a
+    # cmux-relay npm publish back, a routine TUI release could silently take
+    # over cmux-relay@latest from the shipping relay (chatmux relay Rust
+    # cutover, chatmux docs/RELAY-RUST.md).
+    for name in ("tui-publish-npm.yml", "cmux-tui-nightly.yml"):
+        text = workflow(name)
+        assert "npm publish --provenance dist/npm-packages/cmux-relay" not in text
+        assert (
+            "npm publish --provenance --tag nightly dist/npm-packages/cmux-relay"
+            not in text
+        )
+        publish_lists = re.findall(r"packages=\((.*?)\)", text, flags=re.DOTALL)
+        assert publish_lists
+        for block in publish_lists:
+            assert "cmux-relay" not in block
+
+
+def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # Tag-only trigger: no workflow_dispatch bypass, tags pinned to the
+    # cmux-relay-v family, and the tag must be an ancestor of protected main.
+    triggers = workflow_triggers(text)
+    assert set(triggers) == {"push"}
+    assert triggers["push"] == {"tags": ["cmux-relay-v*"]}
+    assert (
+        '[[ "$GITHUB_REF_NAME" =~ ^cmux-relay-v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$ ]]'
+        in text
+    )
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in text
+
+    # Release candidates ride the next dist-tag; only stable versions take
+    # latest. Every publish passes the resolved tag explicitly.
+    assert 'dist_tag="next"' in text
+    assert 'dist_tag="latest"' in text
+    assert 'if [[ "$version" == *-rc.* ]]' in text
+    # --access public is required for the first publish of each new unscoped
+    # cmux-relay package name under --provenance and is a no-op afterwards.
+    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 1
+    assert 'npm publish --provenance --tag "$DIST_TAG"' not in text.replace(
+        'npm publish --provenance --access public --tag "$DIST_TAG"', ""
+    )
+    assert "npm publish --provenance dist/npm-packages" not in text
+
+    # Same provenance posture as the TUI publisher: trusted-publisher
+    # environment, OIDC-capable npm, github-hosted publish runner, contract
+    # revalidation, and non-self-hosted attestation verification of every
+    # relay binary against the reusable build workflow at this exact ref.
+    assert "name: npm-tui" in text
+    assert "npm install -g npm@11.5.1" in text
+    assert "runs-on: ubuntu-latest" in text
+    assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
+    assert "attest_packages: true" in text
+    # The Rust machine relay has no Windows PTY backend yet. Its stable npm
+    # publisher must build and publish Unix packages only; Windows stays on
+    # the Node rollback lane until a tested backend exists.
+    assert "include_windows: false" in text
+    assert "cmux-relay-win32-x64" not in text
+    assert "package_pypi: false" in text
+    assert "validate_package_contract.py" in text
+    assert "--install-npm-relay-package cmux-relay-linux-x64" in text
+    assert "gh attestation verify" in text
+    assert "--deny-self-hosted-runners" in text
+    assert '--source-digest "$GITHUB_SHA"' in text
+    assert '--source-ref "$GITHUB_REF"' in text
+    assert "persist-credentials: false" in text
+
+
+def test_relay_launcher_rc_fallback_never_relaxes_stable() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # The Rust cutover has one launcher plus four Unix target packages. Every
+    # package uses the same idempotent publish path for both `next` and
+    # `latest`; there is no local-tarball or failed-launcher fallback. A
+    # fallback could report a release as usable while the launcher is absent
+    # from the registry, so the workflow must fail closed instead.
+    publish_section = text.split(
+        "- name: Publish five Unix relay packages idempotently", 1
+    )[1].split("- name: Audit published npm signatures and provenance", 1)[0]
+    package_lines = re.findall(
+        r"^\s+(cmux-relay(?:-(?:darwin-arm64|darwin-x64|linux-x64|linux-arm64))?)\s*$",
+        publish_section,
+        re.MULTILINE,
+    )
+    assert package_lines == [
+        "cmux-relay-darwin-arm64",
+        "cmux-relay-darwin-x64",
+        "cmux-relay-linux-x64",
+        "cmux-relay-linux-arm64",
+        "cmux-relay",
+    ]
+    assert 'elif [[ "$DIST_TAG" == "next" ]]' not in text
+    assert "LAUNCHER_PUBLISHED" not in text
+    assert "npm install -g ./dist/npm-packages/cmux-relay" not in text
+    assert "cmux-relay-win32-x64" not in text
+    assert 'publish_if_missing "$package"' in publish_section
+    assert "version_exists" in publish_section
+    assert "registry_integrity" in publish_section
+    assert "Audit published npm signatures and provenance" in text
+    assert text.count("cmux-relay --version") == 1
+
+
+def test_relay_attestations_survive_a_skipped_windows_build() -> None:
+    text = workflow("cmux-tui-build-package.yml")
+
+    # A skipped optional build-windows poisons the implicit success() on
+    # transitive dependents. verify-linux-packages and attest-npm-packages
+    # must carry always() plus explicit needs.result gates so a Unix-only
+    # release tag still attests binaries for its own commit; without this,
+    # the publish job's --source-digest verification can only ever match a
+    # stale attestation from an older byte-identical build (rc.3 regression,
+    # run 32935658524).
+    for job_anchor in ("  verify-linux-packages:", "  attest-npm-packages:"):
+        section = text.split(job_anchor, 1)[1].split("runs-on:", 1)[0]
+        assert "always() &&" in section
+        assert "needs.package.result == 'success'" in section
+
+
+PACKAGE_BUILD_JOBS = (
+    "build",
+    # cloudflare-relay moved to its own lane; it checks out the pull request
+    # directly rather than a caller-supplied ref, so it is no longer one of the
+    # jobs this invariant applies to.
+    "build-windows",
+    "package",
+    "verify-linux-packages",
+    "attest-npm-packages",
+)
+
+
+def _package_workflow_document() -> dict[str, object]:
+    document = yaml.load(
+        workflow("cmux-tui-build-package.yml"),
+        Loader=yaml.BaseLoader,  # noqa: S506 - preserve raw workflow expressions
+    )
+    assert isinstance(document, dict)
+    return document
+
+
+def _checkout_target(
+    ref_input: str,
+    event_ref: str,
+    event_sha: str,
+) -> tuple[str, str]:
+    """Model actions/checkout's self-repository ref/commit resolution.
+
+    An empty `ref` input delegates to the event's ref and SHA. A non-empty
+    input is an explicit branch, tag, or SHA; SHA inputs are checked out by
+    commit, while symbolic refs remain symbolic.
+    """
+
+    if not ref_input:
+        return event_ref, event_sha
+    if re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", ref_input):
+        return "", ref_input
+    return ref_input, ""
+
+
+def _attestation_checkout_allowed(
+    checkout_ref: str,
+    checked_out_sha: str,
+    caller_sha: str,
+) -> bool:
+    """Model the attestation job's fail-closed source guard."""
+
+    if checked_out_sha != caller_sha:
+        return False
+    return not checkout_ref or checkout_ref == caller_sha
+
+
+def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
+    document = _package_workflow_document()
+    jobs = document["jobs"]
+    assert isinstance(jobs, dict)
+
+    for job_name in PACKAGE_BUILD_JOBS:
+        job = jobs[job_name]
+        assert isinstance(job, dict)
+        steps = job["steps"]
+        assert isinstance(steps, list)
+        checkouts = [
+            step
+            for step in steps
+            if isinstance(step, dict)
+            and "actions/checkout" in str(step.get("uses", ""))
+        ]
+        assert len(checkouts) == 1, job_name
+        checkout = checkouts[0]
+        assert checkout["name"] == "Checkout caller or requested ref"
+        with_config = checkout["with"]
+        assert isinstance(with_config, dict)
+        assert with_config["persist-credentials"] == "false"
+        assert with_config["ref"] == "${{ inputs.checkout_ref }}"
+
+
+def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
+    document = _package_workflow_document()
+    jobs = document["jobs"]
+    assert isinstance(jobs, dict)
+    build = jobs["build"]
+    assert isinstance(build, dict)
+    checkout = next(
+        step
+        for step in build["steps"]
+        if isinstance(step, dict)
+        and "actions/checkout" in str(step.get("uses", ""))
+    )
+    with_config = checkout["with"]
+    assert isinstance(with_config, dict)
+    expression = with_config["ref"]
+
+    # These values exercise the contexts that call this reusable workflow. The
+    # event ref and SHA are retained when the optional input is empty; explicit
+    # branch, tag, and SHA inputs pass through unchanged.
+    source_sha = "a" * 40
+    requested_sha = "b" * 40
+    scenarios = (
+        (
+            "workflow_call input",
+            "refs/tags/cmux-tui-v1.2.3",
+            "refs/heads/main",
+            source_sha,
+            ("refs/tags/cmux-tui-v1.2.3", ""),
+        ),
+        (
+            "PR",
+            "",
+            "refs/pull/42/merge",
+            source_sha,
+            ("refs/pull/42/merge", source_sha),
+        ),
+        (
+            "branch",
+            "",
+            "refs/heads/feature/build",
+            source_sha,
+            ("refs/heads/feature/build", source_sha),
+        ),
+        (
+            "tag",
+            "",
+            "refs/tags/cmux-tui-v1.2.3",
+            source_sha,
+            ("refs/tags/cmux-tui-v1.2.3", source_sha),
+        ),
+        (
+            "SHA",
+            requested_sha,
+            "refs/heads/main",
+            source_sha,
+            ("", requested_sha),
+        ),
+    )
+    assert expression == "${{ inputs.checkout_ref }}"
+    for name, ref_input, event_ref, event_sha, expected in scenarios:
+        assert _checkout_target(ref_input, event_ref, event_sha) == expected, name
+
+
+def test_package_attestation_stays_bound_to_caller_digest_and_ref() -> None:
+    attest = workflow_job(
+        workflow("cmux-tui-build-package.yml"),
+        "attest-npm-packages",
+    )
+    assert '--source-digest "$GITHUB_SHA"' in attest
+    assert '--source-ref "$GITHUB_REF"' in attest
+    assert (
+        '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/'
+        'cmux-tui-build-package.yml"'
+    ) in attest
+
+
+def test_package_attestation_rejects_divergent_checkout_ref() -> None:
+    workflow_text = workflow("cmux-tui-build-package.yml")
+    attest_job = workflow_job(workflow_text, "attest-npm-packages")
+    document = _package_workflow_document()
+    jobs = document["jobs"]
+    assert isinstance(jobs, dict)
+    attest_document = jobs["attest-npm-packages"]
+    assert isinstance(attest_document, dict)
+    steps = attest_document["steps"]
+    assert isinstance(steps, list)
+    guard = next(
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and step.get("name") == "Verify attestation checkout matches caller"
+    )
+    guard_run = guard["run"]
+    assert isinstance(guard_run, str)
+    guard_env = guard["env"]
+    assert isinstance(guard_env, dict)
+    assert guard_env["CHECKOUT_REF"] == "${{ inputs.checkout_ref }}"
+    assert 'git rev-parse HEAD' in guard_run
+    assert '"$checked_out_sha" != "$GITHUB_SHA"' in guard_run
+    assert '"$CHECKOUT_REF" != "$GITHUB_SHA"' in guard_run
+    assert attest_job.index("Verify attestation checkout matches caller") < attest_job.index(
+        "Download npm package archive"
+    )
+
+    caller_sha = "a" * 40
+    other_sha = "b" * 40
+    assert _attestation_checkout_allowed("", caller_sha, caller_sha)
+    assert not _attestation_checkout_allowed("refs/tags/other", caller_sha, caller_sha)
+    assert not _attestation_checkout_allowed(other_sha, other_sha, caller_sha)
+    assert not _attestation_checkout_allowed("", other_sha, caller_sha)
+
+
+def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
+    builder = ROOT / "cmux-tui" / "dist" / "scripts" / "package_npm.py"
+    namespace = runpy.run_path(str(builder), run_name="cmux_tui_package_npm_test")
+    version_re = namespace["VERSION_RE"]
+    assert isinstance(version_re, re.Pattern)
+
+    assert version_re.fullmatch("0.12.1")
+    assert version_re.fullmatch("0.12.1-rc.1")
+    assert version_re.fullmatch("0.12.1-nightly.20260825.7")
+    assert not version_re.fullmatch("0.12.1-rc")
+    assert not version_re.fullmatch("0.12.1-rc.0.extra")
 
 
 if __name__ == "__main__":

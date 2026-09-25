@@ -3,67 +3,32 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    func controlAgentLaunchCommandPayload(
-        _ command: AgentLaunchCommand
-    ) -> [String: Any] {
-        var payload: [String: Any] = ["arguments": command.arguments]
-        if let launcher = command.launcher {
-            payload["launcher"] = launcher
-        }
-        if let executablePath = command.executablePath {
-            payload["executable_path"] = executablePath
-        }
-        if let workingDirectory = command.workingDirectory {
-            payload["working_directory"] = workingDirectory
-        }
-        if let environment = command.environment {
-            payload["environment"] = environment
-        }
-        if let capturedAt = command.capturedAt {
-            payload["captured_at"] = capturedAt
-        }
-        if let source = command.source {
-            payload["source"] = source
-        }
-        return payload
+    var restoreCommandUsageLine: String {
+        String(
+            localized: "cli.help.restore",
+            defaultValue: "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+        )
     }
 
     func runRestoreCommand(
         commandArgs: [String],
         client: SocketClient,
         processEnvironment: [String: String]
-    ) throws {
+    ) async throws {
         let selector = try restoreSelector(commandArgs)
-        var params: [String: Any] = [:]
-        if let surface = selector.surface {
-            let surfaceID = try normalizeSurfaceHandle(
-                surface,
-                client: client,
-                workspaceHandle: nil,
-                windowHandle: nil
-            )
-            guard let surfaceID else {
-                throw loggedRestoreError(
-                    stage: "surface.lookup",
-                    detail: surface,
-                    message: String(
-                        localized: "cli.restore.error.surfaceNotFound",
-                        defaultValue: "restore: the requested surface was not found. Check the surface reference, then retry."
-                    )
-                )
-            }
-            params["surface_id"] = surfaceID
-        } else if selector.usesCurrentSurface,
-                  let surfaceID = try currentRestoreSurfaceID(
-                      client: client,
-                      processEnvironment: processEnvironment
-                  ) {
-            params["surface_id"] = surfaceID
-        } else {
-            throw currentRestoreSurfaceUnknownError()
-        }
-
-        let payload = try client.sendV2(method: "surface.resume.get", params: params)
+        let workingDirectoryBeforeRestore = FileManager.default.currentDirectoryPath
+        let surfaceID = try continuationSurfaceID(
+            for: selector,
+            client: client,
+            processEnvironment: processEnvironment,
+            verb: .restore
+        )
+        let params: [String: Any] = ["surface_id": surfaceID]
+        let payload = try continuationSurfaceResumePayload(
+            surfaceID: surfaceID,
+            client: client,
+            verb: .restore
+        )
         guard let rawRecord = payload["restore_record"] as? [String: Any] else {
             throw loggedRestoreError(
                 stage: "record.missing",
@@ -73,7 +38,8 @@ extension CMUXCLI {
                 )
             )
         }
-        let record = try restoreRecord(from: rawRecord)
+        var record = try restoreRecord(from: rawRecord)
+        let surfaceRecordCheckpointID = record.checkpointID
         if let expectedKind = selector.kind, expectedKind != record.kind {
             throw loggedRestoreError(
                 stage: "record.kind-mismatch",
@@ -96,30 +62,52 @@ extension CMUXCLI {
             )
         }
 
-        let environment = processEnvironment.merging(record.environment) { _, restored in
-            restored
-        }
-        if record.launchCommand == nil,
-           record.preparedArguments == nil,
-           let legacyCommand = record.legacyCommand {
-            try execLegacyRestoreRecord(
-                legacyCommand,
-                record: record,
-                environment: environment,
-                client: client
-            )
+        record = try await recoveredHermesContinuationRecord(
+            record,
+            surfaceID: surfaceID,
+            processEnvironment: processEnvironment,
+            verb: .restore
+        )
+
+        let bindingPayload = payload["resume_binding"] as? [String: Any]
+        if let codexValidation = codexRestoreValidation(
+            record: record,
+            bindingPayload: bindingPayload,
+            processEnvironment: processEnvironment
+        ) {
+            let shouldContinue: Bool
+            switch codexValidation {
+            case .allowed:
+                shouldContinue = true
+            case .unavailable:
+                // The standalone verifier is deliberately conservative: a
+                // transient SQLite/read failure is not proof that the
+                // conversation is missing. Same-build apps expose the shared
+                // admission boundary, which can combine the provider lock,
+                // hook identity, PID generation, and live-owner evidence and
+                // wait for that evidence to settle. Keep this restore intent
+                // alive instead of turning an unknown result into a shell
+                // error. Older apps have no admission RPC, so retain their
+                // conservative compatibility behavior.
+                shouldContinue = payload["agent_restore_admission_supported"] as? Bool == true
+            case .missing, .rejectedChild, .bindingChanged:
+                shouldContinue = false
+            }
+            if !shouldContinue {
+                try handleRejectedCodexRestore(
+                    codexValidation,
+                    record: record,
+                    bindingPayload: bindingPayload,
+                    surfaceID: params["surface_id"] as? String,
+                    workspaceID: payload["workspace_id"] as? String
+                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                    client: client,
+                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+                )
+                return
+            }
         }
 
-        guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
-            throw loggedRestoreError(
-                stage: "record.mode",
-                detail: record.mode,
-                message: String(
-                    localized: "cli.restore.error.unsupportedMode",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
-            )
-        }
         let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
@@ -130,58 +118,58 @@ extension CMUXCLI {
             } else {
                 nil
             }
-        let request = AgentRestoreRequest(
-            mode: mode,
-            kind: record.kind,
-            checkpointID: record.checkpointID,
-            source: record.source,
-            workingDirectory: effectiveWorkingDirectory,
-            environment: record.environment,
-            launchCommand: record.launchCommand,
-            preparedArguments: record.preparedArguments,
-            preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
-                record.preparedArgumentsWorkingDirectory
-            ),
-            observedPermissionMode: record.permissionMode
-        )
-        guard let invocation = AgentRestorePlanner(
-            executableFileResolver: AgentRestoreExecutableFileResolver()
-        ).invocation(
-            for: request,
-            ambientEnvironment: processEnvironment
-        ) else {
-            if let legacyCommand = record.legacyCommand {
-                try execLegacyRestoreRecord(
-                    legacyCommand,
-                    record: record,
-                    environment: environment,
-                    client: client
+        let legacyOnly = record.launchCommand == nil && record.preparedArguments == nil && record.legacyCommand != nil
+        let invocation: AgentRestoreInvocation?
+        if legacyOnly {
+            invocation = nil
+        } else {
+            guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
+                throw loggedRestoreError(
+                    stage: "record.mode",
+                    detail: record.mode,
+                    message: String(
+                        localized: "cli.restore.error.unsupportedMode",
+                        defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+                    )
                 )
             }
-            throw loggedRestoreError(
-                stage: "record.incomplete",
-                detail: "mode=\(record.mode) kind=\(record.kind)",
-                message: String(
-                    localized: "cli.restore.error.incompleteData",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
+            let request = AgentRestoreRequest(
+                mode: mode,
+                kind: record.kind,
+                checkpointID: record.checkpointID,
+                source: record.source,
+                workingDirectory: effectiveWorkingDirectory,
+                environment: record.environment,
+                launchCommand: record.launchCommand,
+                preparedArguments: record.preparedArguments,
+                preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
+                    record.preparedArgumentsWorkingDirectory
+                ),
+                observedPermissionMode: record.permissionMode
+            )
+            invocation = AgentRestorePlanner(
+                executableFileResolver: AgentRestoreExecutableFileResolver()
+            ).invocation(for: request, ambientEnvironment: processEnvironment)
+        }
+        let execution: RestoreExecution
+        if let invocation {
+            execution = .invocation(invocation)
+        } else {
+            execution = try legacyRestoreExecution(
+                record: record, processEnvironment: processEnvironment,
+                workingDirectory: effectiveWorkingDirectory
             )
         }
-
-        for preflight in invocation.preflightInvocations {
-            try runRestorePreflight(
-                preflight,
-                appliedWorkingDirectory: effectiveWorkingDirectory
-            )
-        }
-        client.close()
-        try execRestoreInvocation(
-            invocation,
-            appliedWorkingDirectory: effectiveWorkingDirectory
+        try runAdmittedRestore(
+            execution: execution, record: record, recordSessionID: surfaceRecordCheckpointID,
+            payload: payload, bindingPayload: bindingPayload, client: client,
+            surfaceID: surfaceID, workspaceID: payload["workspace_id"] as? String ?? processEnvironment["CMUX_WORKSPACE_ID"],
+            effectiveWorkingDirectory: effectiveWorkingDirectory,
+            workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
         )
     }
 
-    private func currentRestoreSurfaceID(
+    func currentRestoreSurfaceID(
         client: SocketClient,
         processEnvironment: [String: String]
     ) throws -> String? {
@@ -193,21 +181,12 @@ extension CMUXCLI {
             )
         }
 
-        let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
         do {
-            let payload = try client.sendV2(
-                method: "agent.resolve_delivery_target",
-                params: [
-                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
-                    "pid_resolution": resolution,
-                ]
+            let payload = try implicitCallerIdentifyResponse(
+                client: client,
+                processEnvironment: processEnvironment
             )
-            guard payload["source"] as? String == "pid",
-                  payload["pid_resolution"] as? String == resolution,
-                  let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
-                  isUUID(workspaceID),
-                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
-                  isUUID(surfaceID) else {
+            guard let surfaceID = identifiedCallerSurfaceID(in: payload) else {
                 throw currentRestoreSurfaceUnknownError()
             }
             return surfaceID
@@ -331,72 +310,74 @@ extension CMUXCLI {
     }
 
     private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
-        if arguments.first == "--surface" {
-            if arguments.count == 1 {
-                return RestoreSelector(
-                    surface: nil,
-                    usesCurrentSurface: true,
-                    kind: nil,
-                    checkpointID: nil
-                )
-            }
-            guard arguments.count == 2, !arguments[1].isEmpty else {
-                throw CLIError(message: String(
-                    localized: "cli.restore.usage.surface",
-                    defaultValue: "Usage: cmux restore --surface [id|ref]"
-                ))
-            }
-            return RestoreSelector(
-                surface: arguments[1],
-                usesCurrentSurface: false,
-                kind: nil,
-                checkpointID: nil
-            )
-        }
-        guard arguments.count == 2,
-              !arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw CLIError(message: String(
-                localized: "cli.restore.usage.positional",
-                defaultValue: "Usage: cmux restore <kind> <checkpoint-id>"
-            ))
-        }
-        return RestoreSelector(
-            surface: nil,
-            usesCurrentSurface: true,
-            kind: arguments[0],
-            checkpointID: arguments[1]
-        )
+        try continuationSelector(arguments, verb: .restore)
     }
 
-    private func restoreRecord(from object: [String: Any]) throws -> RestoreRecord {
+    func restoreRecord(
+        from object: [String: Any],
+        verb: CMUXCLIContinuationVerb = .restore
+    ) throws -> RestoreRecord {
         guard let mode = object["mode"] as? String,
               let kind = object["kind"] as? String else {
-            throw loggedRestoreError(
+            throw loggedContinuationError(
+                .malformedRecord,
+                verb: verb,
                 stage: "record.decode",
-                detail: "keys=\(object.keys.sorted().joined(separator: ","))",
-                message: String(
-                    localized: "cli.restore.error.malformedRecord",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
+                detail: "keys=\(object.keys.sorted().joined(separator: ","))"
             )
         }
         let legacyCommand = object["legacy_command"] as? String
+        let legacyForkCommand = [object["fork_command"], object["legacy_fork_command"]]
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
         let launchCommand: AgentLaunchCommand?
         do {
-            launchCommand = try restoreLaunchCommand(from: object["launch_command"])
+            launchCommand = try restoreLaunchCommand(
+                from: object["launch_command"],
+                verb: verb
+            )
         } catch {
-            guard legacyCommand != nil else {
-                throw loggedRestoreError(
+            let hasLegacyForkFallback = legacyForkCommand != nil
+                || legacyCommand.map {
+                    AgentLaunchTemplateRenderer().containsForkOption(in: $0)
+                } == true
+            let hasStructuredForkData = object["fork_arguments"].map { !($0 is NSNull) } == true
+                || object["prepared_fork_arguments"].map { !($0 is NSNull) } == true
+            let canUseLegacyFallback: Bool
+            if verb == .fork {
+                canUseLegacyFallback = mode == AgentRestoreRequestMode.forkAgent.rawValue
+                    ? (legacyCommand != nil || hasLegacyForkFallback || hasStructuredForkData)
+                    : (hasLegacyForkFallback || hasStructuredForkData)
+            } else {
+                canUseLegacyFallback = legacyCommand != nil
+            }
+            guard canUseLegacyFallback else {
+                throw loggedContinuationError(
+                    .malformedArguments,
+                    verb: verb,
                     stage: "record.launch-command",
-                    detail: String(reflecting: type(of: error)),
-                    message: String(
-                        localized: "cli.restore.error.malformedArguments",
-                        defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                    )
+                    detail: String(reflecting: type(of: error))
                 )
             }
             launchCommand = nil
+        }
+        let forkArguments: [String]?
+        if verb == .fork {
+            let forkArgumentValue: Any?
+            if let primary = object["fork_arguments"], !(primary is NSNull) {
+                forkArgumentValue = primary
+            } else {
+                forkArgumentValue = object["prepared_fork_arguments"]
+            }
+            forkArguments = try optionalStringArray(
+                forkArgumentValue,
+                verb: verb
+            )
+        } else {
+            // Restore predates fork fields; malformed optional fork metadata
+            // must not make an otherwise valid restore record unusable.
+            forkArguments = object["fork_arguments"] as? [String]
+                ?? object["prepared_fork_arguments"] as? [String]
         }
         return RestoreRecord(
             mode: mode,
@@ -409,18 +390,41 @@ extension CMUXCLI {
             preparedArguments: object["prepared_arguments"] as? [String],
             preparedArgumentsWorkingDirectory:
                 object["prepared_arguments_working_directory"] as? String,
+            forkArguments: forkArguments,
+            forkArgumentsWorkingDirectory:
+                (object["fork_arguments_working_directory"] as? String)
+                ?? (object["prepared_fork_arguments_working_directory"] as? String),
             permissionMode: object["permission_mode"] as? String,
-            legacyCommand: legacyCommand
+            legacyCommand: legacyCommand,
+            legacyForkCommand: legacyForkCommand
         )
     }
 
-    private func restoreLaunchCommand(from value: Any?) throws -> AgentLaunchCommand? {
+    private func optionalStringArray(
+        _ value: Any?,
+        verb: CMUXCLIContinuationVerb
+    ) throws -> [String]? {
+        guard let value,
+              !(value is NSNull) else {
+            return nil
+        }
+        guard let values = value as? [String], !values.isEmpty else {
+            throw loggedContinuationError(
+                .malformedArguments,
+                verb: verb,
+                stage: "record.fork-arguments"
+            )
+        }
+        return values
+    }
+
+    func restoreLaunchCommand(
+        from value: Any?,
+        verb: CMUXCLIContinuationVerb = .restore
+    ) throws -> AgentLaunchCommand? {
         guard let object = value as? [String: Any] else { return nil }
         guard let arguments = object["arguments"] as? [String], !arguments.isEmpty else {
-            throw CLIError(message: String(
-                localized: "cli.restore.error.malformedArguments",
-                defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-            ))
+            throw continuationUsageError(.malformedArguments, verb: verb)
         }
         return AgentLaunchCommand(
             launcher: object["launcher"] as? String,
@@ -428,6 +432,7 @@ extension CMUXCLI {
             arguments: arguments,
             workingDirectory: object["working_directory"] as? String,
             environment: object["environment"] as? [String: String],
+            verificationHome: object["verification_home"] as? String,
             capturedAt: (object["captured_at"] as? NSNumber)?.doubleValue,
             source: object["source"] as? String
         )

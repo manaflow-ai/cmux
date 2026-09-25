@@ -7,10 +7,28 @@
 /// keep healthy sessions whose routes did not materially change.
 struct CmxConnectivityRouteContent: Equatable, Sendable {
     /// Trust material shared by every route in one account snapshot.
+    ///
+    /// Relay fleet and verification key order carries no trust meaning, so
+    /// both are canonicalized here and a reorder-only revision compares
+    /// equal to the installed material.
     struct AccountMaterial: Equatable, Sendable {
         let relayFleet: [String]
         let lanRendezvous: CmxIrohLANRendezvous
         let grantVerificationKeys: CmxIrohGrantVerificationKeySet
+
+        init(snapshot: CmxIrohDiscoveryResponse) {
+            relayFleet = snapshot.relayFleet.sorted()
+            lanRendezvous = snapshot.lanRendezvous
+            let keySet = snapshot.grantVerificationKeys
+            grantVerificationKeys = CmxIrohGrantVerificationKeySet(
+                version: keySet.version,
+                currentKeyID: keySet.currentKeyID,
+                keys: keySet.keys.sorted {
+                    ($0.kid, $0.alg, $0.spkiDerBase64)
+                        < ($1.kid, $1.alg, $1.spkiDerBase64)
+                }
+            )
+        }
     }
 
     /// Admission-relevant material of one broker binding.
@@ -30,7 +48,8 @@ struct CmxConnectivityRouteContent: Equatable, Sendable {
             platform = binding.platform
             identityGeneration = binding.identityGeneration
             pairingEnabled = binding.pairingEnabled
-            capabilities = binding.capabilities
+            // The admission policy reads capabilities with set semantics.
+            capabilities = binding.capabilities.sorted()
         }
     }
 
@@ -38,11 +57,7 @@ struct CmxConnectivityRouteContent: Equatable, Sendable {
     private let peerRoutes: [CmxConnectivityPeerID: [BindingMaterial]]
 
     init(snapshot: CmxIrohDiscoveryResponse) {
-        account = AccountMaterial(
-            relayFleet: snapshot.relayFleet,
-            lanRendezvous: snapshot.lanRendezvous,
-            grantVerificationKeys: snapshot.grantVerificationKeys
-        )
+        account = AccountMaterial(snapshot: snapshot)
         var routes: [CmxConnectivityPeerID: [BindingMaterial]] = [:]
         for binding in snapshot.bindings {
             let peerID = CmxConnectivityPeerID(

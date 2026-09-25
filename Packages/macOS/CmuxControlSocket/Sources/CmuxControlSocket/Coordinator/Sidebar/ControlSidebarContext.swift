@@ -232,6 +232,11 @@ public protocol ControlSidebarContext: AnyObject {
     /// enqueue).
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String)
 
+    /// Returns the app-bundle-localized v1 error for a malformed terminal
+    /// lifecycle token. This stays app-side so package code never resolves
+    /// `String(localized:)` against the package bundle.
+    nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String
+
     /// Applies the fallback `report_shell_state` update.
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution
 

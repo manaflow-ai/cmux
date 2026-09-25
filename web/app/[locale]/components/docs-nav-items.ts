@@ -6,6 +6,7 @@ import {
 import {
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
 
@@ -84,12 +85,19 @@ export const navItems: NavEntry[] = [
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
   { titleKey: "apiReference", href: "/docs/api" },
+  { titleKey: "computerUse", href: "/docs/computer-use" },
   { titleKey: "browserAutomation", href: "/docs/browser-automation" },
   { titleKey: "skills", href: "/docs/skills" },
   { titleKey: "notifications", href: "/docs/notifications" },
   { titleKey: "ssh", href: "/docs/ssh" },
   { titleKey: "ios", href: "/docs/ios" },
   { titleKey: "remoteTmux", href: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
+  {
+    titleKey: "managedPolicies",
+    href: "/docs/managed-policies",
+    locales: managedPoliciesDocsLocales,
+    contentLocales: managedPoliciesDocsLocales,
+  },
   {
     sectionKey: "agentIntegrations",
     children: [
