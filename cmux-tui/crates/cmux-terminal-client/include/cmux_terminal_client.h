@@ -108,8 +108,12 @@ void cmux_terminal_client_set_update_callback(
 // attached without a callback keeps decoding text frames locally until it is
 // detached and attached again. While a callback is installed the frame copy
 // functions below return empty frames. The callback runs on internal worker
-// threads with no client lock held, so it may call this API. context must
-// remain valid until the callback is cleared or the client is disconnected.
+// threads, and the registration is held across the invocation so that
+// clearing it waits for an in-flight call and context can then be released:
+// the callback must therefore NOT call this function (doing so deadlocks on
+// the registration itself). Clear the callback from another thread, or
+// disconnect. context must remain valid until the clearing call or
+// disconnect returns.
 void cmux_terminal_client_set_output_callback(
     CmuxTerminalClient *client,
     CmuxTerminalClientOutputCallback callback,

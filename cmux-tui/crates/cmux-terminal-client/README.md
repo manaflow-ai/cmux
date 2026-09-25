@@ -82,7 +82,10 @@ return the operation's JSON result. Create uses `workspace.create` with
 ## Threads
 
 Callbacks run on library worker threads and are serialized. The output
-callback is invoked with no client lock held, so it may call back into the
-library. UI code must hop to its main actor. `disconnect` and
+callback's registration is held across its invocation, so clearing the
+callback waits for an in-flight call and the embedder can release its context
+as soon as the clearing call returns; the callback itself must not clear or
+replace the registration, which would deadlock on it. UI code must hop to its
+main actor, which also keeps it clear of that rule. `disconnect` and
 `cmux_wireguard_net_free` return immediately and finish teardown on a
 background thread.
