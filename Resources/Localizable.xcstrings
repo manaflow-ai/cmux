@@ -474153,6 +474153,34 @@
         }
       }
     },
+    "workspace.todo.notification.inferredDoneBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "All tracked pull requests are merged or closed."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "追跡中のすべてのプルリクエストがマージまたはクローズされました。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Alle verfolgten Pull Requests sind zusammengeführt oder geschlossen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Toutes les pull requests suivies sont fusionnées ou fermées."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تم دمج جميع طلبات السحب المتتبعة أو إغلاقها."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Todas las solicitudes de extracción seguidas se han fusionado o cerrado."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "所有追蹤的提取要求都已合併或關閉。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "所有跟踪的拉取请求都已合并或关闭。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "추적 중인 모든 풀 리퀘스트가 병합되었거나 닫혔습니다."}}
+      }
+    },
+    "workspace.todo.notification.inferredDoneTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Workspace complete"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペース完了"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich abgeschlossen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Espace de travail terminé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اكتمل فضاء العمل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Espacio de trabajo completado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區完成"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区完成"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "워크스페이스 완료"}}
+      }
+    },
     "workspace.todo.notification.checklistCompleteBody": {
       "extractionState": "manual",
       "localizations": {

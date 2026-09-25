@@ -2,6 +2,184 @@ import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
 
+/// The status inputs that are owned by a workspace rather than by its sidebar
+/// presentation cache. Updates are duplicate-filtered and delivered through a
+/// bounded stream so every consumer sees the same live transition.
+@MainActor
+final class WorkspaceTaskStatusSignalOwner {
+    private(set) var signals = WorkspaceTaskStatusSignals()
+
+    var workspaceGitBranch: SidebarGitBranchState? { workspaceGitBranchState }
+
+    private var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    private var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
+    private var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
+    private var workspaceGitBranchState: SidebarGitBranchState?
+    private var observers: [UUID: AsyncStream<WorkspaceTaskStatusSignals>.Continuation] = [:]
+
+    /// Emits the current signal sample immediately, then every distinct sample.
+    func changes() -> AsyncStream<WorkspaceTaskStatusSignals> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            observers[id] = continuation
+            continuation.yield(signals)
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.observers[id] = nil }
+            }
+        }
+    }
+
+    /// Replaces agent lifecycle inputs, dropping entries for panels that no longer exist.
+    @discardableResult
+    func setAgentLifecycleStates(
+        _ states: [UUID: [String: AgentHibernationLifecycleState]],
+        validPanelIds: Set<UUID>
+    ) -> WorkspaceTaskStatusSignalTransition {
+        agentLifecycleStatesByPanelId = states.filter { validPanelIds.contains($0.key) }
+        return recomputeSignals()
+    }
+
+    /// Records a panel's structured git state independently of sidebar visibility settings.
+    func panelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
+        panelGitBranches[panelId]
+    }
+
+    @discardableResult
+    func setPanelGitBranch(
+        _ state: SidebarGitBranchState?,
+        panelId: UUID
+    ) -> WorkspaceTaskStatusSignalTransition {
+        let previous = panelGitBranches[panelId]
+        if let state {
+            panelGitBranches[panelId] = state
+        } else {
+            panelGitBranches.removeValue(forKey: panelId)
+        }
+        if previous?.branch != state?.branch {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
+        return recomputeSignals()
+    }
+
+    /// Records the workspace-level git fallback used when no panel has a branch.
+    @discardableResult
+    func setWorkspaceGitBranch(_ state: SidebarGitBranchState?) -> WorkspaceTaskStatusSignalTransition {
+        workspaceGitBranchState = state
+        return recomputeSignals()
+    }
+
+    /// Records a panel pull request independently of whether its badge is rendered.
+    @discardableResult
+    func setPanelPullRequest(
+        _ state: SidebarPullRequestState?,
+        panelId: UUID
+    ) -> WorkspaceTaskStatusSignalTransition {
+        if let state {
+            panelPullRequests[panelId] = state
+        } else {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
+        return recomputeSignals()
+    }
+
+    /// Seeds restored git state without treating session restoration as a user-visible transition.
+    func restoreGitState(
+        workspaceBranch: SidebarGitBranchState?,
+        panelBranches: [UUID: SidebarGitBranchState],
+        validPanelIds: Set<UUID>
+    ) {
+        workspaceGitBranchState = workspaceBranch
+        panelGitBranches = panelBranches.filter { validPanelIds.contains($0.key) }
+        _ = recomputeSignals(emit: false)
+    }
+
+    /// Removes all signal inputs for a panel that left the workspace.
+    @discardableResult
+    func removePanel(_ panelId: UUID) -> WorkspaceTaskStatusSignalTransition {
+        agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+        panelGitBranches.removeValue(forKey: panelId)
+        panelPullRequests.removeValue(forKey: panelId)
+        return recomputeSignals()
+    }
+
+    /// Drops signal inputs for panels that are no longer present after topology pruning.
+    @discardableResult
+    func prunePanels(validPanelIds: Set<UUID>) -> WorkspaceTaskStatusSignalTransition {
+        agentLifecycleStatesByPanelId = agentLifecycleStatesByPanelId.filter { validPanelIds.contains($0.key) }
+        panelGitBranches = panelGitBranches.filter { validPanelIds.contains($0.key) }
+        panelPullRequests = panelPullRequests.filter { validPanelIds.contains($0.key) }
+        return recomputeSignals()
+    }
+
+    /// Clears all signal inputs when the workspace changes repository context.
+    @discardableResult
+    func reset() -> WorkspaceTaskStatusSignalTransition {
+        agentLifecycleStatesByPanelId.removeAll()
+        panelGitBranches.removeAll()
+        panelPullRequests.removeAll()
+        workspaceGitBranchState = nil
+
+        return recomputeSignals()
+    }
+
+    private func recomputeSignals(emit: Bool = true) -> WorkspaceTaskStatusSignalTransition {
+        let pullRequests = panelPullRequests.compactMap { panelId, state in
+            guard let branch = state.branch else { return state }
+            guard panelGitBranches[panelId]?.branch.normalizedSidebarBranchName == branch.normalizedSidebarBranchName else {
+                return nil
+            }
+            return state
+        }
+        let branches = Array(panelGitBranches.values) + (workspaceGitBranchState.map { [$0] } ?? [])
+        let next = WorkspaceTaskStatusSignals(
+            anyAgentNeedsInput: agentLifecycleStatesByPanelId.values.contains { states in
+                states.values.contains(.needsInput)
+            },
+            anyAgentRunning: agentLifecycleStatesByPanelId.values.contains { states in
+                states.values.contains(.running)
+            },
+            anyOpenPullRequest: pullRequests.contains { $0.status == .open },
+            hasPullRequests: !pullRequests.isEmpty,
+            allPullRequestsMergedOrClosed: !pullRequests.isEmpty
+                && pullRequests.allSatisfy { $0.status != .open },
+            isGitDirty: branches.contains { $0.isDirty }
+        )
+        let transition = WorkspaceTaskStatusSignalTransition(
+            previous: signals,
+            current: next
+        )
+        guard transition.didChange else { return transition }
+        signals = next
+        guard emit else { return transition }
+        var terminatedObserverIds: [UUID] = []
+        for (id, observer) in observers {
+            if case .terminated = observer.yield(next) {
+                terminatedObserverIds.append(id)
+            }
+        }
+        for id in terminatedObserverIds {
+            observers[id] = nil
+        }
+        return transition
+    }
+}
+
+/// The before/after sample produced by one workspace status-signal mutation.
+struct WorkspaceTaskStatusSignalTransition: Equatable {
+    let previous: WorkspaceTaskStatusSignals
+    let current: WorkspaceTaskStatusSignals
+
+    var didChange: Bool { previous != current }
+
+    var previousStatus: WorkspaceTaskStatus {
+        WorkspaceTaskStatus.inferred(from: previous)
+    }
+
+    var currentStatus: WorkspaceTaskStatus {
+        WorkspaceTaskStatus.inferred(from: current)
+    }
+}
+
 /// Workspace-level todo logic: sampling the live signals that drive
 /// task-status inference, resolving the effective status against the manual
 /// override, and the shared checklist mutation entry points used by the
@@ -9,29 +187,43 @@ import Foundation
 extension Workspace {
     // MARK: - Status signals
 
-    /// Samples the live signals that drive task-status inference: agent
-    /// lifecycle states (needs-input / running) for panels that still exist,
-    /// the sidebar pull-request rows, and git working-tree dirtiness.
+    /// Records the workspace-level fallback reported by shell integration.
+    /// Focus changes update ``gitBranch`` as a presentation mirror and do not
+    /// call this method, so a stale focused-panel mirror cannot overwrite the
+    /// authoritative fallback signal.
+    func recordWorkspaceGitBranchSignal(_ state: SidebarGitBranchState?) {
+        handleTaskStatusSignalTransition(taskStatusSignalOwner.setWorkspaceGitBranch(state))
+    }
+
+    /// Returns the panel branch retained by the live signal owner, even when
+    /// sidebar presentation metadata has been cleared or hidden.
+    func authoritativePanelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
+        taskStatusSignalOwner.panelGitBranch(panelId: panelId)
+    }
+
+    /// Returns the workspace fallback branch retained by the live signal owner.
+    func authoritativeWorkspaceGitBranch() -> SidebarGitBranchState? {
+        taskStatusSignalOwner.workspaceGitBranch
+    }
+
+    /// Returns the authoritative live signal sample owned by this workspace.
     func taskStatusSignals(orderedPanelIds: [UUID]? = nil) -> WorkspaceTaskStatusSignals {
-        var anyAgentNeedsInput = false
-        var anyAgentRunning = false
-        for (panelId, states) in agentLifecycleStatesByPanelId where panels[panelId] != nil {
-            for state in states.values {
-                if state == .needsInput { anyAgentNeedsInput = true }
-                if state == .running { anyAgentRunning = true }
-            }
-        }
-        let orderedPanelIds = orderedPanelIds ?? sidebarOrderedPanelIds()
-        let pullRequests = sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds)
-        return WorkspaceTaskStatusSignals(
-            anyAgentNeedsInput: anyAgentNeedsInput,
-            anyAgentRunning: anyAgentRunning,
-            anyOpenPullRequest: pullRequests.contains { $0.status == .open },
-            hasPullRequests: !pullRequests.isEmpty,
-            allPullRequestsMergedOrClosed: !pullRequests.isEmpty
-                && pullRequests.allSatisfy { $0.status != .open },
-            isGitDirty: sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).contains { $0.isDirty }
-        )
+        taskStatusSignalOwner.signals
+    }
+
+    /// Applies one signal-owner transition to the shared lifecycle rules.
+    /// Override expiry and inferred-done notifications therefore run for
+    /// agent, Git, and pull-request updates through the same path.
+    func handleTaskStatusSignalTransition(
+        _ transition: WorkspaceTaskStatusSignalTransition,
+        notifyDone: Bool = true
+    ) {
+        guard transition.didChange else { return }
+        reconcileExpiredTaskStatusOverride()
+        guard notifyDone else { return }
+        guard transition.previousStatus != .done,
+              transition.currentStatus == .done else { return }
+        postInferredDoneNotification()
     }
 
     // MARK: - Status resolution
@@ -44,8 +236,7 @@ extension Workspace {
     /// The status to display and report: the manual override while its
     /// recorded inference still matches, otherwise the live inference. Pure
     /// (never mutates state), so it is safe to read from view bodies; the
-    /// expired-override cleanup happens in
-    /// ``reconcileExpiredTaskStatusOverride()`` at mutation/read entry points.
+    /// signal owner clears expired overrides at the live-signal boundary.
     var effectiveTaskStatus: WorkspaceTaskStatus {
         WorkspaceTaskStatusOverride.effectiveStatus(
             override: todoState.statusOverride,
@@ -54,9 +245,7 @@ extension Workspace {
     }
 
     /// Clears the stored override when the live inference has moved away from
-    /// what it was at override time (anti-rot). Call from explicit entry
-    /// points (socket verbs, CLI, user actions), never from view-body
-    /// computations.
+    /// what it was at override time (anti-rot).
     func reconcileExpiredTaskStatusOverride() {
         guard WorkspaceTaskStatusOverride.effectiveStatus(
             override: todoState.statusOverride,

@@ -120,9 +120,9 @@ private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
     }
 }
 
-/// The pane body once the workspace is resolved. Observes the workspace (for
-/// inferred-status recomputes) and its todo state (for override and checklist
-/// churn) directly.
+/// The pane body once the workspace is resolved. Observes the workspace's
+/// status-signal owner and todo state so live agent/Git/PR transitions redraw
+/// the pane without waiting for unrelated sidebar churn.
 private struct WorkspaceTodoPaneContent: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var todoState: WorkspaceTodoState
@@ -142,6 +142,7 @@ private struct WorkspaceTodoPaneContent: View {
     /// toggles it.
     @State private var highlightedItemId: UUID?
     @FocusState private var itemsFocused: Bool
+    @State private var liveTaskStatusSignals = WorkspaceTaskStatusSignals()
 
     private static let itemFontSize: CGFloat = 13
     private static let checkboxPointSize: CGFloat = 13
@@ -149,9 +150,9 @@ private struct WorkspaceTodoPaneContent: View {
     private static let headerGlyphFontScale: CGFloat = 13.0 / 9.0
 
     var body: some View {
-        // Pure reads: effective-status resolution never mutates (the
-        // expired-override cleanup happens at mutation entry points).
-        let inferred = workspace.inferredTaskStatus
+        // Pure reads: effective-status resolution never mutates. The signal
+        // owner reconciles expired overrides at the live-signal boundary.
+        let inferred = WorkspaceTaskStatus.inferred(from: liveTaskStatusSignals)
         let resolution = WorkspaceTaskStatusOverride.effectiveStatus(
             override: todoState.statusOverride,
             inferred: inferred
@@ -230,6 +231,14 @@ private struct WorkspaceTodoPaneContent: View {
         }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
+        }
+        .task(id: workspace.id) {
+            for await signals in workspace.taskStatusSignalOwner.changes() {
+                liveTaskStatusSignals = signals
+            }
+        }
+        .onAppear {
+            liveTaskStatusSignals = workspace.taskStatusSignalOwner.signals
         }
         .accessibilityIdentifier("WorkspaceTodoPane")
     }

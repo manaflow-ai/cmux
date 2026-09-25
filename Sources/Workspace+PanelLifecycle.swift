@@ -32,7 +32,14 @@ extension Workspace {
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
         get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+        set {
+            sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue)
+            let transition = taskStatusSignalOwner.setAgentLifecycleStates(
+                newValue,
+                validPanelIds: Set(panels.keys)
+            )
+            handleTaskStatusSignalTransition(transition)
+        }
     }
 
     /// Returns exact-session runtime identities that still match their recorded process generation.
@@ -542,6 +549,7 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
+        handleTaskStatusSignalTransition(taskStatusSignalOwner.removePanel(panelId), notifyDone: false)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
