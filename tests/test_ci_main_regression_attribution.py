@@ -59,6 +59,20 @@ class ExtractionTests(unittest.TestCase):
             {"AgentSessionAutoResumeSwiftTests/splitAfterRestore()", "FooTests/testBar"},
         )
 
+    def test_a_failed_shard_is_complete_only_when_every_batch_was_graded(self):
+        self.assertTrue(MODULE.shard_log_complete(LOG))
+        self.assertTrue(MODULE.shard_log_complete("typed app-host run passed: 796 test cases\n"))
+        # Failed before any batch was graded: no verdict at all.
+        self.assertFalse(MODULE.shard_log_complete("##[error]Process completed with exit code 1.\n"))
+        for stop in (
+            "incomplete app-host run: app host restarted after test execution",
+            "typed xcresult is incomplete: 3 selected Test Case(s) have no terminal result",
+            "No typed xcresult test JSON found for unit-physical-3",
+            "xcodebuild status 70 is not ratchetable",
+        ):
+            with self.subTest(stop=stop):
+                self.assertFalse(MODULE.shard_log_complete(LOG + stop + "\n"))
+
     def test_app_host_ran_needs_every_shard_finished(self):
         shards = [{"name": f"macos / app-host unit tests ({n}/7)", "conclusion": "failure"} for n in range(1, 8)]
         rollup = {"name": "ci-status", "conclusion": "failure"}
@@ -106,6 +120,19 @@ class RankingTests(unittest.TestCase):
     def test_one_pull_request_is_the_suspect(self):
         only = pr(1)
         self.assertEqual(MODULE.suspects_for("Suite/test()", [only]), ([only], "only pull request in the range"))
+
+    def test_a_direct_push_in_the_range_needs_the_pull_request_to_reach_the_suite(self):
+        self.assertEqual(MODULE.suspects_for("Suite/test()", [pr(1)], ["abc"])[0], [])
+        reaches = pr(1, reached={"Suite"})
+        self.assertEqual(MODULE.suspects_for("Suite/test()", [reaches], ["abc"])[0], [reaches])
+
+    def test_overlay_reads_changed_files_at_the_merge(self):
+        files = {"Sources/A.swift": "old", "Sources/B.swift": "b", "cmuxTests/T.swift": "t"}
+        self.assertEqual(
+            MODULE.overlay(files, {"Sources/A.swift": "new", "cmuxTests/T.swift": None, "Sources/C.swift": "c"}),
+            {"Sources/A.swift": "new", "Sources/B.swift": "b", "Sources/C.swift": "c"},
+        )
+        self.assertEqual(files["Sources/A.swift"], "old")
 
     def test_editing_the_suite_beats_reaching_it(self):
         edits, reaches, neither = pr(1, edited={"Suite"}), pr(2, reached={"Suite"}), pr(3)
@@ -160,7 +187,8 @@ class ReportTests(unittest.TestCase):
             repo=REPO, pr=pr2, tests=tests, how=how, run=run(), previous=self.previous,
             failures=self.failures, others=others,
         )
-        self.assertTrue(body.startswith(MODULE.marker(2, ["S/x()", "T/y()"])))
+        self.assertTrue(body.startswith(MODULE.marker(2, ["S/x()", "T/y()"], f"{PREV[:10]}..{HEAD[:10]}")))
+        self.assertTrue(MODULE.already_told([body], 2, ["T/y()", "S/x()"], "other..range"))
         self.assertIn("- `S/x()` (changes code the suite names; also suspected: #1) [job](https://job/1)", body)
         self.assertIn("- `T/y()` (changes code the suite names) [job](https://job/2)", body)
         self.assertNotIn("U/z()", body)
@@ -173,10 +201,14 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(attributions["S/x()"][0]), len(tied))
         self.assertEqual(MODULE.comment_plan(failures, attributions), [])
 
-    def test_marker_depends_on_the_pull_request_and_test_set_not_order(self):
-        self.assertEqual(MODULE.marker(2, ["b", "a"]), MODULE.marker(2, ["a", "b"]))
-        self.assertNotEqual(MODULE.marker(2, ["a"]), MODULE.marker(2, ["a", "b"]))
-        self.assertNotEqual(MODULE.marker(2, ["a"]), MODULE.marker(3, ["a"]))
+    def test_a_pull_request_hears_once_per_test_set_and_once_per_range(self):
+        told = ["intro", MODULE.marker(2, ["a", "b"], "p..h")]
+        self.assertEqual(MODULE.marker(2, ["b", "a"], "p..h"), MODULE.marker(2, ["a", "b"], "p..h"))
+        self.assertTrue(MODULE.already_told(told, 2, ["b", "a"], "p2..h2"))  # same tests, later range
+        self.assertTrue(MODULE.already_told(told, 2, ["a"], "p..h"))  # re-run of the same range
+        self.assertFalse(MODULE.already_told(told, 2, ["a"], "p2..h2"))
+        self.assertFalse(MODULE.already_told(told, 3, ["a", "b"], "p..h"))
+        self.assertFalse(MODULE.already_told([], 2, ["a"], "p..h"))
 
 
 class WorkflowTests(unittest.TestCase):
@@ -193,9 +225,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", step)
         self.assertIn("--extra-section", self.report)
 
-    def test_attribution_checks_out_history_for_the_commit_range(self):
-        self.assertIn("fetch-depth: 0", self.report)
-        self.assertIn("filter: blob:none", self.report)
+    def test_the_issue_sync_checkout_stays_shallow_and_attribution_deepens_it(self):
+        checkout = self.report.split("      - name: Checkout\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("fetch-depth: 1", checkout)
+        for tree in ("scripts/ci", "cmuxTests", "Sources", "Packages/macOS", "Packages/Shared", "CLI"):
+            self.assertIn(f"            {tree}\n", checkout)
+        step = self.report.split("main_regression_attribution.py", 1)[0].rsplit("- name:", 1)[1]
+        self.assertIn("git fetch --no-tags --filter=blob:none --depth=", step)
 
 
 if __name__ == "__main__":

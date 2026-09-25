@@ -129,7 +129,7 @@ jobs:
     # report. Reports are idempotent.
     if: ${{ (github.event_name != 'workflow_run' && github.event_name != 'push' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # Attribution reads every failed app-host shard log of two runs (about
+    # Attribution reads the failed app-host shard logs of two runs (about
     # three minutes) and diffs the pull requests merged between them.
     timeout-minutes: 20
     concurrency:
@@ -145,11 +145,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # History for the commit range between two runs and each merged pull
-          # request's diff; blobs load on demand.
-          fetch-depth: 0
-          filter: blob:none
+          fetch-depth: 1
           persist-credentials: false
+          # The trees attribution ranks pull requests against, besides the scripts.
+          sparse-checkout: |
+            scripts/ci
+            cmuxTests
+            Sources
+            Packages/macOS
+            Packages/Shared
+            CLI
 
       - name: Attribute new failures to merged pull requests
         # A report-only heuristic: its failure must not stop the issue sync.
@@ -159,6 +164,10 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
+          # Main's recent history, without blobs, for the commit range between
+          # two runs and each merged pull request's diff. Continuous runs keep
+          # that range to a few dozen commits.
+          git fetch --no-tags --filter=blob:none --depth=1000 origin main
           run_args=()
           if [ -n "$RUN_ID" ]; then
             run_args=(--run-id "$RUN_ID")

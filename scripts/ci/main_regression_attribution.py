@@ -6,7 +6,7 @@ red run lists failing jobs, not what broke them, and nobody is told. This
 reads a red full-suite run and finds its new failures: app-host tests the
 shard ratchet reported as RATCHET_NEW_FAILURE (so not in the known-failures
 catalog) that did not fail in the previous full-suite run whose app-host
-shards all ran.
+shards all finished and graded every test.
 
 Each new failure is attributed to the commits between the two runs' head
 SHAs, mapped to the pull requests merged into main by those commits. One pull
@@ -20,7 +20,7 @@ blaming the whole range.
 `report` writes a "New since" markdown section for the tracking issue (read
 by main_full_suite.py report --extra-section) and comments once on each
 suspect pull request, idempotent through a hidden marker keyed on the pull
-request and its failing test set. A test tied between more than
+request and its failing test set, and once per commit range. A test tied between more than
 MAX_PINGED_SUSPECTS pull requests is listed in the issue only. Nothing is
 reverted or re-run here.
 """
@@ -46,13 +46,29 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 # One ratchet verdict per line, after the runner's timestamp.
 RATCHET_RE = re.compile(r"^(?:\S+Z )?RATCHET_NEW_FAILURE (\S+)\s*$")
 RAN_CONCLUSIONS = frozenset({"success", "failure"})
+# app_host_result_accounting.py closes every graded batch with one of these.
+VERDICT_MARKERS = ("RATCHET_NEW_FAILURE ", "typed app-host run passed", "known-main failures tolerated")
+# ...and prints one of these when a batch's tests did not all report, so a
+# test that already failed may be missing from its RATCHET_NEW_FAILURE lines.
+INCOMPLETE_MARKERS = (
+    "incomplete app-host run:",
+    "typed xcresult is incomplete",
+    "typed xcresult contains zero Test Case nodes",
+    "No typed xcresult test JSON found",
+    "is not ratchetable",
+    "selector matched zero built tests",
+    "nonterminal or unknown result",
+)
 MARKER_PREFIX = "<!-- main-regression-attribution"
+MARKER_RE = re.compile(r"<!-- main-regression-attribution pr=(\d+) tests=(\w+) range=(\S+) -->")
 # Bounds on one report, so a long red streak cannot fan out into a comment storm.
 MAX_RANKED_PRS = 40
 MAX_COMMENTED_PRS = 5
 # A test that ties more pull requests than this is listed in the issue but
 # pings none of them: that is a guess, and slice 2's bisect should settle it.
 MAX_PINGED_SUSPECTS = 3
+# Earlier runs tried as the baseline before giving up on a comparison.
+MAX_BASELINE_CANDIDATES = 8
 MAX_LISTED_TESTS = 30
 
 
@@ -76,6 +92,13 @@ def ratchet_failures(log_text: str) -> set[str]:
         if match:
             found.add(match.group(1))
     return found
+
+
+def shard_log_complete(log_text: str) -> bool:
+    """True when a failed shard graded every batch, so its failures are the full set."""
+    return any(text in log_text for text in VERDICT_MARKERS) and not any(
+        text in log_text for text in INCOMPLETE_MARKERS
+    )
 
 
 def app_host_jobs(jobs: Iterable[Mapping[str, object]]) -> list[Mapping[str, object]]:
@@ -156,9 +179,11 @@ def score(test: str, pr: PullRequest) -> int:
     return 0
 
 
-def suspects_for(test: str, prs: list[PullRequest]) -> tuple[list[PullRequest], str]:
+def suspects_for(
+    test: str, prs: list[PullRequest], direct: Iterable[str] = (),
+) -> tuple[list[PullRequest], str]:
     """(suspects, how) for one failing test; no suspects when the range gives no signal."""
-    if len(prs) == 1:
+    if len(prs) == 1 and not list(direct):
         return prs, "only pull request in the range"
     if not prs:
         return [], "no merged pull request in the range"
@@ -170,9 +195,29 @@ def suspects_for(test: str, prs: list[PullRequest]) -> tuple[list[PullRequest], 
     return [pr for value, pr in scored if value == best], how
 
 
-def marker(pr_number: int, tests: Iterable[str]) -> str:
-    digest = hashlib.sha256("\n".join(sorted(tests)).encode()).hexdigest()[:16]
-    return f"{MARKER_PREFIX} pr={pr_number} tests={digest} -->"
+def tests_digest(tests: Iterable[str]) -> str:
+    return hashlib.sha256("\n".join(sorted(tests)).encode()).hexdigest()[:16]
+
+
+def commit_range(previous: Mapping[str, object], run: Mapping[str, object]) -> str:
+    return f"{short(str(previous.get('head_sha') or ''))}..{short(str(run.get('head_sha') or ''))}"
+
+
+def marker(pr_number: int, tests: Iterable[str], range_: str) -> str:
+    return f"{MARKER_PREFIX} pr={pr_number} tests={tests_digest(tests)} range={range_} -->"
+
+
+def already_told(bodies: Iterable[str], pr_number: int, tests: Iterable[str], range_: str) -> bool:
+    """A pull request hears once per failing test set, and once per commit range.
+
+    The range covers a re-run of the same red run whose failing set shifted.
+    """
+    digest = tests_digest(tests)
+    for body in bodies:
+        for number, seen_digest, seen_range in MARKER_RE.findall(body or ""):
+            if int(number) == pr_number and (seen_digest == digest or seen_range == range_):
+                return True
+    return False
 
 
 def short(sha: str) -> str:
@@ -232,7 +277,7 @@ def pr_comment(
     prev_sha = str(previous.get("head_sha") or "")
     head_sha = str(run.get("head_sha") or "")
     lines = [
-        marker(pr.number, tests),
+        marker(pr.number, tests, commit_range(previous, run)),
         f"These app-host tests newly fail in [main's full suite]({run.get('html_url')}) "
         f"at `{short(head_sha)}`, after this pull request merged. They did not fail in "
         f"[the previous full-suite run]({previous.get('html_url')}) at `{short(prev_sha)}`, "
@@ -298,18 +343,20 @@ def run_jobs(repo: str, run_id: object) -> list[dict]:
     ])
 
 
-def job_failures(repo: str, jobs: list[Mapping[str, object]]) -> dict[str, list[str]]:
-    """Ratchet failure -> job URLs, across the failed app-host shards of one run."""
+def job_failures(repo: str, jobs: list[Mapping[str, object]]) -> tuple[dict[str, list[str]], bool]:
+    """(ratchet failure -> job URLs, whether every failed shard graded all its tests) for one run."""
     from app_host_failure_census import _gh_api_escape_flag
 
     failures: dict[str, list[str]] = {}
+    complete = True
     for job in app_host_jobs(jobs):
         if job.get("conclusion") != "failure":
             continue
         log = gh(["api", *_gh_api_escape_flag(), f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        complete = complete and shard_log_complete(ANSI_RE.sub("", log))
         for test in ratchet_failures(log):
             failures.setdefault(test, []).append(str(job.get("html_url") or ""))
-    return failures
+    return failures, complete
 
 
 def associated_prs(repo: str, shas: list[str]) -> dict[str, list[dict]]:
@@ -330,30 +377,62 @@ def associated_prs(repo: str, shas: list[str]) -> dict[str, list[dict]]:
     return result
 
 
+def overlay(files: Mapping[str, str], changes: Mapping[str, str | None]) -> dict[str, str]:
+    """`files` with changed paths replaced by their text, or removed when None."""
+    result = dict(files)
+    for path, text in changes.items():
+        if text is None:
+            result.pop(path, None)
+        else:
+            result[path] = text
+    return result
+
+
 def rank_inputs(root: Path, prs: list[PullRequest]) -> None:
-    """Fill each pull request's suite sets from its merge commit's diff."""
+    """Fill each pull request's suite sets from its merge commit's diff.
+
+    The trees are read once from the checkout. Each pull request's own changed
+    files are read at its merge commit, so its hunks' line numbers match the
+    text they are resolved against.
+    """
+    import tempfile
+
     import reverse_test_impact
     import test_impact
 
-    files = reverse_test_impact.read_root(root)
+    head_files = reverse_test_impact.read_root(root)
     for pr in prs[:MAX_RANKED_PRS]:
         base = f"{pr.merge_sha}^1"
         try:
-            paths = git(root, "diff", "--no-renames", "--name-only", base, pr.merge_sha).split()
+            status = git(root, "diff", "--no-renames", "--name-status", base, pr.merge_sha).splitlines()
             test_diff = git(root, "diff", "--no-renames", "-U0", base, pr.merge_sha, "--", "cmuxTests")
             app_diff = git(
                 root, "diff", "--no-renames", "-U0", base, pr.merge_sha,
                 "--", "Sources", "Packages/macOS", "Packages/Shared", "CLI",
             )
+            changes: dict[str, str | None] = {}
+            for line in status:
+                code, _, path = line.partition("\t")
+                if path.endswith(".swift") and path.startswith(reverse_test_impact.TREE_PREFIXES):
+                    changes[path] = None if code == "D" else git(root, "show", f"{pr.merge_sha}:{path}")
         except subprocess.CalledProcessError as error:
-            print(f"::warning::Could not diff #{pr.number}: {error.stderr.strip()}", file=sys.stderr)
+            print(f"::warning::Could not diff #{pr.number}: {(error.stderr or '').strip()}", file=sys.stderr)
             continue
-        edited = test_impact.affected_suites(root, paths, test_diff) or []
-        pr.edited_suites = {suite.removeprefix("cmuxTests/") for suite in edited}
+        files = overlay(head_files, changes)
+        paths = [line.partition("\t")[2] for line in status]
+        if any(path.startswith("cmuxTests/") for path in paths):
+            with tempfile.TemporaryDirectory(prefix="attribution-") as scratch:
+                for path, text in files.items():
+                    if path.startswith("cmuxTests/"):
+                        target = Path(scratch) / path
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text(text, encoding="utf-8")
+                edited = test_impact.affected_suites(Path(scratch), paths, test_diff) or []
+            pr.edited_suites = {suite.removeprefix("cmuxTests/") for suite in edited}
         pr.reached_suites = set(reverse_test_impact.select(files, app_diff).suites)
 
 
-def pr_has_marker(repo: str, number: int, text: str) -> bool:
+def pr_comment_bodies(repo: str, number: int) -> list[str]:
     owner, name = repo.split("/", 1)
     query = (
         'query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) '
@@ -364,7 +443,7 @@ def pr_has_marker(repo: str, number: int, text: str) -> bool:
         "-F", f"number={number}",
     ]))
     nodes = data["data"]["repository"]["pullRequest"]["comments"]["nodes"]
-    return any(text in str(node.get("body") or "") for node in nodes)
+    return [str(node.get("body") or "") for node in nodes]
 
 
 def resolve_run(args: argparse.Namespace) -> dict | None:
@@ -387,17 +466,26 @@ def command_report(args: argparse.Namespace) -> int:
     if not app_host_ran(jobs):
         print(f"Run {run['id']} did not finish every app-host shard; nothing to compare.")
         return 0
-    current = job_failures(args.repo, jobs)
+    current, _ = job_failures(args.repo, jobs)
 
+    # The baseline is the newest earlier run that graded every app-host test:
+    # a shard that stopped early cannot show a test was already failing.
     previous = None
     previous_failures: set[str] = set()
-    for candidate in earlier_tested_runs(suite_run.list_runs(args.repo, args.branch, ["-f", "status=completed"]), run):
+    earlier = earlier_tested_runs(
+        suite_run.list_runs(args.repo, args.branch, ["-f", "status=completed"]), run, args.branch,
+    )
+    for candidate in earlier[:MAX_BASELINE_CANDIDATES]:
         candidate_jobs = run_jobs(args.repo, candidate["id"])
-        if app_host_ran(candidate_jobs):
-            previous = candidate
-            if candidate.get("conclusion") == "failure":
-                previous_failures = set(job_failures(args.repo, candidate_jobs))
-            break
+        if not app_host_ran(candidate_jobs):
+            continue
+        if candidate.get("conclusion") == "failure":
+            failed, complete = job_failures(args.repo, candidate_jobs)
+            if not complete:
+                continue
+            previous_failures = set(failed)
+        previous = candidate
+        break
 
     failures = new_failures(current, previous_failures) if previous else {}
     prs: list[PullRequest] = []
@@ -408,7 +496,7 @@ def command_report(args: argparse.Namespace) -> int:
         prs, direct = merged_prs(shas, associated_prs(args.repo, shas), args.branch)
         if len(prs) > 1:
             rank_inputs(args.root, prs)
-        attributions = {test: suspects_for(test, prs) for test in failures}
+        attributions = {test: suspects_for(test, prs, direct) for test in failures}
 
     section = issue_section(
         repo=args.repo, run=run, previous=previous, failures=failures,
@@ -419,8 +507,7 @@ def command_report(args: argparse.Namespace) -> int:
         Path(args.section_output).write_text(section + "\n", encoding="utf-8")
 
     for pr, tests, how, others in comment_plan(failures, attributions):
-        tag = marker(pr.number, tests)
-        if pr_has_marker(args.repo, pr.number, tag):
+        if already_told(pr_comment_bodies(args.repo, pr.number), pr.number, tests, commit_range(previous, run)):
             print(f"#{pr.number} already told about these tests.")
             continue
         body = pr_comment(
