@@ -1,5 +1,5 @@
-public import Combine
 public import Foundation
+public import Observation
 
 /// Main-actor owner for the per-surface agent footer lifecycle.
 ///
@@ -7,7 +7,8 @@ public import Foundation
 /// token makes those updates safe across teardown and a later surface reuse:
 /// an old tee can never write into a new surface instance with the same ID.
 @MainActor
-public final class AgentFooterStateStore: ObservableObject {
+@Observable
+public final class AgentFooterStateStore {
     /// Identifies one installed PTY tee for one surface instance.
     public struct Lease: Equatable, Sendable {
         public let surfaceID: UUID
@@ -29,7 +30,7 @@ public final class AgentFooterStateStore: ObservableObject {
     /// The live and retiring surface entries. Publishing this dictionary makes
     /// the store itself the UI observation boundary; snapshots and updates
     /// cannot diverge through a second mirrored state collection.
-    @Published private var entries: [UUID: Entry] = [:]
+    private var entries: [UUID: Entry] = [:]
 
     /// Creates an empty state store.
     public init() {}

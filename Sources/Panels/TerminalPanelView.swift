@@ -12,7 +12,7 @@ import CmuxSettings
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
-    @ObservedObject var agentFooterStore: AgentFooterStateStore
+    let agentFooterStore: AgentFooterStateStore
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
