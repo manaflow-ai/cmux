@@ -1109,9 +1109,21 @@ enum KeyboardShortcutSettings {
 
     static func clearShortcut(for action: Action) { setShortcut(.unbound, for: action) }
 
+    /// Clears every stored shortcut override.
+    ///
+    /// WHY the presence check: `removeObject(forKey:)` posts
+    /// `UserDefaults.didChangeNotification` even when the key was never
+    /// written, so an unguarded sweep over `Action.allCases` fans out one post
+    /// per action. Every post drives the live `ManagedPolicyEnforcementObserver`
+    /// through a full `reevaluate()` (dozens of forced-preference probes), and
+    /// `KeyboardShortcutSettingsFileStore` through
+    /// `reapplyManagedSettingsIfNeeded()`. Removing a key that is not stored is
+    /// a no-op, so skipping it keeps the reset identical while collapsing the
+    /// notification storm to the single `didChangeNotification` below.
     static func resetAll() {
-        for action in Action.allCases {
-            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        let defaults = UserDefaults.standard
+        for action in Action.allCases where defaults.object(forKey: action.defaultsKey) != nil {
+            defaults.removeObject(forKey: action.defaultsKey)
         }
         postDidChangeNotification()
     }

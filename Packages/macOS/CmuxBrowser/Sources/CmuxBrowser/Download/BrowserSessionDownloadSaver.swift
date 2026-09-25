@@ -42,7 +42,7 @@ final class BrowserSessionDownloadSaver {
         let filenameResolver = BrowserDownloadFilenameResolver()
         let downloadID = UUID().uuidString
         notifyEvent(["type": "started", "download_id": downloadID, "filename": saveName])
-        let handleWriteResult: (Result<URL, Error>, Bool) -> Void = { [weak self] result, shouldClearDownloadState in
+        let handleWriteResult: (Result<URL, any Error>, Bool) -> Void = { [weak self] result, shouldClearDownloadState in
             guard let self else { return }
             if shouldClearDownloadState { self.notifyDownloadState(false) }
             switch result {
@@ -96,7 +96,7 @@ final class BrowserSessionDownloadSaver {
         downloadID: String,
         traceID: String,
         logCategory: String,
-        completion: @escaping (Result<URL, Error>) -> Void
+        completion: @escaping (Result<URL, any Error>) -> Void
     ) {
         let savePanel = NSSavePanel()
         savePanel.nameFieldStringValue = saveName
@@ -126,7 +126,7 @@ final class BrowserSessionDownloadSaver {
         destinationURL: URL,
         sourceURL: URL?,
         replaceExisting: Bool,
-        completion: @escaping (Result<URL, Error>) -> Void
+        completion: @escaping (Result<URL, any Error>) -> Void
     ) {
         Task { @MainActor in
             let result = await Task.detached(priority: .utility) {
@@ -143,7 +143,7 @@ final class BrowserSessionDownloadSaver {
         filenameResolver: BrowserDownloadFilenameResolver,
         traceID: String,
         logCategory: String,
-        completion: @escaping (Result<URL, Error>) -> Void
+        completion: @escaping (Result<URL, any Error>) -> Void
     ) {
         Task { @MainActor in
             let result = await Task.detached(priority: .utility) {
@@ -161,12 +161,12 @@ final class BrowserSessionDownloadSaver {
         saveName: String,
         sourceURL: URL?,
         filenameResolver: BrowserDownloadFilenameResolver
-    ) -> Result<URL, Error> {
+    ) -> Result<URL, any Error> {
         Result {
             let fileManager = FileManager.default
             let directory = filenameResolver.downloadsDirectory(fileManager: fileManager)
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            var lastCollisionError: Error?
+            var lastCollisionError: (any Error)?
             for _ in 0..<100 {
                 let destinationURL = filenameResolver.uniqueDownloadDestination(
                     suggestedFilename: saveName,
@@ -190,7 +190,7 @@ final class BrowserSessionDownloadSaver {
         to destinationURL: URL,
         sourceURL: URL?,
         replaceExisting: Bool
-    ) -> Result<URL, Error> {
+    ) -> Result<URL, any Error> {
         Result {
             if replaceExisting {
                 try writeReplacing(data, to: destinationURL, sourceURL: sourceURL, fileManager: .default)

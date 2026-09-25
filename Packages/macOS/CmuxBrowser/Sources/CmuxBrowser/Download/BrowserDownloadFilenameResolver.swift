@@ -1,14 +1,16 @@
-import CmuxBrowser
-import Foundation
+public import Foundation
 import CoreServices
 import ImageIO
 import CmuxSettings
-import UniformTypeIdentifiers
+public import UniformTypeIdentifiers
 
-struct BrowserDownloadFilenameResolver: Sendable {
+public struct BrowserDownloadFilenameResolver: Sendable {
     private static let maxFilenameCollisionAttempts = 100
 
-    func shouldForceDownload(
+    /// Creates a resolver.
+    public init() {}
+
+    public func shouldForceDownload(
         mimeType: String?,
         contentDisposition: String?
     ) -> Bool {
@@ -21,7 +23,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         return Self.forceDownloadMIMETypes.contains(normalizedMIMEType)
     }
 
-    func navigationResponseDownloadReason(
+    public func navigationResponseDownloadReason(
         mimeType: String?,
         canShowMIMEType: Bool,
         contentDisposition: String?,
@@ -44,7 +46,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         return canShowMIMEType ? nil : "cannotShowMIME"
     }
 
-    func shouldPrintPDFAfterLoad(
+    public func shouldPrintPDFAfterLoad(
         mimeType: String?,
         responseURL: URL?,
         isForMainFrame: Bool,
@@ -54,7 +56,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         return isPDFPrintRequestURL(responseURL)
     }
 
-    func isPDFPrintRequestURL(_ url: URL?) -> Bool {
+    public func isPDFPrintRequestURL(_ url: URL?) -> Bool {
         guard let components = url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
             return false
         }
@@ -64,7 +66,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         } == true
     }
 
-    func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
+    public func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
         guard let httpResponse = response as? HTTPURLResponse else {
             return .allow
         }
@@ -74,7 +76,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         return .allow
     }
 
-    func imageType(forImageData data: Data) -> UTType? {
+    public func imageType(forImageData data: Data) -> UTType? {
         guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
               let typeIdentifier = CGImageSourceGetType(imageSource) as String?,
               let type = UTType(typeIdentifier),
@@ -84,7 +86,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         return type
     }
 
-    func imageType(forDownloadedFileAt fileURL: URL) -> UTType? {
+    public func imageType(forDownloadedFileAt fileURL: URL) -> UTType? {
         guard let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
               let typeIdentifier = CGImageSourceGetType(imageSource) as String?,
               let type = UTType(typeIdentifier),
@@ -94,7 +96,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         return type
     }
 
-    func suggestedFilename(
+    public func suggestedFilename(
         suggestedFilename: String?,
         response: URLResponse?,
         sourceURL: URL,
@@ -116,7 +118,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         )
     }
 
-    func suggestedFilename(
+    public func suggestedFilename(
         suggestedFilename: String?,
         response: URLResponse?,
         sourceURL: URL,
@@ -130,7 +132,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         )
     }
 
-    func suggestedFilename(
+    public func suggestedFilename(
         suggestedFilename: String?,
         sourceURL: URL,
         imageFileURL: URL
@@ -143,7 +145,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         )
     }
 
-    func shouldAskWhereToSaveDownloads(defaults: UserDefaults = .standard) -> Bool {
+    public func shouldAskWhereToSaveDownloads(defaults: UserDefaults = .standard) -> Bool {
         let setting = SettingCatalog().browser.askWhereToSaveDownloads
         if defaults.object(forKey: setting.userDefaultsKey) == nil {
             return setting.defaultValue
@@ -151,7 +153,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
         return defaults.bool(forKey: setting.userDefaultsKey)
     }
 
-    func downloadsDirectory(fileManager: FileManager = .default) -> URL {
+    public func downloadsDirectory(fileManager: FileManager = .default) -> URL {
         if let directory = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first {
             return directory
         }
@@ -159,7 +161,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
             .appendingPathComponent("Downloads", isDirectory: true)
     }
 
-    func uniqueDownloadDestination(
+    public func uniqueDownloadDestination(
         suggestedFilename: String,
         in directory: URL,
         fileManager: FileManager = .default
@@ -288,7 +290,7 @@ struct BrowserDownloadFilenameResolver: Sendable {
 }
 
 extension URL {
-    func cmuxApplyWebDownloadQuarantine(sourceURL: URL?) throws {
+    public func cmuxApplyWebDownloadQuarantine(sourceURL: URL?) throws {
         guard let quarantineProperties = Self.cmuxWebDownloadQuarantineProperties(sourceURL: sourceURL) else {
             return
         }
@@ -299,7 +301,7 @@ extension URL {
         try fileURL.setResourceValues(resourceValues)
     }
 
-    static func cmuxWebDownloadQuarantineProperties(sourceURL: URL?) -> [String: Any]? {
+    public static func cmuxWebDownloadQuarantineProperties(sourceURL: URL?) -> [String: Any]? {
         guard let sourceURL,
               !sourceURL.isFileURL else {
             return nil

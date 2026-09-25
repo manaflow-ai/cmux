@@ -5689,6 +5689,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // background coordinator, and a shell still writing output would keep
         // the io threads (and the tee callback) running into the next test.
         for surface in trackedSurfaces.reversed() {
+            killShellProcesses(of: surface)
             surface.releaseSurfaceForTesting()
         }
         trackedSurfaces.removeAll()
@@ -6451,10 +6452,36 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
         realizeWindowLayout(window)
 
+        // AppKit keeps the last event it dequeued as NSApp.currentEvent, and
+        // that can be an appKitDefined event of another window. A drag must
+        // still scope to the window hosting its terminals.
+        let otherWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 120)
+        )
+        if let staleEvent = NSEvent.otherEvent(
+            with: .appKitDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: otherWindow.windowNumber,
+            context: nil,
+            subtype: 0,
+            data1: 0,
+            data2: 0
+        ) {
+            NSApp.postEvent(staleEvent, atStart: true)
+            _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        }
+        XCTAssertEqual(NSApp.currentEvent?.type, .appKitDefined)
+
         store.bonsplitController.noteDividerDragSession(true)
         XCTAssertTrue(
             TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
             "Dock split drags should enter the same window-scoped terminal resize transaction"
+        )
+        XCTAssertFalse(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: otherWindow),
+            "A stale non-pointer event must not scope the drag to its window"
         )
         store.bonsplitController.noteDividerDragSession(false)
         XCTAssertFalse(

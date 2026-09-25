@@ -23,7 +23,11 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        // WHY /tmp: a Unix socket path must fit sun_path (104 bytes). Under a
+        // runner's `/private/var/folders/.../T/` the temporary directory plus
+        // this UUID-named root overflows it and the harness `listen` fails.
+        let socketPath = "/tmp/cmux-oc-\(UUID().uuidString.prefix(8)).sock"
+        defer { unlink(socketPath) }
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
         let bunURL = try Self.bunExecutableURL()

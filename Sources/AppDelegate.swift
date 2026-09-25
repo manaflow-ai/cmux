@@ -5974,10 +5974,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager
     ) {
-        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true
+            || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil {
             _ = performNewWorkspaceAction(
                 tabManager: tabManager,
-                debugSource: "sidebar.emptyArea.remoteTmux"
+                debugSource: "sidebar.emptyArea.remote"
             )
         } else if addWorkspace(
             windowId: windowId,
@@ -14970,10 +14971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             openPreferencesWindow(debugSource: "shortcut.openSettings")
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .openTeamPicker) {
-            NotificationCenter.default.post(name: .cmuxTeamPickerShortcutRequested, object: self)
-            return true
-        }
+        if handleCloudTeamPickerShortcut(event) { return true }
         if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
             reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true
