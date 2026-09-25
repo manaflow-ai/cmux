@@ -55,6 +55,25 @@ on:
           - github
           - warp
           - r2
+      tag_permission_probe:
+        description: Run the scratch-tag permission probe without building or publishing a channel.
+        required: false
+        default: false
+        type: boolean
+      probe_target_sha:
+        description: Full SHA that directly changes a workflow file for the scratch-tag probe.
+        required: false
+        default: ''
+        type: string
+      probe_mode:
+        description: Credential path for the scratch-tag probe; run github-token first, then app-token.
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - github-token
+          - app-token
 
 concurrency:
   # A six-hour cache warmup must not wait behind a publishing nightly build or
@@ -79,6 +98,7 @@ env:
 
 jobs:
   decide:
+    if: github.event_name != 'workflow_dispatch' || inputs.tag_permission_probe != true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -417,6 +437,14 @@ jobs:
                 [{data: 'variants', header: true}, variants.join(', ')],
               ])
               .write();
+
+  probe-nightly-tag-permission:
+    if: github.event_name == 'workflow_dispatch' && inputs.tag_permission_probe == true
+    uses: ./.github/workflows/nightly-tag-permission-probe.yml
+    with:
+      target_sha: ${{ inputs.probe_target_sha || github.sha }}
+      mode: ${{ inputs.probe_mode || 'both' }}
+    secrets: inherit
 
   refresh-compilation-cache:
     needs: decide

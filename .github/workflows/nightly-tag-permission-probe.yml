@@ -16,6 +16,16 @@ on:
           - both
           - github-token
           - app-token
+  workflow_call:
+    inputs:
+      target_sha:
+        required: true
+        type: string
+      mode:
+        required: false
+        default: both
+        type: string
+    secrets: {}
 
 permissions:
   contents: write
