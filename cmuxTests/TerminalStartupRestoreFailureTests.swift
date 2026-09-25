@@ -260,7 +260,6 @@ struct TerminalStartupRestoreFailureTests {
             panel: restoredPanel,
             snapshot: agent,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: false,
             resumeWorkingDirectory: workingDirectory,
             ownsResumeLaunchClaim: true,

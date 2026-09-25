@@ -19,20 +19,34 @@ OTHER = "b" * 40
 SMALL = "blacksmith-6vcpu-macos-26"
 LARGE = "blacksmith-12vcpu-macos-26"
 OLD = "blacksmith-6vcpu-macos-15"
+OWNED = "glaeda-root-std-xcode-26.6"
 
 
-def run(run_id: int, revision: str = SHA, runner: str = SMALL, status: str = "in_progress") -> dict:
+def started(run_id: int) -> str:
+    """By default a run's attempt started in id order, as a first attempt does."""
+    return f"2026-09-25T17:{run_id % 60:02d}:00Z"
+
+
+def run(run_id: int, revision: str = SHA, runner: str = SMALL, status: str = "in_progress",
+        run_started_at: str | None = None) -> dict:
     title = f"cmuxTests/Suite{run_id} on {runner} @ {revision} [d{run_id}]"
-    return {"id": run_id, "status": status, "display_title": title}
+    return {"id": run_id, "status": status, "display_title": title,
+            "run_started_at": run_started_at or started(run_id)}
+
+
+THIS = run(100)
 
 
 class Fake:
     """The Actions API as a sequence of build-job states for one sibling run."""
 
-    def __init__(self, runs: list[dict], states: list[tuple], run_status: str = "in_progress"):
+    def __init__(self, runs: list[dict], states: list[tuple], run_status: str = "in_progress",
+                 restarts: dict[int, str] | None = None):
         self.runs = runs
         self.states = list(states)
         self.run_status = run_status
+        # A run re-run while this one waits: its attempt's new start.
+        self.restarts = restarts or {}
         self.sleeps = 0
         self.now = 0.0
 
@@ -46,7 +60,12 @@ class Fake:
             if steps:
                 build["steps"] = steps[0]
             return {"jobs": [build, {"name": "test", "status": "queued", "conclusion": None}]}
-        return {"status": self.run_status}
+        run_id = int(path.rsplit("/", 1)[-1])
+        listed = next((run for run in self.runs if run["id"] == run_id), None)
+        if listed is None:
+            return {"id": run_id, "status": "in_progress", "run_started_at": started(run_id)}
+        return {**listed, "status": self.run_status,
+                "run_started_at": self.restarts.get(run_id, listed["run_started_at"])}
 
     def sleep(self, seconds: float) -> None:
         self.sleeps += 1
@@ -104,13 +123,50 @@ class SiblingWaitTests(unittest.TestCase):
         # Two simultaneous dispatches: only the later one waits.
         self.assertFalse(Fake([run(110)], [("in_progress", None)]).wait(run_id="100"))
 
+    def test_a_rerun_waits_on_a_run_that_started_before_it(self) -> None:
+        # Run 36168890047's attempt 2 started at 17:44:55, after run
+        # 36168944875 (a higher id, started 17:43:51) was already on its way
+        # to compiling the same product. The id alone said not to wait.
+        rerun = run(90, run_started_at="2026-09-25T17:44:55Z")
+        other = run(95, run_started_at="2026-09-25T17:43:51Z")
+        fake = Fake([rerun, other], [("in_progress", None), ("completed", "success")])
+        self.assertTrue(fake.wait(run_id="90"))
+
+    def test_two_runs_never_wait_on_each_other(self) -> None:
+        for a, b in (
+            (run(90, run_started_at="2026-09-25T17:44:55Z"), run(95, run_started_at="2026-09-25T17:43:51Z")),
+            (run(90, run_started_at="2026-09-25T17:44:00Z"), run(95, run_started_at="2026-09-25T17:44:00Z")),
+            (run(90), run(95)),
+        ):
+            with self.subTest(a=a["run_started_at"], b=b["run_started_at"]):
+                waits = [sibling.earlier_sibling([a, b], a, SHA, SMALL), sibling.earlier_sibling([a, b], b, SHA, SMALL)]
+                self.assertEqual(sum(found is not None for found in waits), 1)
+
+    def test_the_same_start_waits_in_id_order(self) -> None:
+        same = "2026-09-25T17:44:00Z"
+        found = sibling.earlier_sibling([run(90, run_started_at=same)], run(95, run_started_at=same), SHA, SMALL)
+        self.assertEqual(found["id"], 90)
+
+    def test_a_sibling_rerun_after_this_run_started_ends_the_wait(self) -> None:
+        # Its new attempt may now wait on this run, so this run stops first.
+        fake = Fake([run(90)], [("in_progress", None)], restarts={90: "2026-09-25T18:00:00Z"})
+        self.assertFalse(fake.wait())
+        self.assertEqual(fake.sleeps, 0)
+
     def test_another_revision_or_macos_is_not_a_sibling(self) -> None:
         runs = [run(90, revision=OTHER), run(91, runner=OLD), run(92, status="completed")]
-        self.assertIsNone(sibling.earlier_sibling(runs, "100", SHA, SMALL))
+        self.assertIsNone(sibling.earlier_sibling(runs, THIS, SHA, SMALL))
 
     def test_the_other_macos_26_pool_builds_the_same_product(self) -> None:
-        found = sibling.earlier_sibling([run(95, runner=LARGE), run(90, runner=SMALL)], "100", SHA, SMALL)
+        found = sibling.earlier_sibling([run(95, runner=LARGE), run(90, runner=SMALL)], THIS, SHA, SMALL)
         self.assertEqual(found["id"], 90)
+
+    def test_an_owned_mac_waits_only_on_its_own_pool(self) -> None:
+        # The contract hashes the node, go and bun versions, which no run has
+        # yet shown to match between an owned Mac and Blacksmith, so an owned
+        # run never waits up to the budget on a product it may not adopt.
+        self.assertIsNone(sibling.earlier_sibling([run(90, runner=SMALL)], THIS, SHA, OWNED))
+        self.assertEqual(sibling.earlier_sibling([run(90, runner=OWNED)], THIS, SHA, OWNED)["id"], 90)
 
     def test_the_listing_asks_for_running_runs(self) -> None:
         # event=workflow_dispatch alone returned a stale page (run 36020090083
@@ -120,7 +176,7 @@ class SiblingWaitTests(unittest.TestCase):
 
     def test_a_title_without_a_full_revision_is_ignored(self) -> None:
         loose = {"id": 90, "status": "in_progress", "display_title": "cmuxTests/Suite on blacksmith-6vcpu-macos-26 @ main"}
-        self.assertIsNone(sibling.earlier_sibling([loose], "100", SHA, SMALL))
+        self.assertIsNone(sibling.earlier_sibling([loose], THIS, SHA, SMALL))
 
 
 class WorkflowTests(unittest.TestCase):
