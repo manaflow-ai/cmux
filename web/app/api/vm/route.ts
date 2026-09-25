@@ -146,28 +146,39 @@ export async function GET(request: Request): Promise<Response> {
       const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
         ? vmFreeAccessWindowDays()
         : 0;
-      const vms = entries.map((entry) => ({
-        id: entry.providerVmId,
-        provider: entry.provider,
-        status: entry.status,
-        image: entry.image,
-        imageVersion: entry.imageVersion,
-        kind: vmImageKindFor(entry.provider, entry.image),
-        // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
-        // the app when false; the CLI errors before calling).
-        capabilities: vmCapabilitiesFor(entry.provider),
-        createdAt: entry.createdAt,
-        displayName: entry.displayName,
-        slug: entry.slug,
-        // The machine's address on its owner's private network (reachable over
-        // the WireGuard tunnel); null for machines created before private
-        // networking. Clients surface it as "Copy IP Address".
-        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
-        // Server-authoritative expiry of the free access window for this machine
-        // (epoch ms); null on paid plans or when the window is disabled. Clients
-        // render countdowns from this instead of re-deriving the policy.
-        freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
-      }));
+      const vms = entries.map((entry) => {
+        // A paid personal plan unlocks that user's personal rows even when a
+        // different paid team is the implicit list scope. Team rows use their
+        // recorded plan; legacy rows fall back to the list-level policy.
+        const entryIsPaid = entry.ownerTeamId === user.id
+          ? isPaidVmPlan(user.userBillingPlanId ?? "")
+          : isPaidVmPlan(entry.billingPlanId ?? "");
+        const entryFreeAccessWindowDays = entry.billingPlanId === undefined
+          ? freeAccessWindowDays
+          : entryIsPaid ? 0 : vmFreeAccessWindowDays();
+        return {
+          id: entry.providerVmId,
+          provider: entry.provider,
+          status: entry.status,
+          image: entry.image,
+          imageVersion: entry.imageVersion,
+          kind: vmImageKindFor(entry.provider, entry.image),
+          // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
+          // the app when false; the CLI errors before calling).
+          capabilities: vmCapabilitiesFor(entry.provider),
+          createdAt: entry.createdAt,
+          displayName: entry.displayName,
+          slug: entry.slug,
+          // The machine's address on its owner's private network (reachable over
+          // the WireGuard tunnel); null for machines created before private
+          // networking. Clients surface it as "Copy IP Address".
+          address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
+          // Server-authoritative expiry of the free access window for this machine
+          // (epoch ms); null on paid plans or when the window is disabled. Clients
+          // render countdowns from this instead of re-deriving the policy.
+          freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, entryFreeAccessWindowDays),
+        };
+      });
       const activeVmCount = entries.filter((vm) =>
         (vm.status === "running" || vm.status === "provisioning") &&
         (!includesPersonalScope || !billingTeamId || billingTeamId === user.id || vm.ownerTeamId === billingTeamId),

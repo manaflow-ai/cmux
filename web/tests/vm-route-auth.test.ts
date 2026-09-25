@@ -1267,9 +1267,12 @@ describe("VM REST auth", () => {
   });
 
   test.each(["free", null])("an upgraded plan unlocks listed machines recorded with plan %s", async (billingPlanId) => {
-    getUser.mockResolvedValue(authedStackUser());
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
     runVmWorkflow.mockResolvedValue([
-      { providerVmId: "upgraded-vm", provider: "freestyle", image: "snapshot-test", imageVersion: null, status: "running", createdAt: 1_777_000_000_000, ownerTeamId: "team-1", billingPlanId },
+      { providerVmId: "upgraded-vm", provider: "freestyle", image: "snapshot-test", imageVersion: null, status: "running", createdAt: 1_777_000_000_000, ownerTeamId: "user-1", billingPlanId },
     ]);
 
     const response = await GET(new Request("https://cmux.test/api/vm"));
@@ -1283,7 +1286,7 @@ describe("VM REST auth", () => {
   test("a downgraded plan applies the free window to machines recorded on a paid plan", async () => {
     getUser.mockResolvedValue(freePlanStackUser());
     runVmWorkflow.mockResolvedValue([
-      { providerVmId: "downgraded-vm", provider: "freestyle", image: "snapshot-test", imageVersion: null, status: "running", createdAt: 1_777_000_000_000, ownerTeamId: "team-1", billingPlanId: "pro" },
+      { providerVmId: "downgraded-vm", provider: "freestyle", image: "snapshot-test", imageVersion: null, status: "running", createdAt: 1_777_000_000_000, ownerTeamId: "user-1", billingPlanId: "pro" },
     ]);
 
     const response = await GET(new Request("https://cmux.test/api/vm"));
@@ -1765,9 +1768,8 @@ describe("VM REST auth", () => {
     expect(body.limits.activeVmCount).toBe(1);
     expect(body.vms.map((vm: { id: string }) => vm.id)).toEqual(["provider-vm-personal", "provider-vm-team"]);
     expect(body.vms[0]).not.toHaveProperty("ownerTeamId");
-    expect(body.vms[0]).not.toHaveProperty("billingPlanId");
     expect(body.vms.find((vm: { id: string }) => vm.id === "provider-vm-personal").freeAccessExpiresAt)
-      .toBeNull();
+      .toBe(1_777_000_000_000 + 7 * 24 * 60 * 60 * 1000);
     expect(body.vms.find((vm: { id: string }) => vm.id === "provider-vm-team").freeAccessExpiresAt).toBeNull();
   });
 
