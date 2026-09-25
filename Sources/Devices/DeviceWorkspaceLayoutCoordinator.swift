@@ -451,11 +451,11 @@ final class DeviceWorkspaceLayoutCoordinator {
                 let present = Set(target.projections.map(\.resource))
                 let locations = DeviceWorkspaceProjection(machine: machine, isLive: true)
                     .layoutLocations(snapshot.layout)
-                var localPanesByRemotePane: [String: PaneID] = [:]
+                var localPanesByRemotePane: [String: UUID] = [:]
                 for (panelID, remoteSurfaceID) in target.mapping {
                     guard let location = locations[remoteSurfaceID],
                           let pane = native.paneId(forPanelId: panelID) else { continue }
-                    localPanesByRemotePane[location.paneID] = pane
+                    localPanesByRemotePane[location.paneID] = pane.id
                 }
                 let pendingReservation = native.pendingCloudTerminalReservation(
                     machine: machine, remoteWorkspaceID: target.remoteID
@@ -468,10 +468,10 @@ final class DeviceWorkspaceLayoutCoordinator {
                     let location = locations[resourceID.key]
                     let pane = location.flatMap { localPanesByRemotePane[$0.paneID] } ?? pendingPane
                     let destination: SurfaceDestination = pane.map {
-                        .tab(workspaceID: id, paneID: $0.id.uuidString, index: location?.tabIndex)
+                        .tab(workspaceID: id, paneID: $0.uuidString, index: location?.tabIndex)
                     } ?? .workspace(id: id, placement: .tab)
                     let adopting = pendingReservation?.resourceID == resourceID
-                        && pendingReservation?.remoteTabID == view.tabID
+                        && pendingReservation?.remoteTabID == view?.tabID
                         ? pendingReservation : nil
                     _ = try await catalog.project(resourceID, into: destination,
                         focus: false, reuseExisting: true, reuseInWorkspace: id,
