@@ -146,6 +146,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     private let storePages = NSHashTable<WKWebView>.weakObjects()
     private var question: Task<Bool, Never>?
     private var popover: NSPopover?
+    private var popoverExtensionID: String?
     private var stateObservation: AnyCancellable?
     private var errorObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
     /// Extensions with a runtime permission prompt showing or queued.
@@ -170,8 +171,13 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     // MARK: - Profiles
 
+    /// Private (non-persistent) stores map to a key no controller uses, so a
+    /// private tab can never install into, or act as, the default profile.
+    static let privateProfileKey = "private"
+
     static func profileKey(for store: WKWebsiteDataStore) -> String {
-        store.identifier?.uuidString ?? defaultProfileKey
+        guard store.isPersistent else { return privateProfileKey }
+        return store.identifier?.uuidString ?? defaultProfileKey
     }
 
     /// Installations in `panel`'s profile.
@@ -327,6 +333,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         BrowserExtensionPopoverDelegate.shared.action = action
         popover.show(relativeTo: anchorRect, of: anchor, preferredEdge: .maxY)
         self.popover = popover
+        popoverExtensionID = extensionID
     }
 
     // MARK: - Installing
@@ -338,7 +345,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
             lastError = String(localized: "browser.extensions.error.urlAllowlist", defaultValue: "Extensions are off while the browser URL allowlist is on.")
             return
         }
-        guard let id = ChromeExtensionPackage.extensionID(in: text) else {
+        guard let id = ChromeWebStorePage.extensionID(fromUserInput: text) else {
             lastError = Self.describe(ChromeExtensionPackage.Failure.notAnExtensionID)
             return
         }
@@ -565,7 +572,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     /// Opens `cmux://extensions` in a new tab beside `panel`.
     func openManagerPage(from panel: BrowserPanel) {
-        panel.openLinkInNewTab(url: ChromeExtensionsManagerPage.url)
+        panel.openLinkInNewTab(request: URLRequest(url: ChromeExtensionsManagerPage.url), allowInternalPage: true)
     }
 
     func openStore(from panel: BrowserPanel) {
@@ -579,7 +586,10 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// that allowlist cannot constrain, so extensions do not run while it is
     /// active (managed by an organization or set by the user).
     static var isBlockedByURLAllowlist: Bool {
-        BrowserURLAllowlistPolicy(defaults: .standard).isActive
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        // Also off when an administrator blocks localhost (extensions could
+        // reach it from their own pages) or disables the embedded browser.
+        return policy.isActive || !policy.allowsLocalhost || !BrowserAvailabilitySettings.isEnabled()
     }
 
     /// Called whenever the effective URL allowlist changes: unloads every
@@ -587,6 +597,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// turns off.
     func applyURLAllowlistPolicy() {
         if Self.isBlockedByURLAllowlist {
+            closePopup()
             for controller in controllers.values {
                 for id in Array(controller.contexts.keys) { controller.unload(id: id) }
             }
@@ -682,6 +693,14 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 self.load(id: id, in: controller)
             }
         }
+    }
+
+    /// Closes the open action popup, if any, tearing its web view down.
+    fileprivate func closePopup(ofExtensionID id: String? = nil) {
+        guard let popover, id == nil || popoverExtensionID == id else { return }
+        popover.close()
+        self.popover = nil
+        popoverExtensionID = nil
     }
 
     fileprivate func stopObservingErrors(of context: WKWebExtensionContext) {
@@ -1041,6 +1060,7 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
 
     func unload(id: String) {
         guard let context = contexts.removeValue(forKey: id) else { return }
+        owner.closePopup(ofExtensionID: id)
         owner.stopObservingErrors(of: context)
         try? controller.unload(context)
         owner.objectWillChange.send()
@@ -1220,6 +1240,7 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     private func showsPageAccessible(to context: WKWebExtensionContext) -> Bool {
         guard let url = panel?.webView.url ?? panel?.currentURL else { return true }
         return ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier)
+            && !ChromeWebStorePage.isStorePage(url)
     }
 
     /// Whether this adapter still represents its panel in this controller.
@@ -1236,7 +1257,9 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     }
     /// Titles and URLs of protected pages are withheld, like their content.
     func title(for context: WKWebExtensionContext) -> String? {
-        showsPageAccessible(to: context) ? livePanel?.pageTitle : nil
+        // The current document's own title, not the tab's cached one, which
+        // can still hold a protected page's title after navigation.
+        showsPageAccessible(to: context) ? livePanel?.webView.title : nil
     }
     func url(for context: WKWebExtensionContext) -> URL? {
         guard showsPageAccessible(to: context), let panel = livePanel else { return nil }

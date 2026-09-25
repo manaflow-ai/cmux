@@ -45,13 +45,25 @@ public enum ChromeWebStorePage {
     /// and the extension the app installs cannot disagree.
     public static func extensionID(onStorePage url: URL) -> String? {
         guard isStorePage(url) else { return nil }
-        let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        // The encoded path, split as the page script splits
+        // `location.pathname`: an encoded `%2F` never creates a segment.
+        let components = url.path(percentEncoded: true).split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard let detail = components.firstIndex(of: "detail") else { return nil }
         let first = components.indices.contains(detail + 1) ? components[detail + 1] : nil
         let second = components.indices.contains(detail + 2) ? components[detail + 2] : nil
         if let second, ChromeExtensionPackage.isExtensionID(second) { return second }
         if let first, ChromeExtensionPackage.isExtensionID(first) { return first }
         return nil
+    }
+
+    /// The extension id in text a person typed or pasted: an exact id, or a
+    /// Chrome Web Store link read by route position. Any other text, even one
+    /// containing an id-shaped substring, is refused.
+    public static func extensionID(fromUserInput text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ChromeExtensionPackage.isExtensionID(trimmed.lowercased()) { return trimmed.lowercased() }
+        guard let url = URL(string: trimmed) else { return nil }
+        return extensionID(onStorePage: url)
     }
 
     /// Localized labels for the injected button.

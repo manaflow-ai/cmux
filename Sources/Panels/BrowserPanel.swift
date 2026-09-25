@@ -6334,7 +6334,14 @@ extension BrowserPanel {
     }
 
     /// Opens a request in a sibling browser tab without dropping request metadata.
-    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
+    ///
+    /// Web content reaches this through link clicks and `window.open`, so it
+    /// never opens `cmux://extensions`; cmux's own UI passes
+    /// `allowInternalPage` for that.
+    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil, allowInternalPage: Bool = false) {
+        if let url = request.url, ChromeExtensionsManagerPage.isManagerPageURL(url), !allowInternalPage {
+            return
+        }
         guard let seed = browserNewTabNavigationSeed(
             from: request,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce

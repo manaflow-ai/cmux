@@ -178,12 +178,16 @@ public enum ChromeExtensionPackage {
               letters(crxID) == id
         else { throw Failure.signatureInvalid }
 
-        var message = Data("CRX3 SignedData".utf8)
-        message.append(0)
+        // SHA-256 of the signed message, hashed in place: the message is the
+        // prefix, the signed header, and the payload, and is never copied.
+        var hasher = SHA256()
+        hasher.update(data: Data("CRX3 SignedData".utf8))
+        hasher.update(data: Data([0]))
         var length = UInt32(signedHeader.count).littleEndian
-        withUnsafeBytes(of: &length) { message.append(contentsOf: $0) }
-        message.append(contentsOf: signedHeader)
-        message.append(zip)
+        withUnsafeBytes(of: &length) { hasher.update(bufferPointer: $0) }
+        hasher.update(data: Data(signedHeader))
+        hasher.update(data: zip)
+        let digest = hasher.finalize()
 
         // The developer proof is the RSA proof whose key hashes to the id.
         // The Web Store adds its own proof too; it is not the one that binds
@@ -195,7 +199,7 @@ public enum ChromeExtensionPackage {
                   key.count <= maximumProofBytes, signature.count <= maximumProofBytes,
                   letters(Array(SHA256.hash(data: Data(key)).prefix(16))) == id
             else { return false }
-            return verifyRSA(subjectPublicKeyInfo: Data(key), signature: Data(signature), message: message)
+            return verifyRSA(subjectPublicKeyInfo: Data(key), signature: Data(signature), digest: digest)
         }
         guard developerSigned else { throw Failure.signatureInvalid }
 
@@ -210,10 +214,11 @@ public enum ChromeExtensionPackage {
                   key.count <= maximumProofBytes, signature.count <= maximumProofBytes,
                   Array(SHA256.hash(data: Data(key))) == webStorePublisherKeyHash
             else { return false }
-            return verifyP256(subjectPublicKeyInfo: Data(key), derSignature: Data(signature), message: message)
+            return verifyP256(subjectPublicKeyInfo: Data(key), derSignature: Data(signature), digest: digest)
         }
         guard publisherSigned else { throw Failure.publisherSignatureMissing }
-        return Data(zip)
+        // A slice shares the download's storage instead of copying the payload.
+        return zip
     }
 
     /// Unpacks `zip` into `destination`, replacing it.
@@ -422,14 +427,14 @@ public enum ChromeExtensionPackage {
         return fields
     }
 
-    private static func verifyP256(subjectPublicKeyInfo: Data, derSignature: Data, message: Data) -> Bool {
+    private static func verifyP256(subjectPublicKeyInfo: Data, derSignature: Data, digest: SHA256.Digest) -> Bool {
         guard let key = try? P256.Signing.PublicKey(derRepresentation: subjectPublicKeyInfo),
               let signature = try? P256.Signing.ECDSASignature(derRepresentation: derSignature)
         else { return false }
-        return key.isValidSignature(signature, for: message)
+        return key.isValidSignature(signature, for: digest)
     }
 
-    private static func verifyRSA(subjectPublicKeyInfo: Data, signature: Data, message: Data) -> Bool {
+    private static func verifyRSA(subjectPublicKeyInfo: Data, signature: Data, digest: SHA256.Digest) -> Bool {
         var format = SecExternalFormat.formatOpenSSL
         var itemType = SecExternalItemType.itemTypePublicKey
         var items: CFArray?
@@ -441,8 +446,8 @@ public enum ChromeExtensionPackage {
         let key = imported as! SecKey
         return SecKeyVerifySignature(
             key,
-            .rsaSignatureMessagePKCS1v15SHA256,
-            message as CFData,
+            .rsaSignatureDigestPKCS1v15SHA256,
+            Data(digest) as CFData,
             signature as CFData,
             nil
         )

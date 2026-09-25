@@ -47,3 +47,21 @@ import Testing
         #expect(script.contains(#""installed":["bcjindcccaagfpapjjmafapmmgkkhgoa"]"#))
     }
 }
+
+@Suite struct ChromeWebStoreUserInputTests {
+    @Test func acceptsExactIDsAndStoreLinksOnly() {
+        #expect(ChromeWebStorePage.extensionID(fromUserInput: "  BCJINDCCCAAGFPAPJJMAFAPMMGKKHGOA \n") == "bcjindcccaagfpapjjmafapmmgkkhgoa")
+        #expect(ChromeWebStorePage.extensionID(fromUserInput: "https://chromewebstore.google.com/detail/bcjindcccaagfpapjjmafapmmgkkhgoa/nngceckbapebfimnlniiiahkandclblb") == "nngceckbapebfimnlniiiahkandclblb")
+        #expect(ChromeWebStorePage.extensionID(fromUserInput: "see bcjindcccaagfpapjjmafapmmgkkhgoa please") == nil)
+        #expect(ChromeWebStorePage.extensionID(fromUserInput: "https://example.com/detail/bcjindcccaagfpapjjmafapmmgkkhgoa") == nil)
+    }
+
+    /// `%2F` must not split a segment, matching the page script's
+    /// `location.pathname`.
+    @Test func encodedSlashDoesNotCreateARouteSegment() throws {
+        let url = try #require(URL(string: "https://chromewebstore.google.com/detail/x%2Fbcjindcccaagfpapjjmafapmmgkkhgoa/nngceckbapebfimnlniiiahkandclblb"))
+        #expect(ChromeWebStorePage.extensionID(onStorePage: url) == "nngceckbapebfimnlniiiahkandclblb")
+        let onlyEncoded = try #require(URL(string: "https://chromewebstore.google.com/detail/x%2Fbcjindcccaagfpapjjmafapmmgkkhgoa"))
+        #expect(ChromeWebStorePage.extensionID(onStorePage: onlyEncoded) == nil)
+    }
+}
