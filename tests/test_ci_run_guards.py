@@ -12,6 +12,7 @@ waiting on the child's copy of the output pipe.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -148,23 +149,38 @@ class StepsFinish(unittest.TestCase):
 
 
 class PortableSubstitutes(unittest.TestCase):
-    def test_the_ci_guard_payload_runs_without_the_profile_runner(self) -> None:
-        # The substitute must run ci-guard.sh's commands, not skip them: it
-        # carries the self-hosted runner policy, which a macOS run would
-        # otherwise never see. Point it at a stub payload to prove it runs.
+    PAYLOAD = ROOT / "scripts/ci/run_ci_guard_payload.sh"
+
+    def run_payload(self, text: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temp:
-            workloads = Path(temp) / "scripts/ci/workloads"
-            workloads.mkdir(parents=True)
-            (workloads / "ci-guard.sh").write_text(
-                'root="$(nope)"\nstage() { exit 9; }\ncd "$root"\nstage start test\necho ran-in-$(basename "$root")\nexit 4\n'
-            )
-            step = run_ci_guards.Step(
-                name="x", run=run_ci_guards.PORTABLE_SUBSTITUTES["Run canonical CMUX CI guard profile"],
-                env={}, working_directory=None,
-            )
-            code, output = run_ci_guards.run_step(step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log")
-        self.assertEqual(code, 4, output)
-        self.assertIn("ran-in-" + Path(temp).name, output)
+            payload = Path(temp) / "ci-guard.sh"
+            payload.write_text(text)
+            return subprocess.run(["bash", str(self.PAYLOAD), str(payload)], cwd=temp,
+                                  capture_output=True, text=True, timeout=60)
+
+    def test_the_substitute_runs_the_real_payload(self) -> None:
+        self.assertEqual(
+            run_ci_guards.PORTABLE_SUBSTITUTES["Run canonical CMUX CI guard profile"],
+            "scripts/ci/run_ci_guard_payload.sh",
+        )
+        # Every line of the real ci-guard.sh is one the substitute recognizes.
+        text = (ROOT / "scripts/ci/workloads/ci-guard.sh").read_text(encoding="utf-8")
+        stubbed = re.sub(r"(?m)^(\./|python3 )(?!\"\$root).*$", "bash -c true", text)
+        result = self.run_payload(stubbed)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_every_command_runs_and_a_failure_is_reported(self) -> None:
+        result = self.run_payload('set -euo pipefail\nstage start test\n./a.sh\nbash -c "exit 0"\npython3 -c "import sys; print(7); sys.exit(3)"\n')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL: ./a.sh", result.stdout)
+        self.assertIn("FAIL: python3 -c", result.stdout)
+        self.assertIn("7", result.stdout)
+        self.assertNotIn('FAIL: bash -c "exit 0"', result.stdout)
+
+    def test_an_unrecognized_line_fails_instead_of_being_skipped(self) -> None:
+        result = self.run_payload("./a.sh\nswift test\n")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unrecognized line", result.stderr)
 
 
 class FastWorkflowReportsOnEveryPullRequest(unittest.TestCase):

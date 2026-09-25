@@ -69,13 +69,9 @@ LINUX_ONLY_STEPS = {
 }
 # Linux-only wrappers whose payload is portable: off Linux, run the payload.
 # The workload profile runner refuses macOS, but ci-guard.sh's commands (the
-# self-hosted runner policy among them) run anywhere; only its `stage` timing
-# markers need the runner.
+# self-hosted runner policy among them) run anywhere.
 PORTABLE_SUBSTITUTES = {
-    "Run canonical CMUX CI guard profile": (
-        "bash -c \"$(sed -e '/^stage /d' -e 's|^root=.*|root=\\\"$PWD\\\"|' "
-        "scripts/ci/workloads/ci-guard.sh)\""
-    ),
+    "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
