@@ -75,6 +75,16 @@ cancelled it) is not re-run, since that would cancel the newer one. Its
 watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a
 sibling wait and a build.
 
+Main's full-suite dispatch of ci.yml (ci-main-full-suite.yml, a
+workflow_dispatch on main) is watched exactly like a pull request run:
+pr_runner_pool.py may put it on an owned pool when the whole run fits with
+CI_OWNED_MAIN_RESERVE machines left free, and its `changes` job uploads the
+same marker. It has no pull request, so in place of the pull request head it
+checks main's HEAD: once main has moved past the run's commit, a stuck run is
+cancelled but not re-run, because its completion makes
+ci-main-full-suite.yml dispatch the newer HEAD, and a re-run would only queue
+the older commit behind it in main's CI concurrency group.
+
 Dispatches of test-ios.yml and ios-screenshots.yml are watched exactly like an
 E2E run (DISPATCH_WORKFLOW_PATHS). Their `runner` job runs ios_runner_pool.py,
 which may put the iOS jobs on an owned pool with the glaeda-ios-sim capability
@@ -103,7 +113,8 @@ were met can never count as already past the budget.
 It stops watching, doing nothing, when:
 - owned pools are off (CI_PR_POOL_OWNED is not 1), before any API request;
 - the run is not attempt 1 of a same-repository pull request run of ci.yml
-  or a side-lane workflow;
+  or a side-lane workflow, of main's full-suite dispatch of ci.yml, or of a
+  dispatch in DISPATCH_WORKFLOW_PATHS;
 - a side-lane run finished with no job on an owned label, or the fleet
   accepted all of its owned jobs;
 - on the attempt 2 it re-ran from failed jobs, no job runs on an owned label;
@@ -227,6 +238,8 @@ LAST_OWNED_ATTEMPT = 2
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 MAX_JOB_PAGES = 3
+# Main's full-suite dispatch (ci-main-full-suite.yml) runs ci.yml on this branch.
+MAIN_BRANCH = "main"
 API = "https://api.github.com"
 
 
@@ -387,6 +400,9 @@ class GitHub:
     def pull(self, number: int) -> Mapping[str, Any]:
         return self.request("GET", f"/pulls/{number}")
 
+    def branch_head(self, branch: str) -> str:
+        return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
+
     def cancel(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/cancel")
 
@@ -412,6 +428,7 @@ class Target:
     # so it is watched the attempt-1 way (picker, then marker).
     full_rerun: bool = False
     side: bool = False  # a side-lane workflow (SIDE_WORKFLOW_PATHS): no picker job
+    main: bool = False  # main's full-suite dispatch of ci.yml: no pull request, main's HEAD instead
 
     @property
     def picker_job(self) -> str:
@@ -433,9 +450,12 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, a side-lane workflow "
                 f"or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
     e2e = path in DISPATCH_WORKFLOW_PATHS
+    on_main = (path == CI_WORKFLOW_PATH and run.get("event") == "workflow_dispatch"
+            and run.get("head_branch") == MAIN_BRANCH)
     expected = "workflow_dispatch" if e2e else "pull_request"
-    if run.get("event") != expected:
-        return f"a {run.get('event') or 'unknown'} run of {path}, not a {expected}"
+    if run.get("event") != expected and not on_main:
+        what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
+        return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
     if head.casefold() != repository.casefold():
         return "a fork head; forks never take a persistent pool"
@@ -444,6 +464,8 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True, path=str(path))
+    if on_main:
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True)
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
@@ -570,9 +592,15 @@ def next_attempt(target: Target) -> str:
 
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
-    """Why the pull request no longer wants this run, or "" when it still does."""
+    """Why the pull request (or main) no longer wants this run, or "" when it still does."""
     if target.e2e:
         return ""  # a dispatch has no head to move; a newer one cancels it by concurrency
+    if target.main:
+        head = read(lambda: api.branch_head(MAIN_BRANCH), sleep, log)
+        if head != target.head_sha:
+            return (f"{MAIN_BRANCH} has moved on, and ci-main-full-suite.yml dispatches its new HEAD "
+                    "once this run completes")
+        return ""
     pull = read(lambda: api.pull(target.pr_number), sleep, log)
     if pull.get("state") != "open":
         return "the pull request is closed"
@@ -692,7 +720,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if isinstance(target, str):
         return finish(f"not watched: {target}")
     subject = ("an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
-        if target.e2e else f"pull request #{target.pr_number}"
+        if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
+        else f"pull request #{target.pr_number}"
     if target.side:
         subject += " (side lane)"
     # Only ci.yml's picker queues on purpose, and says so with a marker (see the docstring).

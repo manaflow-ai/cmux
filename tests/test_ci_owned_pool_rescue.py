@@ -106,6 +106,10 @@ class FakeAPI:
         self.calls.append("pull")
         return {"state": self.state, "head": {"sha": self.head}}
 
+    def branch_head(self, branch):
+        self.calls.append(f"branch:{branch}")
+        return self.head
+
     def cancel(self, run_id):
         self.calls.append("cancel")
         self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
@@ -909,6 +913,72 @@ class IOSDispatch(unittest.TestCase):
         self.assertIn(f"queued on {MINI}", summary)
 
 
+def main_event(**overrides):
+    return event(**{"event": "workflow_dispatch", "head_branch": "main", "pull_requests": [], **overrides})
+
+
+class MainDispatch(unittest.TestCase):
+    """Main's full-suite dispatch of ci.yml is watched like a pull request run, against main's HEAD."""
+
+    def test_only_attempt_1_of_a_same_repository_dispatch_on_main(self):
+        cases = {
+            "another branch": main_event(head_branch="topic"),
+            "fork head": main_event(head_repository={"full_name": "someone/cmux"}),
+            "attempt 2": main_event(run_attempt=2),
+            "another workflow": main_event(path=".github/workflows/nightly.yml"),
+        }
+        for why, payload in cases.items():
+            self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+        target = rescue.target_from_event(main_event(), "manaflow-ai/cmux")
+        self.assertEqual((target.run_id, target.pr_number, target.main, target.e2e, target.picker_job),
+                         (RUN_ID, 0, True, False, "changes"))
+        self.assertEqual(target.watch_limit, rescue.WATCH_LIMIT_SECONDS)
+
+    def test_an_ephemeral_main_run_stops_after_the_marker_check(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [changes()(seconds)])
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
+        self.assertIn("main's full-suite dispatch", summary)
+
+    def test_a_stuck_main_run_is_cancelled_and_rerun_on_blacksmith(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("pull", api.calls)
+        self.assertIn("branch:main", api.calls)
+        self.assertEqual(api.calls[-1], "rerun")
+        self.assertIn("cancel", api.calls)
+
+    def test_a_stuck_main_run_is_left_to_the_dispatcher_once_main_moves(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40)
+        _, summary = run_main(api, clock, payload=main_event())
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("main has moved on", summary)
+        # Main moving during the cancel: cancelled, and its completion dispatches the new HEAD.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        heads = iter([HEAD, "b" * 40])
+        api.branch_head = lambda branch: next(heads)
+        _, summary = run_main(api, clock, payload=main_event())
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("cancelled but not re-run", summary)
+
+    def test_a_refused_main_job_reruns_the_failed_jobs(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("pull", api.calls)
+        self.assertIn("refused", summary)
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
@@ -988,7 +1058,9 @@ class Workflow(unittest.TestCase):
         screenshots = yaml.safe_load((ROOT / ".github/workflows/ios-screenshots.yml").read_text(encoding="utf-8"))
         self.assertNotIn("owned-pool-watch", screenshots["jobs"])
         ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository",
+        self.assertIn("(github.event_name == 'pull_request' && "
+                      "github.event.pull_request.head.repo.full_name == github.repository || "
+                      "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
                       ci["owned-pool-watch"]["if"])
         self.assertNotIn("owned-pool-watch", ci["ci-status"]["needs"])
 
