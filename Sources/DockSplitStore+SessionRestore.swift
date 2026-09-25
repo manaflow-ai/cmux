@@ -288,7 +288,9 @@ extension DockSplitStore {
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex?.isComplete(
-            forPanelId: snapshot.id, kind: restorableAgent?.kind.rawValue ?? resumeBinding?.kind
+            forPanelId: snapshot.id,
+            kind: restorableAgent?.kind.rawValue ?? resumeBinding?.kind,
+            stableSurfaceId: snapshot.stableSurfaceId
         ) != true
         let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
         let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
@@ -305,24 +307,31 @@ extension DockSplitStore {
         let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
             workspaceId: workspaceId,
             panelId: snapshot.id,
+            stableSurfaceId: snapshot.stableSurfaceId,
             revalidateProcessEvidence: false
         ) == true
         let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
             workspaceId: workspaceId,
             panelId: snapshot.id,
+            stableSurfaceId: snapshot.stableSurfaceId,
             expectedKind: expectedAgentKind,
             expectedSessionId: expectedSessionId,
             revalidateProcessEvidence: false
         ) == true
         let stablePanelHasUncertainProcess = restoreAgentIndex?.hasUncertainStablePanelEntry(
             panelId: snapshot.id,
+            stableSurfaceId: snapshot.stableSurfaceId,
             revalidateProcessEvidence: false
         ) == true
         let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
             stablePanelHasConflictingLiveProcess ||
-            restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true ||
+            restoreAgentIndex?.hasAmbiguousPanel(
+                snapshot.id,
+                stableSurfaceId: snapshot.stableSurfaceId
+            ) == true ||
             (restoreAgentIndex?.hasCurrentAmbiguousPanel(
                 snapshot.id,
+                stableSurfaceId: snapshot.stableSurfaceId,
                 revalidateProcessEvidence: false
             ) == true)
         )
@@ -479,6 +488,7 @@ extension DockSplitStore {
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
+            stableSurfaceId: snapshot.stableSurfaceId,
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,

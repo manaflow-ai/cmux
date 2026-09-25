@@ -34,7 +34,7 @@ struct AgentHookDeliveryEvent: Sendable {
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
         "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
-        "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
+        "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_STABLE_SURFACE_ID",
     ]
 
     private static let optionalLaunchEnvironmentKeys: Set<String> = [

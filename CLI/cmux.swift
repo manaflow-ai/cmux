@@ -104,6 +104,9 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 struct ClaudeHookSessionRecord: Codable {
+    /// Restart-stable panel identity carried by the managed terminal environment.
+    /// The runtime surface UUID is re-minted when a session is restored.
+    var stableSurfaceId: String? = nil
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
     struct PendingCursorShellApproval: Codable, Equatable {
@@ -374,6 +377,7 @@ final class ClaudeHookSessionStore {
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
+    private let stableSurfaceId: String?
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -394,6 +398,11 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.stableSurfaceId = processEnv["CMUX_STABLE_SURFACE_ID"]
+            .flatMap { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return UUID(uuidString: trimmed)?.uuidString
+            }
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -1958,6 +1967,9 @@ final class ClaudeHookSessionStore {
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
+        if let stableSurfaceId {
+            record.stableSurfaceId = stableSurfaceId
+        }
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
         }

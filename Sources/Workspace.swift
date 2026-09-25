@@ -112,6 +112,7 @@ extension Workspace {
                     restorableAgentObservation: restorableAgentIndex?.entryForStablePanel(
                         workspaceId: id,
                         panelId: panelId,
+                        stableSurfaceId: panels[panelId]?.stableSurfaceId,
                         processIdentityProvider: currentAgentProcessIdentity,
                         processPresenceProvider: agentProcessPresence,
                         // Snapshot projection already consumes one index result;

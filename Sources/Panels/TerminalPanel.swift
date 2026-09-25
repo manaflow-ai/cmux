@@ -19,7 +19,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let stableSurfaceIdentity: PanelStableSurfaceIdentity
     let panelType: PanelType = .terminal
 
     /// The underlying terminal surface
@@ -155,6 +155,9 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        let persistedStableSurfaceId = surface.startupEnvironmentValue("CMUX_STABLE_SURFACE_ID")
+            .flatMap(UUID.init(uuidString:))
+        self.stableSurfaceIdentity = PanelStableSurfaceIdentity(id: persistedStableSurfaceId ?? UUID())
         self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
         // Subscribe to surface's search state changes
         surface.$searchState
@@ -179,9 +182,15 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
+        stableSurfaceId: UUID? = nil,
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
+        let stableSurfaceId = stableSurfaceId ?? UUID()
+        var managedInitialEnvironmentOverrides = initialEnvironmentOverrides
+        managedInitialEnvironmentOverrides["CMUX_STABLE_SURFACE_ID"] = stableSurfaceId.uuidString
+        var managedAdditionalEnvironment = additionalEnvironment
+        managedAdditionalEnvironment["CMUX_STABLE_SURFACE_ID"] = stableSurfaceId.uuidString
         let surface = TerminalSurface(
             id: id,
             tabId: workspaceId,
@@ -192,12 +201,13 @@ final class TerminalPanel: Panel, ObservableObject {
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
+            initialEnvironmentOverrides: managedInitialEnvironmentOverrides,
+            additionalEnvironment: managedAdditionalEnvironment,
             focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
-            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
+            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: managedAdditionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
+        self.adoptStableSurfaceId(stableSurfaceId)
         if Self.startsAtOwnedPrompt(
             configTemplate: configTemplate,
             initialCommand: initialCommand,

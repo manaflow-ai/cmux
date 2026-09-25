@@ -884,6 +884,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
     struct Entry: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
+        let stableSurfaceId: UUID?
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
@@ -905,6 +906,7 @@ struct RestorableAgentSessionIndex: Sendable {
         /// have persisted PID evidence can opt in explicitly.
         init(
             snapshot: SessionRestorableAgentSnapshot,
+            stableSurfaceId: UUID? = nil,
             lifecycle: AgentHibernationLifecycleState?,
             updatedAt: TimeInterval,
             processLiveness: RestorableAgentProcessLiveness,
@@ -919,6 +921,7 @@ struct RestorableAgentSessionIndex: Sendable {
             containsUnrelatedProcess: Bool
         ) {
             self.snapshot = snapshot
+            self.stableSurfaceId = stableSurfaceId
             self.lifecycle = lifecycle
             self.updatedAt = updatedAt
             self.processLiveness = processLiveness
@@ -1006,6 +1009,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// per-panel marker. Such panels are incomplete unless explicitly verified.
     private let hasUnboundedCodexIncompleteness: Bool
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
+    private let candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
     private let equalRankAmbiguousPanelIds: Set<UUID>
@@ -1038,7 +1042,10 @@ struct RestorableAgentSessionIndex: Sendable {
         return entriesByPanelId[panelId]
     }
 
-    func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
+    func hasAmbiguousPanel(_ panelId: UUID, stableSurfaceId: UUID? = nil) -> Bool {
+        if let stableSurfaceId, let candidates = candidatesByStableSurfaceId[stableSurfaceId] {
+            return candidates.count > 1
+        }
         ambiguousPanelIds.contains(panelId)
     }
 
@@ -1069,7 +1076,11 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Deferred restore admission has the stable panel UUID but may not have
     /// the pre-restart workspace UUID, so this form intentionally ignores the
     /// workspace component.
-    func isComplete(forPanelId panelId: UUID, kind: String? = nil) -> Bool {
+    func isComplete(
+        forPanelId panelId: UUID,
+        kind: String? = nil,
+        stableSurfaceId: UUID? = nil
+    ) -> Bool {
         guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
@@ -1125,6 +1136,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// panel blocked.
     func hasCurrentAmbiguousPanel(
         _ panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1137,10 +1149,13 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> Bool {
         // A truncated owner history is structurally incomplete; current PID
         // probes cannot make the omitted records safe to ignore.
-        if boundedAmbiguousPanelIds.contains(panelId) {
+        if stableSurfaceId == nil && boundedAmbiguousPanelIds.contains(panelId) {
             return true
         }
-        let evidence = (candidatesByPanelId[panelId] ?? []).map { _, entry in
+        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
+            ?? candidatesByPanelId[panelId]
+            ?? []
+        let evidence = candidates.map { _, entry in
             revalidateProcessEvidence
                 ? Self.currentProcessEvidence(
                     for: entry,
@@ -1155,6 +1170,7 @@ struct RestorableAgentSessionIndex: Sendable {
     func hasConflictingLiveStablePanelEntry(
         workspaceId: UUID,
         panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         expectedKind: String?,
         expectedSessionId: String?,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
@@ -1167,7 +1183,10 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Bool {
-        let liveEntries = (candidatesByPanelId[panelId] ?? []).compactMap { _, entry -> Entry? in
+        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
+            ?? candidatesByPanelId[panelId]
+            ?? []
+        let liveEntries = candidates.compactMap { _, entry -> Entry? in
             let isLive = revalidateProcessEvidence
                 ? Self.entryHasCurrentLiveProcess(
                     entry,
@@ -1198,6 +1217,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Restore must not launch while a recorded owner cannot be revalidated.
     func hasUncertainStablePanelEntry(
         panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1208,7 +1228,10 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Bool {
-        (candidatesByPanelId[panelId] ?? []).contains { _, entry in
+        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
+            ?? candidatesByPanelId[panelId]
+            ?? []
+        return candidates.contains { _, entry in
             let evidence = revalidateProcessEvidence
                 ? Self.currentProcessEvidence(
                     for: entry,
@@ -1223,6 +1246,7 @@ struct RestorableAgentSessionIndex: Sendable {
     func hasCurrentLiveProcessForStablePanel(
         workspaceId: UUID,
         panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         expectedKind: String? = nil,
         expectedSessionId: String? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
@@ -1238,6 +1262,7 @@ struct RestorableAgentSessionIndex: Sendable {
         guard let entry = entryForStablePanel(
             workspaceId: workspaceId,
             panelId: panelId,
+            stableSurfaceId: stableSurfaceId,
             processIdentityProvider: processIdentityProvider,
             processPresenceProvider: processPresenceProvider,
             revalidateProcessEvidence: revalidateProcessEvidence
@@ -1308,6 +1333,7 @@ struct RestorableAgentSessionIndex: Sendable {
     func entryForStablePanel(
         workspaceId: UUID,
         panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1318,9 +1344,11 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Entry? {
-        let candidates = candidatesByPanelId[panelId] ?? []
+        let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
+            ?? candidatesByPanelId[panelId]
+            ?? []
         guard !candidates.isEmpty else { return nil }
-        guard !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
+        guard stableSurfaceId != nil || !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
 
         let candidatesWithEvidence = candidates.map { key, entry in
             (
@@ -2059,6 +2087,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }()
                 let entry = Entry(
                     snapshot: snapshot,
+                    stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processLiveness: processObservation.liveness,
@@ -3523,6 +3552,7 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
         self.candidatesByPanelId = candidatesByPanelId
+        self.candidatesByStableSurfaceId = [:]
         self.entriesByPanelId = entriesByPanelId
         self.ambiguousPanelIds = ambiguousPanelIds
         self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds
