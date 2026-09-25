@@ -101,8 +101,8 @@ substitute a raw `.app` path or a `file://` URL.
 For standalone contributors without the team controller, the local workflow is
 `./scripts/reload.sh --tag <branch-slug>` (build without launch) or the same
 command with `--launch`. In a checkout not created through
-cmuxterm-hq, set `CMUX_DEV_BACKEND_MODE=local` (or pass `--prod-auth`); the
-default shared dev backend refuses otherwise. This is not a queue-bypass fallback for team agents.
+cmuxterm-hq, set `CMUX_DEV_BACKEND_MODE=local`; the default shared dev backend
+refuses otherwise. This is not a queue-bypass fallback for team agents.
 Other local variants remain `reloadp.sh` (Release), `reloads.sh` (isolated
 Release staging), and `reload2.sh --tag <tag>` (both). Local compile-only checks
 must use the tagged DerivedData directory rather than an untagged default.
@@ -241,7 +241,7 @@ A first pass ends when the change is implemented, [scoped verification](skills/c
 
 Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
 
-**Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert. Before merging, wait for the checks that judge the change (macOS compile admission plus the app-host suites CI selected for it) and skip slow unrelated lanes. If you merge without them, say on the PR what was not verified. A main-regression comment on your PR (`main_regression_attribution.py`) is a fix-forward ask.
+**Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert. Before merging, wait for the checks that judge the change (macOS compile admission plus the app-host suites CI selected for it) and skip slow unrelated lanes. If you merge without them, say on the PR what was not verified; the merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A main-regression comment on your PR (`main_regression_attribution.py`) is a fix-forward ask.
 
 The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
 
