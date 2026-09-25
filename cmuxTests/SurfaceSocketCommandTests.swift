@@ -102,7 +102,7 @@ struct SurfaceSocketCommandTests {
             self.machine = machine
             self.catalog = catalog
             info = SurfaceMachineInfo(
-                id: machine, name: machine.rawValue, status: "running", image: "cmux-devbox", hasDesktop: false,
+                id: machine, name: machine.rawValue, status: "running", image: "cmux-devbox", hasDesktop: true,
                 memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
                 cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: workspaces
             )
@@ -176,6 +176,7 @@ struct SurfaceSocketCommandTests {
         var termA2: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_a2") }
         var termB: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_b") }
         var browserA: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .browser, key: "browser_1") }
+        var display: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey) }
 
         @MainActor
         init(manager: TabManager, device: Bool = false) {
@@ -199,8 +200,12 @@ struct SurfaceSocketCommandTests {
                 lifecycle: .running, agent: nil, remoteWorkspace: Self.wsA, port: 3000, url: "http://localhost:3000"
             )
             browser.remoteViews = [SurfaceRemoteView(tabID: "tab_browser_1", workspace: Self.wsA)]
+            let display = CmuxTuiSnapshotParser.display(
+                machine: machine,
+                directURL: "http://10.0.0.7:6901/vnc.html"
+            )
             catalog.replaceResources(
-                [terminal("term_a1", Self.wsA), terminal("term_a2", Self.wsA), terminal("term_b", Self.wsB), browser],
+                [terminal("term_a1", Self.wsA), terminal("term_a2", Self.wsA), terminal("term_b", Self.wsB), browser, display],
                 on: machine,
                 info: provider.info
             )
@@ -326,6 +331,27 @@ struct SurfaceSocketCommandTests {
     }
 
     // MARK: - surface.project
+
+    @Test func desktopOpenReusesTheExistingSurfaceAndToken() async throws {
+        try await Self.withFixture { fixture in
+            let first = try Self.ok(try await Self.call("vm.desktop_open", [
+                "id": fixture.machineID,
+                "workspace_id": fixture.workspaceID.uuidString,
+                "focus": false,
+            ]))
+            #expect(first["reused"] as? Bool == false)
+            #expect(fixture.provider.materialized.count == 1)
+
+            let second = try Self.ok(try await Self.call("vm.desktop_open", [
+                "id": fixture.machineID,
+                "workspace_id": fixture.workspaceID.uuidString,
+                "focus": false,
+            ]))
+            #expect(second["reused"] as? Bool == true)
+            #expect(second["surface_id"] as? String == first["surface_id"] as? String)
+            #expect(fixture.provider.materialized.count == 1)
+        }
+    }
 
     @Test func projectReusesFocusesAndHonorsPlacementFlags() async throws {
         try await Self.withFixture { fixture in
