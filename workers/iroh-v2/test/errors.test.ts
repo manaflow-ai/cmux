@@ -11,3 +11,9 @@ test("error summaries keep safe cause categories without SQL or bound parameters
   expect(summary).not.toContain("user-123");
   expect(summary).not.toContain("socket_reservations");
 });
+
+test("diagnostics never include a custom error name or message", () => {
+  const error = new Error("private request value");
+  error.name = "credential-value";
+  expect(errorSummary(error)).toBe("Error");
+});

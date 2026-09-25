@@ -381,15 +381,15 @@ test("forged scope is rejected before the TeamControl binding", async () => {
 });
 
 
-test("a discovery-only Mac can open control without publishing a host", async () => {
-  for (const discovery of [false, true]) {
+test("Mac control accepts either discovery or hosting without enabling iOS pairing", async () => {
+  for (const capabilities of [[], ["cmux.mac-devices.v1"], ["cmux.mac-host.v1"]]) {
     const device = { ...descriptor, metadata: { ...descriptor.metadata,
-      pairingEnabled: false, capabilities: discovery ? ["cmux.mac-devices.v1"] : [] } };
-    const setup = await setupFor(`discovery-only-${discovery}`, undefined, device);
+      pairingEnabled: false, capabilities } };
+    const setup = await setupFor(`capabilities-${capabilities.length}-${capabilities.join()}`, undefined, device);
     const result = await json("https://iroh.test/v2/control/session", {
       method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}` },
       body: JSON.stringify(setup),
     });
-    expect(result.response.status).toBe(discovery ? 200 : 403);
+    expect(result.response.status).toBe(capabilities.length > 0 ? 200 : 403);
   }
 });

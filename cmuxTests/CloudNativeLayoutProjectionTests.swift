@@ -15,6 +15,40 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test("Sidebar closes match UUID case and reject missing targets or mismatched receipts",
+          arguments: [true, false], [true, false])
+    func sidebarCloseValidatesTarget(present: Bool, validReply: Bool) async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.device(.init(deviceID: "close-test", tag: "test"))
+        let remoteID = UUID().uuidString
+        let target = UUID().uuidString
+        let other = UUID().uuidString
+        var closes = 0
+        let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+            workspace: { _ in nil }, request: { method, params in
+                if method == "mobile.terminal.close" {
+                    closes += 1
+                    #expect(params["workspace_id"] as? String == remoteID)
+                    #expect(params["surface_id"] as? String == target.lowercased())
+                    return try JSONSerialization.data(withJSONObject: ["closed": true,
+                        "workspace_id": remoteID, "surface_id": validReply ? target : other])
+                }
+                #expect(method == "device.workspace.layout")
+                return try JSONEncoder().encode(DeviceWorkspaceLayoutSnapshot(workspaceID: remoteID,
+                    layout: .pane(id: "pane", surfaceIDs: present && closes == 0 ? [other, target] : [other],
+                        selectedSurfaceID: other), revision: String(closes), sequence: UInt64(closes)))
+            }, refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        defer { coordinator.stop() }
+        do {
+            try await coordinator.closeTerminal(surfaceID: target.lowercased(), remoteWorkspaceID: remoteID)
+            #expect(present && validReply)
+        } catch {
+            #expect(!present || !validReply)
+        }
+        await coordinator.waitForIdle()
+        #expect(closes == (present ? 1 : 0))
+    }
+
     @Test("Closing a mirrored Mac terminal updates its owner, while teardown only detaches",
           arguments: [SurfaceProjectionEndReason.paneClosed, .workspaceTeardown, .replaced], [false, true])
     func closingDeviceProjectionUpdatesSource(reason: SurfaceProjectionEndReason, mixed: Bool) async throws {
@@ -28,7 +62,9 @@ struct CloudNativeLayoutProjectionTests {
         let machine = SurfaceMachineID.device(instance)
         let remoteID = UUID().uuidString
         let remoteA = UUID().uuidString, remoteB = UUID().uuidString
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        live.register(viewer)
+        let catalog = SurfaceCatalog(live: live)
         let defaultsName = "DeviceProjectionClose-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
@@ -88,6 +124,7 @@ struct CloudNativeLayoutProjectionTests {
         // Route teardown through the catalog so the projection is removed
         // before the provider receives the end event, matching production.
         catalog.endProjections(panelID: second, reason: reason)
+        #expect(viewer.closePanel(second, force: true))
         await coordinator.waitForIdle()
         let shouldClose = reason == .paneClosed && !mixed
         #expect(closes == (shouldClose ? 1 : 0))
@@ -147,7 +184,9 @@ struct CloudNativeLayoutProjectionTests {
         let remoteID = UUID()
         let remoteA = UUID().uuidString
         let remoteB = UUID().uuidString
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        live.register(viewer)
+        let catalog = SurfaceCatalog(live: live)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         let remoteWorkspace = SurfaceRemoteWorkspace(id: remoteID.uuidString, name: "Remote", index: 0, focused: false)
@@ -246,6 +285,7 @@ struct CloudNativeLayoutProjectionTests {
         // Route teardown through the catalog so the projection is removed
         // before the provider receives the end event, matching production.
         catalog.endProjections(panelID: second, reason: .paneClosed)
+        #expect(viewer.closePanel(second, force: true))
         await coordinator.waitForIdle()
         #expect(closeAttempts == 1)
         let restored = catalog.projections.filter { $0.workspaceID == viewer.id }

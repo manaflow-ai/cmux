@@ -1087,11 +1087,17 @@ struct SurfaceCatalogTests {
     @Test("A disconnected Mac keeps the left-sidebar computer provenance until the projection is removed")
     func disconnectedMacKeepsSidebarComputerBadge() throws {
         let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "disconnect-badge"))
-        let catalog = SurfaceCatalog(live: live)
         let provider = FakeProvider(machine: machine)
+        let workspace = live.add()
+        defer { live.tearDown() }
+        let workspaceID = workspace.id
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(
+            environment: CloudWorkspaceRenameEnvironment(
+                workspace: { $0 == workspace.id ? workspace : nil }, workspaces: { [workspace] }
+            )
+        ))
         catalog.register(provider)
-        let workspaceID = live.id()
-        let panelID = UUID()
         let resource = terminal(machine, "term-disconnect")
         catalog.replaceResources([resource], on: machine, info: provider.info, from: provider)
         catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspaceID, panelID: panelID,
@@ -1102,7 +1108,6 @@ struct SurfaceCatalogTests {
         // registered provider in place, so the row remains identified as a Mac.
         catalog.replaceResources([], on: machine, info: provider.info, from: provider)
         catalog.updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
-        let workspace = try #require(Workspace.liveWorkspace(id: workspaceID))
         let disconnected = CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
         #expect(disconnected?.contains(provider.info.name) == true)
 

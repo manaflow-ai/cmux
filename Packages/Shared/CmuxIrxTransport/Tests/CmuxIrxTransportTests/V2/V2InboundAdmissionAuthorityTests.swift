@@ -101,6 +101,30 @@ struct V2InboundAdmissionAuthorityTests {
         #expect(authority.authorizedPeer(endpointID: mac.descriptor.endpointID) != nil)
     }
 
+    @Test("Cached inbound permissions preserve independent Mac and iOS opt-ins",
+          arguments: [false, true], [false, true])
+    func cachedPeerPlatformIsGated(pairing: Bool, hosting: Bool) throws {
+        let base = device()
+        let host = V2DeviceDescriptor(endpointID: base.endpointID, identity: base.identity,
+            identityGeneration: base.identityGeneration,
+            metadata: V2DeviceMetadata(appVersion: "2", capabilities: hosting ? ["cmux.mac-host.v1"] : [],
+                displayName: "Host", pairingEnabled: pairing, platform: .mac, relayURLs: []))
+        let macBase = device(key: "c", deviceID: "mac-peer")
+        let mac = V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: macBase.endpointID,
+            identity: macBase.identity, identityGeneration: macBase.identityGeneration,
+            metadata: V2DeviceMetadata(appVersion: "2", capabilities: ["cmux.mac-devices.v1"],
+                displayName: "Mac peer", pairingEnabled: false, platform: .mac, relayURLs: [])),
+            deviceRecordID: "mac-record", revision: 1, revoked: false)
+        let phone = peer()
+        let clock = V2AdmissionTestClock(wall: timestamp)
+        let authority = try V2InboundAdmissionAuthority(host: host,
+            wallNow: { clock.wall }, monotonicNow: { clock.monotonic })
+        _ = authority.restore(cache(peers: [phone,
+            V2InboundPeerPermission(device: mac, permissionExpiresAt: timestamp + 100)], host: host))
+        #expect((authority.authorizedPeer(endpointID: mac.descriptor.endpointID) != nil) == hosting)
+        #expect((authority.authorizedPeer(endpointID: phone.device.descriptor.endpointID) != nil) == pairing)
+    }
+
     @Test(arguments: [V2Platform.mac, .ios])
     func knowingAnEndpointIDNeverReplacesPermission(platform: V2Platform) throws {
         let authority = try authority(V2AdmissionTestClock(wall: timestamp))
