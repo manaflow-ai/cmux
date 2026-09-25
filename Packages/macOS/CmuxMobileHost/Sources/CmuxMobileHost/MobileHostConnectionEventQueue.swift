@@ -23,11 +23,13 @@ public import Foundation
 ///
 /// Other topics retain their ordered payloads even beyond the shedding budget.
 /// Congestion is not evidence that the connection has closed.
-public enum MobileHostEventTopicPolicy {
-    public static let renderGridTopic = "terminal.render_grid"
-    public static let simulatorFrameTopic = "simulator.frame"
+public struct MobileHostEventTopicPolicy: Sendable {
+    public let renderGridTopic = "terminal.render_grid"
+    public let simulatorFrameTopic = "simulator.frame"
 
-    public static func isDroppable(topic: String, coalesceKey: String?) -> Bool {
+    public init() {}
+
+    public func isDroppable(topic: String, coalesceKey: String?) -> Bool {
         switch topic {
         case renderGridTopic:
             // A render-grid event without a surface key cannot be resynced
@@ -101,7 +103,7 @@ private struct MobileHostEventShedSummary: Sendable {
     mutating func record(_ event: MobileHostConnectionEventQueue.QueuedEvent) {
         eventCount += 1
         byteCount += event.frame.count
-        if event.topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+        if event.topic == MobileHostEventTopicPolicy().simulatorFrameTopic,
            let coalesceKey = event.coalesceKey {
             simulatorFramePanelIDs.insert(coalesceKey)
         }
@@ -219,7 +221,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 renderGridResyncSurfaceIDs: [], depthAfterEnqueue: queuedEvents.count,
                 shedEventCount: 0, shedByteCount: 0, simulatorFrameShedPanelIDs: [], overflowed: false)
         }
-        let isRenderGrid = topic == MobileHostEventTopicPolicy.renderGridTopic
+        let isRenderGrid = topic == MobileHostEventTopicPolicy().renderGridTopic
         if isRenderGrid,
            let coalesceKey,
            !isFullRenderGridFrame,
@@ -254,7 +256,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
             )
         }
         if !hasRoomLocked(for: frame),
-           MobileHostEventTopicPolicy.isDroppable(topic: topic, coalesceKey: coalesceKey) {
+           MobileHostEventTopicPolicy().isDroppable(topic: topic, coalesceKey: coalesceKey) {
             if isRenderGrid, let coalesceKey {
                 if poisonedRenderGridSurfaceIDs.insert(coalesceKey).inserted {
                     resyncSurfaceIDs.insert(coalesceKey)
@@ -445,7 +447,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         while !hasRoomLocked(for: frame), index < queuedOrder.count {
             let eventID = queuedOrder[index]
             guard let event = queuedEvents[eventID] else { index += 1; continue }
-            guard MobileHostEventTopicPolicy.isDroppable(
+            guard MobileHostEventTopicPolicy().isDroppable(
                 topic: event.topic,
                 coalesceKey: event.coalesceKey
             ) else {
@@ -457,7 +459,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
                gridEventIDs[key] == eventID { gridEventIDs.removeValue(forKey: key) }
             queuedByteCount -= event.frame.count
             summary.record(event)
-            if event.topic == MobileHostEventTopicPolicy.renderGridTopic,
+            if event.topic == MobileHostEventTopicPolicy().renderGridTopic,
                let surfaceID = event.coalesceKey,
                poisonedRenderGridSurfaceIDs.insert(surfaceID).inserted {
                 resyncSurfaceIDs.insert(surfaceID)
@@ -473,7 +475,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         var retained: [UUID] = []
         for eventID in queuedOrder {
             guard let event = queuedEvents[eventID] else { continue }
-            guard event.topic == MobileHostEventTopicPolicy.renderGridTopic,
+            guard event.topic == MobileHostEventTopicPolicy().renderGridTopic,
                   let surfaceID = event.coalesceKey,
                   brokenSurfaceIDs.contains(surfaceID) else {
                 retained.append(eventID); continue

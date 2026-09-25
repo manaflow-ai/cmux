@@ -528,7 +528,7 @@ final class MobileHostService {
             frame,
             topic: topic,
             coalesceKey: eventCoalesceKey(topic: topic, payload: payload),
-            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy().renderGridTopic
                 && payload["full"] as? Bool == true
         )
     }
@@ -545,7 +545,7 @@ final class MobileHostService {
         surfaceID: String,
         stateSeq: UInt64
     ) {
-        let topic = MobileHostEventTopicPolicy.renderGridTopic
+        let topic = MobileHostEventTopicPolicy().renderGridTopic
         guard !framesByAnchor.isEmpty,
               MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
@@ -592,9 +592,9 @@ final class MobileHostService {
     /// on. `nil` for topics without per-surface recovery semantics.
     nonisolated static func eventCoalesceKey(topic: String, payload: [String: Any]) -> String? {
         switch topic {
-        case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes", DeviceTerminalGridPublisher.eventTopic:
+        case MobileHostEventTopicPolicy().renderGridTopic, "terminal.bytes", DeviceTerminalGridPublisher.eventTopic:
             return payload["surface_id"] as? String
-        case MobileHostEventTopicPolicy.simulatorFrameTopic:
+        case MobileHostEventTopicPolicy().simulatorFrameTopic:
             return payload["panel_id"] as? String
         case DeviceWorkspaceLayoutHost.eventTopic:
             return payload["workspace_id"] as? String
@@ -2139,7 +2139,7 @@ actor MobileHostConnection {
             previousTopics: previousTopics,
             nextTopics: topics
         )
-        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
+        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy().simulatorFrameTopic) {
             await dispatchPendingSimulatorFrameReplay()
         }
     }
@@ -2205,7 +2205,7 @@ actor MobileHostConnection {
         let result = eventQueue.enqueue(
             topic: topic,
             coalesceKey: MobileHostService.eventCoalesceKey(topic: topic, payload: payload),
-            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy().renderGridTopic
                 && payload["full"] as? Bool == true,
             stateSeq: nil,
             frame: frame
@@ -2341,7 +2341,7 @@ actor MobileHostConnection {
     /// subscription. Actor reentrancy can run unsubscribe during the awaited
     /// producer callback, so debt is restored unless ownership survives it.
     private func dispatchPendingSimulatorFrameReplay() async {
-        let topic = MobileHostEventTopicPolicy.simulatorFrameTopic
+        let topic = MobileHostEventTopicPolicy().simulatorFrameTopic
         let panelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
         guard !panelIDs.isEmpty else { return }
         guard isSubscribed(to: topic) else {

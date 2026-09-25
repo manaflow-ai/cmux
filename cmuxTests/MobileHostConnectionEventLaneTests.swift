@@ -423,11 +423,11 @@ extension MobileHostAuthorizationTests {
             topic: "simulator.frame",
             payload: ["panel_id": "sim-panel-9401"]
         ) == "sim-panel-9401")
-        #expect(MobileHostEventTopicPolicy.isDroppable(
+        #expect(MobileHostEventTopicPolicy().isDroppable(
             topic: "simulator.frame",
             coalesceKey: "sim-panel-9401"
         ))
-        #expect(!MobileHostEventTopicPolicy.isDroppable(
+        #expect(!MobileHostEventTopicPolicy().isDroppable(
             topic: "simulator.state",
             coalesceKey: "sim-panel-9401"
         ))
