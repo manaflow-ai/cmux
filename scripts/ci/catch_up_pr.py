@@ -42,6 +42,7 @@ Exit codes: 0 merged or already up to date, 1 blocked (needs a person),
 
 Usage:
   catch_up_pr.py merge --base origin/main [--repo DIR] [--tools-root DIR] [--json]
+  catch_up_pr.py verify --repo DIR --head SHA --base SHA --merged SHA --base-tip REF
   catch_up_pr.py comment --result result.json --push pushed|...
 """
 
@@ -567,6 +568,61 @@ def command_merge(args: argparse.Namespace) -> int:
     return {"merged": 0, "up_to_date": 0, "blocked": 1}.get(result.status, 2)
 
 
+# --- verifying a merge before it is pushed ------------------------------------
+
+
+def allowed_generated_path(path: str) -> bool:
+    return path in {PBXPROJ, SCHEMA_SWIFT} or path.endswith(".xcstrings")
+
+
+def verify_merge(repo_path: Path, head: str, base: str, merged: str, base_tip: str) -> list[str]:
+    """Why `merged` is not a catch-up merge of `base` into `head`; empty when it is.
+
+    The push job runs this on its own fetch of the commits instead of trusting
+    the merge job: the merge must have exactly the two expected parents, the
+    base must be on the base branch, and its tree may differ from git's own
+    merge of the two parents only in the generated files this tool resolves.
+    """
+    repo = Repo(repo_path)
+    repo.attr_tree = base
+    problems: list[str] = []
+    parents = repo.text("rev-list", "--parents", "-n", "1", merged).split()
+    if parents[1:] != [head, base]:
+        problems.append(f"merge parents are {parents[1:]}, expected [{head}, {base}]")
+        return problems
+    if repo.run("merge-base", "--is-ancestor", base, base_tip, check=False).returncode != 0:
+        problems.append(f"{base} is not on the base branch ({base_tip})")
+    tree = repo.run("merge-tree", "--write-tree", "--name-only", "-z", head, base, check=False)
+    if tree.returncode not in (0, 1):
+        problems.append(f"git merge-tree failed: {tail(tree.stderr.decode(errors='replace'))}")
+        return problems
+    fields = tree.stdout.decode().split("\0")
+    expected_tree, conflicted = fields[0], []
+    for field in fields[1:]:
+        if not field:
+            break  # the informational messages follow an empty field
+        conflicted.append(field)
+    raw = repo.run("diff-tree", "-r", "--name-only", "-z", expected_tree, f"{merged}^{{tree}}").stdout.decode()
+    differing = [path for path in raw.split("\0") if path]
+    for path in sorted(set(differing) | set(conflicted)):
+        if not allowed_generated_path(path):
+            problems.append(f"{path} differs from git's merge of the parents")
+    return problems
+
+
+def command_verify(args: argparse.Namespace) -> int:
+    try:
+        check_git_version()
+        problems = verify_merge(Path(args.repo).resolve(), args.head, args.base, args.merged, args.base_tip)
+    except CatchUpError as error:
+        problems = [str(error)]
+    for problem in problems:
+        print(f"catch-up verify: {problem}", file=sys.stderr)
+    if not problems:
+        print(f"catch-up verify: {args.merged} is a catch-up merge of {args.base} into {args.head}")
+    return 1 if problems else 0
+
+
 # --- the pull request comment -------------------------------------------------
 
 
@@ -618,14 +674,13 @@ def render_comment(result: dict, push: str, base_name: str, head_name: str, run_
             lines += ["", "This push used the Actions token, so CI will not start on its own."
                       " Push any commit (or close and reopen) to get checks on the new head."]
         return "\n".join(lines) + footer
-    if push == "fork-not-editable":
-        return (f"The merge with {base_label} is clean, but this branch lives on a fork that does not allow"
-                " edits by maintainers, so I cannot push it. Turn on *Allow edits by maintainers*"
-                f" and comment `/catch-up` again, or merge {code(base_name)} yourself.{footer}")
     if push == "needs-workflows":
         return (f"The merge with {base_label} is clean, but it brings in workflow changes and the token"
                 " I had cannot push those. Nothing changed on the branch; merge"
                 f" {code(base_name)} yourself this time.{footer}")
+    if push == "unverified":
+        return ("The merge did not pass the push job's own checks (the pull request changed, or the merge"
+                f" commit was not what I expected), so nothing was pushed. Comment `/catch-up` to try again.{footer}")
     if push == "push-denied":
         return (f"The merge with {base_label} is clean, but I was not allowed to push to {code(head_name)}."
                 f" Nothing changed on the branch; merge {code(base_name)} yourself this time.{footer}")
@@ -653,11 +708,18 @@ def main(argv: list[str]) -> int:
     merge.add_argument("--note", default="", help="extra line for the merge commit message")
     merge.add_argument("--json", action="store_true", help="print a machine-readable result")
     merge.set_defaults(func=command_merge)
+    verify = sub.add_parser("verify", help="check a merge commit before pushing it")
+    verify.add_argument("--repo", required=True)
+    verify.add_argument("--head", required=True)
+    verify.add_argument("--base", required=True)
+    verify.add_argument("--merged", required=True)
+    verify.add_argument("--base-tip", required=True, help="current tip of the base branch")
+    verify.set_defaults(func=command_verify)
     comment = sub.add_parser("comment", help="render the pull request comment for a result")
     comment.add_argument("--result", required=True)
     comment.add_argument("--push", required=True,
                          choices=["pushed", "pushed-without-ci", "rejected", "needs-workflows", "push-denied",
-                                  "fork-not-editable", "not-attempted"])
+                                  "unverified", "not-attempted"])
     comment.add_argument("--base-name", default="main")
     comment.add_argument("--head-name", default="this branch")
     comment.add_argument("--run-url", default="")

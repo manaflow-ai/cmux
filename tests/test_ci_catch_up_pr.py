@@ -477,6 +477,60 @@ class PbxprojTests(CatchUpCase):
         self.assertEqual(MODULE.duplicate_keys(text), ["c"])
 
 
+class VerifyTests(CatchUpCase):
+    """The push job's own check of the merge commit (`catch_up_pr.py verify`)."""
+
+    PATH = "Resources/Localizable.xcstrings"
+
+    def merged(self) -> tuple[str, str, str]:
+        self.repo.branches(
+            {self.PATH: catalog(a="A", z="Z"), "app.txt": "a\n"},
+            {self.PATH: catalog(a="A", b="B", z="Z"), "app.txt": "main\n"},
+            {self.PATH: catalog(a="A", c="C", z="Z")},
+        )
+        head = self.repo.git("rev-parse", "HEAD")
+        code, result = self.catch_up()
+        self.assertEqual(code, 0, result)
+        return head, self.repo.git("rev-parse", "main"), result["head_after"]
+
+    def verify(self, head: str, base: str, merged: str, tip: str = "main") -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "verify", "--repo", str(self.repo.path), "--head", head,
+             "--base", base, "--merged", merged, "--base-tip", tip],
+            env=GIT_ENV, capture_output=True, text=True,
+        )
+
+    def test_real_catch_up_merge_passes(self) -> None:
+        head, base, merged = self.merged()
+        completed = self.verify(head, base, merged)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_extra_change_in_the_merge_fails(self) -> None:
+        head, base, merged = self.merged()
+        self.repo.write({"app.txt": "sneaky\n"})
+        self.repo.git("add", "-A")
+        self.repo.git("commit", "-q", "--amend", "--no-edit")
+        tampered = self.repo.git("rev-parse", "HEAD")
+        completed = self.verify(head, base, tampered)
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("app.txt differs", completed.stderr)
+
+    def test_wrong_parents_fail(self) -> None:
+        head, base, merged = self.merged()
+        completed = self.verify(base, head, merged)
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("merge parents", completed.stderr)
+        completed = self.verify(head, base, head)
+        self.assertEqual(completed.returncode, 1)
+
+    def test_base_off_the_base_branch_fails(self) -> None:
+        head, base, merged = self.merged()
+        self.repo.git("branch", "-f", "rewound", "main~1")
+        completed = self.verify(head, base, merged, tip="rewound")
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("not on the base branch", completed.stderr)
+
+
 class CommentTests(unittest.TestCase):
     def test_blocked_comment_lists_files_inertly(self) -> None:
         result = {"status": "blocked", "base": "a" * 40,
@@ -549,15 +603,42 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("concurrency", self.workflow)
         self.assertEqual(jobs["merge"]["needs"], "gate")
         self.assertIn("needs.gate.outputs.allowed == 'true'", jobs["merge"]["if"])
-        self.assertIn("needs.gate.outputs.allowed == 'true'", jobs["finish"]["if"])
+        # finish also runs for a non-writer's label (to remove it), so its
+        # shared group is chosen by the gate's writer decision; anyone else
+        # gets a group of their own run and cannot cancel a writer's push.
+        group = jobs["finish"]["concurrency"]["group"]
+        self.assertTrue(group.startswith("${{ needs.gate.outputs.allowed == 'true' && format('pr-catch-up-push-"), group)
+        self.assertIn("github.run_id", group)
+
+    def pr_script(self) -> str:
+        return next(step["run"] for step in self.workflow["jobs"]["merge"]["steps"] if step.get("id") == "pr")
 
     def test_head_is_pinned(self) -> None:
-        script = next(step["run"] for step in self.workflow["jobs"]["merge"]["steps"] if step.get("id") == "pr")
+        script = self.pr_script()
         self.assertIn('"$head_sha" != "$EVENT_HEAD_SHA"', script)
-        self.assertIn('"$first_run" > "$COMMENT_CREATED_AT"', script)
-        self.assertIn("action_required", script)
+        self.assertIn('"$head_sha" != "$PIN"', script)
+        gate = self.workflow["jobs"]["gate"]["steps"][0]["run"]
+        self.assertIn("[0-9a-f]{40}))?$", gate, "a pin must be a full sha")
         # Names are validated before they reach a URL.
-        self.assertLess(script.index("check-ref-format --branch \"$head_ref\""), script.index("branches/$head_ref_url"))
+        self.assertLess(script.index('check-ref-format --branch "$head_ref"'), script.index("branches/$head_ref_url"))
+
+    def test_fork_heads_are_refused(self) -> None:
+        gate = self.workflow["jobs"]["gate"]["steps"][0]["run"]
+        self.assertIn("isCrossRepository", gate)
+        self.assertIn("only runs on branches in this repository", gate)
+        self.assertIn("needs.gate.outputs.refusal == ''", self.workflow["jobs"]["merge"]["if"])
+        self.assertIn('"$cross" != false', self.pr_script())
+        self.assertNotIn("maintainerCanModify", self.text)
+        self.assertNotIn("action_required", self.text)
+
+    def test_finish_does_not_trust_the_merge_job(self) -> None:
+        steps = {step.get("id"): step for step in self.workflow["jobs"]["finish"]["steps"]}
+        verify = steps["verify"]["run"]
+        self.assertIn(".headRefOid == $sha", verify)
+        self.assertIn(".isCrossRepository == false", verify)
+        self.assertIn('catch_up_pr.py" verify', verify)
+        self.assertEqual(steps["push"]["if"], "steps.verify.outputs.ok == 'true'")
+        self.assertIn("steps.verify.outputs.ok == 'true'", steps["app-token"]["if"])
 
     def test_actions_are_pinned(self) -> None:
         for step in run_steps(self.workflow):
