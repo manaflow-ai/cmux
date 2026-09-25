@@ -447,6 +447,11 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     body = workflow.split("PACKAGES=(", 1)[1].split("\n          )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
     assert "CmuxSettingsUI" in packages
+    # CmuxWorkspaces was missing from the list, so its tests never ran in CI.
+    assert "CmuxWorkspaces" in packages
+    assert module.classify_files([
+        "Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift"
+    ]).swift_packages is True
     for name in packages:
         assert (ROOT / "Packages").glob(f"*/{name}/Package.swift"), name
 
