@@ -61,14 +61,18 @@ struct CmuxConfigWorkspaceActionTests {
                 inPane: try #require(workspace.bonsplitController.focusedPaneId)
             )
         } else {
+            var didDispatch = false
             #expect(CmuxConfigExecutor.execute(
                 action: action,
                 commands: [],
                 commandSourcePaths: [:],
                 tabManager: manager,
                 baseCwd: directory.path,
-                globalConfigPath: directory.appendingPathComponent("cmux.json").path
+                globalConfigPath: directory.appendingPathComponent("cmux.json").path,
+                onExecuted: { didDispatch = true }
             ))
+            // Group menu callers must restore temporary selection before execution yields.
+            #expect(didDispatch)
         }
 
         // A bounded test-only wait observes the shell's filesystem side effect.
@@ -143,6 +147,55 @@ struct CmuxConfigWorkspaceActionTests {
         let actualDirectory = try String(contentsOf: marker, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(canonicalPath(actualDirectory) == physicalRequestedDirectory)
+    }
+
+    @MainActor
+    @Test(arguments: [false, true])
+    func backgroundCommandDoesNotUseRemotePanelDirectory(browserOnly: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-remote-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = directory.appendingPathComponent("result")
+        let manager = TabManager(initialWorkingDirectory: directory.path)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            for panel in workspace.panels.values { panel.close() }
+            manager.tabs = []
+        }
+        if browserOnly {
+            let terminalID = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.bonsplitController.focusedPaneId)
+            _ = try #require(workspace.newBrowserSurface(inPane: pane, focus: true))
+            #expect(workspace.closePanel(terminalID, force: true))
+        }
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "background-test", isBase: false)
+        // A remote path can also exist on this Mac; existence does not establish ownership.
+        workspace.updateCloudPanelDirectory(panelId: panelID, directory: directory.path)
+        #expect(!workspace.allowsLocalDirectoryFallback(panelId: panelID))
+        let quotedMarker = "'" + marker.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        #expect(CmuxConfigExecutor.executeCommand(
+            "/bin/pwd -P > " + quotedMarker,
+            target: .background,
+            workspace: workspace,
+            baseCwd: directory.path,
+            confirm: false,
+            actionID: "remote-cwd",
+            configSourcePath: nil,
+            globalConfigPath: directory.appendingPathComponent("cmux.json").path,
+            displayTitle: nil,
+            icon: nil,
+            iconSourcePath: nil,
+            presentingWindow: nil
+        ))
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            if let contents = try? String(contentsOf: marker, encoding: .utf8), !contents.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let actualDirectory = try String(contentsOf: marker, encoding: .utf8)
+        #expect(canonicalPath(actualDirectory) == canonicalPath(FileManager.default.homeDirectoryForCurrentUser.path))
     }
 
     private func decode(_ json: String) throws -> CmuxConfigFile {
