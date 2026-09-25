@@ -205,6 +205,18 @@ struct SSHTuiMigrationTests {
         #expect(target.url.query == "view=source")
     }
 
+    @Test("SSH port previews admit remote loopback without widening Cloud routes")
+    func sshPortPreviewRetainsCarrierOwnership() {
+        let resource = CmuxTuiSnapshotParser.portBrowser(machine: .ssh("fixture"), port: 3000)
+        #expect(CloudPortRoutePlan.plan(resource: resource, privateAddress: "127.0.0.1")
+            == .privateDirect(remoteURL: "http://127.0.0.1:3000"))
+        let cloud = CmuxTuiSnapshotParser.portBrowser(machine: .cloud("fixture"), port: 3000)
+        guard case .unsupported = CloudPortRoutePlan.plan(resource: cloud, privateAddress: "127.0.0.1") else {
+            Issue.record("Cloud must not acquire an SSH loopback route")
+            return
+        }
+    }
+
     @Test("An unconfirmed SSH graph cannot publish its saved remote working directory")
     @MainActor
     func unconfirmedSSHDirectoryRemainsUntrusted() {
