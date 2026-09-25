@@ -107,6 +107,11 @@ final class BrowserExtensions: NSObject, ObservableObject {
         "*://chrome.google.com/webstore/*",
     ]
 
+    /// Denies script injection and page access on the Web Store, as Chrome
+    /// does. It does not stop an extension with broad host access from
+    /// fetching store URLs over the network; Chrome allows that too, the
+    /// pages are public, and a fetch cannot drive the store's install UI,
+    /// which is what this protects.
     fileprivate static func denyProtectedPatterns(in context: WKWebExtensionContext) {
         for raw in protectedMatchPatterns {
             if let pattern = try? WKWebExtension.MatchPattern(string: raw) {
@@ -1238,9 +1243,17 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     /// (`cmux://extensions`, diff viewer), local files, and other
     /// extensions' pages stay out of reach whatever hosts it was granted.
     private func showsPageAccessible(to context: WKWebExtensionContext) -> Bool {
-        guard let url = panel?.webView.url ?? panel?.currentURL else { return true }
-        return ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier)
-            && !ChromeWebStorePage.isStorePage(url)
+        guard let panel else { return false }
+        // Both the address WebKit reports (which moves to a pending
+        // destination as soon as a load starts) and the committed history
+        // item must be accessible, so a load away from a protected page
+        // never exposes that page before the new one commits.
+        let candidates = [panel.webView.url, panel.webView.backForwardList.currentItem?.url, panel.currentURL].compactMap { $0 }
+        guard !candidates.isEmpty else { return true }
+        return candidates.allSatisfy { url in
+            ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier)
+                && !ChromeWebStorePage.isStorePage(url)
+        }
     }
 
     /// Whether this adapter still represents its panel in this controller.
