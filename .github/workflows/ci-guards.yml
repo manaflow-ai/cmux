@@ -372,6 +372,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate PR catch-up merge and its workflow
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_catch_up_pr.py
+
       - name: Validate main full-suite failure reruns and bisects
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_bisect.py
