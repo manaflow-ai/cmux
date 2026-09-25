@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Testing
 import WebKit
 
@@ -90,7 +91,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         var notificationCount = 0
         let observer = NotificationCenter.default.addObserver(
@@ -181,7 +182,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
@@ -318,7 +319,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         NSLayoutConstraint.activate(firstHostConstraints)
         firstHost.layoutSubtreeIfNeeded()
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         await waitForNextMainTurn()
@@ -477,7 +478,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)

@@ -200,7 +200,8 @@ for expected in \
   cmux-cli-tests \
   build-for-testing \
   -showBuildTimingSummary \
-  COMPILATION_CACHE_ENABLE_CACHING=YES \
+  'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_COMPILATION_CACHE_cmuxTests=NO \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \
   "$TMP_DIR/packages"; do
@@ -219,7 +220,21 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles all four schemes for testing with the compilation cache on"
+echo "PASS: the build compiles all four schemes for testing, with the compilation cache on outside cmuxTests"
+if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
+  exit 1
+fi
+for newer in 26.6 26.6.1 27.0; do
+  : > "$STUB_XCODEBUILD_ARGS"
+  STUB_XCODE_VERSION="$newer" run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+  if grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS" \
+    || ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmuxTests=NO "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: on Xcode $newer the app target must keep the compilation cache"
+    exit 1
+  fi
+done
+echo "PASS: the app target builds without the compilation cache only before Xcode 26.6"
 if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
   || grep -Fq 'build output for cmux-unit' "$TMP_DIR/derived/cmux-build.log"; then
   echo "FAIL: the warning-budget log must retain only app/UI build output"

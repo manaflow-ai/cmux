@@ -1,16 +1,18 @@
-import AppKit
-import CmuxBrowser
-import ObjectiveC
-import WebKit
+public import AppKit
+public import ObjectiveC
+public import WebKit
 
 @MainActor
-final class BrowserNativeInputDeliveryOwner {
+public final class BrowserNativeInputDeliveryOwner {
     private var dispatchDepth = 0
     private var heldModifierKeys: [UInt16: BrowserKeyboardNativeModifiers] = [:]
 
-    var isDispatchActive: Bool { dispatchDepth > 0 }
+    /// Creates an owner with no active dispatch and no held modifiers.
+    public init() {}
 
-    var activeModifierFlags: NSEvent.ModifierFlags {
+    public var isDispatchActive: Bool { dispatchDepth > 0 }
+
+    public var activeModifierFlags: NSEvent.ModifierFlags {
         heldModifierKeys.values.reduce(into: NSEvent.ModifierFlags()) { flags, modifier in
             if modifier.contains(.shift) { flags.insert(.shift) }
             if modifier.contains(.control) { flags.insert(.control) }
@@ -21,7 +23,7 @@ final class BrowserNativeInputDeliveryOwner {
         }
     }
 
-    func modifierFlags(removing keyCode: UInt16) -> NSEvent.ModifierFlags {
+    public func modifierFlags(removing keyCode: UInt16) -> NSEvent.ModifierFlags {
         heldModifierKeys.filter { $0.key != keyCode }.values.reduce(into: NSEvent.ModifierFlags()) { flags, modifier in
             if modifier.contains(.shift) { flags.insert(.shift) }
             if modifier.contains(.control) { flags.insert(.control) }
@@ -38,11 +40,11 @@ final class BrowserNativeInputDeliveryOwner {
         return body()
     }
 
-    func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16) {
+    public func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16) {
         heldModifierKeys[keyCode] = modifier
     }
 
-    func removeModifier(for keyCode: UInt16) {
+    public func removeModifier(for keyCode: UInt16) {
         heldModifierKeys.removeValue(forKey: keyCode)
     }
 
@@ -53,15 +55,17 @@ private final class BrowserNativeInputDeliveryOwnerAssociationKey: NSObject {
 }
 
 @MainActor
-func cmuxWithBrowserWebKitKeyDownDispatch<T>(
-    for webView: WKWebView,
-    _ body: () -> T
-) -> T {
-    webView.browserNativeInputDeliveryOwner.withDispatch(body)
+extension WKWebView {
+    /// Runs `body` while this web view's native WebKit key-down dispatch is
+    /// marked active, so re-entrant key routing can tell the event is already
+    /// on its way into WebKit.
+    public func withBrowserWebKitKeyDownDispatch<T>(_ body: () -> T) -> T {
+        browserNativeInputDeliveryOwner.withDispatch(body)
+    }
 }
 
 /// The outcome of delivering one browser automation key through AppKit.
-enum BrowserKeyboardReplayResult: Sendable, Equatable {
+public enum BrowserKeyboardReplayResult: Sendable, Equatable {
     /// The native event sequence was created and delivered to WebKit.
     case delivered
 
@@ -93,7 +97,7 @@ extension WKWebView {
     /// - Returns: The native delivery outcome, including whether the token is
     ///   outside the mapping or event creation failed.
     @discardableResult
-    func replayBrowserKeyboardEvent(
+    public func replayBrowserKeyboardEvent(
         _ event: BrowserKeyboardEvent,
         action: BrowserKeyboardAction
     ) -> BrowserKeyboardReplayResult {
@@ -131,7 +135,7 @@ extension WKWebView {
     ///   - characters: Optional Unicode text to attach to the event.
     /// - Returns: The native delivery outcome.
     @discardableResult
-    func replayBrowserKeyboardSpecification(
+    public func replayBrowserKeyboardSpecification(
         _ specification: SyntheticKeySpecification,
         action: BrowserKeyboardAction,
         characters: String? = nil
@@ -194,7 +198,7 @@ extension WKWebView {
         }
     }
 
-    var browserNativeInputDeliveryOwner: BrowserNativeInputDeliveryOwner {
+    public var browserNativeInputDeliveryOwner: BrowserNativeInputDeliveryOwner {
         if let owner = objc_getAssociatedObject(
             self,
             Unmanaged.passUnretained(BrowserNativeInputDeliveryOwner.associationKey).toOpaque()

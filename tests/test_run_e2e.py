@@ -239,10 +239,11 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def test_e2e_follows_the_pull_request_headroom_rule(self):
         cases = [
-            (queue(large_running=3), LARGE),               # a machine free on 12vcpu (4)
-            (queue(large_running=4), SMALL),               # 12vcpu full: roll over
-            (queue(large=5, small=4, large_running=4), SMALL),  # both full: shorter queue in rounds
-            (queue(large=1, small=9, large_running=4), LARGE),
+            (queue(large_running=4), LARGE),               # a machine free on 12vcpu (5)
+            (queue(large_running=5), SMALL),               # 12vcpu full: roll over
+            (queue(large=1, large_running=0), SMALL),      # anything queued is full: roll over
+            (queue(large=5, small=4, large_running=5), SMALL),  # both full: shorter queue in rounds
+            (queue(large=1, small=9, large_running=5), LARGE),
         ]
         for state, expected in cases:
             with self.subTest(pools=state["pools"]):
@@ -267,8 +268,8 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.routed(state)[0], SMALL)
 
     def test_runs_since_the_snapshot_fill_the_12vcpu_pool_first(self):
-        # 1 running leaves 3 of 12vcpu's 4 machines free; a fourth run rolls over.
-        base = dict(large_running=1)
+        # 2 running leaves 3 of 12vcpu's 5 machines free; a fourth run rolls over.
+        base = dict(large_running=2)
         self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 2))[0], LARGE)
         self.setUp()
         self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], SMALL)
@@ -1067,10 +1068,10 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertEqual(set(self.pool.E2E_POOLS), {LARGE, SMALL})
         cases = [
             (queue(), LARGE),
-            (queue(large_running=3), LARGE),            # one of 12vcpu's 4 machines free
-            (queue(large_running=4), SMALL),            # full: roll over
-            (queue(large=3, small=9, large_running=4), LARGE),  # both full; a tie in rounds takes the earlier pool
-            (queue(large=6, small=4, large_running=4), SMALL),
+            (queue(large_running=4), LARGE),            # one of 12vcpu's 5 machines free
+            (queue(large_running=5), SMALL),            # full: roll over
+            (queue(large=4, small=9, large_running=5), LARGE),  # both full; a tie in rounds takes the earlier pool
+            (queue(large=6, small=4, large_running=5), SMALL),
             (queue(large=1, large_reserved=1), SMALL),
             (None, SMALL),                               # no snapshot
         ]
@@ -1153,9 +1154,9 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertEqual(dict(load.e2e_since), {})
         # Replayed pull request runs take 12vcpu's free machines first, as
         # they would for real, which rolls E2E over to 6vcpu.
-        crowded = queue(large_running=2, pr_since=2)
+        crowded = queue(large_running=3, pr_since=2)
         self.assertEqual(self.decide(crowded)[0], SMALL)
-        self.assertEqual(self.decide(queue(large_running=2, pr_since=1))[0], LARGE)
+        self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], LARGE)
 
     def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
         pr = self.pool.pr_runner_pool
@@ -1350,7 +1351,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "malformed slots": dict(slots={MINI: "8"}),
             "another Xcode pin": dict(pin="/Applications/Xcode_26.5.app"),
             "no Xcode pin": dict(pin=""),
-            "snapshot too old for an owned pool": dict(age=30),
+            "snapshot too old for an owned pool": dict(age=self.pool.pr_runner_pool.MAX_SNAPSHOT_MINUTES + 1),
             "a UI run": dict(test_filter="ExampleUITests"),
             "a mixed filter": dict(test_filter="cmuxTests/A, cmuxUITests/B"),
         }
