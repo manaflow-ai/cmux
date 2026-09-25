@@ -200,8 +200,7 @@ for expected in \
   cmux-cli-tests \
   build-for-testing \
   -showBuildTimingSummary \
-  'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)' \
-  CMUX_CI_COMPILATION_CACHE_cmuxTests=NO \
+  COMPILATION_CACHE_ENABLE_CACHING=NO \
   'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' \
   CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO \
   'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
@@ -226,21 +225,17 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles all four schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
-if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
-  echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
-  exit 1
-fi
-for newer in 26.6 26.6.1 27.0; do
+echo "PASS: the build compiles all four schemes for testing, without the compilation cache and with the module emitted outside cmuxTests"
+for newer in 26.3 26.6 27.0; do
   : > "$STUB_XCODEBUILD_ARGS"
   STUB_XCODE_VERSION="$newer" run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
-  if grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS" \
-    || ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmuxTests=NO "$STUB_XCODEBUILD_ARGS"; then
-    echo "FAIL: on Xcode $newer the app target must keep the compilation cache"
+  if ! grep -Fxq -- COMPILATION_CACHE_ENABLE_CACHING=NO "$STUB_XCODEBUILD_ARGS" \
+    || grep -Fq -- CMUX_CI_COMPILATION_CACHE_ "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: on Xcode $newer no target may build with the compilation cache"
     exit 1
   fi
 done
-echo "PASS: the app target builds without the compilation cache only before Xcode 26.6"
+echo "PASS: no target builds with the compilation cache on any Xcode"
 if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
   || grep -Fq 'build output for cmux-unit' "$TMP_DIR/derived/cmux-build.log"; then
   echo "FAIL: the warning-budget log must retain only app/UI build output"

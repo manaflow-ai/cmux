@@ -3,13 +3,12 @@
 # compile-app-host-test-product.sh resolve <derived-data> <source-packages>
 # compile-app-host-test-product.sh build <derived-data> <source-packages> <cas-path> [log]
 #
-# Compiles the app-host test product with Xcode's compilation cache on for
-# every target except cmuxTests, and except the app before Xcode 26.6 (see
-# build()). cmuxTests also emits no Swift module. ci.yml
-# `macos-compile-admission` restores that cache read-only and nightly.yml
-# `refresh-test-compilation-cache` writes it. A cache entry is keyed on the
-# whole compiler invocation and on absolute paths, so both jobs must build
-# through this script or they stop sharing hits without anything failing.
+# Compiles the app-host test product without Xcode's compilation cache (see
+# build()). cmuxTests also emits no Swift module. Every job that builds or
+# adopts this DerivedData (compile admission, seed-derived-data.yml,
+# nightly.yml `refresh-test-compilation-cache`, test-e2e.yml) builds through
+# this script, so they pass the same settings and a seed stays incremental.
+# The CAS path is still passed; with caching off nothing reads or writes it.
 #
 # `fingerprint` keys the cache. A cache entry bakes in the absolute source and
 # derived-data paths, so which paths the build used decides whether a seed can
@@ -70,6 +69,7 @@ fingerprint() {
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+      echo "compilation-cache=off"
       # The default root adds nothing, so every existing seed and cache key
       # stays the same. Another root (an owned Mac's second compile slot)
       # compiles different absolute paths into every entry, so it gets keys
@@ -85,6 +85,7 @@ fingerprint() {
     printf 'workspace=%s\n' "$PWD"
     printf 'derived-data=%s\n' "$derived_data"
     printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+    echo "compilation-cache=off"
   } | shasum -a 256 | cut -c1-32
 }
 
@@ -141,20 +142,6 @@ resolve() {
   return 1
 }
 
-# True when the selected Xcode (DEVELOPER_DIR, else xcode-select) is older than
-# <major>.<minor>. An unreadable version counts as not older.
-xcode_older_than() {
-  local want_major="$1" want_minor="$2" version major minor
-  version="$(xcodebuild -version 2>/dev/null | sed -n 's/^Xcode \([0-9][0-9.]*\).*/\1/p' | head -n 1)"
-  major="${version%%.*}"
-  minor="${version#"$major"}"
-  minor="${minor#.}"
-  minor="${minor%%.*}"
-  case "$major" in ''|*[!0-9]*) return 1 ;; esac
-  case "$minor" in ''|*[!0-9]*) minor=0 ;; esac
-  [ "$major" -lt "$want_major" ] || { [ "$major" -eq "$want_major" ] && [ "$minor" -lt "$want_minor" ]; }
-}
-
 build() {
   local derived_data="$1" source_packages="$2" cas_path="$3" log="${4:-/dev/null}"
   local -a module_cache_setting=()
@@ -171,16 +158,7 @@ build() {
   local -a schemes=()
   read -r -a schemes <<<"$(python3 "$SCRIPT_DIR/product_input_identity.py" schemes)"
   [ "${#schemes[@]}" -gt 0 ] || { echo "empty product profile scheme list" >&2; exit 1; }
-  # cmuxTests builds without the compilation cache. Under the cache its driver
-  # regenerates cmuxTests-*-ChainedBridgingHeader.h (the app's bridging header,
-  # reached through @testable import) on every build, and that newer header
-  # invalidates all ~1,100 inputs: a one-test-file edit recompiled every file
-  # (1,355 CPU s). Without the cache the driver's incremental build works: the
-  # same edit compiled one task and cmuxTests took 31 s instead of 139 s
-  # (#14249, run 36081880621, 12vcpu). Command-line settings are evaluated per
-  # target, so every other target keeps the cache and its arguments.
-  #
-  # cmuxTests also emits no Swift module. Nothing imports cmuxTests.swiftmodule,
+  # cmuxTests emits no Swift module. Nothing imports cmuxTests.swiftmodule,
   # but its separate emit-module job type-checks every declaration in ~1,000
   # files and expands every @Test macro: 26 s of a 31 s one-test-file rebuild,
   # serial. Xcode's integrated driver always emits the module separately; the
@@ -190,10 +168,21 @@ build() {
   # module job and nothing includes it. The same edit took cmuxTests 4.1 s and a
   # full cmuxTests rebuild 105 s instead of 137 s, with the same 11,758
   # enumerated tests (#14352, run 36089490735, 12vcpu).
+  # No target builds with the compilation cache. It never hit: compile
+  # admission starts every job with an empty CAS (ci-macos.yml deletes it,
+  # and no seed or owned Mac keeps it), and on 2026-09-25 21 owned admissions
+  # scored 0 to 4 hits against 138 to 4,237 misses; 12 E2E builds, which do
+  # restore their own cache, scored 0 to 28 hits against up to 2,581 misses.
+  # It cannot do better: an entry covers the whole module's sources and its
+  # dependencies' interfaces, so the files an incremental build recompiles
+  # are exactly the ones whose entries changed. Under the cache the driver
+  # also rewrote the chained bridging header on every build, which forced
+  # full cmuxTests rebuilds (#14349) and full app rebuilds before Xcode 26.6
+  # (#14359). The fingerprint names this, so no seed built with the cache is
+  # adopted by a build without it.
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   local -a cache_setting=(
-    'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
-    CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
+    COMPILATION_CACHE_ENABLE_CACHING=NO
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
     CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
     'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
@@ -202,16 +191,6 @@ build() {
     'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
     CMUX_CI_INSTALL_MODULE_cmuxTests=NO
   )
-  # Before Xcode 26.6 the app target has the same defect: under the cache the
-  # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH
-  # (identical bytes, newer mtime) on every build, so a body-only edit to one
-  # file recompiled all ~5,200 files, 448-495 s on the macOS 15 pool (Xcode
-  # 26.3). With the cache off for `cmux` the same edit compiled 2 tasks in 41 s
-  # (#14351, run 36086596738). On Xcode 26.6 the app compiles incrementally
-  # with the cache on (1 task, run 36081880621), so it keeps the cache there.
-  if xcode_older_than 26 6; then
-    cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
-  fi
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
   for scheme in "${schemes[@]}"; do
     FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \

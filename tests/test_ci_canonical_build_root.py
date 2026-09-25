@@ -413,6 +413,13 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
         ).stdout[:32]
         self.assertNotEqual(fingerprint, old)
 
+    def test_the_seed_fingerprint_names_the_compilation_cache(self):
+        # A seed built with the compilation cache reruns every Swift task when
+        # a build without it adopts it, so the two must not share a key.
+        script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text()
+        self.assertEqual(script.count('echo "compilation-cache=off"'), 2)
+        self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=NO", script)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
