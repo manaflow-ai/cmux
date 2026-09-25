@@ -2300,16 +2300,16 @@ struct ComputerUseUXTests {
             at: home,
             withIntermediateDirectories: true
         )
-        try FileManager.default.createDirectory(
-            at: sockets,
-            withIntermediateDirectories: true
-        )
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: home,
             socketRootDirectoryURL: sockets,
             userIdentifier: getuid(),
             environment: ["CMUX_TAG": "permission-replacement"],
             authenticationToken: "permission-test-token"
+        )
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
         )
         let runtime = ComputerUseRuntimeService(
             bundle: Bundle(for: NSApplication.self),
