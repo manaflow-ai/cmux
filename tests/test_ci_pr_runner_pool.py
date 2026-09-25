@@ -2390,6 +2390,15 @@ class E2EQueueRounds(unittest.TestCase):
         for label in (MINI, ROOT_MINI, self.LIGHT, self.ROOT_LIGHT):
             snap["pools"][label] = {"queued": 60, "running": 40, "committed": 99}
         self.assertEqual(self.choice("2", 0, snap).runner, LARGE)
+        # With owned pools off the reason names no owned pool.
+        choice = e2e_pool.decide(e2e_pool.PoolLoad(snap, {}, 0), e2e_pool.settings("", "", "", PR_XCODE, "2"),
+                                 now=NOW, owned_slots=self.SLOTS)
+        self.assertEqual(choice.runner, LARGE)
+        self.assertNotIn("owned", choice.reason)
+        # A stale snapshot's empty pick passes through.
+        stale = self.snapshot()
+        stale["generated_at"] = "2026-09-24T08:00:00Z"
+        self.assertEqual(self.choice("2", 0, stale).runner, "")
 
     def test_the_workflow_and_launchers_pass_the_rounds(self):
         doc = yaml.safe_load((WORKFLOWS / "test-e2e.yml").read_text())

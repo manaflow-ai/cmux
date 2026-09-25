@@ -248,8 +248,9 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
         # Blacksmith pool is the headroom rule's, as without them (the first
         # pool with a free machine, then the shorter queue in rounds).
         choice = rule(dataclasses.replace(limits, queue_rounds=0), blacksmith)
-        choice = dataclasses.replace(choice, reason=f"no owned pool within {limits.queue_rounds} queue round(s); "
-                                                    f"{choice.reason}")
+        if len(blacksmith) < len(pools):
+            choice = dataclasses.replace(choice, reason=f"no owned pool within {limits.queue_rounds} queue "
+                                                        f"round(s); {choice.reason}")
     return choice
 
 
