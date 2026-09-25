@@ -271,6 +271,9 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameInFlightAt: TimeInterval?
     /// Last summarization attempt, including failures, for cooldown enforcement.
     var autoNameLastAttemptAt: TimeInterval?
+    /// Sticky provenance marker for a title explicitly chosen by the user or
+    /// the agent's native rename command. Optional for older state files.
+    var autoNameUserOwned: Bool?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
@@ -1019,6 +1022,41 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Persists that the session's title is owned by an explicit native rename.
+    /// The marker is sticky for the session so a delayed Stop cannot resume
+    /// automatic naming after the rename hook has returned.
+    func markAutoNamingUserOwned(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            record.autoNameUserOwned = true
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
+    /// Reads the current title provenance under the session-store lock so a
+    /// rename hook racing a detached summarizer is observed before apply.
+    func isAutoNamingUserOwned(sessionId: String) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState(deadline: nil, persist: false) { state in
+            state.sessions[normalized]?.autoNameUserOwned == true
+        }
+    }
+
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
@@ -1055,7 +1093,8 @@ final class ClaudeHookSessionStore {
                 lastLineCount: record.autoNameLastLineCount,
                 lastNamedAt: record.autoNameLastNamedAt,
                 inFlightAt: record.autoNameInFlightAt,
-                lastAttemptAt: record.autoNameLastAttemptAt
+                lastAttemptAt: record.autoNameLastAttemptAt,
+                userOwned: record.autoNameUserOwned == true
             )
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
@@ -1067,7 +1106,7 @@ final class ClaudeHookSessionStore {
                 record.autoNameInFlightAt = now.timeIntervalSince1970
             case .reseedBaseline(let to):
                 record.autoNameLastLineCount = to
-            case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
+            case .skipShortTranscript, .skipUserOwned, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
                 break
             }
             record.updatedAt = Date().timeIntervalSince1970
@@ -27603,6 +27642,15 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            if let acceptedSessionId,
+               let transcriptPath = hookTranscriptPath,
+               claudeTranscriptContainsCustomTitle(path: transcriptPath) {
+                try? sessionStore.markAutoNamingUserOwned(
+                    sessionId: acceptedSessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
             if let acceptedSessionId {
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -28013,6 +28061,14 @@ struct CMUXCLI {
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
+                let prompt = parsedInput.rawObject?["prompt"] as? String
+                if AutoNamingEngine().isClaudeRenamePrompt(prompt) {
+                    try? sessionStore.markAutoNamingUserOwned(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,

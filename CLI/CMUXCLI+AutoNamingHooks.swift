@@ -2,6 +2,45 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    /// Scans Claude's JSONL transcript without loading the full file, so a
+    /// resumed session keeps its `/rename` ownership even when the record is
+    /// older than the bounded auto-name tail window.
+    func claudeTranscriptContainsCustomTitle(path: String) -> Bool {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
+            return false
+        }
+        defer { try? handle.close() }
+
+        let engine = AutoNamingEngine()
+        var pending = Data()
+        while true {
+            let chunk: Data?
+            do {
+                chunk = try handle.read(upToCount: 64 * 1024)
+            } catch {
+                break
+            }
+            guard let chunk, !chunk.isEmpty else {
+                break
+            }
+            pending.append(chunk)
+            while let newline = pending.firstIndex(of: 0x0A) {
+                let line = pending.prefix(upTo: newline)
+                pending.removeSubrange(...newline)
+                if let text = String(data: line, encoding: .utf8),
+                   engine.containsClaudeCustomTitle(inTranscriptLines: [text]) {
+                    return true
+                }
+            }
+        }
+        guard !pending.isEmpty,
+              let text = String(data: pending, encoding: .utf8) else {
+            return false
+        }
+        return engine.containsClaudeCustomTitle(inTranscriptLines: [text])
+    }
+
     /// Drives one auto-naming pass for a Claude session at turn end.
     func runClaudeAutoNameHook(
         parsedInput: ClaudeHookParsedInput,
@@ -13,6 +52,11 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
+        if mappedSession?.autoNameUserOwned == true
+            || (try? sessionStore.isAutoNamingUserOwned(sessionId: sessionId)) == true {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
+            return
+        }
         let env = ProcessInfo.processInfo.environment
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
@@ -46,8 +90,17 @@ extension CMUXCLI {
         guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
             return
         }
-        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
         let engine = AutoNamingEngine()
+        if engine.containsClaudeCustomTitle(inTranscriptLines: lines) {
+            try? sessionStore.markAutoNamingUserOwned(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
+            return
+        }
+        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -90,6 +143,10 @@ extension CMUXCLI {
             return
         }
 
+        guard (try? sessionStore.isAutoNamingUserOwned(sessionId: sessionId)) != true else {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
+            return
+        }
         guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
         confirmedTitle = applyAutoNamingTitle(
             sanitized,
