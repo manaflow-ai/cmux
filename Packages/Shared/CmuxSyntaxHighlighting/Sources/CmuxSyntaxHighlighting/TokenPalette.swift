@@ -1,9 +1,9 @@
-/// Product token colors for File Preview.
+/// Semantic token colors for File Preview.
 ///
-/// Surfaces stay on Ghostty `PanelAppearance`. These values only color
-/// tokens, the caret-line wash, and indent guides. Keyword / type / regexp
-/// channels are the published cmux product blues from `web/app/globals.css`:
-/// `#0088FF` / `#0073D9` / `#006DC1` in light, `#0091FF` in dark.
+/// Surfaces stay on Ghostty `PanelAppearance`. Built-in values provide a
+/// readable fallback; configured Ghostty ANSI colors can replace semantic
+/// token roles through ``init(ansiPalette:foreground:fallback:)``. These
+/// values also color the caret-line wash and indent guides.
 public struct TokenPalette: Sendable, Equatable {
     /// Default / unsubstituted text.
     public let foreground: TokenColor

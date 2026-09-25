@@ -1814,6 +1814,7 @@ struct FilePreviewPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
+                    terminalPalette: appearance.terminalPalette,
                     drawsBackground: appearance.drawsContentBackground,
                     gutterBackgroundColor: appearance.backgroundColor,
                     wordWrap: fileEditorWordWrap,

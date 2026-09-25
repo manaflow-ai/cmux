@@ -39,10 +39,8 @@ public struct TokenTheme: Sendable, Equatable {
     ///   - base: Light or dark Highlightr source theme.
     ///   - palette: Semantic colors to apply after tokenization.
     public init(base: TokenTheme, palette: TokenPalette) {
-        // Regression-test scaffold. The second commit wires `palette` through
-        // here; keeping the source theme metadata from `base` is intentional.
         self.init(
-            palette: base.palette,
+            palette: palette,
             highlightrThemeName: base.highlightrThemeName,
             sourceColorMap: base.sourceColorMap
         )

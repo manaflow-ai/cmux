@@ -26,6 +26,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
+    let terminalPalette: [Int: NSColor] = [:]
     let drawsBackground: Bool
     /// Opaque Ghostty panel color. The ruler is not a hole onto that
     /// surface, so it always paints this even when the text view is clear.
@@ -46,6 +47,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         Coordinator(
             panel: panel,
             filePath: filePath,
+            terminalPalette: terminalPalette,
             editorSettings: FilePreviewEditorSettings(defaults: .standard)
         )
     }
@@ -80,7 +82,12 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground,
-            gutterBackgroundColor: gutterBackgroundColor
+            gutterBackgroundColor: gutterBackgroundColor,
+            tokenTheme: TokenTheme(
+                appearance: textView.effectiveAppearance,
+                terminalPalette: terminalPalette,
+                terminalForegroundColor: themeForegroundColor
+            )
         )
         Self.applyChromeSettings(
             to: scrollView,
@@ -95,7 +102,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                 for: textView,
                 enabled: syntaxHighlighting,
                 defaultColor: themeForegroundColor,
-                force: true
+                force: true,
+                terminalPalette: terminalPalette
             )
         }
         return scrollView
@@ -105,6 +113,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         let panelIdentity = ObjectIdentifier(panel)
         let panelChanged = context.coordinator.panelIdentity != panelIdentity
         context.coordinator.filePath = filePath
+        context.coordinator.terminalPalette = terminalPalette
         let becameVisible = isVisibleInUI && !context.coordinator.isHighlightingVisible
         context.coordinator.isHighlightingVisible = isVisibleInUI
         scrollView.isHidden = !isVisibleInUI
@@ -113,7 +122,12 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground,
-            gutterBackgroundColor: gutterBackgroundColor
+            gutterBackgroundColor: gutterBackgroundColor,
+            tokenTheme: TokenTheme(
+                appearance: textView.effectiveAppearance,
+                terminalPalette: terminalPalette,
+                terminalForegroundColor: themeForegroundColor
+            )
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         context.coordinator.panel = panel
@@ -161,7 +175,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                 for: textView,
                 enabled: syntaxHighlighting,
                 defaultColor: themeForegroundColor,
-                force: contentChanged || becameVisible
+                force: contentChanged || becameVisible,
+                terminalPalette: terminalPalette
             )
         } else {
             context.coordinator.cancelHighlight()
@@ -174,7 +189,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         backgroundColor: NSColor,
         foregroundColor: NSColor,
         drawsBackground: Bool,
-        gutterBackgroundColor: NSColor? = nil
+        gutterBackgroundColor: NSColor? = nil,
+        tokenTheme: TokenTheme? = nil
     ) {
         let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
         scrollView.drawsBackground = drawsBackground
@@ -190,7 +206,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             if let font = textView.font {
                 textView.typingAttributes[.font] = font
             }
-            let tokenTheme = TokenTheme(appearance: textView.effectiveAppearance)
+            let tokenTheme = tokenTheme ?? TokenTheme(appearance: textView.effectiveAppearance)
             if let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) {
                 overlay.currentLineColor = tokenTheme.currentLineFillColor
                 overlay.indentGuideColor = tokenTheme.indentGuideColor
@@ -264,6 +280,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         var panel: PanelModel
         fileprivate var panelIdentity: ObjectIdentifier
         var filePath: String
+        var terminalPalette: [Int: NSColor]
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
         var isHighlightingVisible = false
@@ -277,11 +294,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         init(
             panel: PanelModel,
             filePath: String,
+            terminalPalette: [Int: NSColor],
             editorSettings: FilePreviewEditorSettings
         ) {
             self.panel = panel
             self.panelIdentity = ObjectIdentifier(panel)
             self.filePath = filePath
+            self.terminalPalette = terminalPalette
             self.editorSettings = editorSettings
         }
 
@@ -298,7 +317,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                     default: editorSettings.catalog.syntaxHighlighting.defaultValue
                 ),
                 defaultColor: textView.insertionPointColor,
-                force: true
+                force: true,
+                terminalPalette: terminalPalette
             )
             if let scrollView = textView.enclosingScrollView {
                 FilePreviewTextEditor<PanelModel>.refreshChrome(
@@ -327,7 +347,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                     default: editorSettings.catalog.syntaxHighlighting.defaultValue
                 ),
                 defaultColor: textView.insertionPointColor,
-                force: true
+                force: true,
+                terminalPalette: terminalPalette
             )
             if let scrollView = textView.enclosingScrollView {
                 FilePreviewTextEditor<PanelModel>.refreshChrome(
@@ -345,7 +366,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             for textView: NSTextView,
             enabled: Bool,
             defaultColor: NSColor,
-            force: Bool
+            force: Bool,
+            terminalPalette: [Int: NSColor]
         ) {
             guard isHighlightingVisible else { return }
             styler.schedule(
@@ -354,7 +376,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                 filePath: filePath,
                 enabled: enabled,
                 defaultColor: defaultColor,
-                theme: TokenTheme(appearance: textView.effectiveAppearance),
+                theme: TokenTheme(
+                    appearance: textView.effectiveAppearance,
+                    terminalPalette: terminalPalette,
+                    terminalForegroundColor: defaultColor
+                ),
                 force: force
             )
         }
