@@ -24,5 +24,8 @@ extension BrowserPanel {
         webView.contextMenuSurfacePipPanelId = { [weak self] in
             self?.id
         }
+        webView.contextMenuSurfacePipMenuAppender = { [weak webView] menu in
+            webView?.appendSurfacePipContextMenuItem(to: menu)
+        }
     }
 }
