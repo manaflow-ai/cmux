@@ -200,6 +200,31 @@ output.write_text(json.dumps(result))
         )
         if invalid_base.returncode == 0 or "fatal:" in invalid_base.stderr.lower():
             failures.append("Git diagnostics leaked through the review-source error")
+
+        # A failed filter-discovery command must abort capture rather than silently
+        # running repository clean filters without the snapshot isolation overrides.
+        failing_git_directory = root / "failing-git-bin"
+        failing_git_directory.mkdir()
+        failing_git = failing_git_directory / "git"
+        failing_git_log = root / "failing-git.log"
+        failing_git.write_text(
+            "#!/bin/sh\n"
+            f"printf '%s\\n' \"$*\" >> {str(failing_git_log)!r}\n"
+            "for argument in \"$@\"; do\n"
+            "  if [ \"$argument\" = config ]; then exit 2; fi\n"
+            "done\n"
+            "exec /usr/bin/git \"$@\"\n"
+        )
+        failing_git.chmod(0o755)
+        filter_failure_environment = dict(environment)
+        filter_failure_environment["PATH"] = str(failing_git_directory) + ":" + os.environ.get("PATH", "")
+        filter_failure = subprocess.run(
+            command, env=filter_failure_environment, text=True, capture_output=True, timeout=30,
+        )
+        if filter_failure.returncode == 0:
+            failures.append("review capture continued after filter discovery failed")
+        elif "Unable to capture review source." not in filter_failure.stderr:
+            failures.append(f"filter discovery failure leaked an unexpected review error (status={filter_failure.returncode}, stdout={filter_failure.stdout.strip()!r}, stderr={filter_failure.stderr.strip()!r}, git={failing_git_log.read_text()!r})")
     return failures
 
 
