@@ -165,10 +165,10 @@ test("existing v6 storage serves directory and relay renewal operations after ac
   expect(second.body.devices).toBe(1);
 });
 
-test("a full v6 audit ring does not turn authority renewal into internal_error", async () => {
-  const auditStub = storageNamespace.getByName("authority-renewal-v6-at-cap");
+test.each([6, 7])("a full schema %i audit ring does not turn authority renewal into internal_error", async (version) => {
+  const auditStub = storageNamespace.getByName(`authority-renewal-${version}-at-cap`);
   const auditPost = (path: string, body: unknown = {}) => postTo(auditStub, path, body);
-  expect((await auditPost("/upgrade-schema", { version: 6 })).status).toBe(200);
+  expect((await auditPost("/upgrade-schema", { version })).status).toBe(200);
   const renewalIdentity = { ...identity, userId: "renewal-cap-user", deviceId: "renewal-cap-device" };
   const renewalDescriptor = { ...descriptor, identity: renewalIdentity, endpointId: "2".repeat(64) };
   const challenge = { challengeId: "renewal-cap-challenge", nonceHash: "renewal-cap-nonce", payloadHash: "renewal-cap-payload", expiresAt: 10_000, issuedAt: 9_000 };
