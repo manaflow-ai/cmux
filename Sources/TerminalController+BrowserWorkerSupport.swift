@@ -348,7 +348,11 @@ extension TerminalController {
                     replaceSelection: replaceSelection
                 )
             }
-            return await task.value
+            return await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
         }
         guard let encodedResponse else { return nil }
         return await v2BrowserTextInputResponseWithWorkerSnapshot(
@@ -371,29 +375,37 @@ extension TerminalController {
             isV2: true,
             params: params
         )
+        let nativeTask = Task {
+            let response = await self.v2BrowserTextInputResponse(
+                request: request,
+                replaceSelection: replaceSelection
+            )
+            return response.map(BrowserTextInputSyncOutcome.response) ?? .fallback
+        }
         let outcome: BrowserTextInputSyncOutcome? = CmuxAutomationInvocationContext.$focusAllowed.withValue(allowsFocusMutation) {
             v2AwaitCallback(timeout: 15) { finish in
                 Task {
-                    let response = await self.v2BrowserTextInputResponse(
-                        request: request,
-                        replaceSelection: replaceSelection
-                    )
-                    finish(response.map(BrowserTextInputSyncOutcome.response) ?? .fallback)
+                    finish(await nativeTask.value)
                 }
             }
         }
-        switch outcome ?? .timedOut {
+        guard let outcome else {
+            nativeTask.cancel()
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "timeout",
+                message: String(
+                    localized: "cli.browser.error.requestTimedOut",
+                    defaultValue: "Browser request timed out"
+                ),
+                data: nil
+            )
+        }
+        switch outcome {
         case .response(let response):
             return response
         case .fallback:
             return nil
-        case .timedOut:
-            return Self.v2Encoder.error(
-                id: request.id,
-                code: "timeout",
-                message: "Request timed out after 15 seconds",
-                data: nil
-            )
         }
     }
 
@@ -610,6 +622,17 @@ extension TerminalController {
             return nil
         }
 
+        guard !Task.isCancelled else {
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "cancelled",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
+        }
         if replaceSelection {
             guard replayTextInputKey("Meta", in: context.webView, action: .keyDown),
                   replayTextInputKey("a", in: context.webView, action: .press),
@@ -677,6 +700,17 @@ extension TerminalController {
         }
 
         for character in nativeCharacters {
+            guard !Task.isCancelled else {
+                return Self.v2Encoder.error(
+                    id: request.id,
+                    code: "cancelled",
+                    message: String(
+                        localized: "cli.browser.error.operationFailed",
+                        defaultValue: "Browser operation failed"
+                    ),
+                    data: nil
+                )
+            }
             guard replayTextInputKey(character, in: context.webView, action: .press) else {
                 return Self.v2Encoder.response(
                     id: request.id,
@@ -757,7 +791,6 @@ extension TerminalController {
 private enum BrowserTextInputSyncOutcome: Sendable {
     case response(String)
     case fallback
-    case timedOut
 }
 
 private enum BrowserTextInputError: Error {

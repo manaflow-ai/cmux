@@ -71009,6 +71009,20 @@
         "ko": { "stringUnit": { "state": "translated", "value": "포커스된 브라우저 서피스가 없습니다" } }
       }
     },
+    "cli.browser.error.requestTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser request timed out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザリクエストがタイムアウトしました" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "浏览器请求超时" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Zeitüberschreitung bei der Browseranfrage" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Délai d’attente de la requête du navigateur dépassé" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "انتهت مهلة طلب المتصفح" } },
+        "es": { "stringUnit": { "state": "translated", "value": "La solicitud del navegador agotó el tiempo de espera" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "瀏覽器要求逾時" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "브라우저 요청 시간이 초과되었습니다" } }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {

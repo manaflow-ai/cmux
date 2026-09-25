@@ -2568,7 +2568,10 @@ class TerminalController {
                     return v2Error(
                         id: request.id.map(\.foundationObject),
                         code: "invalid_dispatch",
-                        message: "\(request.method) must run off the main thread"
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        )
                     )
                 }
                 if let response = (CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
