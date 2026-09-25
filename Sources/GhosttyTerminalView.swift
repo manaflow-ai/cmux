@@ -778,9 +778,8 @@ class GhosttyApp {
             // the CoreUI-safe numeric locale on every exit, including failures.
             numericLocaleController.pinProcessNumericLocale()
         }
-
         // Initialize Ghostty library first
-        let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+        let result = GhosttyRuntimeCInterop.initialize()
         if result != GHOSTTY_SUCCESS {
             #if DEBUG
             cmuxDebugLog("ghostty.initialize.failed result=\(result)")
@@ -5751,18 +5750,48 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghostty_surface_has_selection(surface)
     }
 
+    /// Whether `event` is the key equivalent AppKit matches against the
+    /// standard Edit ▸ Copy menu item for the active keyboard layout.
+    ///
+    /// `layoutCharacterProvider` is injectable so layout-specific routing can
+    /// be covered without installing the layout on the test host.
+    static func isStandardCopyMenuKeyEquivalent(
+        _ event: NSEvent,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> Bool {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard event.type == .keyDown, normalizedFlags == [.command] else {
+            return false
+        }
+
+        // AppKit resolves menu key equivalents through the layout's Command
+        // table, so Command-swapped layouts ("Dvorak - QWERTY ⌘") match a
+        // different character than `charactersIgnoringModifiers` reports: the
+        // physical C key reports the Dvorak "j" while the menu matched "c".
+        // Resolving the same way AppKit did keeps this guard aligned with the
+        // Copy item that actually declined the chord.
+        if let commandAwareCharacter = layoutCharacterProvider(event.keyCode, normalizedFlags),
+           !commandAwareCharacter.isEmpty,
+           commandAwareCharacter.allSatisfy(\.isASCII) {
+            return commandAwareCharacter == "c"
+        }
+
+        let rawCharacters = (event.charactersIgnoringModifiers ?? "").lowercased()
+        let resolved = rawCharacters.allSatisfy(\.isASCII)
+            ? rawCharacters
+            : (layoutCharacterProvider(event.keyCode, []) ?? rawCharacters)
+        return resolved == "c"
+    }
+
     /// Keep the standard Copy shortcut a native no-op when AppKit disables
     /// Copy. Replaying this menu miss into Ghostty lets the failed Copy binding
     /// enter its terminal-input path, which moves scrollback to the bottom when
     /// `scroll-to-bottom=keystroke` is enabled even if the terminal program
     /// does not visibly echo that input.
     func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
-        let normalizedFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard event.type == .keyDown,
-              normalizedFlags == [.command],
-              KeyboardLayout.normalizedCharacters(for: event) == "c" else {
+        guard Self.isStandardCopyMenuKeyEquivalent(event) else {
             return false
         }
         guard let surface = ensureSurfaceReadyForInput(),
@@ -6069,8 +6098,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
-            guard let surface = surface else { return false }
-            return hasCopyableTerminalSelection(surface: surface)
+            // Enabled whenever a surface exists, not gated on
+            // ghostty_surface_has_selection: that flag can report false while
+            // the runtime still holds a live selection (e.g. under constant
+            // TUI redraw), and a disabled menu item swallows Cmd+C before the
+            // runtime's own copy binding can handle it. Copy with no
+            // selection is a harmless no-op.
+            return surface != nil
         case #selector(paste(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
