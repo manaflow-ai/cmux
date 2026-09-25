@@ -128,8 +128,10 @@ It stops watching, doing nothing, when:
   that job uploaded its marker (it moved jobs onto owned root runners);
 - the run finished, or the watch limit passed.
 
-Request budget: the GITHUB_TOKEN allows about 1000 requests an hour for the
-whole repository. A run on an ephemeral pool costs a jobs listing every
+Request budget: the reads use a manaflow-glaeda-route App token when the
+workflow could mint one (READ_TOKEN; its own 5000 requests an hour), else
+GITHUB_TOKEN, which allows about 1000 requests an hour for the whole
+repository. Cancels and re-runs always use GITHUB_TOKEN (GitHub.__doc__). A run on an ephemeral pool costs a jobs listing every
 POLL_SECONDS until `changes` finishes (usually two or three) plus one artifact
 listing. A run on a persistent pool adds a jobs listing every POLL_SECONDS
 while one of its jobs waits for a runner and every IDLE_POLL_SECONDS otherwise,
@@ -395,20 +397,43 @@ class Aborted(Exception):
     pass
 
 
+def _headers(token: str) -> dict[str, str]:
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "cmux-ci-owned-pool-rescue",
+    }
+
+
 class GitHub:
-    def __init__(self, token: str, repo: str) -> None:
+    """The Actions API. Reads may use `read_token`, writes always use `token`.
+
+    `read_token` is a manaflow-glaeda-route App installation token, so the
+    watch's polling draws on the App's own 5000 requests an hour instead of
+    the repository's GITHUB_TOKEN budget. Cancels and re-runs keep
+    GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
+    which ci-macos.yml's attempt-2 routing checks. An installation token
+    lasts an hour and a watch may outlive it, so a 401 on a read drops back to
+    `token` for the rest of the watch.
+    """
+
+    def __init__(self, token: str, repo: str, read_token: str = "") -> None:
         self.repo = repo
-        self.headers = {
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "cmux-ci-owned-pool-rescue",
-        }
+        self.headers = _headers(token)
+        self.read_headers = _headers(read_token) if read_token else self.headers
 
     def request(self, method: str, path: str) -> Any:
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=self.headers)
-        with urllib.request.urlopen(request, timeout=20) as response:
-            body = response.read()
+        headers = self.read_headers if method == "GET" else self.headers
+        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                body = response.read()
+        except urllib.error.HTTPError as error:
+            if error.code != 401 or headers is self.headers:
+                raise
+            self.read_headers = self.headers
+            return self.request(method, path)
         return json.loads(body) if body else None
 
     def run(self, run_id: int) -> Mapping[str, Any]:
@@ -765,7 +790,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
                       "nothing to watch")
     repository = env.get("GITHUB_REPOSITORY") or ""
-    client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
+    client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository,
+                           read_token=env.get("READ_TOKEN") or "")
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
     if run_id:
         # Dispatched by the picker's job: read the run it names and check it
