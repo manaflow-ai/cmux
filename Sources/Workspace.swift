@@ -5050,7 +5050,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         setPreferredBrowserProfileID(browserPanel.profileID)
     }
 
-    private func syncBrowserAudioMuteStateForPanel(_ panelId: UUID, browserPanel: BrowserPanel? = nil) {
+    func syncBrowserAudioMuteStateForPanel(_ panelId: UUID, browserPanel: BrowserPanel? = nil) {
         guard let browserPanel = browserPanel ?? self.browserPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
               let tab = bonsplitController.tab(tabId),
@@ -5481,7 +5481,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
-    private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
+    func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
         let tabs = bonsplitController.tabs(inPane: paneId)
         guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
         let pinnedCount = tabs.reduce(into: 0) { count, tab in
