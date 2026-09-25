@@ -1,19 +1,19 @@
 import Foundation
 
 /// The two macOS grants read from the standalone Computer Use daemon.
-struct ComputerUsePermissionStatus: Equatable, Sendable {
-    var accessibility: Bool
-    var screenRecording: Bool
-    var isKnown: Bool
+public struct ComputerUsePermissionStatus: Equatable, Sendable {
+    public var accessibility: Bool
+    public var screenRecording: Bool
+    public var isKnown: Bool
     /// TCC attribution reported by the helper, when available.
-    var sourceAttribution: String?
+    public var sourceAttribution: String?
 
     private static let helperAttributions: Set<String> = [
         "helper-daemon",
         "driver-daemon",
     ]
 
-    init(
+    public init(
         accessibility: Bool,
         screenRecording: Bool,
         isKnown: Bool,
@@ -26,12 +26,12 @@ struct ComputerUsePermissionStatus: Equatable, Sendable {
     }
 
     /// Whether this status belongs to the standalone helper rather than cmux.
-    var helperOwnsPermissions: Bool {
+    public var helperOwnsPermissions: Bool {
         guard let sourceAttribution else { return false }
         return Self.helperAttributions.contains(sourceAttribution)
     }
 
-    init?(structuredContent: [String: Any]) {
+    public init?(structuredContent: [String: Any]) {
         guard
             let accessibility = structuredContent["accessibility"] as? Bool,
             let screenRecording = structuredContent["screen_recording"] as? Bool

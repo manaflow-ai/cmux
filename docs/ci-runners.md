@@ -210,6 +210,7 @@ names no owned pool.
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
 | `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online, idle runners carrying an owned label are that pool's free machines, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age. Any failure falls back to them |
+| `CI_OWNED_LIGHT_RETRY` | unset (off) | `1` lets attempt 2, the full re-run the rescue starts for a job stuck on a full `std` pool, take the `light` pool when the run's whole owned peak is free there and `github-actions[bot]` started the re-run (a person's re-run of attempt 2 stays on Blacksmith). The rescue watches that attempt like attempt 1, and a job stuck or refused there goes to Blacksmith on attempt 3. Only while it is on do the janitor and the picker look up attempt 2's marker. Order: std, light, Blacksmith |
 
 Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label or class with a
 positive whole number of machines counts as none. A full label wins over its
@@ -229,6 +230,22 @@ root count every job keeps the pool label. The CLI pipe, remote daemon and
 Claude wrapper lanes always do. A root count above its pool's is an error.
 With 8 std minis and 2 light ones:
 `{"std": 32, "light": 4, "root-std": 8, "root-light": 2}`.
+
+Warm affinity (`CI_OWNED_WARM_LABELS=1`, off by default): an owned Mac keeps
+compile admission's DerivedData, and admission uploads the main commits that
+build starts from cheaply (`owned_build_state.py warm-keys`). When the CI run
+completes, `ci-owned-warm-labels.yml` (from main, with the route App's
+administration: write) labels the runner that ran admission
+`glaeda-warm-<sha12>` for each, at most 4, and removes those labels from the
+other runners of its root pool, so one runner per pool carries each commit.
+With live runners, the picker sends a run's admission to
+`["<root label>", "glaeda-warm-<merge base sha12>"]` when an idle root runner
+carries that label (the `admission_runner` output, attempt 1 only); otherwise
+admission takes the root label as before. The picker also reads the variable, so
+turning it off ignores labels already set. v1 matches the merge base exactly;
+it does not rank runners by commit distance. A warm runner taken between the
+pick and the queue leaves admission waiting, and the rescue moves it to
+Blacksmith like any other stuck owned job.
 
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it
@@ -472,6 +489,27 @@ router, and `CI_PERSISTENT_MAC_COMPILE`) was retired before it routed any
 pull request.
 Owned minis serve pull request runs through the pool picker instead; see
 "Pull request pool preference" above.
+
+### Side lanes on owned minis
+
+Seven light macOS jobs outside `ci.yml` have no picker: iroh-v2 `client`,
+cloud-command-deadlines `command-regressions`, terminal-hang-diagnostics
+`portal-reconciliation` and `phase-attribution`, cloud-task-local-tests and
+cloud-machine-tests `lifecycle`, relay-tls `diagnostic-presentation`, and
+auth-refresh-tests. Each is `swift test` or `swiftc` into the workspace or a
+temporary directory, with no GUI, keychain, fixed port or canonical root.
+When `vars.CI_SIDE_LANE_RUNNER` names a `glaeda-side-<class>-xcode-<version>`
+label and `CI_PR_POOL_OWNED` is 1, attempt 1 of a same-repository pull request
+run takes that label. glaeda puts it only on a mini's non-root runners, so a
+side lane never holds a root runner a compile or app-host job is waiting for,
+and glaeda's hook classes these job ids as light. Forks, retries and other
+events keep the Blacksmith default. ci-owned-pool-rescue.yml watches these
+runs while the variable is set and re-runs a job that waits past
+`CI_OWNED_POOL_RESCUE_SECONDS`, or is refused, on Blacksmith.
+
+relay-tls `system-keychain` (it changes the System keychain trust store),
+plain-paste-worker (macOS 15 only) and app-host-test-rerun (a fixed canonical
+root) stay on Blacksmith. Clear the variable to send every side lane back.
 
 ## Tart isolation and capacity
 

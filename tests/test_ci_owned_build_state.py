@@ -295,6 +295,102 @@ class Replay(Fixture):
         self.assertNotEqual(state.RECORD, state.seed.MANIFEST)
 
 
+class Prefer(Fixture):
+    """A warm Mac adopts a seed instead when the seed rebuilds less."""
+
+    def setUp(self):
+        super().setUp()
+        self.cache = Path(self.tmp.name) / "seeds"
+        self.env = unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.cache),
+                                                          "CMUX_SEED_SWIFT_JOBS": "14"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        (self.workspace / "Sources").mkdir()
+        for index in range(6):
+            (self.workspace / "Sources" / f"F{index}.swift").write_text(f"let f{index} = 0\n")
+
+    def recorded(self, changed):
+        """A record of the workspace with CHANGED files edited since."""
+        record = state.seed.warm.record(self.workspace)
+        for index in range(changed):
+            record[f"Sources/F{index}.swift"] = ["stale", 1]
+        return record
+
+    def kept(self, changed):
+        (self.store / "derived-data").mkdir(parents=True)
+        (self.store / "derived-data" / state.RECORD).write_text(json.dumps(self.recorded(changed)))
+
+    def kept_seed(self, key, changed):
+        (self.cache / key).mkdir(parents=True)
+        (self.cache / key / state.seed.MANIFEST).write_text(json.dumps(self.recorded(changed)))
+
+    def prefer(self, located=("p-j14-base", 0), max_distance=None):
+        with unittest.mock.patch.object(state.seed, "locate", return_value=located), \
+             unittest.mock.patch.object(state.seed, "lineage", return_value=["base", "older", "oldest"]):
+            return state.prefer(self.store, self.workspace, "p-", "base", max_distance)
+
+    def test_changed_inputs_counts_edits_additions_and_deletions(self):
+        now = {"a": ["1", 0], "b": ["2", 0], "dir/": ["x", 0], ".ci-source-packages/p": ["9", 0]}
+        then = {"a": ["1", 5], "b": ["3", 0], "c": ["4", 0], "dir/": ["y", 0]}
+        self.assertEqual(state.changed_inputs(now, then), 2)
+
+    def test_a_kept_seed_with_fewer_changed_inputs_wins(self):
+        self.kept(changed=5)
+        self.kept_seed("p-j14-base", changed=1)
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["kept_changed"], result["seed_changed"], result["local"]),
+                         ("true", "5", "1", "true"))
+
+    def test_the_kept_derived_data_wins_a_tie_or_better(self):
+        self.kept(changed=1)
+        self.kept_seed("p-j14-base", changed=1)
+        self.assertEqual(self.prefer()["prefer"], "false")
+
+    def test_a_seed_to_download_wins_only_within_max_distance(self):
+        self.kept(changed=3)
+        self.assertEqual(self.prefer(("p-j14-base", 2))["prefer"], "false")
+        self.assertEqual(self.prefer(("p-j14-base", 2), max_distance=2)["prefer"], "true")
+        self.assertEqual(self.prefer(("p-j14-base", 3), max_distance=2)["prefer"], "false")
+
+    def test_an_unchanged_kept_derived_data_is_never_replaced_by_a_download(self):
+        self.kept(changed=0)
+        self.assertEqual(self.prefer(("p-j14-base", 0), max_distance=5)["prefer"], "false")
+
+    def test_no_seed_or_no_record(self):
+        self.kept(changed=3)
+        self.assertEqual(self.prefer(("p-j14-base", None), max_distance=5)["prefer"], "false")
+        (self.store / "derived-data" / state.RECORD).unlink()
+        self.assertEqual(self.prefer(("p-j14-base", 9))["prefer"], "false")
+        self.assertEqual(self.prefer(("p-j14-base", 9), max_distance=10)["prefer"], "true")
+        self.kept_seed("p-j12-oldest", changed=4)
+        result = self.prefer(("p-j14-base", None))
+        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j12-oldest"))
+
+    def test_the_nearest_kept_seed_counts_not_only_the_newest_in_the_bucket(self):
+        """The bucket's nearest seed moves with every reseed; a warm Mac that
+        never downloads keeps an older one, which still counts."""
+        self.kept(changed=5)
+        self.kept_seed("p-j14-oldest", changed=4)
+        self.kept_seed("p-j12-older", changed=2)
+        result = self.prefer(("p-j14-base", 0))
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_distance"], result["local"]),
+                         ("true", "p-j12-older", "1", "true"))
+        # The adopt that follows clones exactly that seed, never a newer one.
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": result["seed_key"],
+                                                   "CMUX_SEED_DISTANCE": result["seed_distance"]}):
+            self.assertEqual(state.seed.chosen(), ("p-j12-older", 1))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": "p-j14-gone"}):
+            self.assertIsNone(state.seed.chosen())
+
+    def test_any_error_keeps_the_warm_path(self):
+        output = Path(self.tmp.name) / "output"
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
+             unittest.mock.patch.object(state.seed, "locate", side_effect=RuntimeError("boom")), \
+             unittest.mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(state.main(["x", "prefer", str(self.store), str(self.workspace), "p-", "base", "local"]), 0)
+        self.assertIn("prefer=false", output.read_text())
+
+
 class WorkflowCommandLines(unittest.TestCase):
     """Run every owned_build_state.py line of the workflow as written (run 36064525977 exited 2)."""
 
@@ -305,7 +401,8 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        self.assertEqual(len(calls), 5)
+        # check, prefer, adopt, record, keep, warm-keys (skipped until the script has it), save.
+        self.assertEqual(len(calls), 7)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / "derived").mkdir()
@@ -359,6 +456,22 @@ class Wiring(unittest.TestCase):
         self.assertIn("steps.owned-state.outputs.warm != 'true'", self.step("Start the DerivedData seed download")["if"])
         self.assertIn("steps.owned-state.outputs.packages != 'true'", self.by_id["swift-package-cache"]["if"])
 
+    def test_a_near_seed_replaces_the_kept_state_only_when_asked_and_it_hits(self):
+        prefer = self.by_id["prefer-seed"]
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", prefer["if"])
+        self.assertIn("vars.CI_OWNED_PREFER_SEED != ''", prefer["if"])
+        self.assertIs(prefer.get("continue-on-error"), True)
+        for step in (self.by_id["seed-derived-data"], self.step("Start the DerivedData seed download")):
+            self.assertIn("steps.prefer-seed.outputs.prefer == 'true'", step["if"])
+            self.assertIn("CMUX_SEED_LOCAL_CACHE", step["env"])
+            self.assertIn("steps.prefer-seed.outputs.seed_key", step["env"]["CMUX_SEED_EXACT"])
+        # A preferred seed that misses still leaves the Mac warm.
+        self.assertIn("steps.seed-derived-data.outputs.hit != 'true'", self.by_id["owned-adopt"]["if"])
+        index = self.names.index
+        self.assertLess(index("Reuse this owned Mac's build state"), index("Prefer a near seed over this owned Mac's DerivedData"))
+        self.assertLess(index("Prefer a near seed over this owned Mac's DerivedData"), index("Start the DerivedData seed download"))
+        self.assertLess(index("Adopt the nightly DerivedData seed"), index("Adopt this owned Mac's DerivedData"))
+
     def test_the_product_key_does_not_see_owned_state(self):
         # product_input_identity fingerprints every step it does not list as
         # non-product, comment lines after a step included. Owned state must
@@ -366,9 +479,11 @@ class Wiring(unittest.TestCase):
         import product_input_identity as identity
 
         text = (ROOT / ".github/workflows/ci-macos.yml").read_text()
-        for name in ("Reuse this owned Mac's build state", "Adopt this owned Mac's DerivedData",
+        for name in ("Reuse this owned Mac's build state", "Prefer a near seed over this owned Mac's DerivedData",
+                     "Adopt this owned Mac's DerivedData",
                      "Record this owned Mac's build inputs", "Keep this owned Mac's DerivedData",
-                     "Keep this owned Mac's build state"):
+                     "Keep this owned Mac's build state", "List the commits this owned Mac starts from warm",
+                     "Upload the owned Mac's warm keys"):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
