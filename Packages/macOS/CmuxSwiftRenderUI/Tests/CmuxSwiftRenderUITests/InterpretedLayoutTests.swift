@@ -75,8 +75,12 @@ struct InterpretedLayoutTests {
         host.layoutSubtreeIfNeeded()
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
+        #if compiler(>=6.2)
+        Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])), named: "sidebar-viewport.png")
+        #endif
         let red = try #require(colorBounds(bitmap, red: true))
         let blue = try #require(colorBounds(bitmap, red: false))
+        print("Sidebar viewport: host=\(host.frame) red=\(red) blue=\(blue)")
         // Host padding reserves 8 points above and 16 below the authored view.
         #expect(abs(blue.minY - red.minY) >= CGFloat(bitmap.pixelsHigh) * 0.75)
     }
@@ -103,9 +107,9 @@ struct InterpretedLayoutTests {
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
-                      color.alphaComponent > 0.9, color.greenComponent < 0.5,
-                      red ? color.redComponent > 0.7 && color.blueComponent < 0.5
-                          : color.blueComponent > 0.7 && color.redComponent < 0.5 else { continue }
+                      color.alphaComponent > 0.9,
+                      red ? color.redComponent > color.greenComponent + 0.3 && color.redComponent > color.blueComponent + 0.3
+                          : color.blueComponent > color.greenComponent + 0.3 && color.blueComponent > color.redComponent + 0.3 else { continue }
                 let pixel = CGRect(x: x, y: y, width: 1, height: 1)
                 result = result.map { $0.union(pixel) } ?? pixel
             }
