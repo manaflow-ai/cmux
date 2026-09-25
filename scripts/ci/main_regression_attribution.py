@@ -428,7 +428,14 @@ def job_failures(
     return failures, shards, ungraded
 
 
-SHARD_INPUTS = ("cmuxTests", "scripts/ci/cmux-unit-test-timings.json", "scripts/ci/cmux_unit_test_shard.py")
+# What decides which physical shard runs a test. The lane env vars in
+# ci-macos.yml also do, but that file changes too often to gate on.
+SHARD_INPUTS = (
+    "cmuxTests",
+    "scripts/ci/cmux-unit-test-timings.json",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/run-app-host-unit-batches.sh",
+)
 
 
 def shard_map_changed(root: Path, base: str, head: str) -> bool:
