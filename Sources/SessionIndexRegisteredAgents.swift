@@ -426,7 +426,7 @@ extension SessionIndexStore {
         limit: Int
     ) async -> [SessionEntry] {
         if registration.id == CmuxVaultAgentRegistration.builtInKiro.id {
-            return loadKiroEntries(
+            return await loadKiroEntries(
                 registration: registration, needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit
             )
         }

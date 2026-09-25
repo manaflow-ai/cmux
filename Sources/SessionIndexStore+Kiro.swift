@@ -8,7 +8,7 @@ extension SessionIndexStore {
         cwdFilter: String?,
         offset: Int,
         limit: Int
-    ) -> [SessionEntry] {
+    ) async -> [SessionEntry] {
         guard offset >= 0, limit > 0, let configuredRoot = registration.sessionDirectory else { return [] }
         let (target, overflow) = offset.addingReportingOverflow(limit)
         guard !overflow else { return [] }
@@ -45,6 +45,19 @@ extension SessionIndexStore {
             return $0.metadata.lastPathComponent < $1.metadata.lastPathComponent
         }
 
+        // Search the transcript corpus once with ripgrep. This avoids reading
+        // every transcript synchronously for each candidate and lets us limit
+        // title extraction to sessions that actually match the query. If rg is
+        // unavailable, the loop below falls back to the Foundation scan.
+        let ripgrepMatches: Set<String>?
+        if needle.isEmpty {
+            ripgrepMatches = nil
+        } else if let paths = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
+            ripgrepMatches = Set(paths.map { $0.standardizedFileURL.path })
+        } else {
+            ripgrepMatches = nil
+        }
+
         var entries: [SessionEntry] = []
         var seen = Set<String>()
         for candidate in candidates.prefix(searchMaxFiles) {
@@ -55,21 +68,30 @@ extension SessionIndexStore {
             let rawCWD = (metadata["cwd"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let cwd = rawCWD?.isEmpty == false ? rawCWD : nil
             if let cwdFilter, cwd != cwdFilter { continue }
+
+            let metadataMatches = needle.isEmpty || [sessionID, cwd ?? ""].contains {
+                $0.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+            }
+            let transcriptMatches: Bool
+            if needle.isEmpty {
+                transcriptMatches = true
+            } else if let ripgrepMatches {
+                transcriptMatches = candidate.transcript.map {
+                    ripgrepMatches.contains($0.standardizedFileURL.path)
+                } ?? false
+            } else {
+                transcriptMatches = candidate.transcript.map { fileContains($0, needle: needle) } ?? false
+            }
+            // Avoid reading a transcript to derive its title unless metadata or
+            // the transcript itself has already matched the query.
+            guard metadataMatches || transcriptMatches else { continue }
+
             var title = ""
             if let transcript = candidate.transcript {
                 _ = SessionIndexJSONLReader().fromStart(url: transcript, maxBytes: 512 * 1024) { object in
                     guard let record = KiroTranscriptRecord(object: object), record.role == .user else { return false }
                     title = String(record.text.prefix(500))
                     return true
-                }
-            }
-            if !needle.isEmpty {
-                let metadataMatches = [sessionID, cwd ?? "", title].contains {
-                    $0.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-                }
-                if !metadataMatches {
-                    guard let transcript = candidate.transcript,
-                          fileContains(transcript, needle: needle) else { continue }
                 }
             }
             guard seen.insert(sessionID).inserted else { continue }
