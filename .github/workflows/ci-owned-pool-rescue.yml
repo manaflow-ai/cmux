@@ -1,5 +1,5 @@
 name: CI persistent pool rescue
-run-name: owned-pool-rescue-${{ inputs.run_id || github.event.workflow_run.id }}-${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
 
 # pr_runner_pool.py may put a pull request run's macOS jobs on a persistent
 # pool (owned Macs). GitHub never re-routes a queued job, so when that pool is
@@ -11,19 +11,22 @@ run-name: owned-pool-rescue-${{ inputs.run_id || github.event.workflow_run.id }}
 # instead, which moves them to the picker's retry_runner on Blacksmith.
 # scripts/ci/owned_pool_rescue.py has the rules.
 #
-# A dispatch starts it for the busy sources: the owned-pool-watch job of
-# ci.yml, test-e2e.yml and test-ios.yml dispatches it on main with the run's
-# id, only when the picker placed jobs on an owned pool. A run on an ephemeral
-# pool, a fork, a push or a retry attempt starts no watcher, so there is no
-# rescue workflow run for it at all. Until 2026-09-25 this was a workflow_run
-# `requested` consumer of every source and started for every run: 578 runs
-# from 2026-09-24 to 09-25 05:00 UTC, 361 of which were skipped (fork pull
-# requests) or found no owned pool. The script reads the run from the API and
-# applies the checks the event filter did (ci.yml, a same-repository pull
-# request run or main's full-suite dispatch, which pr_runner_pool.py places
-# like one, or a dispatch of a DISPATCH_WORKFLOW_PATHS workflow; attempt 1),
-# so a dispatch naming any other run does nothing. Only attempt 1 is
-# watched, so the re-run this workflow starts is never watched twice.
+# One sweeper watches the busy sources (SWEEP=1, owned_pool_rescue.sweep()).
+# The pickers of ci.yml, test-e2e.yml and test-ios.yml upload an
+# `owned-pool-watch` artifact when they place attempt 1 on an owned pool, and
+# ci-macos.yml's late-placement an `owned-pool-watch-late` one when it moves
+# jobs onto one; every minute the sweeper lists both names repository-wide
+# and gives each new run a thread running the per-run watch. Until
+# 2026-09-25 each such run had its own owned-pool-watch job, a "Watch owned
+# pool jobs" check on the pull request, dispatching its own rescue run: 263
+# rescue runs in the 2 hours to 12:30 UTC, and 59 of the last 60 did nothing.
+# A sweeper adopts runs for 5 hours, then stops its watches and gives a
+# rescue it started 25 minutes to settle. The two-hourly cron queues the next
+# one in the concurrency group, which for sweepers never cancels in progress,
+# so it starts as the old one ends and a started rescue is never killed. A
+# run the old one re-ran is resumed at attempt 2, and a run refused while no
+# sweeper ran is still found by its marker. A dispatch without run_id starts
+# a sweeper by hand; one with run_id watches that run alone.
 #
 # Two kinds of source keep the workflow_run trigger:
 # - ios-screenshots.yml: release.yml calls it with only `contents: read`, so a
@@ -41,6 +44,8 @@ run-name: owned-pool-rescue-${{ inputs.run_id || github.event.workflow_run.id }}
 # null == '0' in an expression. It only polls, so it runs on a GitHub-hosted
 # runner rather than holding a slot in CI's Linux pool.
 on:
+  schedule:
+    - cron: "17 */2 * * *"
   workflow_run:
     workflows:
       - iOS App Store screenshots
@@ -57,8 +62,9 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: The CI, E2E or iOS run to watch
-        required: true
+        description: One CI, E2E or iOS run to watch (empty starts a sweeper)
+        required: false
+        default: ""
         type: string
       run_attempt:
         description: The attempt that placed jobs on an owned pool
@@ -85,18 +91,19 @@ env:
     .github/workflows/terminal-hang-diagnostics.yml
 
 concurrency:
-  group: owned-pool-rescue-${{ inputs.run_id || github.event.workflow_run.id }}-${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
-  cancel-in-progress: true
+  group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
+  # A queued sweeper waits for the running one: its rescues are never killed.
+  cancel-in-progress: ${{ !(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) }}
 
 jobs:
   rescue:
-    name: Rescue a run stuck on a persistent pool
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'pull_request' && startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
+    name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'pull_request' && startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
-    # The watch limit is 60 minutes (150 for an E2E run), reads may retry, and
-    # a rescue may run 25 more for a cancel to settle and the re-run
-    # (JOB_TIMEOUT_SECONDS in the script).
-    timeout-minutes: 180
+    # A sweeper adopts runs for 300 minutes and gives a rescue 25 more to
+    # settle (SWEEP_SECONDS, RESCUE_GRACE_SECONDS). A single run's watch is
+    # at most 150 minutes plus the same grace (JOB_TIMEOUT_SECONDS).
+    timeout-minutes: 340
     permissions:
       actions: write
       contents: read
@@ -108,7 +115,7 @@ jobs:
           ref: main
           persist-credentials: false
 
-      - name: Watch the run's persistent pool jobs
+      - name: Watch runs on persistent pools
         env:
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
@@ -116,6 +123,7 @@ jobs:
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
+          SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
           LATE_PLACEMENT: ${{ inputs.late }}
           # 1: a stuck run's full re-run may take the light pool; watch it.

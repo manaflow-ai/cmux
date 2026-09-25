@@ -118,7 +118,7 @@ jobs:
     # takes the pool label alone. Otherwise, and for an ios_version run, the
     # default holds. `owned` forces the owned pool for a proof run. A job an
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
-    # (started by owned-pool-watch), and every re-run attempt takes retry_runs_on (Blacksmith).
+    # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -137,9 +137,6 @@ jobs:
       # mobile-core-package needs no simulator: the pool label alone.
       package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
-      # 'true' when the run uploaded the persistent pool marker: owned-pool-watch
-      # starts ci-owned-pool-rescue.yml for it.
-      owned_marker: ${{ steps.marker.outputs.path != '' }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -224,27 +221,16 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
-  owned-pool-watch:
-    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `runner`
-    # job put it on an owned Mac; any other run creates no rescue workflow
-    # run. The only job here with Actions write; it runs no repository code.
-    # Fail-safe: if the dispatch fails the run is only not watched.
-    name: Watch owned pool jobs
-    needs: runner
-    if: ${{ needs.runner.outputs.owned_marker == 'true' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Dispatch the persistent pool rescue
+      # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
+      # it watches by this fixed name, one listing for all of them.
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
 
   detect-ios-changes:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

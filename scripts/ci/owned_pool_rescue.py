@@ -6,9 +6,11 @@ pr_runner_pool.py picks one pool per run. When that pool is owned (a
 it names in `owned_jobs` take it and the rest take retry_runner (Blacksmith).
 GitHub never re-routes a queued job: one on the owned pool waits for it
 however long the pool stays busy. ci-owned-pool-rescue.yml runs this script
-from the default branch, with Actions write, when the picker's job dispatches
-it with the run's id (WATCH_RUN_ID) after placing jobs on an owned pool. The
-script reads that run and checks it as it would a workflow_run event's run.
+from the default branch, with Actions write, as one sweeper (SWEEP=1,
+sweep()): it finds the runs placed on an owned pool by their fixed-name
+markers and gives each a thread running follow(), the per-run watch described
+below. A dispatch with a run's id (WATCH_RUN_ID) watches that run alone,
+checked as a workflow_run event's run would be.
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
@@ -162,6 +164,7 @@ import http.client
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -409,7 +412,20 @@ class GitHub:
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=self.headers)
         with urllib.request.urlopen(request, timeout=20) as response:
             body = response.read()
+            self.remaining = response.headers.get("X-RateLimit-Remaining") or self.remaining
         return json.loads(body) if body else None
+
+    remaining = ""  # the token's requests left this hour, from the last response
+
+    def marked_runs(self, name: str, count: int) -> list[tuple[int, dt.datetime | None]]:
+        """Runs with an artifact named `name`, newest first, with when each was uploaded (sweep())."""
+        data = self.request("GET", f"/actions/artifacts?name={name}&per_page={count}")
+        found = []
+        for item in (data or {}).get("artifacts") or []:
+            run_id = int(((item or {}).get("workflow_run") or {}).get("id") or 0)
+            if run_id:
+                found.append((run_id, parse_time(item.get("created_at"))))
+        return found
 
     def run(self, run_id: int) -> Mapping[str, Any]:
         return self.request("GET", f"/actions/runs/{run_id}")
@@ -769,6 +785,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                       "nothing to watch")
     repository = env.get("GITHUB_REPOSITORY") or ""
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
+    if (env.get("SWEEP") or "").strip() == "1":
+        # One job for every marked run (sweep()); its per-run lines go to the log only.
+        outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
+                         light_retry=light_retry, now=clock, log=lambda text: print(text, flush=True))
+        return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
+                                   or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
     if run_id:
         # Dispatched by the picker's job: read the run it names and check it
@@ -789,6 +811,31 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if ((env.get("LATE_PLACEMENT") or "").strip() == "1" and target.attempt == 1
             and not (target.e2e or target.main or target.side)):
         target = dataclasses.replace(target, late=True)
+    try:
+        return finish(follow(client, target, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
+                             light_retry=light_retry, now=clock, sleep=sleep, log=log))
+    except (*READ_ERRORS, Aborted) as error:
+        # A failed watch leaves the run exactly as GitHub scheduled it.
+        finish(f"gave up: {error}")
+        return 1
+
+
+def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | None, light_retry: bool,
+           now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
+           rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None) -> str:
+    """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
+
+    The sweeper stops a watch by making `sleep` raise; a rescue paces itself
+    with `rescue_sleep` (default `sleep`) so a cancel it started is always
+    followed by its re-run, and `latest` caps the rescue deadline at the
+    sweeper's end plus its grace.
+    """
+    rescue_sleep = rescue_sleep or sleep
+    clock = now
+
+    def capped(deadline: dt.datetime) -> dt.datetime:
+        return min(deadline, latest) if latest is not None else deadline
+
     subject = (f"pull request #{target.pr_number}'s {target.path}" if target.pr_number else
                "an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
@@ -797,7 +844,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         subject += " (side lane)"
     # Only ci.yml's picker queues on purpose, and says so with a marker (see the docstring).
     # A CI run's owned jobs may wait up to the pool's expected wait (see the docstring).
-    queue_extra = queue_seconds(env.get("QUEUE_ROUNDS")) if target.path == CI_WORKFLOW_PATH else 0
+    queue_extra = queue_seconds(queue_rounds) if target.path == CI_WORKFLOW_PATH else 0
     log(f"watching run {target.run_id} of {subject} (budget {seconds + queue_extra}s"
         + (f": {seconds}s past the {queue_extra}s an owned job may expect to wait)" if queue_extra else ")"))
     # A watch deadline for attempt 1, and a fresh one (capped by the job's
@@ -806,48 +853,165 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # time to settle and re-run.
     started = clock()
     deadline = started + dt.timedelta(seconds=target.watch_limit)
-    rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
-    try:
-        outcome, reason = watch(client, target, budget_seconds=seconds + queue_extra, now=clock, sleep=sleep,
-                                log=log, deadline=deadline, floor_seconds=seconds)
+    rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
+    first_budget = seconds + queue_extra if target.attempt == 1 else seconds
+    outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
+                            log=log, deadline=deadline, floor_seconds=seconds if target.attempt == 1 else None)
+    if outcome not in ("rescue", "refused"):
+        return f"stopped: {reason}"
+    log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
+    while True:
+        # From attempt 2 on, keep what passed: only the owned jobs are moved.
+        # An E2E run always keeps what passed (see the module docstring).
+        # A side-lane run too: its other jobs are on Blacksmith already.
+        failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
+        result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
+                        deadline=rescue_deadline,
+                        refused=(outcome == "refused") if target.e2e or target.side else None)
+        log(result)
+        # A side lane's re-run never takes an owned label, so there is nothing more to watch.
+        if target.side or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
+            return "done"
+        # The re-run may take the owned pool once more: a refused job's
+        # re-run reuses the owned label, and a stuck run's full re-run may
+        # take the light tier (CI_OWNED_LIGHT_RETRY). Watch it here. A
+        # full re-run without the variable never holds an owned machine.
+        if not failed_only and not light_retry:
+            return "done"
+        target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only, late=False)
+        # The followed attempt gets its own watch: a late rescue of attempt 1
+        # would otherwise leave it the tail of attempt 1's, ending before its
+        # owned jobs even queue. The job's timeout still caps watch plus grace.
+        deadline = min(clock() + dt.timedelta(seconds=target.watch_limit), started + dt.timedelta(
+            seconds=JOB_TIMEOUT_SECONDS - RESCUE_GRACE_SECONDS - JOB_TIMEOUT_MARGIN_SECONDS))
+        rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
+        outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
+                                deadline=deadline)
         if outcome not in ("rescue", "refused"):
-            return finish(f"stopped: {reason}")
-        log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
-        while True:
-            # From attempt 2 on, keep what passed: only the owned jobs are moved.
-            # An E2E run always keeps what passed (see the module docstring).
-            # A side-lane run too: its other jobs are on Blacksmith already.
-            failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
-            result = rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only,
-                            deadline=rescue_deadline,
-                            refused=(outcome == "refused") if target.e2e or target.side else None)
-            log(result)
-            # A side lane's re-run never takes an owned label, so there is nothing more to watch.
-            if target.side or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
-                return finish("done")
-            # The re-run may take the owned pool once more: a refused job's
-            # re-run reuses the owned label, and a stuck run's full re-run may
-            # take the light tier (CI_OWNED_LIGHT_RETRY). Watch it here. A
-            # full re-run without the variable never holds an owned machine.
-            if not failed_only and not light_retry:
-                return finish("done")
-            target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only)
-            # The followed attempt gets its own watch: a late rescue of attempt 1
-            # would otherwise leave it the tail of attempt 1's, ending before its
-            # owned jobs even queue. The job's timeout still caps watch plus grace.
-            deadline = min(clock() + dt.timedelta(seconds=target.watch_limit), started + dt.timedelta(
-                seconds=JOB_TIMEOUT_SECONDS - RESCUE_GRACE_SECONDS - JOB_TIMEOUT_MARGIN_SECONDS))
-            rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
-            outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
-                                    deadline=deadline)
-            if outcome not in ("rescue", "refused"):
-                return finish(f"stopped watching attempt {target.attempt}: {reason}")
-            log(f"attempt {target.attempt}: {'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
-    except (*READ_ERRORS, Aborted) as error:
-        # A failed watch leaves the run exactly as GitHub scheduled it.
-        finish(f"gave up: {error}")
-        return 1
+            return f"stopped watching attempt {target.attempt}: {reason}"
+        log(f"attempt {target.attempt}: {'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
 
+
+# The sweeper (SWEEP=1). The pickers of ci.yml, test-e2e.yml and test-ios.yml
+# upload an artifact named WATCH_MARKER when they place attempt 1 on an owned
+# pool, and ci-macos.yml's late-placement uploads LATE_WATCH_MARKER when it
+# moves jobs onto one. Listing each name repository-wide is one request that
+# names every such run, finished or not, so one job watches them all: each
+# run gets a thread running follow(), the per-run watch.
+WATCH_MARKER = "owned-pool-watch"
+LATE_WATCH_MARKER = "owned-pool-watch-late"
+SWEEP_TICK_SECONDS = 60
+# A sweeper adopts runs this long, then stops its watches and gives any rescue
+# it started RESCUE_GRACE_SECONDS. ci-owned-pool-rescue.yml's two-hourly cron
+# queues the next one in the concurrency group, so it starts as this one
+# ends, and one dropped cron still leaves one queued.
+SWEEP_SECONDS = 5 * 60 * 60
+# Older runs are left alone: their watch would be past its limit. A run that
+# finished (a refusal) during a handover is still inside it, so the next
+# sweeper re-runs it.
+SWEEP_MAX_AGE_SECONDS = E2E_WATCH_LIMIT_SECONDS
+# A marker listing covers this many runs, newest first: about two hours of
+# owned placements on 2026-09-25.
+SWEEP_LISTING = 100
+
+
+class Stopping(Aborted):
+    pass
+
+
+def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool) -> Target | str:
+    """The target for a marked run, resuming the attempt its rescue re-ran (LAST_OWNED_ATTEMPT at most)."""
+    attempt = int(run.get("run_attempt") or 0)
+    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT:
+        return f"attempt {attempt}"
+    target = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
+    if isinstance(target, str):
+        return target
+    if attempt > 1:
+        # A re-run of failed jobs (a rescue, or a person): follow its owned jobs, if any.
+        return dataclasses.replace(target, attempt=attempt)
+    if late and not (target.e2e or target.main or target.side):
+        return dataclasses.replace(target, late=True)
+    return target
+
+
+def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | None, light_retry: bool,
+          now: Callable[[], dt.datetime], log: Callable[[str], None],
+          sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
+          wait: Callable[[float], None] = time.sleep) -> dict[str, int]:
+    """Watch every marked run until `sweep_seconds` pass. Returns outcome counts."""
+    stopping = threading.Event()
+    lock = threading.Lock()
+    outcomes: dict[str, int] = {}
+    seen: set[int] = set()
+    threads: list[threading.Thread] = []
+    started = now()
+    latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
+
+    def watch_sleep(delay: float) -> None:
+        if stopping.wait(delay):
+            raise Stopping("the sweeper is handing over")
+
+    def one(target: Target) -> None:
+        def say(text: str) -> None:
+            log(f"[run {target.run_id}] {text}")
+        try:
+            outcome = follow(client, target, seconds=seconds, queue_rounds=queue_rounds, light_retry=light_retry,
+                             now=now, sleep=watch_sleep, log=say, rescue_sleep=wait, latest=latest)
+        except Stopping:
+            outcome = "handed over"
+        except (*READ_ERRORS, Aborted) as error:
+            outcome = "gave up"
+            say(f"gave up: {error}")
+        except Exception as error:  # noqa: BLE001 - one run's bug must not end every other watch
+            outcome = "error"
+            say(f"error: {type(error).__name__}: {error}")
+        else:
+            say(outcome)
+        with lock:
+            key = outcome.split(":")[0]
+            outcomes[key] = outcomes.get(key, 0) + 1
+
+    def adopt(run_id: int, late: bool) -> None:
+        seen.add(run_id)
+        try:
+            run = read(lambda: client.run(run_id), wait, log)
+        except READ_ERRORS as error:
+            seen.discard(run_id)  # the next tick tries again
+            log(f"[run {run_id}] could not read the run ({error})")
+            return
+        target = sweep_target(run, repository, late=late)
+        if isinstance(target, str):
+            log(f"[run {run_id}] not watched: {target}")
+            return
+        thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
+        thread.start()
+        threads.append(thread)
+
+    while (now() - started).total_seconds() < sweep_seconds:
+        oldest = now() - dt.timedelta(seconds=SWEEP_MAX_AGE_SECONDS)
+        # The picker's marker first: a run with both is watched the ordinary way.
+        for name, late in ((WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
+            try:
+                marked = client.marked_runs(name, SWEEP_LISTING)
+            except READ_ERRORS as error:
+                log(f"could not list {name} markers ({error}); next tick")
+                continue
+            for run_id, created in marked:
+                if run_id in seen or (created is not None and created < oldest):
+                    continue
+                adopt(run_id, late)
+        threads = [thread for thread in threads if thread.is_alive()]
+        log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} API requests left this hour")
+        wait(tick_seconds)
+    log("handing over: stopping watches; rescues under way finish")
+    stopping.set()
+    # One grace for all of them: a rescue started before the stop settles
+    # within it (CANCEL_WAIT_SECONDS plus the re-run; rescue() checks `latest`).
+    end = time.monotonic() + RESCUE_GRACE_SECONDS
+    for thread in threads:
+        thread.join(max(0.0, end - time.monotonic()))
+    return outcomes
 
 if __name__ == "__main__":
     raise SystemExit(main())
