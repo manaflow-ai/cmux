@@ -13812,14 +13812,19 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         func recordPostCloseState() {
+            let tabs = controller.tabs(inPane: pane)
+            // Only a close that takes the zoomed pane with it ends the zoom. While
+            // other tabs remain the pane outlives the close and keeps filling the
+            // window, so the layout must not snap back to the split
+            // (https://github.com/manaflow-ai/cmux/issues/8363).
             if controller.zoomedPaneId == pane,
-               controller.selectedTab(inPane: pane)?.id == tab.id {
+               controller.selectedTab(inPane: pane)?.id == tab.id,
+               tabs.count <= 1 {
                 postCloseClearSplitZoomTabIds.insert(tab.id)
             } else {
                 postCloseClearSplitZoomTabIds.remove(tab.id)
             }
 
-            let tabs = controller.tabs(inPane: pane)
             guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {
                 postCloseSelectTabId.removeValue(forKey: tab.id)
                 return
