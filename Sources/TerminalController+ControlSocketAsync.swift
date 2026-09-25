@@ -475,7 +475,7 @@ extension TerminalController {
     /// Runs a blocking socket body on a GCD thread with the caller's
     /// focus-policy stack, so a body that sleeps between main-actor hops parks
     /// neither the main actor nor a cooperative-pool thread.
-    private nonisolated func runBlockingSocketBody<T: Sendable>(
+    nonisolated func runBlockingSocketBody<T: Sendable>(
         _ body: @escaping @Sendable () -> T
     ) async -> T {
         let policyStack = Self.currentSocketCommandFocusAllowanceStack()
