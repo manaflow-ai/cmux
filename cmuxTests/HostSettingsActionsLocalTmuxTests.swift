@@ -181,6 +181,11 @@ struct HostSettingsActionsLocalTmuxTests {
             name: "work", workspaceID: workspaceID, cwd: "/selected/project",
             socketPath: "/tmp/selected.sock"
         )
+        if let index = arguments.firstIndex(of: "--name") {
+            #expect(arguments[index + 1] == "work")
+        } else {
+            Issue.record("Start arguments pass the session name as --name")
+        }
         #expect(arguments.contains("--workspace"))
         if let index = arguments.firstIndex(of: "--workspace") {
             #expect(arguments[index + 1] == workspaceID.uuidString)

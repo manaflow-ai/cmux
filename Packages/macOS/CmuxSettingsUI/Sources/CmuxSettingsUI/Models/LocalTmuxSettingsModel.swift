@@ -4,9 +4,10 @@ import Observation
 
 /// Owns the Settings lifecycle for local tmux discovery and actions.
 ///
-/// One replaceable request lane serializes initial load, manual refresh, start,
-/// and attach. A generation fence prevents an older CLI response from
-/// publishing after a newer request supersedes it.
+/// Refreshes run in a replaceable read lane. Start and attach run in their own
+/// lane that leaving the view or refreshing never cancels, so the CLI is not
+/// killed between creating a tmux session and recording or attaching it. A
+/// generation fence keeps an older response from publishing.
 @MainActor
 @Observable
 final class LocalTmuxSettingsModel {
@@ -18,6 +19,7 @@ final class LocalTmuxSettingsModel {
 
     private enum TaskKey: Hashable, Sendable {
         case request
+        case action
     }
 
     private let hostActions: SettingsHostActions
@@ -53,13 +55,13 @@ final class LocalTmuxSettingsModel {
         }
     }
 
-    /// Starts the typed session name, then refreshes within the same request lane.
+    /// Starts the typed session name, then refreshes.
     func startSession() {
         let name = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
 
         let generation = beginRequest(phase: .acting)
-        tasks.replaceOnMainActor(.request) { @MainActor [weak self] in
+        tasks.replaceOnMainActor(.action) { @MainActor [weak self] in
             guard let self else { return }
             do {
                 try await hostActions.startLocalTmuxSession(name: name)
@@ -73,10 +75,10 @@ final class LocalTmuxSettingsModel {
         }
     }
 
-    /// Attaches one session, then refreshes within the same request lane.
+    /// Attaches one session, then refreshes.
     func attach(_ session: LocalTmuxSessionSummary) {
         let generation = beginRequest(phase: .acting)
-        tasks.replaceOnMainActor(.request) { @MainActor [weak self] in
+        tasks.replaceOnMainActor(.action) { @MainActor [weak self] in
             guard let self else { return }
             do {
                 try await hostActions.attachLocalTmuxSession(session)
@@ -89,7 +91,8 @@ final class LocalTmuxSettingsModel {
         }
     }
 
-    /// Cancels the current request and prevents its eventual result from publishing.
+    /// Stops publishing the current request's result and cancels a read-only
+    /// refresh. A start or attach keeps running to completion.
     func cancel() {
         requestGeneration &+= 1
         tasks.cancel(.request)

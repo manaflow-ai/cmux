@@ -428,7 +428,7 @@ final class HostSettingsActions: SettingsHostActions {
         cwd: String,
         socketPath: String
     ) -> [String] {
-        ["--socket", socketPath, "local-tmux", "start", name,
+        ["--socket", socketPath, "local-tmux", "start", "--name", name,
          "--workspace", workspaceID.uuidString, "--cwd", cwd, "--json"]
     }
 
@@ -441,7 +441,8 @@ final class HostSettingsActions: SettingsHostActions {
         case .managed(let id, _):
             arguments.append(contentsOf: ["--id", id.uuidString])
         case .unmanaged(let name):
-            arguments.append(name)
+            // A tmux session name may start with "-", so pass it as a flag value.
+            arguments.append(contentsOf: ["--name", name])
         }
         arguments.append("--json")
         _ = try await runLocalTmuxCLI(arguments: arguments)
