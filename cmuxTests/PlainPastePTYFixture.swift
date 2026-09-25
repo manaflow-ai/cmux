@@ -20,7 +20,7 @@ final class PlainPastePTYFixture {
     private let previousMenu: NSMenu?
     var view: GhosttyNSView { surface.hostedView.surfaceView }
 
-    init(optimized: Bool) throws {
+    init(optimized: Bool, workerStartupDelay: Double = 0) throws {
         previousMenu = NSApp.mainMenu
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-paste-pty-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
@@ -31,14 +31,15 @@ final class PlainPastePTYFixture {
         let fullWrapper = root.appendingPathComponent("full")
         let textWrapper = root.appendingPathComponent("text")
         for (url, executable, label) in [(fullWrapper, app, "full"), (textWrapper, helper, "text")] {
-            let script = "#!/bin/sh\nprintf '%s\\n' '\(label)' >> \(launches.path.terminalShellEscaped)\nexec \(executable.path.terminalShellEscaped) \"$@\"\n"
+            let script = "#!/bin/sh\nprintf '%s\\n' '\(label)' >> \(launches.path.terminalShellEscaped)\nsleep \(workerStartupDelay)\nexec \(executable.path.terminalShellEscaped) \"$@\"\n"
             try script.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         }
         let owner = GhosttyApp.terminalPasteboard
         let client = TerminalPastePreparationWorkerClient(
             executableURL: fullWrapper, pasteboardService: owner,
-            plainTextExecutableURL: optimized ? textWrapper : nil
+            plainTextExecutableURL: optimized ? textWrapper : nil,
+            prewarmPlainTextWorker: workerStartupDelay > 0
         )
         let service = TerminalImageTransferPreparationService(
             operation: { try await client.prepare($0) },
