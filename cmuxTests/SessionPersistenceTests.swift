@@ -2371,7 +2371,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             temporaryDirectory: root
         ).writeDirectStartupCommand(
             command: "printf 'ok\\n' > \(shellQuotedForTest(output.path))",
-            workingDirectory: nil
+            workingDirectory: root.appendingPathComponent("stale-working-directory").path
         ))
         XCTAssertTrue(startupCommand.hasPrefix("/bin/sh "), startupCommand)
 

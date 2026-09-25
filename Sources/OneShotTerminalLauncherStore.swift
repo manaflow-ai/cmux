@@ -8,7 +8,7 @@ nonisolated private let oneShotTerminalLauncherLogger = Logger(
 
 /// Stores one-shot terminal actions in private, self-deleting launcher scripts.
 struct OneShotTerminalLauncherStore {
-    enum LauncherInterpreter {
+    enum LauncherInterpreter: Equatable {
         case sh
         case zsh
 
@@ -93,15 +93,29 @@ struct OneShotTerminalLauncherStore {
             ]
             if let workingDirectory = normalized(workingDirectory) {
                 let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+                lines.append("if ! cd -- \(quotedDirectory) 2>/dev/null; then")
                 lines.append(contentsOf: [
-                    "if ! cd -- \(quotedDirectory) 2>/dev/null; then",
                     "  _cmux_resume_probe=\(quotedDirectory)",
-                    "  [[ ! -e \"$_cmux_resume_probe\" ]] || exit 1",
+                    "  \(interpreter == .zsh ? "[[ ! -e \"$_cmux_resume_probe\" ]]" : "[ ! -e \"$_cmux_resume_probe\" ]") || exit 1",
                     "  while true; do",
-                    "    _cmux_resume_parent=\"${_cmux_resume_probe:h}\"",
-                    "    [[ \"$_cmux_resume_parent\" != \"$_cmux_resume_probe\" ]] || exit 1",
-                    "    if [[ -e \"$_cmux_resume_parent\" ]]; then",
-                    "      [[ -d \"$_cmux_resume_parent\" && -x \"$_cmux_resume_parent\" ]] || exit 1",
+                ])
+                switch interpreter {
+                case .zsh:
+                    lines.append(contentsOf: [
+                        "    _cmux_resume_parent=\"${_cmux_resume_probe:h}\"",
+                        "    [[ \"$_cmux_resume_parent\" != \"$_cmux_resume_probe\" ]] || exit 1",
+                        "    if [[ -e \"$_cmux_resume_parent\" ]]; then",
+                        "      [[ -d \"$_cmux_resume_parent\" && -x \"$_cmux_resume_parent\" ]] || exit 1",
+                    ])
+                case .sh:
+                    lines.append(contentsOf: [
+                        "    _cmux_resume_parent=$(/usr/bin/dirname -- \"$_cmux_resume_probe\") || exit 1",
+                        "    [ \"$_cmux_resume_parent\" != \"$_cmux_resume_probe\" ] || exit 1",
+                        "    if [ -e \"$_cmux_resume_parent\" ]; then",
+                        "      [ -d \"$_cmux_resume_parent\" ] && [ -x \"$_cmux_resume_parent\" ] || exit 1",
+                    ])
+                }
+                lines.append(contentsOf: [
                     "      break",
                     "    fi",
                     "    _cmux_resume_probe=\"$_cmux_resume_parent\"",
