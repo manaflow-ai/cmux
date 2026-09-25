@@ -128,71 +128,6 @@ private enum RemoteResumeHookSocketServer {
     }
 }
 
-/// Holds an ephemeral loopback port open for the lifetime of one relay fixture.
-/// Keeping the descriptor alive makes the allocation collision-safe across test
-/// suites that may be running in parallel.
-private final class RemoteResumeRelayPortReservation {
-    let port: Int
-    private let fileDescriptor: Int32
-
-    init() throws {
-        let fileDescriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard fileDescriptor >= 0 else {
-            throw POSIXError(.init(rawValue: errno) ?? .EIO)
-        }
-
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(0)
-        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                Darwin.bind(
-                    fileDescriptor,
-                    socketAddress,
-                    socklen_t(MemoryLayout<sockaddr_in>.size)
-                )
-            }
-        }
-        guard bindResult == 0 else {
-            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
-            Darwin.close(fileDescriptor)
-            throw error
-        }
-        guard Darwin.listen(fileDescriptor, 1) == 0 else {
-            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
-            Darwin.close(fileDescriptor)
-            throw error
-        }
-
-        var boundAddress = sockaddr_in()
-        var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                Darwin.getsockname(fileDescriptor, socketAddress, &boundAddressLength)
-            }
-        }
-        guard nameResult == 0 else {
-            let error = POSIXError(.init(rawValue: errno) ?? .EIO)
-            Darwin.close(fileDescriptor)
-            throw error
-        }
-
-        let port = Int(UInt16(bigEndian: boundAddress.sin_port))
-        guard (1...65_535).contains(port) else {
-            Darwin.close(fileDescriptor)
-            throw POSIXError(.EINVAL)
-        }
-        self.fileDescriptor = fileDescriptor
-        self.port = port
-    }
-
-    deinit {
-        Darwin.close(fileDescriptor)
-    }
-}
-
 @Suite(.serialized)
 @MainActor
 struct RemoteResumeBindingTests {
@@ -698,7 +633,7 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
-    func bundledKiroSessionStartRegistersAuthenticatedRemoteBinding() throws {
+    func bundledKiroSessionStartRelayedRegistrationIsRejected() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -763,14 +698,20 @@ struct RemoteResumeBindingTests {
         #expect(hookParams["checkpoint_id"] as? String == "kiro-remote-session")
         #expect(hookParams["auto_resume"] as? Bool == true)
 
+        // TTY SSH has no persistent-SSH resume owner, so an authenticated
+        // relay-originated registration is rejected and stores nothing.
         let relayedData = workspace.rewriteRemoteRelayCommandLine(try requestData(resumeRequest))
-        let remoteResult = try v2Result(requestData: relayedData)
-        let remoteBinding = try #require(remoteResult["resume_binding"] as? [String: Any])
-        #expect(remoteBinding["execution_location"] as? String == "remote_ssh")
-        #expect(remoteBinding["remote_workspace_id"] as? String == workspace.id.uuidString)
-        #expect(remoteBinding["remote_surface_id"] as? String == surfaceID.uuidString)
-        #expect(remoteBinding["remote_pty_session_id"] as? String == remotePTYSessionID)
-        #expect((remoteBinding["command"] as? String)?.contains("kiro-remote-session") == true)
+        let relayed = try v2Envelope(requestData: relayedData)
+        #expect(relayed["ok"] as? Bool == false, "\(relayed)")
+        let bindingAfterRelay = try v2Result(request: [
+            "id": "binding-after-relayed-registration",
+            "method": "surface.resume.get",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])["resume_binding"]
+        #expect(bindingAfterRelay is NSNull)
     }
 
     @Test
@@ -888,257 +829,26 @@ struct RemoteResumeBindingTests {
         #expect(bindingAfterRejectedRegistrations is NSNull)
     }
 
-    @Test
-    func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
-        let fixture = try makeRelayedFixture()
-        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
-
-        #expect(fixture.localBinding["execution_location"] as? String == "local")
-        #expect(fixture.localBinding["remote_workspace_id"] is NSNull)
-        #expect(fixture.spoofedRelayRegistrationRejected)
-        #expect(fixture.remoteBinding["execution_location"] as? String == "remote_ssh")
-        #expect(fixture.remoteBinding["remote_workspace_id"] as? String == fixture.workspaceID.uuidString)
-        #expect(fixture.remoteBinding["remote_surface_id"] as? String == fixture.surfaceID.uuidString)
-        #expect(fixture.remoteBinding["remote_pty_session_id"] as? String == fixture.remotePTYSessionID)
-        #expect(fixture.remoteBinding["cwd"] as? String == "/srv/remote project")
-        #expect(fixture.remoteBinding["auto_resume"] as? Bool == true)
-
-        let environment = try #require(fixture.remoteBinding["environment"] as? [String: Any])
-        #expect(environment["REMOTE_FLAG"] as? String == "value with spaces")
-        #expect(environment["ANTHROPIC_API_KEY"] == nil)
-    }
-
-    @Test
-    func legacyBindingMigrationStopsAtPersistentSSHOwnershipBoundaries() throws {
-        let binding = try legacyLocalBinding()
-        #expect(binding.wasDecodedWithoutLaunchFlavor)
-        let snapshotWorkspaceID = UUID()
-        let snapshotSurfaceID = UUID()
-        let sessionID = Workspace.defaultSSHPTYSessionID(
-            workspaceId: snapshotWorkspaceID,
-            panelId: snapshotSurfaceID
-        )
-
-        let localWorkspace = Workspace()
-        let nonPersistentSSH = Workspace()
-        nonPersistentSSH.configureRemoteConnection(
-            remoteConfiguration(preserveAfterTerminalExit: false, persistentDaemonSlot: nil),
-            autoConnect: false
-        )
-        let missingDaemonSlot = Workspace()
-        missingDaemonSlot.configureRemoteConnection(
-            remoteConfiguration(preserveAfterTerminalExit: true, persistentDaemonSlot: nil),
-            autoConnect: false
-        )
-        let freestyleBakedDaemon = Workspace()
-        freestyleBakedDaemon.configureRemoteConnection(
-            remoteConfiguration(skipDaemonBootstrap: true),
-            autoConnect: false
-        )
-        let websocketCloud = Workspace()
-        websocketCloud.configureRemoteConnection(
-            remoteConfiguration(transport: .websocket),
-            autoConnect: false
-        )
-        let moshTerminal = Workspace()
-        moshTerminal.configureRemoteConnection(
-            remoteConfiguration(terminalTransport: .mosh),
-            autoConnect: false
-        )
-        let eligiblePersistentSSH = Workspace()
-        eligiblePersistentSSH.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
-
-        let cases: [(name: String, workspace: Workspace, sessionID: String?, restoresRemoteTerminal: Bool)] = [
-            ("local workspace", localWorkspace, sessionID, true),
-            ("non-persistent SSH", nonPersistentSSH, sessionID, true),
-            ("missing daemon slot", missingDaemonSlot, sessionID, true),
-            ("Freestyle baked daemon", freestyleBakedDaemon, sessionID, true),
-            ("WebSocket Cloud VM", websocketCloud, sessionID, true),
-            ("Mosh terminal", moshTerminal, sessionID, true),
-            ("local terminal inside persistent SSH workspace", eligiblePersistentSSH, sessionID, false),
-            ("missing persistent PTY", eligiblePersistentSSH, nil, true),
-            ("blank persistent PTY", eligiblePersistentSSH, " \t\n ", true),
-        ]
-
-        for item in cases {
-            let migrated = item.workspace.migratingLegacyPersistentSSHResumeBinding(
-                binding,
-                snapshotWorkspaceID: snapshotWorkspaceID,
-                snapshotSurfaceID: snapshotSurfaceID,
-                persistentPTYSessionID: item.sessionID,
-                restoresRemoteTerminal: item.restoresRemoteTerminal
-            )
-            #expect(migrated?.launchFlavor == .local, Comment(rawValue: item.name))
-        }
-    }
-
-    private func makeRelayedFixture() throws -> (
-        snapshot: SessionWorkspaceSnapshot,
-        workspaceID: UUID,
-        surfaceID: UUID,
-        remotePTYSessionID: String,
-        relayPortReservation: RemoteResumeRelayPortReservation,
-        relayPort: Int,
-        localBinding: [String: Any],
-        spoofedRelayRegistrationRejected: Bool,
-        remoteBinding: [String: Any]
-    ) {
-        _ = NSApplication.shared
-        let previousAppDelegate = AppDelegate.shared
-        let app = AppDelegate()
-        let windowID = UUID()
-        let window = makeMainWindow(id: windowID)
-        defer {
-            TerminalController.shared.setActiveTabManager(nil)
-            app.unregisterMainWindowContextForTesting(windowId: windowID)
-            AppDelegate.shared = previousAppDelegate
-            window.orderOut(nil)
-        }
-
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        app.registerMainWindow(
-            window,
-            windowId: windowID,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
-        TerminalController.shared.setActiveTabManager(manager)
-
-        let workspace = try #require(manager.selectedWorkspace)
-        let surfaceID = try #require(workspace.focusedPanelId)
-        let fixtureIdentity = UUID()
-        let fixtureIdentitySlug = fixtureIdentity.uuidString.lowercased()
-        let fixtureIdentityHex = fixtureIdentitySlug.replacingOccurrences(of: "-", with: "")
-        let relayPortReservation = try RemoteResumeRelayPortReservation()
-        let fixtureRelayPort = relayPortReservation.port
-        workspace.configureRemoteConnection(
-            remoteConfiguration(
-                persistentDaemonSlot: "ssh-\(fixtureIdentitySlug)",
-                relayPort: fixtureRelayPort,
-                relayID: "relay-\(fixtureIdentitySlug)",
-                relayToken: fixtureIdentityHex + fixtureIdentityHex,
-                localSocketPath: "/tmp/cmux-remote-resume-\(fixtureIdentitySlug).sock"
-            ),
-            autoConnect: false
-        )
-        workspace.activeRemoteSessionControllerID = UUID()
-
-        let localResult = try v2Result(
-            request: [
-                "id": "local-resume-set",
-                "method": "surface.resume.set",
-                "params": remoteResumeParams(
-                    workspaceID: workspace.id,
-                    surfaceID: surfaceID,
-                    command: "codex resume local-session"
-                ),
-            ]
-        )
-        let localBinding = try #require(localResult["resume_binding"] as? [String: Any])
-
-        var spoofedParams = remoteResumeParams(
-            workspaceID: workspace.id,
-            surfaceID: surfaceID,
-            command: "codex resume forged-local-request"
-        )
-        spoofedParams["_cmux_remote_workspace_id"] = workspace.id.uuidString
-        spoofedParams["_cmux_remote_relay_authentication_code"] = String(repeating: "0", count: 64)
-        let spoofedEnvelope = try v2Envelope(request: [
-            "id": "spoofed-relay-resume-set",
-            "method": "surface.resume.set",
-            "params": spoofedParams,
-        ])
-        let bindingAfterSpoof = try v2Result(request: [
-            "id": "resume-get-after-spoof",
-            "method": "surface.resume.get",
-            "params": [
-                "workspace_id": workspace.id.uuidString,
-                "surface_id": surfaceID.uuidString,
-            ],
-        ])["resume_binding"] as? [String: Any]
-        let spoofedRelayRegistrationRejected = spoofedEnvelope["ok"] as? Bool == false
-            && (bindingAfterSpoof?["command"] as? String) == (localBinding["command"] as? String)
-
-        let staleWorkspaceID = UUID()
-        let staleSurfaceID = UUID()
-        let remotePTYSessionID = Workspace.defaultSSHPTYSessionID(
-            workspaceId: staleWorkspaceID,
-            panelId: staleSurfaceID
-        )
-        workspace.remotePTYSessionIDsByPanelId[surfaceID] = remotePTYSessionID
-        workspace.registerRemoteRelayIDAliases(
-            remotePTYSessionID: remotePTYSessionID,
-            restoredPanelId: surfaceID
-        )
-
-        let relayedRequest: [String: Any] = [
-            "id": "relayed-resume-set",
-            "method": "surface.resume.set",
-            "params": remoteResumeParams(
-                workspaceID: staleWorkspaceID,
-                surfaceID: staleSurfaceID,
-                command: "cd '/srv/remote project' && '/home/dev/.nvm/versions/node/v24/bin/codex' resume session-remote-7989"
-            ),
-        ]
-        var relayedData = try JSONSerialization.data(withJSONObject: relayedRequest)
-        relayedData.append(0x0A)
-        let rewrittenData = workspace.rewriteRemoteRelayCommandLine(relayedData)
-        let remoteResult = try v2Result(requestData: rewrittenData)
-        let remoteBinding = try #require(remoteResult["resume_binding"] as? [String: Any])
-
-        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        // This fixture models a live agent-hook session. The production
-        // snapshot records `wasAgentRunning` from process liveness; setting it
-        // explicitly keeps restore-policy coverage independent of whichever
-        // agent processes happen to be present on the test host.
-        let panelIndex = try #require(snapshot.panels.firstIndex(where: { $0.id == surfaceID }))
-        var terminal = try #require(snapshot.panels[panelIndex].terminal)
-        terminal.wasAgentRunning = true
-        snapshot.panels[panelIndex].terminal = terminal
-        #expect(terminal.wasAgentRunning == true)
-
-        return (
-            snapshot,
-            workspace.id,
-            surfaceID,
-            remotePTYSessionID,
-            relayPortReservation,
-            fixtureRelayPort,
-            localBinding,
-            spoofedRelayRegistrationRejected,
-            remoteBinding
-        )
-    }
-
     private func remoteConfiguration(
-        transport: WorkspaceRemoteTransport = .ssh,
-        terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         preserveAfterTerminalExit: Bool = true,
-        persistentDaemonSlot: String? = "ssh-issue-7989",
-        skipDaemonBootstrap: Bool = false,
-        relayPort: Int = 64_089,
-        relayID: String = "relay-issue-7989",
-        relayToken: String = String(repeating: "a", count: 64),
-        localSocketPath: String = "/tmp/cmux-issue-7989.sock"
+        persistentDaemonSlot: String? = "ssh-issue-7989"
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
-            transport: transport,
-            terminalTransport: terminalTransport,
+            transport: .ssh,
+            terminalTransport: .ssh,
             destination: "dev@example.com",
             port: 22,
             identityFile: nil,
             sshOptions: ["StrictHostKeyChecking=accept-new"],
             localProxyPort: nil,
-            relayPort: relayPort,
-            relayID: relayID,
-            relayToken: relayToken,
-            localSocketPath: localSocketPath,
+            relayPort: 64_089,
+            relayID: "relay-issue-7989",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-issue-7989.sock",
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
-            skipDaemonBootstrap: skipDaemonBootstrap
+            skipDaemonBootstrap: false
         )
     }
 
@@ -1189,29 +899,6 @@ struct RemoteResumeBindingTests {
         let response = TerminalController.shared.handleSocketLine(requestLine)
         let responseData = try #require(response.data(using: .utf8))
         return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
-    }
-
-    private func v2Result(requestData: Data) throws -> [String: Any] {
-        let envelope = try v2Envelope(requestData: requestData)
-        #expect(envelope["ok"] as? Bool == true, "\(envelope)")
-        return try #require(envelope["result"] as? [String: Any])
-    }
-
-    private func legacyLocalBinding() throws -> SurfaceResumeBindingSnapshot {
-        let object: [String: Any] = [
-            "name": "Codex",
-            "kind": "codex",
-            "command": "codex resume legacy-session",
-            "cwd": "/tmp/legacy-project",
-            "checkpointId": "legacy-session",
-            "source": "agent-hook",
-            "autoResume": true,
-            "updatedAt": 10.0,
-        ]
-        return try JSONDecoder().decode(
-            SurfaceResumeBindingSnapshot.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
     }
 
     private func runBundledKiroSessionStart(

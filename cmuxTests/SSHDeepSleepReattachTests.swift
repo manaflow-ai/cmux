@@ -186,7 +186,8 @@ struct SSHDeepSleepReattachTests {
         let commandData = try #require(encodedCommand.flatMap { Data(base64Encoded: $0) })
         let decodedCommand = try #require(String(data: commandData, encoding: .utf8))
         #expect(!decodedCommand.contains(configuredRemoteCommand))
-        #expect(decodedCommand.contains(Data((resumeCommand + "\n").utf8).base64EncodedString()))
+        // A persistent-SSH resume binding is no longer replayed into the restarted PTY.
+        #expect(!decodedCommand.contains(Data((resumeCommand + "\n").utf8).base64EncodedString()))
         #expect(decodedCommand.contains("64007"))
         #expect(restarted.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
