@@ -102,6 +102,10 @@ class FakeAPI:
         self.calls.append("pull")
         return {"state": self.state, "head": {"sha": self.head}}
 
+    def branch_head(self, branch):
+        self.calls.append(f"branch:{branch}")
+        return self.head
+
     def cancel(self, run_id):
         self.calls.append("cancel")
         self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
@@ -134,8 +138,11 @@ def run_main(api, clock, *, env_extra=None, payload=None):
         path = Path(tmp, "event.json")
         path.write_text(json.dumps(payload or event()))
         summary = Path(tmp, "summary")
+        # QUEUE_ROUNDS 0 keeps a CI run's budget the configured one; QueueBudget
+        # covers the default, where the picker may queue on purpose.
         env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_EVENT_PATH": str(path),
-               "GITHUB_STEP_SUMMARY": str(summary), "POOL_OWNED": "1", **(env_extra or {})}
+               "GITHUB_STEP_SUMMARY": str(summary), "POOL_OWNED": "1", "QUEUE_ROUNDS": "0",
+               **(env_extra or {})}
         with unittest.mock.patch("sys.stdout", io.StringIO()):
             code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep)
         return code, summary.read_text() if summary.exists() else ""
@@ -214,6 +221,41 @@ class Refusal(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)
         self.assertIn(f"refused by {MINI} at job start", summary)
         self.assertIn("attempt 2 takes the owned pool once more", summary)
+
+    def test_a_dispatch_reads_the_named_run_and_watches_it(self):
+        # The owned-pool-watch job passes only the run id; the run object the
+        # API returns carries what a workflow_run event did.
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        live_run = api.run
+        api.run = lambda run_id: {**event()["workflow_run"], **live_run(run_id)}
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)},
+                                 payload={"inputs": {"run_id": str(RUN_ID)}})
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[0], "run")
+        self.assertIn(f"watching run {RUN_ID} of pull request #42", summary)
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_a_dispatch_naming_another_run_does_nothing(self):
+        for why, run in {
+                "a push run": event(event="push")["workflow_run"],
+                "a fork head": event(head_repository={"full_name": "someone/cmux"})["workflow_run"],
+                "a retry": event(run_attempt=2)["workflow_run"],
+                "another workflow": event(path=".github/workflows/other.yml")["workflow_run"]}.items():
+            clock = Clock()
+            api = FakeAPI(clock, refusing_run(), marker=True)
+            api.run = lambda run_id, run=run: (api.calls.append("run"), run)[1]
+            code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)})
+            self.assertEqual(code, 0, why)
+            self.assertEqual(api.calls, ["run"], why)
+            self.assertIn("not watched:", summary, why)
+
+    def test_a_dispatch_with_a_bad_run_id_makes_no_request(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": "1; rm"})
+        self.assertEqual((code, api.calls), (0, []))
+        self.assertIn("is not a number", summary)
 
     def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
         clock = Clock()
@@ -391,6 +433,108 @@ class Watching(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("watch limit reached", summary)
         self.assertNotIn("cancel", api.calls)
+
+
+class QueueBudget(unittest.TestCase):
+    """A CI run's owned job may wait up to the pool's expected wait (CI_PR_POOL_QUEUE_ROUNDS); the rescue waits it out."""
+
+    def test_a_round_is_a_compile_admissions_length(self):
+        self.assertEqual(rescue.queue_seconds(""), rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(rescue.queue_seconds(None), rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(rescue.queue_seconds("2"), 2 * rescue.QUEUE_ROUND_SECONDS)
+        # 0 (the kill switch: owned only with machines free now) and invalid values add nothing.
+        for value in ("0", "-1", "x"):
+            self.assertEqual(rescue.queue_seconds(value), 0, value)
+
+    def test_rounds_are_capped_so_the_rescue_can_still_fire(self):
+        cap = rescue.MAX_QUEUE_ROUNDS
+        self.assertEqual(cap, 3)
+        self.assertEqual(rescue.queue_seconds("50"), cap * rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(pool_rounds("50"), cap)
+        # The longest budget, with its first look and a poll, still ends inside the watch.
+        longest = rescue.MAX_BUDGET_SECONDS + rescue.queue_seconds("50")
+        self.assertEqual(longest, 3300)
+        self.assertLess(longest + rescue.FIRST_LOOK_SECONDS + rescue.POLL_SECONDS, rescue.WATCH_LIMIT_SECONDS)
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "600", "QUEUE_ROUNDS": "50"})
+        self.assertIn(f"for at least {longest}s", summary)
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+
+    def test_a_shard_queued_behind_a_later_run_is_not_rescued(self):
+        # Run A took free minis; run B came later and took the idle ones A's
+        # shards would have used (nothing is reserved). A's job waits 5 minutes
+        # behind B's: well within the pool's expected wait, so A is left alone.
+        # CI_OWNED_POOL_RESCUE_SECONDS is 30 on manaflow-ai/cmux (2026-09-25).
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(compile_started_at=40 + 300), marker=True)
+        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertEqual(code, 0)
+        self.assertIn(f"budget {30 + rescue.QUEUE_ROUND_SECONDS}s", summary)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_ci_job_waiting_past_the_expected_wait_is_still_rescued(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+        budget = 30 + rescue.QUEUE_ROUND_SECONDS
+        self.assertIn(f"for at least {budget}s", summary)
+        self.assertLess(api.cancelled_at, 40 + budget + rescue.POLL_SECONDS + 1)
+
+    def test_a_late_shard_is_judged_before_the_watch_ends(self):
+        # 600 s configured plus 3 rounds is 3300 s, but a shard queued 25
+        # minutes in would outlast the 3600 s watch. Its budget is cut to end
+        # END_MARGIN_SECONDS before the watch (counted from when the watch
+        # first saw it queued), and it is rescued inside the watch.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(queued_at=1500), marker=True)
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "600", "QUEUE_ROUNDS": "3"})
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+        self.assertLess(api.cancelled_at, rescue.WATCH_LIMIT_SECONDS)
+        budget = int(summary.split("for at least ")[1].split("s")[0])
+        self.assertLess(budget, rescue.WATCH_LIMIT_SECONDS - 1500 - rescue.END_MARGIN_SECONDS + 1)
+        self.assertLess(budget, 3300)
+        # An early job keeps its whole budget.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "600", "QUEUE_ROUNDS": "3"})
+        self.assertIn("for at least 3300s", summary)
+
+    def test_a_job_budget_never_drops_below_the_configured_one(self):
+        start = START
+        deadline = start + dt.timedelta(seconds=rescue.WATCH_LIMIT_SECONDS)
+        late = job("macos / app-host 1", labels=[MINI], created=3550)
+        self.assertEqual(rescue.job_budget(late, 930, deadline=deadline, floor_seconds=30), 30)
+        early = job("macos / app-host 1", labels=[MINI], created=100)
+        self.assertEqual(rescue.job_budget(early, 930, deadline=deadline, floor_seconds=30), 930)
+        self.assertEqual(rescue.job_budget(early, 930, deadline=None, floor_seconds=30), 930)
+
+    def test_with_queueing_off_the_rescue_fires_at_30_seconds(self):
+        # Rounds 0: the picker takes an owned pool only with machines free now.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": "0"})
+        self.assertIn("for at least 30s", summary)
+        self.assertLess(api.cancelled_at, 40 + 30 + rescue.POLL_SECONDS + 1)
+
+    def test_only_ci_runs_get_the_expected_wait(self):
+        # E2E (and iOS, side-lane) runs have no queueing picker.
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
+        _, summary = run_main(api, clock, payload=e2e_event(),
+                              env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertIn("(budget 30s)", summary)
+
+    def test_the_workflow_passes_the_rounds_and_ci_uploads_no_queue_marker(self):
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        step = doc["jobs"]["rescue"]["steps"][-1]
+        self.assertEqual(step["env"]["QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
+        self.assertNotIn("macos-pool-queued", (ROOT / ".github/workflows/ci.yml").read_text())
+
+
+def pool_rounds(value):
+    return rescue.parse_queue_rounds(value)
 
 
 class Rescuing(unittest.TestCase):
@@ -783,6 +927,105 @@ class IOSDispatch(unittest.TestCase):
         self.assertIn(f"queued on {MINI}", summary)
 
 
+def main_event(**overrides):
+    return event(**{"event": "workflow_dispatch", "head_branch": "main", "pull_requests": [], **overrides})
+
+
+class MainDispatch(unittest.TestCase):
+    """Main's full-suite dispatch of ci.yml is watched like a pull request run, against main's HEAD."""
+
+    def test_only_attempt_1_of_a_same_repository_dispatch_on_main(self):
+        cases = {
+            "another branch": main_event(head_branch="topic"),
+            "fork head": main_event(head_repository={"full_name": "someone/cmux"}),
+            "attempt 2": main_event(run_attempt=2),
+            "another workflow": main_event(path=".github/workflows/nightly.yml"),
+        }
+        for why, payload in cases.items():
+            self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+        target = rescue.target_from_event(main_event(), "manaflow-ai/cmux")
+        self.assertEqual((target.run_id, target.pr_number, target.main, target.e2e, target.picker_job),
+                         (RUN_ID, 0, True, False, "changes"))
+        self.assertEqual(target.watch_limit, rescue.WATCH_LIMIT_SECONDS)
+
+    def test_an_ephemeral_main_run_stops_after_the_marker_check(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [changes()(seconds)])
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
+        self.assertIn("main's full-suite dispatch", summary)
+
+    def test_a_stuck_main_run_is_cancelled_and_rerun_on_blacksmith(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("pull", api.calls)
+        self.assertIn("branch:main", api.calls)
+        self.assertEqual(api.calls[-1], "rerun")
+        self.assertIn("cancel", api.calls)
+
+    def test_a_stuck_main_run_is_cancelled_not_rerun_once_main_moves(self):
+        # The stuck run holds main's concurrency group; cancelling it lets the
+        # dispatcher start the new HEAD when it completes.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40)
+        _, summary = run_main(api, clock, payload=main_event())
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("main has moved on", summary)
+        self.assertIn("not re-run", summary)
+        # Main moving during the cancel: cancelled, and its completion dispatches the new HEAD.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        heads = iter([HEAD, "b" * 40])
+        api.branch_head = lambda branch: next(heads)
+        _, summary = run_main(api, clock, payload=main_event())
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("cancelled but not re-run", summary)
+
+    def test_a_dispatch_naming_main_s_run_watches_it(self):
+        # ci.yml's owned-pool-watch job dispatches the rescue for main's run
+        # too; the run the API returns is main's dispatch.
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        live_run = api.run
+        api.run = lambda run_id: {**main_event()["workflow_run"], **live_run(run_id)}
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)},
+                                 payload={"inputs": {"run_id": str(RUN_ID)}})
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[0], "run")
+        self.assertIn(f"watching run {RUN_ID} of main's full-suite dispatch", summary)
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_a_main_run_gets_the_expected_owned_wait(self):
+        # The picker places main like a pull request, queue rounds included.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(compile_started_at=40 + 600), marker=True)
+        code, summary = run_main(api, clock, payload=main_event(),
+                                 env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertEqual(code, 0)
+        self.assertIn(f"budget {30 + rescue.QUEUE_ROUND_SECONDS}s", summary)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_refused_main_job_reruns_the_failed_jobs(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("pull", api.calls)
+        self.assertIn("refused", summary)
+        # Even once main moved: a fleet refusal must not leave main's run red.
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True, head="b" * 40)
+        code, summary = run_main(api, clock, payload=main_event())
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-failed", api.calls)
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
@@ -795,24 +1038,31 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_runs_whenever_owned_pools_are_on(self):
-        self.assertEqual(self.doc[True]["workflow_run"]["types"], ["requested"])
-        self.assertEqual(self.doc[True]["workflow_run"]["workflows"][:4],
-                         ["CI", "E2E test with video recording", "iOS simulator tests", "iOS App Store screenshots"])
+    def test_runs_when_dispatched_or_for_a_screenshots_or_side_lane_run(self):
+        triggers = self.doc[True]
+        self.assertEqual(sorted(triggers), ["workflow_dispatch", "workflow_run"])
+        self.assertIs(triggers["workflow_dispatch"]["inputs"]["run_id"]["required"], True)
+        # release.yml calls ios-screenshots.yml with contents: read only, so
+        # it cannot hold an owned-pool-watch job; the side lanes have no
+        # picker and are all on the fleet. Both keep the event trigger.
+        self.assertEqual(triggers["workflow_run"]["types"], ["requested"])
+        self.assertEqual(triggers["workflow_run"]["workflows"][0], "iOS App Store screenshots")
+        self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
-        self.assertEqual(set(paths) - {rescue.CI_WORKFLOW_PATH, *rescue.DISPATCH_WORKFLOW_PATHS},
-                         set(rescue.SIDE_WORKFLOW_PATHS))
+        self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS})
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
-                     "(github.event.workflow_run.event == 'pull_request' || "
-                     "(github.event.workflow_run.path == '.github/workflows/test-e2e.yml' || "
-                     "github.event.workflow_run.path == '.github/workflows/test-ios.yml' || "
-                     "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml') && "
-                     "github.event.workflow_run.event == 'workflow_dispatch')",
-                     "github.event.workflow_run.head_repository.full_name == github.repository",
-                     "github.event.workflow_run.run_attempt == 1",
-                     "startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-')"):
+                     "(github.event_name == 'workflow_dispatch' || "
+                     "(github.event.workflow_run.event == 'pull_request' && "
+                     "startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
+                     "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
+                     "github.event.workflow_run.event == 'workflow_dispatch') && "
+                     "github.event.workflow_run.head_repository.full_name == github.repository && "
+                     "github.event.workflow_run.run_attempt == 1)"):
             self.assertIn(part, condition)
+        step = self.doc["jobs"]["rescue"]["steps"][-1]
+        self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
+        self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
 
     def test_runs_the_rescue_script(self):
         step = self.doc["jobs"]["rescue"]["steps"][-1]
@@ -828,6 +1078,38 @@ class Workflow(unittest.TestCase):
         for name in ("Mark a run on a persistent macOS pool", "Upload the persistent pool marker"):
             step = next(step for step in steps if step.get("name") == name)
             self.assertIs(step.get("continue-on-error"), True, name)
+
+    def test_ci_and_e2e_dispatch_it_only_for_an_owned_placement(self):
+        for path, picker, owned in (
+                (".github/workflows/ci.yml", "changes", "needs.changes.outputs.macos_pr_owned_jobs != ''"),
+                (".github/workflows/test-e2e.yml", "runner",
+                 "startsWith(needs.runner.outputs.label, 'glaeda-')"),
+                (".github/workflows/test-ios.yml", "runner", "needs.runner.outputs.owned_marker == 'true'")):
+            job = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["jobs"]["owned-pool-watch"]
+            self.assertEqual(job["needs"], picker, path)
+            for part in (owned, "github.run_attempt == 1", "vars.CI_PR_POOL_OWNED == '1'",
+                         "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'"):
+                self.assertIn(part, job["if"], path)
+            # The only holder of actions: write in the workflow runs no
+            # repository code and cannot fail the run.
+            self.assertEqual(job["permissions"], {"actions": "write"}, path)
+            self.assertEqual([step.get("uses") for step in job["steps"]], [None], path)
+            # Fail-safe: ci.yml at job level (macos-admission-gate skips a job
+            # that cannot fail); the dispatch workflows at step level.
+            self.assertIs(job.get("continue-on-error", job["steps"][0].get("continue-on-error")), True, path)
+            self.assertEqual(job["steps"][0]["run"],
+                             'gh workflow run ci-owned-pool-rescue.yml --ref main '
+                             '-f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"', path)
+        ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(ios["runner"]["outputs"]["owned_marker"], "${{ steps.marker.outputs.path != '' }}")
+        screenshots = yaml.safe_load((ROOT / ".github/workflows/ios-screenshots.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("owned-pool-watch", screenshots["jobs"])
+        ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
+        self.assertIn("(github.event_name == 'pull_request' && "
+                      "github.event.pull_request.head.repo.full_name == github.repository || "
+                      "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
+                      ci["owned-pool-watch"]["if"])
+        self.assertNotIn("owned-pool-watch", ci["ci-status"]["needs"])
 
     def test_job_timeout_covers_the_watch_and_the_cancel_wait(self):
         self.assertEqual(self.doc["jobs"]["rescue"]["timeout-minutes"] * 60, rescue.JOB_TIMEOUT_SECONDS)

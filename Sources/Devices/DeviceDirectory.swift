@@ -212,8 +212,8 @@ final class DeviceDirectory {
                     self.registryError = nil
                 } catch {
                     guard !Task.isCancelled else { return }
-                    // An outage retains the last rows; per-session leases still
-                    // reject stale or revoked peers before any application I/O.
+                    // An outage retains the last authenticated rows; per-session
+                    // leases reject stale or revoked peers before application I/O.
                 }
             }
             self.hasLoadedRegistry = true
@@ -329,6 +329,7 @@ final class DeviceDirectory {
         let merged = DeviceDirectoryMerge.merge(DeviceDirectoryMerge.Input(
             registry: registryDevices,
             authenticatedMacs: authenticatedMacs,
+            requiresAuthenticatedDiscovery: automaticClient != nil,
             presence: presenceInstances,
             presenceLive: presenceState == .live,
             owners: owners,

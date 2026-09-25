@@ -2,105 +2,8 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
 import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
-
-/// Retains terminal render/tick notifications only while live prose streaming
-/// can consume them. Frame notifications cover visible surfaces; tick
-/// notifications cover hidden/background surfaces that receive PTY output
-/// without drawing a Metal frame.
-@MainActor
-private final class AgentChatProseStreamWakeDriver {
-    private let streamer: AgentChatProseStreamer
-    private let hasSubscribers: @MainActor () -> Bool
-    private var observers: [NSObjectProtocol] = []
-    private var releaseFrameDemand: (() -> Void)?
-    private var releaseTickDemand: (() -> Void)?
-
-    init(
-        streamer: AgentChatProseStreamer,
-        hasSubscribers: @escaping @MainActor () -> Bool
-    ) {
-        self.streamer = streamer
-        self.hasSubscribers = hasSubscribers
-    }
-
-    func start() {
-        guard observers.isEmpty else { return }
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .mobileHostEventSubscriptionsDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.streamer.subscribersDidChange()
-                self?.refreshDemand(kickIfRetained: true)
-            }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidRenderFrame,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                guard let view = notification.object as? GhosttyNSView,
-                      let surfaceID = view.terminalSurface?.id else {
-                    return
-                }
-                self?.streamer.surfaceDidChange(surfaceID)
-            }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidTick,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.streamer.terminalDidTick()
-            }
-        })
-        refreshDemand(kickIfRetained: true)
-    }
-
-    func stop() {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        observers.removeAll()
-        releaseDemand()
-    }
-
-    func refreshDemand(kickIfRetained: Bool = false) {
-        let shouldRetainDemand = hasSubscribers() && streamer.hasActiveUnsettledTurns
-        if shouldRetainDemand {
-            if releaseFrameDemand == nil {
-                releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
-            }
-            if releaseTickDemand == nil {
-                releaseTickDemand = GhosttyApp.retainTickNotifications()
-            }
-            if kickIfRetained {
-                streamer.terminalDidTick()
-            }
-        } else {
-            releaseDemand()
-        }
-    }
-
-    private func releaseDemand() {
-        releaseFrameDemand?()
-        releaseFrameDemand = nil
-        releaseTickDemand?()
-        releaseTickDemand = nil
-    }
-
-    deinit {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        releaseFrameDemand?()
-        releaseTickDemand?()
-    }
-}
 
 /// Mac-side facade for the agent chat surface: tracks sessions from hook
 /// events, tails their transcripts, serves history pages, and pushes
@@ -124,6 +27,7 @@ final class AgentChatTranscriptService {
     /// Current live prose-stream generation per session, consumed only when a
     /// matching authoritative transcript prose line lands for that turn.
     private var proseTurnStates: [String: ProseTurnState] = [:]
+    private var didShutdown = false
     /// Highest transcript seq observed per session, used to bind live preview
     /// settlement to transcript lines that landed after the prompt started.
     private var latestTranscriptSeqBySessionID: [String: Int] = [:]
@@ -163,7 +67,10 @@ final class AgentChatTranscriptService {
         },
         now: @escaping () -> Date = { Date() },
         fallbackTranscriptPathResolver: AgentChatFallbackTranscriptResolutionCoordinator.Resolver? = nil,
-        fallbackResolutionTimeout: Duration = .seconds(3)
+        fallbackResolutionTimeout: Duration = .seconds(3),
+        notificationCenter: NotificationCenter = .default,
+        renderedFrameNotificationDemand: any RenderDemandGating = GhosttyApp.renderedFrameNotificationDemand,
+        tickNotificationDemand: any RenderDemandGating = GhosttyApp.tickNotificationDemand
     ) {
         self.registry = registry
         self.resolver = resolver
@@ -189,9 +96,33 @@ final class AgentChatTranscriptService {
         self.proseStreamer = proseStreamer
         self.proseWakeDriver = AgentChatProseStreamWakeDriver(
             streamer: proseStreamer,
-            hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
+            hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false },
+            notificationCenter: notificationCenter,
+            frameDemand: renderedFrameNotificationDemand,
+            tickDemand: tickNotificationDemand
         )
         self.proseWakeDriver.start()
+    }
+
+    /// Stops streaming resources while the application still owns its service.
+    ///
+    /// App termination calls this on the main actor so observer removal,
+    /// notification demand release, and streamer cancellation complete before
+    /// the rest of the application teardown begins. Shutdown is terminal;
+    /// repeated calls and later ingress are ignored.
+    func shutdown() {
+        guard !didShutdown else { return }
+        didShutdown = true
+        registry.onRecordChanged = nil
+        registry.onRecordRemoved = nil
+        proseTurnStates.removeAll()
+        let activeTailers = Array(tailers.values)
+        tailers.removeAll()
+        for tailer in activeTailers {
+            Task { await tailer.stop() }
+        }
+        proseWakeDriver.stop()
+        proseStreamer.stopAll()
     }
 
     /// Rendered screen rows (top to bottom) for a surface, the source the prose
@@ -273,6 +204,7 @@ final class AgentChatTranscriptService {
     /// app startup. Hook events stay authoritative for state and transcripts;
     /// observe-floor scans later add live agent presence even before hooks fire.
     func start() {
+        guard !didShutdown else { return }
         Self.liveInstance = self
         // Apply resume re-binds buffered before the service was wired. The seed
         // only creates records that don't already exist, so an intent applied
@@ -299,6 +231,7 @@ final class AgentChatTranscriptService {
     ///
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
+        guard !didShutdown else { return }
         let record = registry.noteHookEvent(event)
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
@@ -420,6 +353,7 @@ final class AgentChatTranscriptService {
         workspaceID: String?,
         workingDirectory: String?
     ) {
+        guard !didShutdown else { return }
         let normalizedSessionID = AgentChatSessionRegistry.normalizedSessionID(sessionID, source: source)
         endProseTurn(sessionID: normalizedSessionID)
         registry.noteResumeInitiated(
@@ -518,6 +452,7 @@ final class AgentChatTranscriptService {
         for record: AgentChatSessionRecord,
         resolvePath: () -> String?
     ) -> AgentChatTranscriptTailer? {
+        guard !didShutdown else { return nil }
         if let existing = tailers[record.sessionID] {
             return existing
         }
@@ -557,6 +492,7 @@ final class AgentChatTranscriptService {
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        guard !didShutdown else { return }
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -687,7 +623,7 @@ final class AgentChatTranscriptService {
     }
 
     private func emit(frame: ChatSessionEventFrame) {
-        guard let payload = wirePayload(frame) else { return }
+        guard !didShutdown, let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)
     }
 
@@ -704,13 +640,4 @@ final class AgentChatTranscriptService {
         proseWakeDriver.refreshDemand()
     }
 
-    deinit {
-        // This app-owned service is created and released on the main actor.
-        // `isolated deinit` still has Xcode compatibility constraints in cmux,
-        // so keep teardown synchronous while asserting that owner invariant.
-        MainActor.assumeIsolated {
-            proseWakeDriver?.stop()
-            proseStreamer?.stopAll()
-        }
-    }
 }
