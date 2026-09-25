@@ -129,7 +129,13 @@ impl RawOutput {
             RawEvent::Exit => (OUTPUT_KIND_EXIT, &[], 0, 0),
         };
         // SAFETY: the FFI caller owns the callback context; the registration
-        // mutex is held across the invocation so removal waits for it.
+        // mutex is held across the invocation so removal waits for it, which
+        // is what lets the embedder release `context` once `set_callback`
+        // returns. The cost is that the callback cannot re-enter
+        // `set_callback` (it would deadlock on this mutex), which the header
+        // states. Releasing the guard first would make re-entry legal but
+        // would let a concurrent clear return while a callback is still
+        // running, so the embedder could free `context` under it.
         unsafe {
             (registered.callback)(
                 registered.context as *mut c_void,
