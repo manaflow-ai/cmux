@@ -127,13 +127,14 @@ struct FilePreviewKindResolverTests {
 
     @MainActor
     private func waitForPreviewMode(_ panel: FilePreviewPanel, _ mode: FilePreviewMode) async -> Bool {
-        for _ in 0..<1000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if panel.previewMode == mode {
                 return true
             }
             await Task.yield()
         }
-        return false
+        return panel.previewMode == mode
     }
 }
 

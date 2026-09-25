@@ -187,23 +187,26 @@ struct CloudWireGuardHubTests {
     }
 
     /// Yields until the gate holds `count` parked sleeps (the hub schedules them on its
-    /// own tasks), bounded by a generous number of turns.
+    /// own tasks), bounded by a generous real deadline.
     private func waitForPendingSleeps(_ gate: SleepGate, count: Int) async {
-        for _ in 0..<2_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await gate.pendingCount >= count { return }
             await Task.yield()
         }
     }
 
     private func waitUntilRunning(_ hub: CloudWireGuardHub) async {
-        for _ in 0..<2_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await hub.status().running { return }
             await Task.yield()
         }
     }
 
     private func waitForSpawnCount(_ spawner: FakeSpawner, count: Int) async {
-        for _ in 0..<2_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if spawner.count >= count { return }
             await Task.yield()
         }
@@ -340,8 +343,8 @@ struct CloudWireGuardHubTests {
         #expect(await h.gate.requested == [.seconds(10)])
         #expect(h.spawner.last?.isRunning == true)
         await h.gate.elapse()
-        for _ in 0..<2_000 {
-            if h.spawner.last?.isRunning != true { break }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while h.spawner.last?.isRunning == true, ContinuousClock.now < deadline {
             await Task.yield()
         }
         #expect(h.spawner.last?.isRunning == false)

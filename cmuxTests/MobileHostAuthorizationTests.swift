@@ -1060,7 +1060,8 @@ actor RecordingMobileHostByteTransport: CmxByteTransport {
     func close() async { closeCount += 1 }
 
     func waitForSentBufferCount(_ count: Int) async -> [Data] {
-        for _ in 0..<1_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if sent.count >= count { return sent }
             await Task.yield()
         }

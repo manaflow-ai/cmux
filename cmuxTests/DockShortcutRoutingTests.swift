@@ -2118,10 +2118,8 @@ extension DockShortcutRoutingTests {
 
     @MainActor
     static func waitForSearchState(_ surface: TerminalSurface) async {
-        for _ in 0..<20 {
-            if surface.searchState != nil {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while surface.searchState == nil, ContinuousClock.now < deadline {
             await Task.yield()
         }
     }

@@ -1769,8 +1769,8 @@ struct SidebarWorkspaceTableTests {
 
     @MainActor
     private func flushUntil(_ predicate: @escaping () -> Bool) async {
-        for _ in 0..<32 {
-            if predicate() { return }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !predicate(), ContinuousClock.now < deadline {
             await flushStagedTableMutations()
             await Task.yield()
         }
