@@ -30,8 +30,8 @@
 #   * /etc/cmux/daemon-instance-id names the machine whose identity the
 #     state dir holds. A different id means "this is a clone": a running
 #     daemon (another machine's identity) is stopped and the daemon starts
-#     with a fresh identity bound to this id. The park left no identity to
-#     replace; the warm first terminal survives (see "Warm template" below).
+#     with a fresh identity bound to this id; any remote identity a fork
+#     inherited is dropped first. The warm first terminal survives.
 #   * /etc/cmux/bake-instance-id is the machine a snapshot is being taken
 #     from. While it matches, the daemon is kept parked so the snapshot never
 #     carries a live identity. The bake and derive scripts write it right
@@ -135,6 +135,9 @@ HOUSEKEEPING_TIMERS="apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.time
 cmux_tui_layout() {
   if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux; CMUX_TUI_LAYOUT=user; else CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root; fi; CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"
   BIN="$CMUX_TUI_BIN"
+  # cmux-remote's state dir for the daemon user; identity.json lives under
+  # sessions/<session>/auth.
+  REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"
 }
 
 instance_id() {
@@ -267,9 +270,12 @@ while true; do
         mkdir -p "$TEMPLATE_RUN_DIR" 2>/dev/null && : > "$TEMPLATE_RUN_DIR/clone-started" 2>/dev/null
         reseed_kernel_rng "$id"
         stop_daemon
-        # The parked snapshot carries no daemon identity, session state or
-        # remote identity (devboxParkDaemonCommand wiped them), only the warm
-        # terminal host, so the new daemon creates all of them fresh.
+        # A bake snapshot carries no remote identity (devboxParkDaemonCommand
+        # wiped it), but a fork or checkpoint of a running machine carries its
+        # parent's Noise identity and connection state. Drop both so this
+        # machine's daemon creates its own.
+        find "$REMOTE_STATE_DIR/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
+        rm -rf "$REMOTE_STATE_DIR/connections" 2>/dev/null || true
         mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
         # Start the daemon before anything else that needs CPU: a New Machine
         # waits on this listener, and the clone has only a couple of vCPUs.
