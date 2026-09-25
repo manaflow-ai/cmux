@@ -461,6 +461,16 @@ function billingEmailPredicate(
     eq(column, matchingEmail);
 }
 
+function settledFounderCheckoutSession(
+  sessions: Stripe.Checkout.Session[],
+  subscriptionId: string,
+): Stripe.Checkout.Session | undefined {
+  for (const candidate of sessions) {
+    if (isSettledFounderCheckoutSession(candidate, subscriptionId)) return candidate;
+  }
+  return undefined;
+}
+
 async function purchaseFromStripeCustomer(
   client: RecoveryStripeClient,
   customer: Stripe.Customer,
@@ -492,13 +502,7 @@ async function purchaseFromStripeCustomer(
       // an incomplete subscription before the first invoice is paid. Require
       // a settled checkout session that names this exact subscription before
       // recovering a one-time Founder entitlement.
-      let settledSession: (typeof sessions)[number] | undefined;
-      for (const candidate of sessions) {
-        if (isSettledFounderCheckoutSession(candidate, subscription.id)) {
-          settledSession = candidate;
-          break;
-        }
-      }
+      const settledSession = settledFounderCheckoutSession(sessions, subscription.id);
       if (!settledSession) continue;
       return {
         kind: "founders_edition",
