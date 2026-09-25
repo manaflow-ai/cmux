@@ -179,7 +179,7 @@ struct MacAuthComposition {
             callbackRouter: callbackRouter,
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme },
-            openExternalURL: { NSWorkspace.shared.open($0) },
+            openExternalURL: { BrowserExternalAppOpener().open($0) },
             beginSignOut: {
                 // Tear down local Cloud VM workspaces before the coordinator
                 // clears auth. This closes live WebSockets, removes persisted

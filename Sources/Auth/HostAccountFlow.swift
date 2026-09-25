@@ -161,7 +161,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func openSignInURLInDefaultBrowser(_ url: URL) -> Bool {
-        NSWorkspace.shared.open(url)
+        BrowserExternalAppOpener().open(url)
     }
 
     func copySignInURL(_ url: URL) -> Bool {

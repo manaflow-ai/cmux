@@ -204,6 +204,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
+                    "externalApplication": BrowserExternalApplicationSettings.defaultValue,
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
                     "defaultZoomLevel": BrowserZoomSettings.defaultLevel,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,

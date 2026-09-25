@@ -730,7 +730,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
 
         guard scheme == "http" || scheme == "https" else {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
             return
         }
 
@@ -740,7 +740,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                   preferredWorkspaceId: workspaceId
               ),
               let paneId = location.workspace.paneId(forPanelId: panelId) else {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
             return
         }
 

@@ -29,6 +29,7 @@ fi
 settings_domain="${CMUX_BUNDLE_ID:-}"
 whitelist_raw=""
 whitelist_patterns=()
+browser_external_application=""
 
 system_open() {
     if [[ -n "$ORIGINAL_LC_ALL_IS_SET" ]]; then
@@ -37,6 +38,21 @@ system_open() {
         unset LC_ALL
     fi
     exec "$SYSTEM_OPEN_BIN" "$@"
+}
+
+browser_system_open() {
+    if [[ -n "$browser_external_application" ]]; then
+        if [[ -n "$ORIGINAL_LC_ALL_IS_SET" ]]; then
+            export LC_ALL="$ORIGINAL_LC_ALL_VALUE"
+        else
+            unset LC_ALL
+        fi
+        "$SYSTEM_OPEN_BIN" -a "$browser_external_application" "$@"
+        if [[ $? -eq 0 ]]; then
+            return 0
+        fi
+    fi
+    system_open "$@"
 }
 
 trim() {
@@ -465,7 +481,8 @@ fi
 if [[ -n "$settings_domain" ]]; then
     browser_disabled="$("$DEFAULTS_BIN" read "$settings_domain" browserDisabledOverride 2>/dev/null || true)"
     if is_true_setting "$browser_disabled"; then
-        system_open "$@"
+        browser_external_application="$("$DEFAULTS_BIN" read "$settings_domain" browserExternalApplication 2>/dev/null || true)"
+        browser_system_open "${cmux_targets[@]}"
         exit $?
     fi
 
@@ -475,7 +492,8 @@ if [[ -n "$settings_domain" ]]; then
         open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserOpenTerminalLinksInCmuxBrowser 2>/dev/null || true)"
     fi
     if is_false_setting "$open_in_cmux"; then
-        system_open "$@"
+        browser_external_application="$("$DEFAULTS_BIN" read "$settings_domain" browserExternalApplication 2>/dev/null || true)"
+        browser_system_open "${cmux_targets[@]}"
         exit $?
     fi
 
@@ -491,8 +509,12 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 CMUX_CLI="$SELF_DIR/cmux"
 
 if [[ ! -x "$CMUX_CLI" ]]; then
-    system_open "$@"
+    browser_system_open "${cmux_targets[@]}"
     exit $?
+fi
+
+if [[ -n "$settings_domain" ]]; then
+    browser_external_application="$("$DEFAULTS_BIN" read "$settings_domain" browserExternalApplication 2>/dev/null || true)"
 fi
 
 # Open each URL in cmux's in-app browser; track failures individually.
@@ -517,6 +539,11 @@ done
 
 # Fall back to system open for unmatched args and URLs that failed.
 if [[ ${#passthrough_args[@]} -gt 0 ]] || [[ ${#failed_urls[@]} -gt 0 ]]; then
-    system_open "${passthrough_args[@]}" "${failed_urls[@]}"
+    if [[ ${#passthrough_args[@]} -gt 0 ]]; then
+        "$SYSTEM_OPEN_BIN" "${passthrough_args[@]}"
+    fi
+    if [[ ${#failed_urls[@]} -gt 0 ]]; then
+        browser_system_open "${failed_urls[@]}"
+    fi
     exit $?
 fi

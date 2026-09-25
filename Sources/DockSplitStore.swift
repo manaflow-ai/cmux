@@ -1028,7 +1028,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             guard browserAvailabilityProvider() else {
                 if allowsExternalBrowserFallback,
                    let externalURL = url ?? initialRequest?.url {
-                    _ = NSWorkspace.shared.open(externalURL)
+                    _ = BrowserExternalAppOpener().open(externalURL)
                 }
                 return nil
             }

@@ -13,7 +13,7 @@ final class BrowserAppLinkPlacementPolicy {
 
     init(
         openInSystemBrowser: @escaping (URL) -> Bool = {
-            NSWorkspace.shared.open($0)
+            BrowserExternalAppOpener().open($0)
         }
     ) {
         self.openInSystemBrowser = openInSystemBrowser

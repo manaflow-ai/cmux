@@ -169,6 +169,7 @@ Embedded browser settings from Settings > Browser.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `browser.defaultSearchEngine` | `"google"` or `"duckduckgo"` or `"bing"` or `"kagi"` or `"startpage"` | `"google"` | Default search engine for non-URL queries. |
+| `browser.externalApplication` | string | `""` | Application name, bundle identifier, or `.app` path used for URLs opened outside cmux. |
 | `browser.showSearchSuggestions` | boolean | `true` | Show omnibar search suggestions. |
 | `browser.theme` | `"system"` or `"light"` or `"dark"` | `"system"` | Embedded browser theme. |
 | `browser.defaultZoomLevel` | number | `1` | Default page zoom factor for newly opened browser pages (0.25–5; 1 = 100%). |

@@ -1327,6 +1327,7 @@
           "soundOverride": "En tilsidesættelse af notifikationslyden. default bruger notifications.sound, none deaktiverer afspilning, og de øvrige værdier vælger en indbygget eller brugerdefineret lyd."
         },
         "browser": {
+          "externalApplication": "Programnavn, bundle-id eller .app-sti til URL-adresser, der åbnes uden for cmux. Lad feltet stå tomt for systemets standardbrowser.",
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",

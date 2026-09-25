@@ -1770,6 +1770,242 @@
           }
         }
       }
+    },
+    "settings.browser.externalApplication": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطبيق المتصفح الخارجي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Externe Browser-App"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "External Browser Application"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicación de navegador externa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application de navigateur externe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部ブラウザアプリケーション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "외부 브라우저 앱"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部浏览器应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部瀏覽器應用"
+          }
+        }
+      }
+    },
+    "settings.browser.externalApplication.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم عناوين URL المفتوحة خارج cmux اسم هذا التطبيق أو معرّف الحزمة أو مسار ‎.app. اتركه فارغًا لاستخدام الإعداد الافتراضي للنظام."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für außerhalb von cmux geöffnete URLs werden der App-Name, die Bundle-ID oder der .app-Pfad verwendet. Leer lassen, um den Systemstandard zu verwenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLs opened outside cmux use this app name, bundle identifier, or .app path. Leave empty for the system default."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las URL abiertas fuera de cmux usan el nombre, el identificador del paquete o la ruta .app de esta aplicación. Déjalo vacío para usar el valor predeterminado del sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les URL ouvertes hors de cmux utilisent le nom de cette app, son identifiant de bundle ou son chemin .app. Laissez vide pour utiliser le réglage par défaut du système."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の外部で開く URL に使用するアプリ名、バンドル識別子、または .app パスです。空欄にするとシステムのデフォルトを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 외부에서 여는 URL에 사용할 앱 이름, 번들 식별자 또는 .app 경로입니다. 비워 두면 시스템 기본값을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 外打开的 URL 使用此应用名称、包标识符或 .app 路径。留空则使用系统默认值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 外開啟的 URL 會使用此應用程式名稱、套件識別碼或 .app 路徑。留空則使用系統預設值。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.external-application": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication متصفح خارجي تطبيق متصفح معرّف الحزمة مسار روابط عناوين URL"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication externer Browser App Anwendung Bundle-ID Pfad Links URLs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication external browser app application bundle identifier path links urls"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication navegador externo aplicación identificador del paquete ruta enlaces URL"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication navigateur externe application identifiant de bundle chemin liens URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication 外部ブラウザ アプリ バンドル識別子 パス リンク URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication 외부 브라우저 앱 애플리케이션 번들 식별자 경로 링크 URL"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication 外部浏览器 应用 包标识符 路径 链接 URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication 外部瀏覽器 應用程式 套件識別碼 路徑 連結 URL"
+          }
+        }
+      }
+    },
+    "settings.browser.externalApplication.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثال: com.google.Chrome"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. com.google.Chrome"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. com.google.Chrome"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ej., com.google.Chrome"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ex. com.google.Chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: com.google.Chrome"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: com.google.Chrome"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如：com.google.Chrome"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如：com.google.Chrome"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

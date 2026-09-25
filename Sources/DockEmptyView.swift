@@ -89,7 +89,7 @@ struct DockEmptyView: View {
 
     private func openDockDocs() {
         guard let url = URL(string: "https://cmux.com/docs/dock") else { return }
-        NSWorkspace.shared.open(url)
+        BrowserExternalAppOpener().open(url)
     }
 
     private var agentPrompt: String {

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 @Suite("Browser external application settings")

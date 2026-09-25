@@ -1094,7 +1094,7 @@ private func sessionRowMenuItems(
     }
     if let url = entry.fileURL {
         Button {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
         } label: {
             Text(String(localized: "sessionIndex.row.open", defaultValue: "Open"))
         }
@@ -1134,7 +1134,7 @@ private func sessionRowMenuItems(
     if let pr = entry.pullRequest, let url = URL(string: pr.url) {
         Divider()
         Button {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
         } label: {
             Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
         }

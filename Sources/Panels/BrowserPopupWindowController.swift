@@ -219,7 +219,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             case .failed:
                 browserPresentExternalNavigationFailure(for: url, in: self.webView)
             case .notConfigured:
-                _ = NSWorkspace.shared.open(url)
+                _ = BrowserExternalAppOpener().open(url)
             }
         }
 
@@ -376,7 +376,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         if let openerPanel {
             openerPanel.openLinkInNewTab(request: request)
         } else if let url = request.url {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
         }
     }
 
@@ -441,7 +441,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             switch response {
             case .alertFirstButtonReturn:
                 // Open in default browser, cancel popup navigation
-                NSWorkspace.shared.open(url)
+                BrowserExternalAppOpener().open(url)
                 decisionHandler(.cancel)
             case .alertSecondButtonReturn:
                 // Proceed in popup

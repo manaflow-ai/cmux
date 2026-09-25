@@ -33,6 +33,7 @@ def run_wrapper(
     args: list[str],
     intercept_setting: str | None,
     browser_disabled_setting: str | None = None,
+    external_application: str | None = None,
     legacy_open_setting: str | None = None,
     whitelist: str | None,
     external_patterns: str | None = None,
@@ -93,6 +94,13 @@ case "$key" in
   browserDisabledOverride)
     if [[ "${FAKE_DEFAULTS_BROWSER_DISABLED+x}" == "x" ]]; then
       printf '%s\\n' "$FAKE_DEFAULTS_BROWSER_DISABLED"
+      exit 0
+    fi
+    exit 1
+    ;;
+  browserExternalApplication)
+    if [[ "${FAKE_DEFAULTS_EXTERNAL_APPLICATION+x}" == "x" ]]; then
+      printf '%s\n' "$FAKE_DEFAULTS_EXTERNAL_APPLICATION"
       exit 0
     fi
     exit 1
@@ -176,6 +184,11 @@ exit 0
             env.pop("FAKE_DEFAULTS_BROWSER_DISABLED", None)
         else:
             env["FAKE_DEFAULTS_BROWSER_DISABLED"] = browser_disabled_setting
+
+        if external_application is None:
+            env.pop("FAKE_DEFAULTS_EXTERNAL_APPLICATION", None)
+        else:
+            env["FAKE_DEFAULTS_EXTERNAL_APPLICATION"] = external_application
 
         if legacy_open_setting is None:
             env.pop("FAKE_DEFAULTS_LEGACY_OPEN", None)
@@ -298,6 +311,24 @@ def test_browser_disabled_override_passthrough(failures: list[str]) -> None:
     expect(
         open_log == [url],
         f"browser disabled override: expected one system open [{url}], got {open_log}",
+        failures,
+    )
+
+
+def test_configured_external_application_is_used(failures: list[str]) -> None:
+    url = "https://example.com"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        browser_disabled_setting="true",
+        external_application="com.google.Chrome",
+        whitelist="",
+    )
+    expect(code == 0, f"configured external application: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [], f"configured external application: cmux should not be called, got {cmux_log}", failures)
+    expect(
+        open_log == [f"-a com.google.Chrome {url}"],
+        f"configured external application: expected app-specific open, got {open_log}",
         failures,
     )
 
@@ -1055,6 +1086,7 @@ def main() -> int:
     test_toggle_disabled_passthrough(failures)
     test_toggle_disabled_case_insensitive_passthrough(failures)
     test_browser_disabled_override_passthrough(failures)
+    test_configured_external_application_is_used(failures)
     test_whitelist_miss_passthrough(failures)
     test_whitelist_match_routes_to_cmux(failures)
     test_external_literal_pattern_is_deferred_to_app(failures)

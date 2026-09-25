@@ -1186,7 +1186,7 @@ private func browserOpenExternalNavigationURL(
     webView: WKWebView,
     presentAlert: BrowserAlertPresenter = browserPresentAlert
 ) -> Bool {
-    let opened = NSWorkspace.shared.open(url)
+    let opened = BrowserExternalAppOpener().open(url)
     if !opened {
         browserPresentExternalNavigationFailure(for: url, in: webView, presentAlert: presentAlert)
     }
@@ -5861,7 +5861,7 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { BrowserExternalAppOpener().open($0) },
         onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) {
@@ -6319,7 +6319,7 @@ extension BrowserPanel {
         )
 #endif
         guard BrowserAvailabilitySettings.isEnabled() else {
-            _ = NSWorkspace.shared.open(seed.url)
+            _ = BrowserExternalAppOpener().open(seed.url)
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.external panel=\(id.uuidString.prefix(5)) reason=browser_disabled")
 #endif

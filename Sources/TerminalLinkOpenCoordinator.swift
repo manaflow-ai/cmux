@@ -28,7 +28,7 @@ struct TerminalLinkOpenCoordinator {
     init(
         defaults: UserDefaults = .standard,
         containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
-        externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { BrowserExternalAppOpener().open($0) },
         fileOpen: (any FileOpening)? = nil,
         recordsDiagnostics: Bool = true,
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
