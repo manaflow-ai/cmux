@@ -31,6 +31,10 @@ When we change the fork, update this document and the parent submodule SHA.
   hosted macOS Ghostty tests provide the behavioral proof. The disposition
   query zero-initializes and size-checks the Darwin process record before
   reading its signal mask.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01e7c93ca9e4f5e13d82babebca183a94f6704d8-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `b6c8b8661f2098d9d8120523dded69f9f2347a988822cccb4711da1624f1121a`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: preserve the per-process-group phase and do not collapse the
   launcher and foreground groups back into one shared deadline. Doing so
   reintroduces the startup close stall or cuts off shell shutdown hooks.
