@@ -184,6 +184,13 @@ class ReportTests(unittest.TestCase):
         self.assertIn("macos / packages", body)
         self.assertNotIn("app-host (2)", body)
 
+    def test_failure_body_carries_the_attribution_section(self):
+        body = MODULE.failure_body(run(), [], "### New since `abc`\n\nrow\n")
+        self.assertIn("### New since `abc`", body)
+        self.assertIn("closes itself on the next green run", body.split("### New since", 1)[1])
+        self.assertEqual(MODULE.read_extra_section(None), "")
+        self.assertEqual(MODULE.read_extra_section("/nonexistent/new-failures.md"), "")
+
 
 class SuiteSelectionTests(unittest.TestCase):
     def test_dispatched_ci_runs_the_full_suite_under_compile_only_policy(self):
