@@ -11,6 +11,24 @@ Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so
 After a successful build `reload.sh` terminates any running app with the same tag, so opening the printed app path launches the fresh binary.
 Use `--build-only` only for an explicit compile/validation pass. It leaves the running tagged app, `cmuxd`, and tag state untouched, and stages the new bundle separately; the active app remains on its previous revision.
 
+Other local variants: `reloadp.sh` (Release), `reloads.sh` (isolated Release staging) and `reload2.sh --tag <tag>` (both).
+
+For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh` (it verifies the pinned artifact), then use `CMUX_GHOSTTYKIT_PREPROVISIONED=1` with the tagged reload.
+
+## Compile-only checks
+
+Reuse the tag's DerivedData; a different path starts a cold build:
+
+```bash
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>" build
+```
+
+`<tag>` is the slug `reload.sh` makes: lowercase, with runs of other characters replaced by `-` (`Fix/ABC-1` becomes `fix-abc-1`). When GhosttyKit itself needs rebuilding:
+
+```bash
+cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+```
+
 ## App path links
 
 `reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Use it to confirm the tag built, but link the build in chat as `http://127.0.0.1:17320/<tag>` through the local Tag Opener. Never put a `file://` URL, a raw `.app` or DerivedData path, or a `/tmp/cmux-<tag>/...` link in chat output.
