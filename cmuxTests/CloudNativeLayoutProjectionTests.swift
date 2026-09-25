@@ -1,4 +1,8 @@
+import CMUXMobileCore
+import CMUXAuthCore
+import CmuxAuthRuntime
 import CmuxCore
+import CmuxIrohTransport
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -11,6 +15,95 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test("Closing a mirrored Mac terminal updates its owner, while teardown only detaches",
+          arguments: [SurfaceProjectionEndReason.paneClosed, .workspaceTeardown, .replaced])
+    func closingDeviceProjectionUpdatesSource(reason: SurfaceProjectionEndReason) async throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let viewer = try #require(manager.selectedWorkspace)
+        let pane = try #require(viewer.bonsplitController.allPaneIds.first)
+        let first = try #require(viewer.focusedPanelId)
+        let second = try #require(viewer.newTerminalSurface(inPane: pane, focus: false)?.id)
+        defer { viewer.teardownAllPanels(); manager.tabs = [] }
+        let instance = SurfaceDeviceInstanceID(deviceID: "close-owner", tag: "test")
+        let machine = SurfaceMachineID.device(instance)
+        let remoteID = UUID().uuidString
+        let remoteA = UUID().uuidString, remoteB = UUID().uuidString
+        let catalog = SurfaceCatalog()
+        let defaultsName = "DeviceProjectionClose-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let auth = makeDeviceTestAuth(defaults: defaults)
+        let record = DeviceDirectoryRecord(instance: instance, deviceName: "Source", platform: "mac",
+            bundleID: nil, presenceState: .online, isPaired: false, lastSeenAt: nil, routes: [],
+            ownerUserID: "test", accountTrust: .sameAccount)
+        let link = DeviceLink(record: record, runtime: DeviceLinkRuntime(tokens: HiveAccountTokenSource(
+            auth: auth, identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"), teamID: nil
+        )), authorization: UnpairedDeviceLayoutSource())
+        let provider = DeviceSurfaceProvider(record: record, link: link, catalog: catalog)
+        defer { provider.stop() }
+        catalog.register(provider)
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: remoteID, name: "Source", index: 0, focused: false)
+        for (panel, remote) in [(first, remoteA), (second, remoteB)] {
+            let resource = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: remote),
+                title: remote, detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: remoteWorkspace,
+                remoteViews: [SurfaceRemoteView(tabID: remote, workspace: remoteWorkspace)], port: nil, url: nil)
+            catalog.upsert(resource)
+            catalog.record(.init(resource: resource.id, workspaceID: viewer.id, panelID: panel,
+                remoteWorkspaceID: remoteID, remoteTabID: remote))
+        }
+        var source = DeviceWorkspaceLayoutSnapshot(workspaceID: remoteID,
+            layout: .pane(id: "source", surfaceIDs: [remoteA, remoteB], selectedSurfaceID: remoteA),
+            revision: "initial", sequence: 1)
+        var closes = 0
+        let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+            workspace: { $0 == viewer.id ? viewer : nil },
+            request: { method, params in
+                if method == "mobile.terminal.close" {
+                    #expect(params["workspace_id"] as? String == remoteID)
+                    #expect(params["surface_id"] as? String == remoteB)
+                    closes += 1
+                    source = DeviceWorkspaceLayoutSnapshot(workspaceID: remoteID,
+                        layout: .pane(id: "source", surfaceIDs: [remoteA], selectedSurfaceID: remoteA),
+                        revision: "closed", sequence: 2)
+                    return try JSONSerialization.data(withJSONObject: ["closed": true,
+                        "workspace_id": remoteID, "surface_id": remoteB])
+                }
+                #expect(method == "device.workspace.layout")
+                return try JSONEncoder().encode(source)
+            }, refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        provider.layoutSync = coordinator
+        coordinator.accept(source)
+        await coordinator.waitForIdle()
+        viewer.performRemoteTmuxMirrorMutation { _ = viewer.closePanel(second, force: true) }
+        catalog.endProjections(panelID: second, reason: reason)
+        await coordinator.waitForIdle()
+        let shouldClose = reason == .paneClosed
+        #expect(closes == (shouldClose ? 1 : 0))
+        #expect(try source.layout.validatedSurfaceIDs() == (shouldClose ? [remoteA] : [remoteA, remoteB]))
+        if shouldClose {
+            let mapping = [first.uuidString: remoteA]
+            #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source.layout) == true)
+        }
+    }
+
+    private func makeDeviceTestAuth(defaults: UserDefaults) -> AuthCoordinator {
+        let config = AuthConfig(stack: CMUXAuthConfig(projectId: "test", publishableClientKey: "test"),
+            magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback", apiBaseURL: "http://127.0.0.1:1")
+        return AuthCoordinator(
+            client: StackAuthClient(config: config, tokenStore: .memory, noAutomaticPrefetch: true),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
+            anchor: AuthPresentationContextProvider(), config: config,
+            launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: [:], includesDevAuth: false))
+    }
+
+    private final class UnpairedDeviceLayoutSource: DeviceLinkAuthorizationSource {
+        var pairedDevices: [DevicePairedDevice] { [] }
+        let authorizationDidChangeNotification = Notification.Name("DeviceLayout-\(UUID().uuidString)")
+        func authorization(for instance: SurfaceDeviceInstanceID, route: CmxAttachRoute) -> CmxLegacyTailscaleAuthorizationEvidence? { nil }
+    }
+
     @Test func nativeMirrorTabInsertionHonorsTheSourceOrder() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
