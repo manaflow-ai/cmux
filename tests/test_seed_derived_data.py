@@ -856,8 +856,8 @@ class Wiring(unittest.TestCase):
         # Attempt 1 takes the owned pool only when the picker placed admission
         # there (pr_owned_jobs); otherwise the retry runner.
         for attempt, retry, owned_jobs, runner in (
-            ("1", "blacksmith-12vcpu-macos-26", " admission cli-pipe ", "glaeda-std-xcode-26.6"),
-            ("1", "blacksmith-12vcpu-macos-26", " cli-pipe ", "blacksmith-12vcpu-macos-26"),
+            ("1", "blacksmith-12vcpu-macos-26", " admission cli-product ", "glaeda-std-xcode-26.6"),
+            ("1", "blacksmith-12vcpu-macos-26", " cli-product ", "blacksmith-12vcpu-macos-26"),
             ("1", "blacksmith-12vcpu-macos-26", "", "blacksmith-12vcpu-macos-26"),
             ("2", "blacksmith-12vcpu-macos-26", " admission ", "blacksmith-12vcpu-macos-26"),
             ("2", "", "", "glaeda-std-xcode-26.6"),

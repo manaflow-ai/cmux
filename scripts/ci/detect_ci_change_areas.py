@@ -71,7 +71,6 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
-CLI_WORKFLOW_PATH = ".github/workflows/cli-pipe-regressions.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux"
 CLI_PRODUCT_TARGET = "cmux-cli"
@@ -305,17 +304,15 @@ NO_AREAS = ChangeAreas(
 
 # What a ci.yml job that calls one of these reusable workflows selects. Its
 # `with:` inputs, `if:` and `needs:` all sit in the calling job's own block.
+# The job that calls ci-macos.yml also passes the `cli` route that runs the
+# CLI lane there (compile admission's CLI smoke checks, cli-product-tests).
 _CALLED_WORKFLOW_AREAS = {
     MACOS_WORKFLOW_PATH: ChangeAreas(
-        macos=True, web=False, agent_session_web=False, cli=False,
+        macos=True, web=False, agent_session_web=False, cli=True,
         swift_packages=False, release_build=True,
     ),
     WEB_WORKFLOW_PATH: ChangeAreas(
         macos=False, web=True, agent_session_web=True, cli=False,
-        swift_packages=False, release_build=False,
-    ),
-    CLI_WORKFLOW_PATH: ChangeAreas(
-        macos=False, web=False, agent_session_web=False, cli=True,
         swift_packages=False, release_build=False,
     ),
 }
@@ -568,10 +565,10 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
 
     A ci-macos.yml job runs behind the macOS area, with Release and the CLI lane
     only for their own jobs, as macos_workflow_change_areas() reads an edit. A
-    ci-web.yml job runs behind web, a CLI lane job behind cli. Any other plainly
-    Linux job runs behind the areas its `if:` reads, which may be none: the
-    static stage and the guards route themselves. The routing and status jobs,
-    other Mac jobs, and a name outside any job answer None.
+    ci-web.yml job runs behind web. Any other plainly Linux job runs behind the
+    areas its `if:` reads, which may be none: the static stage and the guards
+    route themselves. The routing and status jobs, other Mac jobs, and a name
+    outside any job answer None.
     """
     # A leading newline lets a file that starts at `jobs:` split too.
     parts = split_workflow_jobs("\n" + text)
@@ -592,7 +589,7 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
             cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
             release_build=bool(naming & _release_jobs(jobs)),
         )
-    if workflow in (WEB_WORKFLOW_PATH, CLI_WORKFLOW_PATH):
+    if workflow == WEB_WORKFLOW_PATH:
         return _CALLED_WORKFLOW_AREAS[workflow]
     selected = NO_AREAS
     for name in naming:
@@ -821,10 +818,10 @@ SHARED_WEB_WORKFLOW_PREFIXES = (
 )
 
 
-# Everything cli-pipe-regressions.yml runs besides the cmux-cli target's own
+# Everything the CLI lane (compile admission's CLI product and its early CLI
+# smoke checks, then cli-product-tests) runs besides the cmux-cli target's own
 # compile inputs, which cli_target_inputs() reads from the Xcode project.
 CLI_LANE_EXACT_INPUTS = frozenset({
-    CLI_WORKFLOW_PATH,
     # Checked-out submodules: bonsplit is a local package of the project the
     # lane resolves, and ghostty supplies the GhosttyKit.xcframework binary
     # target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
@@ -844,7 +841,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/r2-cache.sh",
     "scripts/ci/cache_restore_receipt.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
-    # The regression scripts the lane runs, and what they import or read.
+    # The regression scripts admission's CLI smoke step runs, and what they
+    # import or read.
     "tests/test_cli_broken_pipe_writes.py",
     "tests/test_cli_socket_operation_deadline.py",
     "tests/test_cli_config_doctor.py",
@@ -867,7 +865,7 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
-    # Seeds the checkout of both CLI lanes and initializes cli-pipe's submodules.
+    # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
 })
 
@@ -875,14 +873,12 @@ CLI_LANE_INPUT_PREFIXES = (
     "CLI/",
     "cmuxCLITests/",
     "cmuxCLITestSupport/",
-    # The lane builds the cmux-cli scheme of this project and keys its package
+    # The lane builds the cmux-cli target of this project and keys its package
     # cache on the project's Package.resolved.
     "cmux.xcodeproj/",
     ".github/actions/cache-restore/",
     # cli-product-tests' canonical fallback download of the compiled product.
     ".github/actions/download-test-product/",
-    # The lane runs `swift test` in this package directly.
-    "Packages/macOS/CmuxFoundation/",
 )
 
 # ---------------------------------------------------------------------------
@@ -1034,8 +1030,8 @@ def is_cli_change(
         return is_macos_change(path, macos_ios_packages)
     for directory in cli_inputs.package_directories:
         if path == directory or path.startswith(f"{directory}/"):
-            # A package's test sources never reach the cmux-cli binary.
-            # CmuxFoundation's tests, which the lane runs, matched above.
+            # A package's test sources never reach the cmux-cli binary; the
+            # swift-package-tests lane runs them (swift_package_test_selection).
             return not path.startswith(f"{directory}/Tests/")
     return path.rsplit("/", 1)[-1] in cli_inputs.source_file_names
 

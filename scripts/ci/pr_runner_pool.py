@@ -3,10 +3,11 @@
 
 ci.yml's `changes` job calls this once per run, and every pull-request macOS
 job in the run reads the answer: compile admission, the app-host consumers
-that follow it, tests-build-and-lag, the Claude wrapper, CLI pipe and remote
-daemon lanes. A run on a Blacksmith pool is never split across pools, because
-the app-host product only loads under the Xcode that linked it (#14163). A run
-on an owned pool may be, per job (see "Per-job placement" below).
+that follow it, tests-build-and-lag, cli-product-tests, the Claude wrapper
+and remote daemon lanes. A run on a Blacksmith pool is never split across
+pools, because the app-host product only loads under the Xcode that linked it
+(#14163). A run on an owned pool may be, per job (see "Per-job placement"
+below).
 
 The run takes the first pool in preference order that has headroom:
 
@@ -70,7 +71,7 @@ most free machines (at least one), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
 and a mini keeps its warm DerivedData), then the GUI jobs (app-host shards by
 index, tests-build-and-lag), which queue longest on Blacksmith, then the light
-jobs (cli-product-tests, the CLI pipe, remote daemon and Claude wrapper lanes).
+jobs (cli-product-tests, the remote daemon and Claude wrapper lanes).
 Each job counts one machine; the jobs after admission reuse its machine.
 Every other job of attempt 1 takes
 `retry_runner`, the Blacksmith pool on the lane's Xcode. The shards and
@@ -166,8 +167,8 @@ SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
 GUI_VARIABLE = "CI_PR_POOL_OWNED_GUI"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # A pull request run holds several macOS machines at once, each job on its
-# own. Beside compile admission run the Claude wrapper, CLI pipe and remote
-# daemon lanes; once admission passes, a full suite adds APP_HOST_SHARDS
+# own. Beside compile admission run the Claude wrapper and remote daemon
+# lanes; once admission passes, a full suite adds APP_HOST_SHARDS
 # shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
 # shard, and a CLI change cli-product-tests. A run takes an owned pool only
 # when its own peak (run_jobs) is free, so none of its jobs queues there. A
@@ -180,7 +181,7 @@ SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # while its minis sat idle (2026-09-24). A job that still finds its mini busy
 # is refused or queued, and moved to Blacksmith by ci-owned-pool-rescue.yml.
 APP_HOST_SHARDS = 7
-SIDE_LANES = 3
+SIDE_LANES = 2
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
 REPLAYED_RUN_JOBS = SIDE_LANES + 1
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
@@ -322,7 +323,7 @@ def shard_job(index: int) -> str:
 
 # A full suite with every side lane: what a run whose routing is unknown is charged.
 FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", "cli-product"),
-                   ("claude-wrapper", "cli-pipe", "remote-daemon"))
+                   ("claude-wrapper", "remote-daemon"))
 
 
 def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | None,
@@ -339,7 +340,7 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     that does not know) counts one shard, as before.
     """
     full = flag(macos) and flag(full_suite)
-    side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full), ("cli-pipe", flag(cli)),
+    side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
                                      ("remote-daemon", flag(remote_daemon))) if on)
     if not (flag(macos) or flag(cli)):
         return RunJobs(False, (), side)
@@ -362,7 +363,7 @@ def run_jobs(**routing: str | None) -> int:
 # Owned placement priority: the heavy compile, then GUI jobs (the longest
 # Blacksmith queues), then light jobs. GUI jobs need the mini's console
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
-LIGHT_JOBS = ("cli-product", "cli-pipe", "remote-daemon", "claude-wrapper")
+LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper")
 
 
 def gui_job(key: str) -> bool:
