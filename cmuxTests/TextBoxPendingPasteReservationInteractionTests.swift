@@ -56,7 +56,7 @@ struct TextBoxPendingPasteReservationInteractionTests {
 
     @Test("image drags are offered to the TextBox paste pipeline")
     func imageDragIsAcceptedAndForwardedToPaste() {
-        let pasteboard = NSPasteboard(name: "cmux.textbox.drag.(UUID().uuidString)")
+        let pasteboard = NSPasteboard(name: "cmux.textbox.drag.\(UUID().uuidString)")
         pasteboard.clearContents()
         pasteboard.setData(Data([0]), forType: .png)
         let draggingInfo = MockDraggingInfo(pasteboard: pasteboard)
