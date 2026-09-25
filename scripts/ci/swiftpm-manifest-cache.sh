@@ -134,15 +134,23 @@ install() {
   fi
   mkdir -p "$MANIFEST_CACHE_DIR"
   if [ -f "$MANIFEST_CACHE_DIR/manifest.db" ]; then
-    kept_bytes="$(stat -f %z "$MANIFEST_CACHE_DIR/manifest.db" 2>/dev/null || stat -c %s "$MANIFEST_CACHE_DIR/manifest.db")"
+    kept_bytes="$(wc -c <"$MANIFEST_CACHE_DIR/manifest.db" | tr -d ' ')"
     if [ "$kept_bytes" -le "$MANIFEST_CACHE_MERGE_MAX_BYTES" ] \
-      && sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" \
-        "ATTACH '$dir/manifest.db' AS seed; INSERT OR REPLACE INTO main.MANIFEST_CACHE SELECT * FROM seed.MANIFEST_CACHE;" \
-        >/dev/null 2>&1; then
-      echo "Merged $entries SwiftPM manifest cache entries into this Mac's $(sqlite3 "$MANIFEST_CACHE_DIR/manifest.db" 'select count(*) from MANIFEST_CACHE')"
+      && sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" 'select count(*) from MANIFEST_CACHE' >/dev/null 2>&1; then
+      # Readable: merge, or leave it be. A merge that fails here is almost
+      # always the other slot's resolve holding the write lock past the
+      # timeout, and deleting a database another process has open loses
+      # its writes.
+      if sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" \
+        "ATTACH '$dir/manifest.db' AS seed; INSERT OR REPLACE INTO main.MANIFEST_CACHE(key, value) SELECT key, value FROM seed.MANIFEST_CACHE;" \
+        >/dev/null; then
+        echo "Merged $entries SwiftPM manifest cache entries into this Mac's $(sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" 'select count(*) from MANIFEST_CACHE')"
+      else
+        echo "::warning::Could not merge the SwiftPM manifest seed into this Mac's cache; keeping it as it is"
+      fi
       return 0
     fi
-    echo "Replacing this Mac's SwiftPM manifest cache ($kept_bytes bytes, or not mergeable)"
+    echo "Replacing this Mac's SwiftPM manifest cache ($kept_bytes bytes, or unreadable)"
   fi
   rm -f "$MANIFEST_CACHE_DIR/manifest.db" "$MANIFEST_CACHE_DIR/manifest.db-wal" "$MANIFEST_CACHE_DIR/manifest.db-shm"
   cp "$dir/manifest.db" "$MANIFEST_CACHE_DIR/manifest.db"
