@@ -35,26 +35,6 @@
       "classification": "host/display dependency",
       "issue": 13948
     },
-    "CloudDesktopOpenActionTests/capturesClickDestination(hasRemoteView:menu:)": {
-      "classification": "timeout/hang",
-      "issue": 13879
-    },
-    "CloudNativeLayoutProjectionTests/nativeMirrorTabInsertionHonorsTheSourceOrder()": {
-      "classification": "product bug",
-      "issue": 13998
-    },
-    "CloudPortForwardAddressReuseTests/browserConnectionsReuseWorkingFamily()": {
-      "classification": "unknown",
-      "issue": 13879
-    },
-    "CloudPrivateRouteSelectionTests/partialAddressesPreserveFallback(replacesIPv4:)": {
-      "classification": "unknown",
-      "issue": 13879
-    },
-    "CmuxTuiSurfaceProviderRegistryPollingTests/unavailableCloudDoesNotPrepare(enabled:)": {
-      "classification": "unknown",
-      "issue": 13403
-    },
     "SidebarHiddenPresentationTests/visibilityToggleKeepsAppKitTableContainerMounted()": {
       "classification": "product bug",
       "issue": 13931
@@ -62,22 +42,6 @@
     "TerminalNotificationDirectInteractionTests/testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway()": {
       "classification": "host/display dependency",
       "issue": 13948
-    },
-    "TerminalTabIconRegressionTests/activeAgentKeepsReleaseTerminalIcon(statusKey:)": {
-      "classification": "unknown",
-      "issue": 13879
-    },
-    "WorkspaceContentViewVisibilityTests/testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies()": {
-      "classification": "product bug",
-      "issue": 13930
-    },
-    "WorkspaceTerminalFocusRecoverySwiftTests/automaticApplyDoesNotBypassHiddenTinyFirstResponderDeferral()": {
-      "classification": "unknown",
-      "issue": 13988
-    },
-    "WorkspaceTerminalFocusRecoverySwiftTests/findTerminalRestorePreservesHiddenTinyFirstResponderDeferral()": {
-      "classification": "unknown",
-      "issue": 13988
     },
     "WorkspaceTerminalFocusRecoveryTests/testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction()": {
       "classification": "host/display dependency",

@@ -96,6 +96,45 @@ def _patterns() -> tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]:
     return compiled[0], compiled[1], compiled[2]
 
 
+@cache
+def _owned_pattern() -> re.Pattern[str]:
+    """The guard's owned pool label shape (glaeda-std-xcode-26.6), compiled."""
+    try:
+        body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as error:
+        raise PolicyUnreadable(f"{GUARD_SCRIPT.name} could not be read: {error}") from error
+    try:
+        return re.compile(f"({_shell_local(body, 'owned')})")
+    except re.error as error:
+        raise PolicyUnreadable(
+            f"{GUARD_SCRIPT.name} declares an `owned` pattern Python cannot compile: {error}"
+        ) from error
+
+
+POOL_ORDER_VARIABLE = "CI_PR_POOL_ORDER"
+
+
+def pool_order_reason(order: str) -> str | None:
+    """Why CI_PR_POOL_ORDER is not allowed, or None when it is fine.
+
+    The one variable that may name an owned pool: scripts/ci/pr_runner_pool.py
+    reads it for same-repository pull request runs only, and drops owned labels
+    unless CI_PR_POOL_OWNED is 1. Every other entry is held to the workflow
+    policy, so the order cannot smuggle in a label the guard refuses.
+    """
+    for label in (entry.strip() for entry in order.split(",")):
+        if not label or _owned_pattern().fullmatch(label):
+            continue
+        if _owned_pattern().fullmatch(label.lower()):
+            # pr_runner_pool.py matches owned labels exactly, so this entry
+            # would turn the whole preference off instead of naming the pool.
+            return f"`{label}` is an owned pool label in the wrong case; write it in lowercase"
+        reason = forbidden_reason(label)
+        if reason is not None:
+            return f"`{label}` {reason}"
+    return None
+
+
 def forbidden_reason(label: str) -> str | None:
     """Why this runner label is not allowed, or None when it is fine.
 
@@ -108,7 +147,10 @@ def forbidden_reason(label: str) -> str | None:
         return None
     fleet, allowed, selfhosted = _patterns()
     remainder = allowed.sub("", label)
-    if fleet.search(remainder):
+    # GitHub matches runner labels without regard to case, so the fleet and
+    # cloud patterns do too; the bare self-hosted labels are case-sensitive
+    # on purpose (`macOS`, not the `macos` inside cloud labels).
+    if fleet.search(allowed.sub("", label.lower())):
         return (
             "names the self-hosted fleet or a macOS image outside the approved "
             "cloud labels"
@@ -128,11 +170,14 @@ def drifted_runner_variables(
     """
     drifted = []
     for name, value in variables.items():
-        if "RUNNER" not in name:
-            continue
         if not isinstance(value, str):
             continue
-        reason = forbidden_reason(value.strip())
+        if name == POOL_ORDER_VARIABLE:
+            reason = pool_order_reason(value.strip())
+        elif "RUNNER" not in name:
+            continue
+        else:
+            reason = forbidden_reason(value.strip())
         if reason is not None:
             drifted.append((name, value.strip(), reason))
     return sorted(drifted)

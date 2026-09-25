@@ -4,6 +4,8 @@ import Foundation
 actor V2TestSocket: V2ControlSocket {
     let device: V2DeviceDescriptor
     let now: Int
+    let directoryRules: [String]?
+    let directoryPageRules: [[String]?]?
     var queued: [Data] = []
     var receiver: CheckedContinuation<Data, any Error>?
     var closed = false
@@ -27,9 +29,11 @@ actor V2TestSocket: V2ControlSocket {
     var registrationObserved: CheckedContinuation<Void, Never>?
     let record: V2DeviceRecord
 
-    init(device: V2DeviceDescriptor, now: Int) {
+    init(device: V2DeviceDescriptor, now: Int, directoryRules: [String]? = nil, directoryPageRules: [[String]?]? = nil) {
         self.device = device
         self.now = now
+        self.directoryRules = directoryRules
+        self.directoryPageRules = directoryPageRules
         record = V2DeviceRecord(descriptor: device, deviceRecordID: "device-record", revision: 1, revoked: false)
     }
 
@@ -84,12 +88,19 @@ actor V2TestSocket: V2ControlSocket {
                 let inbound = V2InboundPeerPermission(device: V2DeviceRecord(descriptor: device,
                     deviceRecordID: "inbound-\(step)", revision: revision, revoked: false),
                     permissionExpiresAt: now + 3600 + step)
+                let pageRules: [String]?
+                if let directoryPageRules, directoryPageRules.indices.contains(step) {
+                    pageRules = directoryPageRules[step]
+                } else {
+                    pageRules = directoryRules
+                }
                 try push(V2DirectoryResponse(directory: V2Directory(devices: [record], inboundPeers: [inbound], issuedAt: now,
                     nextCursor: next, permissionExpiresAt: now + 3600, relayURLs: [], revision: revision,
+                    rules: pageRules,
                     teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
                 return
             }
-            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: directoryRevision, teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
+            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: directoryRevision, rules: directoryRules, teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
         case "device.metadata.v1":
             lastMetadataRequestID = header.requestId
             if failNextMetadataReply {

@@ -17,6 +17,7 @@ type DeviceRow = {
 
 type ChallengeRow = { identity_key: string; challenge_id: string; nonce_hash: string; payload_hash: string; expires_at: number; issued_at: number };
 type ReceiptRow = { request_id: string; identity_key: string; request_hash: string; device_json: string; created_at: number };
+const AUTHORITY_AUDIT_LIMIT = 65_536;
 
 export type RegistrationCommit = Readonly<{
   descriptor: DeviceDescriptor;
@@ -119,6 +120,21 @@ export class TeamStore {
   }
 
   private appendAudit(eventType: string, actorUserId: string, targetId: string, revision: number, now: number, detail: unknown): void {
+    // Keep the history bounded without allowing the guard trigger to turn a
+    // full audit log into a revocation or permission-update outage. This runs
+    // inside the caller's transaction, so a failed insert rolls the prune back.
+    // Use the v7 counter only when that migration is already present. The
+    // reader-first v6 rollout retains bounded pruning without changing schema.
+    const version = this.#db.get<{ version: number }>(sql`SELECT max("version") AS "version" FROM "schema_history"`)!.version;
+    const count = version >= 7
+      ? this.#db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`)!.count
+      : this.#db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`)!.count;
+    const remove = Math.max(0, count - (AUTHORITY_AUDIT_LIMIT - 1));
+    if (remove > 0) {
+      this.#db.run(sql`DELETE FROM "authority_audit" WHERE "id" IN (
+        SELECT "id" FROM "authority_audit" ORDER BY "id" ASC LIMIT ${remove}
+      )`);
+    }
     this.#db.run(sql`INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") VALUES (${eventType}, ${actorUserId}, ${targetId}, ${revision}, ${now}, ${JSON.stringify(detail)})`);
   }
 

@@ -1,0 +1,52 @@
+name: Prune R2 cache
+
+# scripts/ci/r2-cache.sh saves archives and never deletes, so the CI cache
+# bucket grows by every seed ever written. This deletes archives past their
+# family's retention (see scripts/ci/r2_cache_prune.py) and never one a
+# `latest/` pointer names. It is a dry run unless a dispatch asks to delete or
+# the repository variable CI_R2_CACHE_PRUNE_DELETE is 1.
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: Send deletes. Unchecked reports what would be deleted.
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: r2-cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune expired cache archives
+    # The bucket credentials only ever run main's copy of this script.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    # Only main may use the R2 write credentials (see #14147).
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Prune
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+          PRUNE_DELETE: ${{ (inputs.delete || vars.CI_R2_CACHE_PRUNE_DELETE == '1') && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          args=(--endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET")
+          if [ "$PRUNE_DELETE" = true ]; then args+=(--delete); fi
+          python3 scripts/ci/r2_cache_prune.py "${args[@]}"

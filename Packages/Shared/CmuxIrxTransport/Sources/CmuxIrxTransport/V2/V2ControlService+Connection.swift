@@ -257,7 +257,7 @@ extension V2ControlService {
                 inboundPeers: directory.inboundPeers?.filter { $0.device.deviceRecordID != revoked.deviceRecordID },
                 issuedAt: directory.issuedAt, nextCursor: directory.nextCursor,
                 permissionExpiresAt: directory.permissionExpiresAt, relayURLs: directory.relayURLs,
-                revision: max(directory.revision, revoked.revision), teamID: directory.teamID
+                revision: max(directory.revision, revoked.revision), rules: directory.rules, teamID: directory.teamID
             )
         }
         wantedDirectoryRevision = max(wantedDirectoryRevision, revoked.revision)

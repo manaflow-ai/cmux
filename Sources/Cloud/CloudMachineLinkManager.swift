@@ -1,4 +1,6 @@
+import CmuxCloudTui
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The app's headless cmux-tui links, one per awake cloud machine. Links are created on

@@ -2074,7 +2074,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 Darwin.bind(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        XCTAssertEqual(bindResult, 0, String(cString: strerror(errno)))
+        let bindErrno = errno
+        XCTAssertEqual(bindResult, 0, String(cString: strerror(bindErrno)))
         close(socketFD)
         XCTAssertTrue(FileManager.default.fileExists(atPath: staleSocketPath))
 
@@ -2325,7 +2326,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
     /// event — i.e. the suppression actually triggers for real Kiro events.
     func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
-        func feedPushCount(forTool tool: String) throws -> Int {
+        // A suppressed hook returns `{}` without ever opening the cmux socket,
+        // so the negative case is settled by the listener's empty accept queue
+        // once the hook process has exited — never by waiting out a timeout.
+        func runKiroPostToolUseHook(
+            forTool tool: String,
+            servesSocket: Bool
+        ) throws -> (feedPushCount: Int, openedSocket: Bool) {
             let cliPath = try bundledCLIPath()
             let socketPath = makeSocketPath("kiro-suppress")
             let listenerFD = try bindUnixSocket(at: socketPath)
@@ -2338,11 +2345,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 unlink(socketPath)
                 try? FileManager.default.removeItem(at: root)
             }
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
-                    return self.malformedRequestResponse(raw: line)
+            var serverHandled: XCTestExpectation?
+            if servesSocket {
+                serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                    guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
+                        return self.malformedRequestResponse(raw: line)
+                    }
+                    return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
                 }
-                return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
             }
             let result = runProcess(
                 executablePath: cliPath,
@@ -2364,17 +2374,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
-            // A non-suppressed event sends one feed.push, so wait for the
-            // server to record it (generous timeout to avoid flaking on the
-            // socket/process round-trip under CI load). A suppressed event
-            // sends nothing, so this wait simply times out silently.
-            _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
-            return state.commands.filter { $0.contains("feed.push") }.count
+            // A non-suppressed event sends one feed.push, so wait on the server
+            // recording it. The suppressed run serves no connection at all: the
+            // exited hook either left a connection queued on the listener or
+            // never dialed it, and poll answers that immediately.
+            if let serverHandled {
+                wait(for: [serverHandled], timeout: 10)
+            }
+            var listener = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
+            let queuedConnection = Darwin.poll(&listener, 1, 0) > 0
+            return (
+                state.commands.filter { $0.contains("feed.push") }.count,
+                queuedConnection || !state.commands.isEmpty
+            )
         }
 
-        XCTAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
+        let suppressed = try runKiroPostToolUseHook(forTool: "fs_read", servesSocket: false)
+        XCTAssertFalse(suppressed.openedSocket,
+                       "read-only kiro tool at standard level must be suppressed before it dials cmux")
+        XCTAssertEqual(suppressed.feedPushCount, 0,
                        "read-only kiro tool at standard level must be suppressed")
-        XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
+        let reported = try runKiroPostToolUseHook(forTool: "fs_write", servesSocket: true)
+        XCTAssertGreaterThan(reported.feedPushCount, 0,
                              "mutating kiro tool at standard level must still emit telemetry")
     }
 

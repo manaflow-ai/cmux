@@ -28,6 +28,9 @@ EVIDENCE_STEPS = {
     "macos-compile-admission": (
         "Upload compile admission metrics",
         "Upload Xcode build metrics receipt",
+        # The changed suites compile admission runs itself.
+        "Collect app-host failure diagnostics",
+        "Upload app-host failure diagnostics",
     ),
     "app-host-unit-tests": (
         "Collect RemoteTmuxMirror crash diagnostics",
