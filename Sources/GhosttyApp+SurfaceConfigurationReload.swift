@@ -14,10 +14,6 @@ extension GhosttyApp {
         source: String = "unspecified",
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
-        let reloadColorScheme = refreshEffectiveTerminalColorSchemePreference(
-            preferredColorScheme:
-                preferredColorScheme ?? appearanceBackedColorSchemePreference()
-        )
         if soft, let config {
             ghostty_surface_update_config(surface, config)
             finishSurfaceConfigurationReload(source: source, soft: soft, mode: "soft")
@@ -25,6 +21,7 @@ extension GhosttyApp {
         }
 
         guard let newConfig = ghostty_config_new() else { return }
+        let reloadColorScheme = preferredColorScheme ?? effectiveTerminalColorSchemePreference
         let conditionalThemeColorScheme = appearanceBackedColorSchemePreference()
         _ = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
