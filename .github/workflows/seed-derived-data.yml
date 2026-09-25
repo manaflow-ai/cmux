@@ -45,6 +45,7 @@ jobs:
     outputs:
       build: ${{ steps.inputs.outputs.build }}
       pools: ${{ steps.inputs.outputs.pools }}
+      matrix: ${{ steps.inputs.outputs.matrix }}
       # The pool that publishes the app-host product when it builds.
       publisher: ${{ steps.inputs.outputs.publisher }}
     steps:
@@ -80,12 +81,29 @@ jobs:
           # admits only a push to main, so the pool joins only then. Empty
           # (the default) leaves it out.
           SEED_TRUSTED_POOL: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || '' }}
+          # How many canonical roots the trusted pool seeds. An owned Mac's
+          # second compile slot builds in /private/tmp/cmux-ci-2, which is
+          # part of the seed key, so it never adopts a root 1 seed and
+          # compiled cold (471 s, 98 re-emits, cmuxterm-hq#590). Each extra
+          # root is one more job per push on the trusted pool, so raise it
+          # only with a trusted runner to take it. Unset means 1.
+          SEED_TRUSTED_ROOTS: ${{ vars.CI_SEED_TRUSTED_ROOTS || '1' }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # Each pool's Xcode as the seed job picks it (its CMUX_CI_XCODE_APP).
           pools=()
-          for pool in "$SEED_POOL_1" "$SEED_POOL_2" "$SEED_POOL_3" "$SEED_TRUSTED_POOL"; do
+          lanes=()
+          if [ -n "$SEED_TRUSTED_POOL" ]; then
+            case "$SEED_TRUSTED_ROOTS" in
+              [1-9]) ;;
+              *) echo "::error::CI_SEED_TRUSTED_ROOTS must be 1 to 9, not $SEED_TRUSTED_ROOTS"; exit 1 ;;
+            esac
+            for ((k = 2; k <= SEED_TRUSTED_ROOTS; k++)); do
+              lanes+=("$SEED_TRUSTED_POOL@$k")
+            done
+          fi
+          for pool in "$SEED_POOL_1" "$SEED_POOL_2" "$SEED_POOL_3" "$SEED_TRUSTED_POOL" ${lanes[@]+"${lanes[@]}"}; do
             case "$pool" in
               *vcpu-macos-15) pools+=(--pool "$pool=${XCODE_APP_MACOS_15:-$XCODE_APP}") ;;
               *) pools+=(--pool "$pool=$XCODE_APP") ;;
@@ -115,17 +133,18 @@ jobs:
     # (CMUX_CI_XCODE_APP_MACOS_15): without a seed of its own every admission
     # there compiled cold for 17 to 25 minutes (2026-09-24). The fourth, when
     # CI_SEED_TRUSTED_POOL names one, is a trusted-only owned mini that seeds
-    # j14 for the owned std pool on the lane's Xcode. nightly.yml writes no
-    # cold j14 seed, so the j14 chain only ever builds on its own last seed
-    # (or cold when none is near). GitHub names these jobs
-    # "seed (<pool>)"; seed_decide.py and reuse_app_host_products.py match
-    # that.
+    # j14 for the owned std pool on the lane's Xcode, and with
+    # CI_SEED_TRUSTED_ROOTS above 1, once more per extra canonical root
+    # (matrix.root). nightly.yml writes no cold j14 seed, so the j14 chain
+    # only ever builds on its own last seed (or cold when none is near).
+    # GitHub names these jobs "seed (<pool>)", or "seed (<pool>, <root>)";
+    # seed_decide.py and reuse_app_host_products.py match that.
     strategy:
       fail-fast: false
-      matrix:
-        # The pools decide found without a seed for this push's build inputs
-        # (SEED_POOL_1..3 and SEED_TRUSTED_POOL there), in that order.
-        pool: ${{ fromJSON(needs.decide.outputs.pools) }}
+      # The pools decide found without a seed for this push's build inputs
+      # (SEED_POOL_1..3, SEED_TRUSTED_POOL and its extra roots there), in
+      # that order: {"include": [{"pool": ...}, {"pool": ..., "root": "2"}]}.
+      matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
     runs-on: ${{ matrix.pool }}
     # One seed at a time per pool, and never cancel-in-progress. main takes
     # several merges an hour and a cold seed takes 15-20 minutes, so
@@ -136,7 +155,7 @@ jobs:
     # one build behind main. Per pool, so the 6 vCPU queue never holds back
     # the 12 vCPU seed. tests/test_seed_derived_data.py pins this.
     concurrency:
-      group: seed-derived-data-${{ matrix.pool }}
+      group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}
       cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
@@ -146,6 +165,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_SEED_ROOT: ${{ matrix.root }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -162,11 +182,25 @@ jobs:
           submodules: recursive
 
       - name: Prepare admission build paths
+        env:
+          MATRIX_POOL: ${{ matrix.pool }}
+          TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
         run: |
           set -euo pipefail
           # The same paths as ci-macos.yml compile admission: they are part of
-          # the seed key.
+          # the seed key. A root lane builds where an owned Mac's second
+          # compile slot does. glaeda pins this job (one it does not know) to
+          # root 1, and the trusted runner runs nothing else, so the root is
+          # this job's alone.
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          if [ -n "$CMUX_SEED_ROOT" ]; then
+            case "$CMUX_SEED_ROOT:$MATRIX_POOL" in
+              [2-9]:"$TRUSTED_POOL") ;;
+              *) echo "::error::root $CMUX_SEED_ROOT is only for the trusted pool, not $MATRIX_POOL"; exit 1 ;;
+            esac
+            root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"
+            echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
+          fi
           rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas" >> "$GITHUB_ENV"
