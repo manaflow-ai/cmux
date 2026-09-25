@@ -609,7 +609,17 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         var attributes: posix_spawnattr_t?
         try throwIfPOSIXError(posix_spawnattr_init(&attributes), operation: "initialize spawn attributes")
         defer { posix_spawnattr_destroy(&attributes) }
-        let flags = Int16(POSIX_SPAWN_SETPGROUP)
+        // Hooks are spawned from a dispatch queue, and a dispatch worker runs with most
+        // signals blocked. A mask survives exec, so without this the hook and everything
+        // it runs inherit that mask; see the longer note in TerminalCustomUploadRunner.
+        // Dispositions are left alone: this clears the mask, not an inherited SIG_IGN.
+        var emptyMask = sigset_t()
+        sigemptyset(&emptyMask)
+        try throwIfPOSIXError(
+            posix_spawnattr_setsigmask(&attributes, &emptyMask),
+            operation: "clear inherited signal mask"
+        )
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
         let arguments = ["/bin/sh", "-c", hook.command]
@@ -821,11 +831,16 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         let source = DispatchSource.makeTimerSource(queue: queue)
         source.schedule(deadline: .now() + .milliseconds(750))
         source.setEventHandler { [self] in
-            if self.processId > 0 {
-                self.signalProcessGroup(SIGKILL)
-            }
+            self.signalProcessGroup(SIGKILL)
             self.killSource?.cancel()
             self.killSource = nil
+            // A leader that exited during the grace period was left unreaped so its pgid
+            // would still be this group's when the SIGKILL above went out. Collect it now
+            // and finish. If it is still running, SIGKILL has just ended it and the exit
+            // source finishes the run instead.
+            if let status = self.reapProcessIfExited() {
+                self.finish(rawStatus: status)
+            }
         }
         killSource = source
         source.resume()
@@ -839,6 +854,11 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     }
 
     private func processExited() {
+        // The leader exiting is not the group exiting: a descendant that ignores SIGTERM
+        // outlives it. Reaping here would end the run and cancel the escalation timer,
+        // and would also free the pgid, so the SIGKILL that timer owes the group could
+        // land on a reused one. Leave the zombie in place and let the timer finish.
+        if didRequestTermination, killSource != nil { return }
         guard let status = waitForProcessExit() else { return }
         finish(rawStatus: status)
     }
