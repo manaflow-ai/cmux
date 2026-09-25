@@ -106,14 +106,49 @@ struct TerminalFolderTapPolicyTests {
 
     @Test("disabled still accepts a fast classification before the deadline")
     func disabledFastClassificationOpensArtifact() async {
+        // The stat hops to the main actor, which the hosted parallel suite
+        // can hold past any real-time deadline. A clock that never fires
+        // keeps the deadline pending so only the classification can answer.
         let decision = await TerminalFolderTapPolicy(
             folderTapEnabled: false,
-            classificationDeadline: .milliseconds(50)
+            classificationDeadline: .milliseconds(50),
+            clock: NeverFiringClock()
         ).decision(
             for: "/tmp/file",
             stat: { _ in .text }
         )
 
         #expect(decision == .openArtifact)
+    }
+}
+
+/// A deadline clock whose sleeps end only when the policy cancels them.
+private struct NeverFiringClock: Clock {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant {
+            Instant(offset: offset + duration)
+        }
+
+        func duration(to other: Instant) -> Duration {
+            other.offset - offset
+        }
+
+        static func < (lhs: Instant, rhs: Instant) -> Bool {
+            lhs.offset < rhs.offset
+        }
+    }
+
+    var now: Instant { Instant(offset: .zero) }
+
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until _: Instant, tolerance _: Duration?) async throws {
+        let (pending, continuation) = AsyncStream<Never>.makeStream()
+        defer { continuation.finish() }
+        // AsyncStream iteration returns when the sleeping task is cancelled.
+        for await _ in pending {}
+        throw CancellationError()
     }
 }
