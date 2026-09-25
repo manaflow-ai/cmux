@@ -3480,6 +3480,8 @@ def test_macos_admission_gate_uses_job_results_not_polling() -> None:
 
 
 CONSUMER_GATE_STEP = "Hold consumers behind the fast Linux gate"
+COMPILE_GATE_STEP = "Stop before compiling after a declined fast Linux gate"
+FAST_LINUX_GATE = ROOT / "scripts" / "ci" / "fast_linux_gate.py"
 
 
 def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> None:
@@ -3488,7 +3490,8 @@ def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> Non
     # It reads the job the caller names, once: no loop and no sleep.
     assert 'GATE_JOB: "macOS admission gate"' in step
     assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
-    script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+    assert "python3 scripts/ci/fast_linux_gate.py consumers" in step
+    script = FAST_LINUX_GATE.read_text(encoding="utf-8")
     for polling in ("sleep", "while ", "for attempt", "range("):
         assert polling not in script
     # The gate only judges a pull request's first attempt; a re-run is asking
@@ -3516,6 +3519,34 @@ def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> Non
         assert "needs.macos-compile-admission.result == 'success'" in jobs[key]["if"], key
 
 
+def test_compile_admission_stops_before_compiling_after_a_declined_gate() -> None:
+    admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
+    step = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", COMPILE_GATE_STEP)
+    assert 'GATE_JOB: "macOS admission gate"' in step
+    assert "python3 scripts/ci/fast_linux_gate.py compile" in step
+    # First attempt of a pull request only, never after a product reuse hit,
+    # and canary probes compile regardless.
+    for term in (
+        "github.event_name == 'pull_request' && github.run_attempt == 1",
+        "steps.reuse-products.outputs.hit != 'true'",
+        "!startsWith(github.head_ref, 'canary/')",
+    ):
+        assert term in step, term
+    assert "always()" not in step and "failure()" not in step
+    # Before anything touches DerivedData or the owned Mac's recorded state,
+    # so a stop leaves nothing for the keep steps to save.
+    order = [line.removeprefix("      - name: ") for line in admission.splitlines() if line.startswith("      - name: ")]
+    gate_at = order.index(COMPILE_GATE_STEP)
+    assert order.index("Resolve Swift packages") < gate_at
+    for later in (
+        "Adopt the nightly DerivedData seed",
+        "Adopt this owned Mac's DerivedData",
+        "Record this owned Mac's build inputs",
+        "Compile app-host test product",
+    ):
+        assert gate_at < order.index(later), later
+
+
 def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -> str:
     lines = workflow_job_block(job_name, workflow_path).splitlines()
     start = lines.index(f"      - name: {step_name}")
@@ -3527,7 +3558,7 @@ def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -
     return "\n".join(body)
 
 
-def run_consumer_gate(jobs: object, *, status: int = 200) -> subprocess.CompletedProcess:
+def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSUMER_GATE_STEP) -> subprocess.CompletedProcess:
     import http.server
     import threading
 
@@ -3549,9 +3580,11 @@ def run_consumer_gate(jobs: object, *, status: int = 200) -> subprocess.Complete
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+        steps = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos-compile-admission"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name") == step_name)
         result = subprocess.run(
             ["bash", "-c", script],
+            cwd=ROOT,
             env={
                 **os.environ,
                 "API_URL": f"http://127.0.0.1:{server.server_port}",
@@ -3596,6 +3629,26 @@ def test_consumer_gate_admits_whenever_it_cannot_prove_a_decline() -> None:
         result = run_consumer_gate(jobs, status=status)
         assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
         assert "Not admitting" not in result.stdout, label
+
+
+def test_compile_gate_stops_the_compile_when_the_gate_declined() -> None:
+    result = run_consumer_gate(_gate_job("completed", "failure"), step_name=COMPILE_GATE_STEP)
+    assert result.returncode == 1
+    assert "Not compiling" in result.stdout
+
+
+def test_compile_gate_compiles_whenever_it_cannot_prove_a_decline() -> None:
+    for label, jobs, status in (
+        ("passed", _gate_job("completed", "success"), 200),
+        ("skipped", _gate_job("completed", "skipped"), 200),
+        # The usual case when setup is quick: the consumer gate decides later.
+        ("in progress", _gate_job("in_progress", None), 200),
+        ("absent", {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]}, 200),
+        ("unreadable", {"message": "Server Error"}, 500),
+    ):
+        result = run_consumer_gate(jobs, status=status, step_name=COMPILE_GATE_STEP)
+        assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
+        assert "Not compiling" not in result.stdout, label
 
 
 def run_macos_admission_gate(needs: dict, *, attempt: str = "1") -> subprocess.CompletedProcess:
