@@ -1997,7 +1997,6 @@ extension Workspace {
                 startupEnvironment: replayEnvironment,
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .pacedSessionRestore,
-                    willRunStartupCommand: false,
                     willRunStartupInput: restoredAgentWillRunStartupInput,
                     awaitsDeferredAgentResume: deferredAgentResumeAdmission
                 ),
@@ -2106,7 +2105,6 @@ extension Workspace {
                 snapshot: restorableAgent,
                 resumeBinding: resumeBinding,
                 manualResumeAvailable: restorableAgent != nil,
-                willRunStartupCommand: false,
                 willRunStartupInput: restoredAgentWillRunStartupInput,
                 resumeWorkingDirectory: restoredDirectoryIsLocalPath
                     ? resumeSessionWorkingDirectory
@@ -4132,7 +4130,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ),
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .immediate,
-                    willRunStartupCommand: false,
                     willRunStartupInput:
                         initialTerminalStartupRestoreAgent != nil && initialTerminalInput != nil
                 )
@@ -4160,7 +4157,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         panel: terminalPanel,
                         snapshot: initialTerminalStartupRestoreAgent,
                         manualResumeAvailable: true,
-                        willRunStartupCommand: false,
                         willRunStartupInput: initialTerminalInput != nil,
                         resumeWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
                     )
@@ -9286,7 +9282,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: runtimeSpawnPolicy,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -9329,7 +9324,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 panel: newPanel,
                 snapshot: startupRestoreAgent,
                 manualResumeAvailable: true,
-                willRunStartupCommand: false,
                 willRunStartupInput: initialInput != nil,
                 resumeWorkingDirectory: startupRestoreAgent.workingDirectory
             )
@@ -12967,7 +12961,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -13003,7 +12996,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 panel: newPanel,
                 snapshot: startupRestoreAgent,
                 manualResumeAvailable: true,
-                willRunStartupCommand: false,
                 willRunStartupInput: initialInput != nil,
                 resumeWorkingDirectory: startupRestoreAgent.workingDirectory
             )
