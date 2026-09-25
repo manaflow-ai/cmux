@@ -11,6 +11,10 @@ permissions:
   attestations: write
   id-token: write
 
+concurrency:
+  group: stable-appcast-publication
+  cancel-in-progress: false
+
 env:
   CREATE_DMG_VERSION: 8.0.0
 

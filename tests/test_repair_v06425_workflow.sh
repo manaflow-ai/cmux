@@ -3,9 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/repair-v0-64-25-helper-rpaths.yml"
+RELEASE_WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
 
 grep -Fq 'name: Repair v0.64.25 cmux-cua rpaths' "$WORKFLOW"
 grep -Fq 'default: ""' "$WORKFLOW"
+grep -Fq 'group: stable-appcast-publication' "$WORKFLOW"
+grep -Fq 'group: stable-appcast-publication' "$RELEASE_WORKFLOW"
+grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
+grep -Fq 'cancel-in-progress: false' "$RELEASE_WORKFLOW"
 grep -Fq "if: inputs.confirmation != 'v0.64.25'" "$WORKFLOW"
 if [ "$(grep -Fc "if: inputs.confirmation == 'v0.64.25'" "$WORKFLOW")" -lt 2 ]; then
   echo 'FAIL: replacement steps must require the exact v0.64.25 confirmation' >&2

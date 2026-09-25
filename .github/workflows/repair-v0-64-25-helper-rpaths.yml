@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: repair-v0-64-25-cmux-cua-rpaths
+  group: stable-appcast-publication
   cancel-in-progress: false
 
 jobs:
