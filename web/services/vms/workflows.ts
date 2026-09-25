@@ -1728,6 +1728,8 @@ export function recordEnvLayer(input: {
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const invalidate = repo.invalidateEnvLayer;
     yield* requireEnvLayerProvider(input.provider);
     const owned = yield* repo.hasOwnedSnapshot({
       userId: input.userId,
@@ -1738,7 +1740,7 @@ export function recordEnvLayer(input: {
     if (!owned) {
       return yield* Effect.fail(new VmEnvLayerOwnershipError({ snapshotId: input.snapshotId }));
     }
-    const layer = yield* repo.insertEnvLayer({
+    let layer = yield* repo.insertEnvLayer({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
       provider: input.provider,
@@ -1749,6 +1751,92 @@ export function recordEnvLayer(input: {
       specDigest: input.specDigest,
       snapshotId: input.snapshotId,
     });
+    const deleteSnapshotById = providers.deleteSnapshotById;
+    const oldSnapshotIsDeleting = layer.snapshotId !== input.snapshotId && repo.envLayerDeletionRequested
+      ? yield* repo.envLayerDeletionRequested({ provider: input.provider, snapshotId: layer.snapshotId })
+      : false;
+    if (oldSnapshotIsDeleting) {
+      if (!deleteSnapshotById) {
+        return yield* Effect.fail(new VmOperationUnsupportedError({
+          provider: input.provider,
+          operation: "deleteSnapshotById",
+        }));
+      }
+      // A layer that retention has already fenced may be replaced by a new
+      // build. Finish the old snapshot deletion, invalidate that exact row,
+      // then insert the new immutable pointer.
+      yield* deleteSnapshotById(input.provider, layer.snapshotId).pipe(
+        Effect.retry({ times: 2 }),
+        Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.void : Effect.fail(error)),
+      );
+      if (!invalidate) {
+        return yield* Effect.fail(new VmOperationUnsupportedError({
+          provider: input.provider,
+          operation: "envLayerRetention",
+        }));
+      }
+      yield* invalidate({ id: layer.id, snapshotId: layer.snapshotId });
+      layer = yield* repo.insertEnvLayer({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        provider: input.provider,
+        baseImageId: input.baseImageId,
+        chainHash: input.chainHash,
+        stepIndex: input.stepIndex,
+        stepName: input.stepName,
+        specDigest: input.specDigest,
+        snapshotId: input.snapshotId,
+      });
+    }
+    // Concurrent builders may finish the same chain step independently. The
+    // first registration owns the cache row; discard the losing provider
+    // snapshot while keeping a durable intent so a transient delete failure
+    // remains visible to the hourly retention job.
+    if (layer.snapshotId !== input.snapshotId) {
+      const duplicateSnapshotIsReferenced = repo.hasActiveEnvLayerSnapshot
+        ? yield* repo.hasActiveEnvLayerSnapshot({ provider: input.provider, snapshotId: input.snapshotId })
+        : false;
+      if (duplicateSnapshotIsReferenced) {
+        return layer;
+      }
+      if (!deleteSnapshotById) {
+        return yield* Effect.fail(new VmOperationUnsupportedError({
+          provider: input.provider,
+          operation: "deleteSnapshotById",
+        }));
+      }
+      const duplicateMetadata = {
+        snapshotId: input.snapshotId,
+        chainHash: input.chainHash,
+        stepIndex: input.stepIndex,
+        stepName: input.stepName ?? null,
+        specDigest: input.specDigest,
+        baseImageId: input.baseImageId,
+        source: "duplicate_registration",
+      };
+      yield* repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId ?? null,
+        eventType: "vm.env.layer.delete_requested",
+        provider: input.provider,
+        imageId: input.baseImageId,
+        metadata: duplicateMetadata,
+      }).pipe(Effect.retry({ times: 2 }));
+      yield* deleteSnapshotById(input.provider, input.snapshotId).pipe(
+        Effect.retry({ times: 2 }),
+        Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.void : Effect.fail(error)),
+      );
+      yield* repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId ?? null,
+        eventType: "vm.env.layer.deleted",
+        provider: input.provider,
+        imageId: input.baseImageId,
+        metadata: duplicateMetadata,
+      });
+    }
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
@@ -1809,6 +1897,15 @@ export function cleanupEnvLayers(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
+    const listCandidates = repo.listEnvLayerRetentionCandidates;
+    const invalidate = repo.invalidateEnvLayer;
+    const invalidateBySnapshot = repo.invalidateEnvLayersBySnapshot;
+    if (!listCandidates || !invalidate) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({
+        provider: "freestyle",
+        operation: "envLayerRetention",
+      }));
+    }
     const retentionDays = input.retentionDays ?? boundedEnvLayerRetentionNumber(
       "CMUX_VM_ENV_LAYER_RETENTION_DAYS",
       VM_ENV_LAYER_RETENTION_DAYS,
@@ -1824,7 +1921,7 @@ export function cleanupEnvLayers(input: {
       VM_ENV_LAYER_RETENTION_BATCH_LIMIT,
       500,
     );
-    const candidates = yield* repo.listEnvLayerRetentionCandidates({
+    const candidates = yield* listCandidates({
       now: input.now ?? new Date(),
       retentionDays,
       maxLayersPerTeam,
@@ -1875,11 +1972,20 @@ export function cleanupEnvLayers(input: {
             source: "retention",
           },
         });
-        const invalidated = yield* repo.invalidateEnvLayer({
-          id: candidate.id,
-          snapshotId: candidate.snapshotId,
-        });
-        if (invalidated) deleted += 1;
+        if (candidate.orphanOnly) {
+          deleted += 1;
+        } else if (invalidateBySnapshot) {
+          deleted += yield* invalidateBySnapshot({
+            provider: candidate.provider,
+            snapshotId: candidate.snapshotId,
+          });
+        } else {
+          const invalidated = yield* invalidate({
+            id: candidate.id,
+            snapshotId: candidate.snapshotId,
+          });
+          if (invalidated) deleted += 1;
+        }
       }));
       if (Either.isLeft(result)) failed += 1;
     }

@@ -67,6 +67,8 @@ export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmEnvLayerRow = typeof cloudVmEnvLayers.$inferSelect;
 export type CloudVmEnvLayerRetentionCandidate = CloudVmEnvLayerRow & {
   readonly deletionRequested: boolean;
+  /** A duplicate registration snapshot with no layer row of its own. */
+  readonly orphanOnly?: boolean;
 };
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
 export type CloudVmBaseGenerationRow = typeof cloudVmBaseGenerations.$inferSelect;
@@ -579,16 +581,28 @@ export type VmRepositoryShape = {
     readonly provider?: ProviderId;
     readonly specDigest?: string;
   }) => Effect.Effect<CloudVmEnvLayerRow[], VmDatabaseError>;
-  readonly listEnvLayerRetentionCandidates: (input: {
+  readonly listEnvLayerRetentionCandidates?: (input: {
     readonly now: Date;
     readonly retentionDays: number;
     readonly maxLayersPerTeam: number;
     readonly limit: number;
   }) => Effect.Effect<CloudVmEnvLayerRetentionCandidate[], VmDatabaseError>;
-  readonly invalidateEnvLayer: (input: {
+  readonly invalidateEnvLayer?: (input: {
     readonly id: string;
     readonly snapshotId: string;
     readonly invalidatedAt?: Date;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly invalidateEnvLayersBySnapshot?: (input: {
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<number, VmDatabaseError>;
+  readonly envLayerDeletionRequested?: (input: {
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly hasActiveEnvLayerSnapshot?: (input: {
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly recordUsageEvent: (input: VmUsageEventInput) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvents: (inputs: readonly VmUsageEventInput[]) => Effect.Effect<void, VmDatabaseError>;
@@ -3503,21 +3517,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         return inserted;
       } catch (err) {
         if (pgErrorCode(err) !== "23505") throw err;
-        // A concurrent build registered this layer first; refresh its snapshot
-        // pointer so the newest snapshot wins and return the surviving row.
-        // stepIndex and baseImageId are refreshed too so an honest re-build
-        // repairs a row whose stored depth the resolver would reject as
-        // corrupt (findDeepestEnvLayer skips index/position mismatches).
+        // A concurrent build registered this chain first. Keep its snapshot
+        // pointer immutable: replacing it here would orphan the old provider
+        // snapshot before retention can see it. The caller records a durable
+        // deletion intent for the losing snapshot and deletes it after this
+        // method returns.
         const [existing] = await db
-          .update(cloudVmEnvLayers)
-          .set({
-            snapshotId: input.snapshotId,
-            specDigest: input.specDigest,
-            stepIndex: input.stepIndex,
-            baseImageId: input.baseImageId,
-            stepName: input.stepName ?? null,
-            lastUsedAt: new Date(),
-          })
+          .select()
+          .from(cloudVmEnvLayers)
           .where(
             and(
               eq(cloudVmEnvLayers.billingTeamId, input.billingTeamId),
@@ -3526,10 +3533,52 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               isNull(cloudVmEnvLayers.invalidatedAt),
             ),
           )
-          .returning();
+          .limit(1);
         if (!existing) throw err;
+        if (existing.snapshotId === input.snapshotId) {
+          const [repaired] = await db
+            .update(cloudVmEnvLayers)
+            .set({
+              specDigest: input.specDigest,
+              stepIndex: input.stepIndex,
+              baseImageId: input.baseImageId,
+              stepName: input.stepName ?? null,
+              lastUsedAt: new Date(),
+            })
+            .where(eq(cloudVmEnvLayers.id, existing.id))
+            .returning();
+          return repaired ?? existing;
+        }
         return existing;
       }
+    }),
+
+  envLayerDeletionRequested: (input) =>
+    dbEffect("envLayerDeletionRequested", async () => {
+      const [row] = await cloudDb()
+        .select({ id: cloudVmUsageEvents.id })
+        .from(cloudVmUsageEvents)
+        .where(and(
+          eq(cloudVmUsageEvents.eventType, "vm.env.layer.delete_requested"),
+          eq(cloudVmUsageEvents.provider, input.provider),
+          sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+        ))
+        .limit(1);
+      return !!row;
+    }),
+
+  hasActiveEnvLayerSnapshot: (input) =>
+    dbEffect("hasActiveEnvLayerSnapshot", async () => {
+      const [row] = await cloudDb()
+        .select({ id: cloudVmEnvLayers.id })
+        .from(cloudVmEnvLayers)
+        .where(and(
+          eq(cloudVmEnvLayers.provider, input.provider),
+          eq(cloudVmEnvLayers.snapshotId, input.snapshotId),
+          isNull(cloudVmEnvLayers.invalidatedAt),
+        ))
+        .limit(1);
+      return !!row;
     }),
 
   listEnvLayers: (input) =>
@@ -3569,7 +3618,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           candidate.created_at,
           candidate.last_used_at,
           candidate.invalidated_at,
-          candidate.deletion_requested
+          candidate.deletion_requested,
+          candidate.orphan_only
         from (
           select
             layers.*,
@@ -3584,12 +3634,68 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 and delete_intent.provider = layers.provider
                 and delete_intent.metadata->>'snapshotId' = layers.snapshot_id
             ) as deletion_requested
+            ,false as orphan_only
+            ,row_number() over (
+              partition by layers.provider, layers.snapshot_id
+              order by layers.last_used_at desc, layers.created_at desc, layers.id desc
+            ) as snapshot_rank
           from cloud_vm_env_layers as layers
           where layers.invalidated_at is null
+          union all
+          select
+            orphan.id,
+            orphan.user_id,
+            orphan.billing_team_id,
+            orphan.provider,
+            orphan.base_image_id,
+            orphan.chain_hash,
+            orphan.step_index,
+            orphan.step_name,
+            orphan.spec_digest,
+            orphan.snapshot_id,
+            orphan.created_at,
+            orphan.created_at as last_used_at,
+            null as invalidated_at,
+            0 as team_rank,
+            true as deletion_requested,
+            true as orphan_only,
+            1 as snapshot_rank
+          from (
+            select
+              intents.id,
+              intents.user_id,
+              intents.billing_team_id,
+              intents.provider,
+              intents.metadata->>'baseImageId' as base_image_id,
+              intents.metadata->>'chainHash' as chain_hash,
+              case
+                when intents.metadata->>'stepIndex' ~ '^[0-9]{1,9}$'
+                  then (intents.metadata->>'stepIndex')::integer
+                else 0
+              end as step_index,
+              intents.metadata->>'stepName' as step_name,
+              intents.metadata->>'specDigest' as spec_digest,
+              intents.metadata->>'snapshotId' as snapshot_id,
+              intents.created_at
+            from cloud_vm_usage_events as intents
+            where intents.event_type = 'vm.env.layer.delete_requested'
+              and intents.metadata->>'source' = 'duplicate_registration'
+              and intents.provider is not null
+              and not exists (
+                select 1
+                from cloud_vm_usage_events as deleted
+                where deleted.event_type = 'vm.env.layer.deleted'
+                  and deleted.provider = intents.provider
+                  and deleted.metadata->>'snapshotId' = intents.metadata->>'snapshotId'
+              )
+          ) as orphan
         ) as candidate
         where candidate.deletion_requested
-           or candidate.last_used_at < ${cutoff}
-           or candidate.team_rank > ${maxLayersPerTeam}
+           and candidate.snapshot_rank = 1
+           or (candidate.snapshot_rank = 1 and (
+             candidate.last_used_at < ${cutoff}
+             or candidate.team_rank > ${maxLayersPerTeam}
+           ))
         order by candidate.deletion_requested desc, candidate.last_used_at asc, candidate.created_at asc
         limit ${limit}
       `);
@@ -3611,6 +3717,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         lastUsedAt: new Date(String(row.last_used_at)),
         invalidatedAt: row.invalidated_at ? new Date(String(row.invalidated_at)) : null,
         deletionRequested: row.deletion_requested === true,
+        orphanOnly: row.orphan_only === true,
       } satisfies CloudVmEnvLayerRetentionCandidate));
     }),
 
@@ -3626,6 +3733,20 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ))
         .returning({ id: cloudVmEnvLayers.id });
       return !!row;
+    }),
+
+  invalidateEnvLayersBySnapshot: (input) =>
+    dbEffect("invalidateEnvLayersBySnapshot", async () => {
+      const rows = await cloudDb()
+        .update(cloudVmEnvLayers)
+        .set({ invalidatedAt: new Date() })
+        .where(and(
+          eq(cloudVmEnvLayers.provider, input.provider),
+          eq(cloudVmEnvLayers.snapshotId, input.snapshotId),
+          isNull(cloudVmEnvLayers.invalidatedAt),
+        ))
+        .returning({ id: cloudVmEnvLayers.id });
+      return rows.length;
     }),
 };
 

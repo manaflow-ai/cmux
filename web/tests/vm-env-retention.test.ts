@@ -5,6 +5,7 @@ import type { CloudVmEnvLayerRow, VmRepositoryShape } from "../services/vms/repo
 import { VmRepository } from "../services/vms/repository";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { cleanupEnvLayers } from "../services/vms/workflows";
+import { recordEnvLayer } from "../services/vms/workflows";
 
 const layer: CloudVmEnvLayerRow = {
   id: "00000000-0000-0000-0000-000000000001",
@@ -55,6 +56,47 @@ describe("Cloud VM env-layer retention", () => {
       "provider.delete:snapshot-retention",
       "vm.env.layer.deleted",
       "row.invalidated",
+    ]);
+  });
+
+  test("does not orphan a concurrently produced duplicate snapshot", async () => {
+    const order: string[] = [];
+    const repo: Partial<VmRepositoryShape> = {
+      hasOwnedSnapshot: () => Effect.succeed(true),
+      insertEnvLayer: () => Effect.succeed(layer),
+      recordUsageEvent: (input) => {
+        order.push(input.eventType);
+        return Effect.void;
+      },
+    };
+    const provider: Partial<VmProviderGatewayShape> = {
+      deleteSnapshotById: (_provider, snapshotId) => {
+        order.push(`provider.delete:${snapshotId}`);
+        return Effect.void;
+      },
+    };
+    const services = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo as VmRepositoryShape),
+      Layer.succeed(VmProviderGateway, provider as VmProviderGatewayShape),
+    );
+
+    await Effect.runPromise(recordEnvLayer({
+      userId: layer.userId,
+      billingTeamId: layer.billingTeamId,
+      provider: layer.provider,
+      baseImageId: layer.baseImageId,
+      chainHash: layer.chainHash,
+      stepIndex: layer.stepIndex,
+      stepName: layer.stepName,
+      specDigest: layer.specDigest,
+      snapshotId: "snapshot-loser",
+    }).pipe(Effect.provide(services)));
+
+    expect(order).toEqual([
+      "vm.env.layer.delete_requested",
+      "provider.delete:snapshot-loser",
+      "vm.env.layer.deleted",
+      "vm.env.layer.registered",
     ]);
   });
 });
