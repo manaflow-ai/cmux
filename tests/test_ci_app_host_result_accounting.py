@@ -229,6 +229,7 @@ def test_missing_selected_test_result_never_passes() -> None:
     )
     assert passed is False
     assert messages == [
+        "app host produced no typed result for 1 selected test(s); xcodebuild exit status 0; no app-host interruption marker was recorded",
         "typed xcresult is incomplete: 1 selected Test Case(s) have no terminal result",
         "missing typed test result: BarTests/testTwo()",
     ]
@@ -272,6 +273,29 @@ def test_incomplete_run_without_failures_adds_no_ratchet_noise() -> None:
     )
     assert passed is False
     assert not [m for m in messages if m.startswith("RATCHET_")]
+
+
+def test_missing_results_lead_with_host_event_and_last_observed_case() -> None:
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testOne()", "FooTests/testTwo()"},
+        selectors=["FooTests"],
+        results={"FooTests/testOne()": "Passed"},
+        known={},
+        log_text=(
+            "Test Case '-[cmuxTests.FooTests testOne]' passed (0.01 seconds).\n"
+            "Test Case '-[cmuxTests.FooTests testTwo]' started.\n"
+            "** TEST EXECUTE FAILED **\n"
+        ),
+        xcode_status=65,
+    )
+    assert passed is False
+    assert messages[0] == (
+        "app host produced no typed result for 1 selected test(s) after "
+        "Test Case '-[cmuxTests.FooTests testTwo]' started.; xcodebuild exit status 65; "
+        "no app-host interruption marker was recorded"
+    )
+    assert messages[1].startswith("typed xcresult is incomplete:")
+    assert messages[2] == "missing typed test result: FooTests/testTwo()"
 
 
 def test_partial_suite_result_never_passes() -> None:
