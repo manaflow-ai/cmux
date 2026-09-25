@@ -49,6 +49,11 @@ class ConfiguredRootTests(unittest.TestCase):
             self.assertIsNone(cache.configured_root({"CMUX_NODE_PRODUCT_CACHE_ROOT": value,
                                                      "RUNNER_NAME": "cmux14-glaeda"}))
 
+    def test_ci_waiters_do_not_wait_for_another_fill_by_default(self):
+        self.assertEqual(cache.wait_seconds({}), 0.0)
+        self.assertEqual(cache.wait_seconds({"CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS": "bad"}), 0.0)
+        self.assertEqual(cache.wait_seconds({"CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS": "90"}), 90.0)
+
     def test_an_owned_runner_opens_a_store_at_the_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(cache, "OWNED_DEFAULT_ROOT", str(Path(tmp) / "node-products")):

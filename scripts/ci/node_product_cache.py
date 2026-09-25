@@ -37,6 +37,14 @@ REUSE_RECEIPT = "Build/Products/cmux-product-reuse.json"
 PRODUCT_RECEIPT = "Build/Products/cmux-test-products.json"
 DEFAULT_BUDGET_BYTES = 24 * 1024**3
 DEFAULT_WAIT_SECONDS = 180.0
+# How long a consumer in CI waits for another job's fill on the same node
+# unless CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS says otherwise. A filler only
+# publishes from its finalize step, after its whole download and restore
+# (about 130 s of download alone on a mini, plus extraction and the
+# canonical-root lock), so a waiter would usually time out and then download
+# anyway. Until the fill publishes right after its checksum, a waiter
+# downloads at once; the producing mini's seeded object still hits.
+CI_WAIT_SECONDS = 0.0
 DEFAULT_FILL_LEASE_SECONDS = 360.0
 DEFAULT_RESTORE_LEASE_SECONDS = 2 * 60 * 60
 MAX_RECEIPT_BYTES = 1024 * 1024
@@ -273,11 +281,11 @@ def budget_bytes(env=os.environ) -> int:
 def wait_seconds(env=os.environ) -> float:
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS", "").strip()
     if not raw:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     try:
         value = float(raw)
     except ValueError:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     return min(max(value, 0.0), 600.0)
 
 
