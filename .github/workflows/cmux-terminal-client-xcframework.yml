@@ -1,9 +1,12 @@
 # Builds the cmux-terminal-client static library for iOS devices, the iOS
 # simulator, and macOS, bundles them as CmuxTerminalClient.xcframework, and
 # attaches the zip plus its SwiftPM checksum to a GitHub release tagged
-# cmux-terminal-client-v<crate version>[+<short sha>]. Manual dispatch only;
-# the Swift package at Packages/Shared/CmuxTerminalClient pins one release by
-# tag and checksum. Nothing here touches files.cmux.com.
+# cmux-terminal-client-v<crate version>[+<short sha>]. The release publishes
+# only on manual dispatch; pull requests that change the client crate build
+# and upload the same bundle as a run artifact, so a PR can prove the archive
+# links before the release workflow exists on main. The Swift package at
+# Packages/Shared/CmuxTerminalClient pins one release by tag and checksum.
+# Nothing here touches files.cmux.com.
 name: cmux-terminal-client xcframework
 
 on:
@@ -19,6 +22,10 @@ on:
         required: false
         default: ""
         type: string
+  pull_request:
+    paths:
+      - ".github/workflows/cmux-terminal-client-xcframework.yml"
+      - "cmux-tui/crates/cmux-terminal-client/**"
 
 concurrency:
   group: cmux-terminal-client-xcframework-${{ github.ref }}
@@ -255,6 +262,7 @@ jobs:
 
   release:
     name: publish release
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
