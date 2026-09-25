@@ -68,8 +68,8 @@ extension DockSplitStore {
             )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
-            tabWidthMode: .shrink,
             tabTitleFontSize: config.surfaceTabBarFontSize,
+            tabWidthMode: .shrink,
             // The Dock lives in the narrow right sidebar. Bonsplit's default
             // 100pt pane minimum leaves a side-by-side split almost no divider
             // travel in a ~220-300pt-wide sidebar (the divider clamps to roughly
