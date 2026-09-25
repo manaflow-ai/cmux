@@ -440,6 +440,10 @@ and matched SHA-256
 - Current cmux Ghostty submodule pin and artifact commit:
   - `f76c132e5` (descends from the atomic-paste patch and retains the
     `11aa609d7` VT stream-boundary API required by current cmux TUI code)
+  - On this branch the submodule is temporarily pinned past it, to
+    `4510277d8`, which merges `f76c132e5` in — see "Current pin (temporary,
+    pending PR #197)" above. `f76c132e5` remains the artifact/checksum commit
+    until PR #197 merges and a new hosted build is published.
 - Files:
   - `src/input/paste.zig`
   - `src/Surface.zig`
@@ -927,6 +931,11 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     before returning, including serialization with cross-thread app actions.
   - Retains only the outer surface allocation when teardown is reentrant from
     an app action. The live core is still destroyed synchronously.
+  - `external_link_hover` is a renderer-thread callback. Its host handler must
+    not call `ghostty_surface_free` for the reported surface or block waiting
+    for a free issued elsewhere. A handler that wants to tear down the surface
+    must post that work to another queue and return immediately; synchronous
+    free remains the contract on that other queue.
   - Requires the embedder to retain callback userdata until
     `ghostty_surface_free` returns, then release it exactly once.
   - Drops the action's allocation reference before publishing a drained action

@@ -62,6 +62,7 @@ struct TerminalLinkOpenCoordinator {
             return true
         }
         var normalizedOpenURLString = request.rawValue
+        var resolvedExistingLocalPath = false
         let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
 
         let canResolveLocalFilePath: Bool
@@ -70,12 +71,15 @@ struct TerminalLinkOpenCoordinator {
         } else {
             canResolveLocalFilePath = false
         }
+        let hasLocalPathIntent = canResolveLocalFilePath &&
+            TerminalOpenURLFileRoutingPolicy().isLikelyLocalPathReference(trimmed)
         if !trimmed.isEmpty,
            canResolveLocalFilePath,
            let reference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
+            resolvedExistingLocalPath = true
             if let line = reference.line, !isExplicitLocalFileURL {
                 log(
                     "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
@@ -106,6 +110,17 @@ struct TerminalLinkOpenCoordinator {
             if !isExplicitLocalFileURL {
                 normalizedOpenURLString = reference.path
             }
+        }
+
+        // Ghostty sends configured path-regex matches through the same
+        // callback as URLs. A stale/mismatched relative path must therefore
+        // be consumed here; if this returned false or fell through into
+        // bare-host routing, `research/docs/...` becomes `https://research`
+        // (and returning false lets Ghostty's own system fallback opener
+        // repeat the same mistake).
+        if hasLocalPathIntent, !resolvedExistingLocalPath {
+            log("link.openURL unresolvedLocalPath consumed")
+            return true
         }
 
         guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
