@@ -53,6 +53,33 @@ def main() -> int:
         if key.startswith("spm-") and (key, path) not in seeded:
             failures.append(f"ci-macos.yml {job_name}: no nightly.yml job saves key '{key}' with path '{path}', so this restore can never hit")
 
+    # canonical-resolve copies the checkout to the canonical root and resolves
+    # there, so a workspace `.ci-source-packages` is still exactly what was
+    # restored. Only nightly.yml collects the resolved copy before saving;
+    # anywhere else a save stores a fallback restore of the previous
+    # Package.resolved under the new exact key, and every exact hit then fails
+    # its offline resolve (test-e2e.yml, run 36134675453). Every other reader
+    # restores the store nightly.yml writes, through cache-restore.
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        if path.name == "nightly.yml":
+            continue
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, step in cache_steps(path.name):
+            key, cache_path = step["with"]["key"], step["with"]["path"]
+            if not (key.startswith("spm-") and cache_path == ".ci-source-packages"):
+                continue
+            if not step["uses"].startswith(RESTORE):
+                failures.append(f"{path.name} {job_name}: '{step.get('name')}' saves '{cache_path}' under an `spm-` key; restore only and let nightly.yml seed it")
+            elif (key, cache_path) not in seeded:
+                failures.append(f"{path.name} {job_name}: no nightly.yml job saves key '{key}' with path '{cache_path}', so this restore can never hit")
+            elif not step["uses"].startswith("./.github/actions/cache-restore") or not (step["with"].get("backend") == "r2" or str(step["with"].get("backend", "")).endswith("|| 'r2' }}")):
+                failures.append(f"{path.name} {job_name}: '{step.get('name')}' must read the R2 store nightly.yml seeds: ./.github/actions/cache-restore with an r2 backend")
+            else:
+                # r2-cache.sh treats a missing public URL as a miss, silently.
+                scopes = (step.get("env"), workflow["jobs"][job_name].get("env"), workflow.get("env"))
+                if not any("CI_CACHE_R2_PUBLIC_URL" in (scope or {}) for scope in scopes):
+                    failures.append(f"{path.name} {job_name}: '{step.get('name')}' has no CI_CACHE_R2_PUBLIC_URL, so its R2 restore always misses")
+
     # The wrappers pick one store per call. Exactly one branch may run, the
     # provider branch only on its own runners, and upstream actions stay pinned.
     warp = "inputs.backend == 'warp' && startsWith(runner.name, 'warp-')"
