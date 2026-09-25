@@ -1246,3 +1246,7 @@ lane = "macos-cli-no-socket"
 path = "tests/test_codex_tool_feed_worker.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_ci_late_placement.py"
+lane = "linux-guard"
