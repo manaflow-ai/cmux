@@ -18,6 +18,9 @@ public import CmuxTerminalCore
 /// not the type system's.
 public struct ExternalHoverWorkRequest: @unchecked Sendable {
     public let lifetimeID: RuntimeSurfaceLifetimeID
+    /// Strong reference to the exact native-surface generation that produced
+    /// this request. Retirement seals this token's mailbox synchronously.
+    public let lifetimeToken: ExternalHoverSurfaceLifetimeToken
     public let surface: ghostty_surface_t
     /// == the `hoverEventID` published to `mirror` at the moment this
     /// request was built — the acceptance-boundary checks compare against
@@ -49,6 +52,7 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
 
     public init(
         lifetimeID: RuntimeSurfaceLifetimeID,
+        lifetimeToken: ExternalHoverSurfaceLifetimeToken,
         surface: ghostty_surface_t,
         requestGeneration: UInt64,
         cell: ExternalHoverGridCell,
@@ -60,6 +64,7 @@ public struct ExternalHoverWorkRequest: @unchecked Sendable {
         surfaceSerial: UInt64
     ) {
         self.lifetimeID = lifetimeID
+        self.lifetimeToken = lifetimeToken
         self.surface = surface
         self.requestGeneration = requestGeneration
         self.cell = cell

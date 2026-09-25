@@ -133,6 +133,7 @@ import Testing
     ) -> ExternalHoverWorkRequest {
         .init(
             lifetimeID: lifetimeID,
+            lifetimeToken: coordinator.currentLifetimeToken,
             surface: surface,
             requestGeneration: requestGeneration,
             cell: cell,
@@ -255,7 +256,7 @@ import Testing
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
         )
-        await service.submit(request).value
+        await service.submit(request)
 
         #expect(mailboxCoordinator.currentMailbox.pending?.path == Self.existingPath)
         let cache = await service.cachesByLifetime[lifetimeID]
@@ -316,6 +317,7 @@ import Testing
 
         let request = ExternalHoverWorkRequest(
             lifetimeID: lifetimeID,
+            lifetimeToken: mailboxCoordinator.currentLifetimeToken,
             surface: surface,
             requestGeneration: 1,
             cell: ExternalHoverGridCell(row: 5, column: 2),
@@ -326,7 +328,7 @@ import Testing
             coordinator: mailboxCoordinator,
             surfaceSerial: 0
         )
-        await service.submit(request).value
+        await service.submit(request)
 
         #expect(counts.setterCalls == 1)
         #expect(counts.lastSetterRanges?.sorted { $0.row < $1.row } == [
@@ -399,11 +401,11 @@ import Testing
         // gridColumns: 65 — matches design-gate-release-bugB.md §4.1's
         // real observed shape (row30/row32 both reach column 65).
         let request = ExternalHoverWorkRequest(
-            lifetimeID: lifetimeID, surface: surface, requestGeneration: 1,
+            lifetimeID: lifetimeID, lifetimeToken: mailboxCoordinator.currentLifetimeToken, surface: surface, requestGeneration: 1,
             cell: ExternalHoverGridCell(row: 5, column: 12), viewportRowCount: 10, gridColumns: 65, cwd: cwd,
             mirror: mirror, coordinator: mailboxCoordinator, surfaceSerial: 0
         )
-        await service.submit(request).value
+        await service.submit(request)
 
         #expect(counts.reads == 1, "the read itself must still happen — only the resolved candidate is rejected")
         #expect(counts.setterCalls == 0, "hover must never show a candidate resolved through the column-less text-only fallback")
@@ -426,7 +428,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
         #expect(counts.reads == 1)
 
         // Second move: column 5, still within the SAME clicked-token span —
@@ -435,7 +437,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 5), requestGeneration: 2
-        )).value
+        ))
         #expect(counts.setterCalls == 2)
         #expect(counts.reads == 1, "same-range cell move must not re-read physical rows")
     }
@@ -463,7 +465,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
 
         #expect(counts.setterCalls == 0)
         #expect(mailboxCoordinator.currentMailbox.acceptedOwner == nil)
@@ -482,12 +484,13 @@ import Testing
         mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
         let mailboxCoordinator = Self.makeCoordinator()
 
-        await service.invalidateSurface(lifetimeID).value
+        await service.invalidateSurface(lifetimeID)
+        mailboxCoordinator.retireLifetime()
 
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
 
         #expect(counts.setterCalls == 0)
         #expect(counts.reads == 0)
@@ -537,7 +540,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
 
         // A DIFFERENT row (well outside the first candidate's cached
         // ranges) — the same-range cache reuse must not intercept this and
@@ -548,7 +551,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 7, column: 0), requestGeneration: 2
-        )).value
+        ))
 
         #expect(counts.clearCalls == 1)
         #expect(counts.clearedTokens == [HoverActivationTokenValue(bits: (1, 1, 1, 1))])
@@ -569,7 +572,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
         #expect(mailboxCoordinator.currentMailbox.pending == nil)
 
         // Same cell again — since the setter rejected, the cache must NOT
@@ -578,7 +581,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 2
-        )).value
+        ))
 
         #expect(counts.reads == 2)
         #expect(counts.setterCalls == 2)
@@ -624,13 +627,13 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
 
         // Mismatched token: a delayed/foreign inactive callback must not
         // touch this lifetime's live cache.
         await service.noteExternalInactive(
             lifetimeID: lifetimeID, token: HoverActivationTokenValue(bits: (9, 9, 9, 9))
-        ).value
+        )
 
         // Same cell again: cache still valid (no re-read) proves the
         // mismatched inactive above did nothing.
@@ -638,17 +641,17 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 2
-        )).value
+        ))
         #expect(counts.reads == 1, "mismatched noteExternalInactive must not have invalidated the cache")
 
         // Matching token: this DOES invalidate the cache.
-        await service.noteExternalInactive(lifetimeID: lifetimeID, token: mintedToken).value
+        await service.noteExternalInactive(lifetimeID: lifetimeID, token: mintedToken)
 
         mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 3, eligible: true, visible: true))
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 3
-        )).value
+        ))
         #expect(counts.reads == 2, "matching noteExternalInactive must have invalidated the cache")
     }
 
@@ -681,7 +684,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
         let primedCache = await service.cachesByLifetime[lifetimeID]
         #expect(primedCache?.path == Self.existingPath)
 
@@ -822,7 +825,7 @@ import Testing
         await acceptingService.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 42
-        )).value
+        ))
         #expect(counts.setterHostEventIDs == [42])
 
         // Rejected case, same request generation semantics — a fresh
@@ -834,7 +837,7 @@ import Testing
         await rejectingService.submit(makeRequest(
             lifetimeID: secondLifetime, mirror: mirror, coordinator: Self.makeCoordinator(),
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 99
-        )).value
+        ))
         #expect(rejectingCounts.setterHostEventIDs == [99])
     }
 
@@ -876,11 +879,11 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeA, mirror: mirrorA, coordinator: coordinatorA,
             surface: surfaceA, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 5
-        )).value
+        ))
         await service.submit(makeRequest(
             lifetimeID: lifetimeB, mirror: mirrorB, coordinator: coordinatorB,
             surface: surfaceB, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 5
-        )).value
+        ))
 
         let cacheA = await service.cachesByLifetime[lifetimeA]
         let cacheB = await service.cachesByLifetime[lifetimeB]
@@ -982,13 +985,15 @@ import Testing
 
         // Closed lifetime — checked before the mirror at all.
         mirror.publish(.init(lifetimeID: lifetimeID, hoverEventID: 1, eligible: true, visible: true))
-        await service.invalidateSurface(lifetimeID).value
+        await service.invalidateSurface(lifetimeID)
+        mailboxCoordinator.retireLifetime()
         verdict = await service.currentnessVerdict(request(generation: 1))
-        #expect(verdict == .dropped(reason: "closedLifetime"))
+        #expect(verdict == .dropped(reason: "retiredLifetime"))
 
         // Everything matches (a fresh lifetime, since the one above is
         // now permanently closed): current.
         let freshLifetime = Self.makeLifetime()
+        mailboxCoordinator.beginLifetime()
         mirror.publish(.init(lifetimeID: freshLifetime, hoverEventID: 1, eligible: true, visible: true))
         let freshRequest = makeRequest(
             lifetimeID: freshLifetime, mirror: mirror, coordinator: mailboxCoordinator,
@@ -1058,7 +1063,7 @@ import Testing
         await service.submit(makeRequest(
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
 
         #expect(counts.setterCalls == 1, "the setter itself must still run regardless of the diagnostics gate")
         #expect(demandCalls.values.isEmpty, "gate OFF must never retain/release render demand")
@@ -1123,11 +1128,11 @@ import Testing
         await offService.submit(makeRequest(
             lifetimeID: offLifetimeID, mirror: offMirror, coordinator: offMailboxCoordinator,
             surface: offSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
         await onService.submit(makeRequest(
             lifetimeID: onLifetimeID, mirror: onMirror, coordinator: onMailboxCoordinator,
             surface: onSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
-        )).value
+        ))
 
         #expect(offCounts.windowPreparationCalls == 1, "gate OFF must prepare one evaluation window")
         #expect(offCounts.evaluatorCalls == 1, "gate OFF must evaluate once")
@@ -1203,7 +1208,7 @@ import Testing
                 lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
                 surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0),
                 requestGeneration: requestGeneration, surfaceSerial: surfaceSerial
-            )).value
+            ))
         }
 
         // Distinctive, effectively-unique markers so a substring search
@@ -1343,7 +1348,7 @@ import Testing
             lifetimeID: offLifetime, mirror: mirror, coordinator: mailboxCoordinator,
             surface: offSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1,
             surfaceSerial: 111
-        )).value
+        ))
         #expect(counts.metricsCalls == 0, "gate OFF must never compute read metrics")
         #expect(
             teardownCoordinator.surfaceSerialRegistry.serial(for: offLifetime) == nil,
@@ -1360,7 +1365,7 @@ import Testing
             lifetimeID: onLifetime, mirror: mirror, coordinator: mailboxCoordinator,
             surface: onSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1,
             surfaceSerial: 222
-        )).value
+        ))
         #expect(counts.metricsCalls == 1, "gate ON must compute read metrics exactly once for one request")
         #expect(
             counts.lastMetrics == ExternalHoverWorkService.defaultReadMetrics(
@@ -1473,7 +1478,7 @@ import Testing
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
         )
-        await service.submit(request).value
+        await service.submit(request)
         #expect(mailboxCoordinator.currentMailbox.pending?.token == mintedToken)
 
         // Cmd release: publish `eligible == false` for the SAME event —
@@ -1512,7 +1517,7 @@ import Testing
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
         )
-        await service.submit(request).value
+        await service.submit(request)
         #expect(mailboxCoordinator.currentMailbox.pending?.token == mintedToken)
 
         // Ghostty's real ack promotes pending -> accepted owner.
@@ -1522,7 +1527,7 @@ import Testing
         // AND the actor's own cache BEFORE the Cmd-release withdrawal
         // below ever runs — exactly the ordering the review describes.
         _ = mailboxCoordinator.receiveTransition(token: mintedToken, active: false)
-        await service.noteExternalInactive(lifetimeID: lifetimeID, token: mintedToken).value
+        await service.noteExternalInactive(lifetimeID: lifetimeID, token: mintedToken)
         #expect(mailboxCoordinator.currentMailbox.acceptedOwner == nil)
 
         // `submit` above already ran its own "setter 直後" drain once —
@@ -1625,7 +1630,7 @@ import Testing
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0),
             requestGeneration: sharedEvent, surfaceSerial: realSurfaceSerial
-        )).value
+        ))
 
         // The REAL teardown path — default `drainDiagnostics` resolution,
         // so it goes through `defaultDrainExternalHoverDiagnostics`
@@ -1718,7 +1723,7 @@ import Testing
             lifetimeID: lifetimeID, mirror: mirror, coordinator: mailboxCoordinator,
             surface: surface, cell: ExternalHoverGridCell(row: 5, column: 0),
             requestGeneration: 1, surfaceSerial: 999
-        )).value
+        ))
         #expect(teardownCoordinator.surfaceSerialRegistry.serial(for: lifetimeID) == 999)
         #expect(teardownCoordinator.droppedCountTracker.previousByLifetime[lifetimeID] != nil)
 
@@ -1897,11 +1902,11 @@ import Testing
         )
 
         let request = ExternalHoverWorkRequest(
-            lifetimeID: lifetimeID, surface: surface, requestGeneration: 1,
+            lifetimeID: lifetimeID, lifetimeToken: mailboxCoordinator.currentLifetimeToken, surface: surface, requestGeneration: 1,
             cell: ExternalHoverGridCell(row: 5, column: 0), viewportRowCount: 10, gridColumns: 6, cwd: cwd,
             mirror: mirror, coordinator: mailboxCoordinator, surfaceSerial: 0
         )
-        await service.submit(request).value
+        await service.submit(request)
 
         #expect(counts.setterCalls == 1)
         #expect(counts.lastSetterText == Self.fourRowFixtureRawText(topRow: 2, rowCount: 7))
@@ -1963,11 +1968,11 @@ import Testing
         )
 
         let request = ExternalHoverWorkRequest(
-            lifetimeID: lifetimeID, surface: surface, requestGeneration: 1,
+            lifetimeID: lifetimeID, lifetimeToken: mailboxCoordinator.currentLifetimeToken, surface: surface, requestGeneration: 1,
             cell: ExternalHoverGridCell(row: 5, column: 0), viewportRowCount: 10, gridColumns: 80, cwd: cwd,
             mirror: mirror, coordinator: mailboxCoordinator, surfaceSerial: 0
         )
-        await service.submit(request).value
+        await service.submit(request)
 
         #expect(counts.reads == 1, "the read itself must still happen — only the resolved candidate is rejected")
         #expect(counts.setterCalls == 0)
@@ -2010,6 +2015,7 @@ import Testing
         logDebugEvent(startSentinel)
         await service.submit(ExternalHoverWorkRequest(
             lifetimeID: lifetimeID,
+            lifetimeToken: mailboxCoordinator.currentLifetimeToken,
             surface: surface,
             requestGeneration: 8810,
             cell: ExternalHoverGridCell(row: 5, column: 0),
@@ -2019,7 +2025,7 @@ import Testing
             mirror: mirror,
             coordinator: mailboxCoordinator,
             surfaceSerial: 8810
-        )).value
+        ))
         logDebugEvent(endSentinel)
 
         let contents = try await Self.waitForLogSentinel(endSentinel)

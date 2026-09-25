@@ -11,6 +11,10 @@ public import GhosttyKit
 /// callback context identifies its host view through that core seam.
 @MainActor
 public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
+    /// Seals the ExternalHover token for the native runtime generation that
+    /// is about to be torn down. The operation is synchronous.
+    func retireExternalHoverLifetime()
+
     /// The owning workspace id mirrored onto the view for focus routing.
     var tabId: UUID? { get set }
 
@@ -68,6 +72,8 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
 }
 
 public extension TerminalSurfaceNativeViewing {
+    func retireExternalHoverLifetime() {}
+
     /// Leaves input synchronous for hosts without clipboard sequencing.
     ///
     /// - Parameters:

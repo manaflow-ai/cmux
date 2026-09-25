@@ -200,6 +200,7 @@ extension TerminalSurface {
         }
 
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
@@ -225,6 +226,7 @@ extension TerminalSurface {
         }
 
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        attachedView?.retireExternalHoverLifetime()
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
