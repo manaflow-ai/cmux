@@ -659,11 +659,11 @@ const createCMUXFeed = async (ctx) => {
           break;
         }
         case "todo.updated": {
-          const sid = event.properties?.sessionID;
+          const sid = eventProperties(event).sessionID;
           if (!sid) break;
           pushTelemetry(base(sid, {
             hook_event_name: "TodoWrite",
-            tool_input: event.properties?.todos || [],
+            tool_input: eventProperties(event).todos || [],
           }));
           break;
         }
