@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -33,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ios/verification/empty-state/Production evidence
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
           for name in MobileWorkspaceListEmptyRow MobilePairingCopy; do
             git show "$SOURCE_SHA:Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/$name.swift" > "ios/verification/empty-state/Production/$name.swift"
           done
