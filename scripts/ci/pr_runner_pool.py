@@ -1314,7 +1314,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # Admission on a root runner whose kept build is of this run's merge base
     # (see "Warm affinity" above); attempt 1 only, since only it is placed.
     admission_runner = ""
-    if choice.root_runner and ADMISSION_JOB in owned_jobs and live_runners is not None:
+    # CI_OWNED_WARM_LABELS off ignores labels already set, so the switch alone
+    # turns affinity off without clearing them.
+    if (env.get("WARM_LABELS") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
+            and live_runners is not None):
         admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"))
     text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS"), pr_xcode_app), problems=problems,
                    owned_jobs=owned_jobs, admission_runner=admission_runner)

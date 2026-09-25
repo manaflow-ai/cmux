@@ -1206,7 +1206,8 @@ class WarmAffinity(unittest.TestCase):
         both = [live_runner(1, MINI, ROOT_MINI, WARM, busy=True), live_runner(2, MINI, ROOT_MINI, WARM)]
         self.assertEqual(pool.warm_admission_runner(both, ROOT_MINI, MERGE_BASE), expected)
 
-    def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token"):
+    def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
+                warm_labels="1"):
         fresh = fleet(busy=0)
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with tempfile.TemporaryDirectory() as tmp, \
@@ -1220,7 +1221,7 @@ class WarmAffinity(unittest.TestCase):
                    "POOL_OWNED_SPLIT": "1", "OWNED_SLOTS": slots, "ROUTE_TOKEN": token,
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
-                   "RUN_MACOS": "true", "MERGED_ONTO": merged_onto}
+                   "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "WARM_LABELS": warm_labels}
             pool.main([], env)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             values["summary"] = summary.read_text()
@@ -1240,6 +1241,9 @@ class WarmAffinity(unittest.TestCase):
         self.assertEqual(self.outputs(runners, slots='{"std": 40}')["admission_runner"], "")
         # Without the route token the runners are never read.
         self.assertEqual(self.outputs(runners, token="")["admission_runner"], "")
+        # CI_OWNED_WARM_LABELS off ignores labels already on the runners.
+        for off in ("", "0"):
+            self.assertEqual(self.outputs(runners, warm_labels=off)["admission_runner"], "", off)
 
 
 class Wiring(unittest.TestCase):

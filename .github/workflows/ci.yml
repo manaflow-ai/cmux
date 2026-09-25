@@ -656,6 +656,7 @@ jobs:
           # The main commit this run merges onto, whose warm label (a root
           # runner that kept a build of it) compile admission may take.
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
+          WARM_LABELS: ${{ vars.CI_OWNED_WARM_LABELS }}
         run: python3 scripts/ci/pr_runner_pool.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long

@@ -240,7 +240,8 @@ other runners of its root pool, so one runner per pool carries each commit.
 With live runners, the picker sends a run's admission to
 `["<root label>", "glaeda-warm-<merge base sha12>"]` when an idle root runner
 carries that label (the `admission_runner` output, attempt 1 only); otherwise
-admission takes the root label as before. v1 matches the merge base exactly;
+admission takes the root label as before. The picker also reads the variable, so
+turning it off ignores labels already set. v1 matches the merge base exactly;
 it does not rank runners by commit distance. A warm runner taken between the
 pick and the queue leaves admission waiting, and the rescue moves it to
 Blacksmith like any other stuck owned job.
