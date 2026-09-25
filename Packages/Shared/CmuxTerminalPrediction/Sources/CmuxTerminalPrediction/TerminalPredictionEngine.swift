@@ -362,6 +362,12 @@ public struct TerminalPredictionEngine: Sendable {
             // our offsets are measured from, and it ends the echo run.
             return withdrawAll(countingMisprediction: false, at: now)
         }
+        guard now >= entries[index].typedAt else {
+            // Output stamped before the keystroke existed was already in
+            // flight when it was typed (arrivals drain later on the main
+            // actor), so it cannot be the echo of it.
+            return withdrawAll(countingMisprediction: false, at: now)
+        }
         guard case .glyph(_, let expected) = entries[index].keystroke else {
             // Mid-erase, the only printable a line editor sends is the space
             // of `BS SP BS`; the erase withdraws on anything else.

@@ -35,7 +35,7 @@ public final class TerminalPredictionCenter {
     private var settingKey: String?
     private var settingDefaults: UserDefaults?
 
-    private init() {}
+    nonisolated private init() {}
 
     /// Monotonic time since this process started predicting. Readable off the
     /// main actor so the PTY reader can stamp arrivals where they arrive.
@@ -94,8 +94,10 @@ public final class TerminalPredictionCenter {
     public func unregister(surfaceID: UUID) {
         inbox.forget(surfaceID: surfaceID)
         engines.removeValue(forKey: surfaceID)
-        redrawHandlers.removeValue(forKey: surfaceID)
         expiryTasks.removeValue(forKey: surfaceID)?.cancel()
+        // With the engine gone `expiring` returns nothing, so this redraw
+        // hides any glyph still drawn over a view that outlives its runtime.
+        redrawHandlers.removeValue(forKey: surfaceID)?()
     }
 
     /// Re-arms the withdrawal deadline for whatever is currently drawn.

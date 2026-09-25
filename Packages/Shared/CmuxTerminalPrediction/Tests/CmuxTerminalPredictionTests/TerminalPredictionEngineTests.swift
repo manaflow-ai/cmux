@@ -67,6 +67,21 @@ struct TerminalPredictionEngineTests {
         }
     }
 
+    @Test func outputThatArrivedBeforeTheKeystrokeIsNotItsEcho() {
+        // The IO thread stamps arrivals; the main actor drains them later. A
+        // key typed in between must not claim output that was already in
+        // flight, or a prompt could arm the echo run.
+        var session = Session()
+        session.advance(.milliseconds(10))
+        let arrival = session.clock
+        session.type("l")
+        session.engine.observedOutput(Array("l".utf8), at: arrival)
+
+        session.type("s")
+        #expect(session.drawn == "")
+        #expect(session.engine.observedEchoLatency == nil)
+    }
+
     @Test func predictsOnceTheEchoRunIsEstablished() {
         var session = armedSession()
 
