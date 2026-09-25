@@ -24,37 +24,10 @@ private final class RejectedClient {
         }
     }
 
-    /// Reads until the peer closes: returns everything received and whether
-    /// EOF was actually observed. The poll returns the instant the responder
-    /// closes; the bound only stops a broken responder from hanging the
-    /// suite and is generous because libdispatch runs the responder's
-    /// source-cancellation handlers on a utility queue that a loaded runner
-    /// can starve for seconds.
-    func readUntilEOF(timeout: TimeInterval = 30) -> (text: String, sawEOF: Bool) {
-        var collected = [UInt8]()
-        let deadline = Date().addingTimeInterval(timeout)
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while Date() < deadline {
-            var descriptor = pollfd(fd: clientEnd, events: Int16(POLLIN | POLLHUP), revents: 0)
-            let remaining = max(0, Int(deadline.timeIntervalSinceNow * 1_000))
-            guard poll(&descriptor, 1, Int32(min(remaining, 100))) > 0 else { continue }
-            let count = buffer.withUnsafeMutableBufferPointer { raw in
-                Darwin.read(clientEnd, raw.baseAddress, raw.count)
-            }
-            if count > 0 {
-                collected.append(contentsOf: buffer[0..<count])
-                continue
-            }
-            if count == 0 {
-                return (String(decoding: collected, as: UTF8.self), true)
-            }
-            // A read error (ECONNRESET, EIO) is an abrupt disconnect, not
-            // the clean close the responder promises.
-            if count < 0, errno != EAGAIN, errno != EINTR {
-                return (String(decoding: collected, as: UTF8.self), false)
-            }
-        }
-        return (String(decoding: collected, as: UTF8.self), false)
+    /// Waits for the responder to close its end, off the cooperative pool the
+    /// responder's reply runs on; see ``UnixSocketFixture/readUntilEOF(_:timeout:)``.
+    func readUntilEOF() async -> (text: String, sawEOF: Bool) {
+        await UnixSocketFixture.readUntilEOF(clientEnd)
     }
 
     deinit {
@@ -99,7 +72,10 @@ struct ControlOverloadResponderTests {
     private func makeResponder(
         recorder: RejectionRecorder,
         maximumConcurrentReplies: Int = 64,
-        readDeadlineMilliseconds: Int = 2_000
+        // Only the silent-client test waits on the read deadline, and it sets
+        // its own. Every other client writes before the responder reads, so a
+        // generous default keeps a starved runner from closing without a reply.
+        readDeadlineMilliseconds: Int = 30_000
     ) -> ControlOverloadResponder {
         ControlOverloadResponder(
             strings: ControlOverloadResponder.Strings(message: "cmux is busy"),
@@ -121,7 +97,7 @@ struct ControlOverloadResponderTests {
         client.send(#"{"id":"req-7","method":"system.ping","params":{}}"# + "\n")
         responder.reject(socket: client.serverEnd, reason: .poolSaturated)
 
-        let reply = client.readUntilEOF()
+        let reply = await client.readUntilEOF()
         #expect(reply.sawEOF)
         let object = try #require(
             JSONSerialization.jsonObject(with: Data(reply.text.utf8)) as? [String: Any]
@@ -150,7 +126,7 @@ struct ControlOverloadResponderTests {
         client.send("ping\n")
         responder.reject(socket: client.serverEnd, reason: .pendingExpired)
 
-        let reply = client.readUntilEOF()
+        let reply = await client.readUntilEOF()
         #expect(reply.sawEOF)
         #expect(reply.text == "ERROR: overloaded retry_after_ms=250 reason=pending_expired\n")
         #expect(await recorder.nextRejection()?.replied == true)
@@ -165,7 +141,7 @@ struct ControlOverloadResponderTests {
 
         // The read deadline is the responder's own bounded wait for the
         // client's first line; the test only waits on the resulting close.
-        let reply = client.readUntilEOF()
+        let reply = await client.readUntilEOF()
         #expect(reply.sawEOF)
         #expect(reply.text.isEmpty)
         #expect(await recorder.nextRejection() == ControlOverloadRejection(
@@ -181,7 +157,7 @@ struct ControlOverloadResponderTests {
 
         responder.reject(socket: client.serverEnd, reason: .preauthorizationSaturated)
 
-        let reply = client.readUntilEOF()
+        let reply = await client.readUntilEOF()
         #expect(reply.sawEOF)
         #expect(reply.text.isEmpty)
         #expect(recorder.all == [

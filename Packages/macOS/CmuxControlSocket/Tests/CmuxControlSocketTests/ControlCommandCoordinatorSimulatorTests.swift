@@ -90,15 +90,15 @@ struct ControlCommandCoordinatorSimulatorTests {
         )
         let cancelled = SimulatorCancellationProbe()
         receipt.installCancellation { cancelled.mark() }
-        let waiter = Task.detached {
-            receipt.wait(timeout: 0)
+        // The blocking wait runs on a GCD thread, never on the cooperative pool.
+        async let waiter: ControlSimulatorWebInspectorCompletion? = withCheckedContinuation { continuation in
+            DispatchQueue.global().async { continuation.resume(returning: receipt.wait(timeout: 0)) }
         }
-
-        for _ in 0..<100 { await Task.yield() }
+        try? await Task.sleep(for: .milliseconds(50)) // lets the waiter reach wait()
         #expect(!cancelled.isMarked)
 
         receipt.markOperationReady()
-        #expect(await waiter.value == nil)
+        #expect(await waiter == nil)
         #expect(cancelled.isMarked)
     }
 

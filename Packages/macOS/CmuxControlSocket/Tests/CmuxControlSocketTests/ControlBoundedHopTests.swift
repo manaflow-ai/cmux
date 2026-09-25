@@ -9,9 +9,23 @@ import Testing
 /// modal run loop.
 private final class ManualExecutor: Sendable {
     private let jobs = OSAllocatedUnfairLock(initialState: [@Sendable () -> Void]())
+    private let scheduled: AsyncStream<Void>
+    private let scheduledContinuation: AsyncStream<Void>.Continuation
+
+    init() {
+        (scheduled, scheduledContinuation) = AsyncStream<Void>.makeStream()
+    }
 
     func schedule(_ job: @escaping @Sendable () -> Void) {
         jobs.withLock { $0.append(job) }
+        scheduledContinuation.yield(())
+    }
+
+    /// Suspends until a job is parked, so a test acts on a queued body
+    /// instead of racing the task that queues it.
+    func nextScheduledJob() async {
+        var iterator = scheduled.makeAsyncIterator()
+        _ = await iterator.next()
     }
 
     var queuedJobCount: Int {
@@ -104,10 +118,11 @@ struct ControlBoundedHopTests {
         let clock = TestSocketRecoveryClock()
         let probe = BodyProbe()
         let hop = ControlBoundedHop(deadlineMilliseconds: 10_000, clock: clock)
-        // The body signals its start through an async stream the test awaits,
-        // and is held inside `running` by a semaphore it waits on from its own
-        // GCD thread (never from an async context).
+        // The body signals its start and its end through async streams the
+        // test awaits, and is held inside `running` by a semaphore it waits on
+        // from its own GCD thread (never from an async context).
         let (bodyStarted, bodyStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (bodyFinished, bodyFinishedContinuation) = AsyncStream<Void>.makeStream()
         let bodyMayFinish = DispatchSemaphore(value: 0)
 
         async let outcome = hop.run(
@@ -119,6 +134,8 @@ struct ControlBoundedHopTests {
                 bodyStartedContinuation.finish()
                 bodyMayFinish.wait()
                 probe.record()
+                bodyFinishedContinuation.yield(())
+                bodyFinishedContinuation.finish()
                 return 2
             }
         )
@@ -134,9 +151,9 @@ struct ControlBoundedHopTests {
             return
         }
         bodyMayFinish.signal()
-        for _ in 0..<10_000 where probe.runCount == 0 {
-            await Task.yield()
-        }
+        // The body that outlived its deadline still finishes, exactly once.
+        var finishedIterator = bodyFinished.makeAsyncIterator()
+        _ = await finishedIterator.next()
         #expect(probe.runCount == 1)
     }
 
@@ -155,9 +172,7 @@ struct ControlBoundedHopTests {
                 }
             )
         }
-        for _ in 0..<10_000 where executor.queuedJobCount == 0 {
-            await Task.yield()
-        }
+        await executor.nextScheduledJob()
         caller.cancel()
 
         guard case .cancelled = await caller.value else {

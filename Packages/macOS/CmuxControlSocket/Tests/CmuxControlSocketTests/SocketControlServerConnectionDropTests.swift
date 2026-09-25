@@ -9,8 +9,13 @@ import Testing
 /// through the overload responder, as the app's composition root does.
 private final class DroppedConnectionSink: Sendable {
     private let dropped = OSAllocatedUnfairLock(initialState: [Int32]())
+    /// The client writes its line before the responder reads, so the reply
+    /// never waits on this deadline. It is generous only so a runner that
+    /// starves the responder's reader for seconds cannot turn a correct reply
+    /// into a bare close.
     let responder = ControlOverloadResponder(
-        strings: ControlOverloadResponder.Strings(message: "cmux is busy")
+        strings: ControlOverloadResponder.Strings(message: "cmux is busy"),
+        configuration: ControlOverloadResponder.Configuration(readDeadlineMilliseconds: 30_000)
     )
 
     func handle(socket: Int32) {
@@ -24,8 +29,8 @@ private final class DroppedConnectionSink: Sendable {
 }
 
 /// A CLI-shaped client: connect, write one request line, read until EOF.
-private final class DroppedClient {
-    private var fd: Int32
+private final class DroppedClient: Sendable {
+    private let fd: Int32
 
     init(path: String) throws {
         fd = try UnixSocketFixture.connectClient(to: path)
@@ -38,39 +43,21 @@ private final class DroppedClient {
         }
     }
 
-    /// Bounded poll of the real EOF condition, never a fixed sleep.
-    func readUntilEOF(timeout: TimeInterval = 5) -> String {
-        var collected = [UInt8]()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP), revents: 0)
-            guard poll(&descriptor, 1, 100) > 0 else { continue }
-            let count = buffer.withUnsafeMutableBufferPointer { raw in
-                Darwin.read(fd, raw.baseAddress, raw.count)
-            }
-            if count > 0 {
-                collected.append(contentsOf: buffer[0..<count])
-                continue
-            }
-            if count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR) {
-                break
-            }
-        }
-        return String(decoding: collected, as: UTF8.self)
+    /// Waits for the server side to close, off the main actor.
+    func readUntilEOF() async -> (text: String, sawEOF: Bool) {
+        await UnixSocketFixture.readUntilEOF(fd)
     }
 
     deinit {
-        if fd >= 0 {
-            close(fd)
-            fd = -1
-        }
+        close(fd)
     }
 }
 
 /// When the accept buffer is full, the server hands the connection to the
 /// host instead of closing it, so the client still receives a structured
-/// `overloaded` error rather than EPIPE (#13369).
+/// `overloaded` error rather than EPIPE (#13369). The suite runs on the main
+/// actor because the server does, so it awaits the reply rather than polling
+/// for it on the main thread.
 @MainActor
 @Suite("SocketControlServer accept-buffer drops")
 struct SocketControlServerConnectionDropTests {
@@ -102,9 +89,10 @@ struct SocketControlServerConnectionDropTests {
         let client = try DroppedClient(path: socketPath)
         client.send(#"{"id":"drop-1","method":"system.ping","params":{}}"# + "\n")
 
-        let reply = client.readUntilEOF()
+        let reply = await client.readUntilEOF()
+        #expect(reply.sawEOF)
         let object = try #require(
-            JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
+            JSONSerialization.jsonObject(with: Data(reply.text.utf8)) as? [String: Any]
         )
         #expect(object["id"] as? String == "drop-1")
         let error = try #require(object["error"] as? [String: Any])
