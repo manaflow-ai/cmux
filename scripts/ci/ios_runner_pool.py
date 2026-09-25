@@ -55,20 +55,23 @@ for: SIM_LABEL must have the run's simulator jobs free now.
 Live capacity. test-ios.yml mints the org's glaeda-route App token (as ci.yml
 does) for same-repository runs and passes it as ROUTE_TOKEN. With it, "free"
 is read from the runners API instead of estimated: the owned pool's runners
-that are online and not busy (pr_runner_pool.live_owned_free()), and of those
-the ones that also carry SIM_LABEL, less what in-flight test-ios.yml and
-ios-screenshots.yml runs will still take. Machines are charged to the runs of
-the last pr_runner_pool.LIVE_WINDOW_MINUTES, whose jobs may not have reached a
-runner yet. Simulators are charged to the runs of the last
-SIM_WINDOW_MINUTES: the simulator matrix starts only after
-ios-simulator-build (35 minute timeout), so an older run's build shows one
-busy simulator mini now and needs two later. That errs high while a run's
-simulator jobs are already busy. The run takes the pool `runner: owned`
-takes when both counts cover it; otherwise it keeps the default. The janitor
-snapshot and CI_OWNED_POOL_SLOTS are not read. On 2026-09-25 the snapshot
+that are online and not busy (pr_runner_pool.live_owned_free()), less the
+machines of the test-ios.yml and ios-screenshots.yml runs of the last
+pr_runner_pool.LIVE_WINDOW_MINUTES, whose jobs may not have reached a runner
+yet. Simulators are counted per mini, not per runner: every runner instance of
+a simulator mini carries SIM_LABEL (`<member>-glaeda`, `<member>-glaeda-K`),
+and the mini runs one simulator job at a time, so an idle runner says nothing
+about its simulator. The simulator minis are the online SIM_LABEL minis of the
+pool, at most CI_OWNED_POOL_SLOTS' SIM_LABEL entry, less the simulator jobs of
+every in-flight iOS run of the last SIM_WINDOW_MINUTES (only those two
+workflows hold simulators). That errs high for a run whose simulator jobs have
+already finished. The run takes the pool `runner: owned` takes when both
+counts cover it; otherwise it keeps the default. The janitor snapshot is not
+read. On 2026-09-25 the snapshot
 estimate, which charges every newer pull request run it cannot place,
 counted the owned pool full while 20 of its runners sat idle. Without the
-token, or when the runners cannot be listed, the snapshot rules below decide.
+token, or when the runners cannot be listed or none carries the pool label,
+the snapshot rules below decide.
 
 Simulator capacity. glaeda puts SIM_LABEL (`glaeda-ios-sim`) on the runners of
 minis that have an iOS simulator role and an iOS 26.x runtime, and runs one
@@ -123,6 +126,7 @@ import dataclasses
 import datetime as dt
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -143,8 +147,11 @@ IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
 IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml")
 # How far back an in-flight iOS run is charged its simulator jobs on the live
-# path: longer than ios-simulator-build's timeout (see Live capacity).
-SIM_WINDOW_MINUTES = 40
+# path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
+# capture; see Live capacity).
+SIM_WINDOW_MINUTES = 360
+# A glaeda runner's name: `<member>-glaeda`, or `<member>-glaeda-K` for instance K.
+RUNNER_INSTANCE_SUFFIX = re.compile(r"-glaeda(?:-\d+)?$")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -393,21 +400,33 @@ def charged_jobs(run: Mapping[str, Any]) -> int:
     return run_jobs("test-ios", "" if fields[2] == "simulator" else fields[2])
 
 
+def runner_host(runner: Mapping[str, Any]) -> str:
+    """The mini a runner instance runs on, from its name (its id when it has none)."""
+    name = str(runner.get("name") or "")
+    return RUNNER_INSTANCE_SUFFIX.sub("", name) if name else f"#{runner.get('id')}"
+
+
 def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[Mapping[str, Any]], *,
-              now: dt.datetime) -> LiveFree:
-    """The pool's idle runners and its idle SIM_LABEL runners, less what in-flight iOS runs will take.
+              now: dt.datetime, capacity: int) -> LiveFree:
+    """The pool's idle runners and its free simulator minis, less what in-flight iOS runs will take.
 
     `recent` are the in-flight runs of the last SIM_WINDOW_MINUTES; only those
     of the last LIVE_WINDOW_MINUTES are charged machines (see Live capacity).
+    Raises when no runner carries `pool`, so the snapshot decides instead.
     """
     mine = [runner for runner in runners
             if pool in {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}]
-    idle = pr_runner_pool.live_owned_free(mine, (pool, SIM_LABEL))
+    if not mine:
+        raise RuntimeError(f"no runner carries {pool}")
+    idle = pr_runner_pool.live_owned_free(mine, (pool,))
+    sim_hosts = {runner_host(runner) for runner in mine if runner.get("status") == "online"
+                 and SIM_LABEL in {str(item.get("name")) for item in runner.get("labels") or []
+                                   if isinstance(item, Mapping)}}
     since = pr_runner_pool.iso(now - dt.timedelta(minutes=pr_runner_pool.LIVE_WINDOW_MINUTES))
     # created_at is ISO 8601 in UTC, so it compares as text; a run without one counts.
     newest = [run for run in recent if str(run.get("created_at") or since) >= since]
     return LiveFree(pool=idle[pool] - sum(charged_jobs(run) for run in newest),
-                    sim=idle[SIM_LABEL] - sum(charged_sim_jobs(run) for run in recent))
+                    sim=min(len(sim_hosts), capacity) - sum(charged_sim_jobs(run) for run in recent))
 
 
 def in_flight_ios_runs(client: Any, since: str, *, exclude_run_id: int | None) -> list[Mapping[str, Any]]:
@@ -467,7 +486,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 runners = pr_runner_pool.GitHub(route_token, repo).runners()
                 since = pr_runner_pool.iso(now - dt.timedelta(minutes=SIM_WINDOW_MINUTES))
                 recent = in_flight_ios_runs(client, since, exclude_run_id=exclude)
-                return IOSLoad(None, live=live_free(runners, pools[0], recent, now=now))
+                capacity = pr_runner_pool.capability_slots(args.owned_slots).get(SIM_LABEL, 0)
+                return IOSLoad(None, live=live_free(runners, pools[0], recent, now=now, capacity=capacity))
             except Exception as error:  # noqa: BLE001 - the snapshot path still decides
                 print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot",
                       file=sys.stderr)

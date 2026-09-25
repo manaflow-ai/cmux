@@ -2441,28 +2441,39 @@ class IOSRouting(unittest.TestCase):
         light = MINI.replace("-std-", "-light-")
         self.assertFalse(ios_pool.resolve("test-ios", "auto", "", order=f"{light},{SMALL}", **kwargs).persistent)
 
-    def test_live_free_counts_idle_pool_runners_and_the_simulators_among_them(self):
-        def runner(*labels, status="online", busy=False):
-            return {"status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+    def test_live_free_counts_idle_pool_runners_and_simulator_minis(self):
+        def runner(host, k, *labels, status="online", busy=False):
+            name = f"{host}-glaeda" + (f"-{k}" if k else "")
+            return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
 
-        runners = [runner(MINI, IOS_SIM), runner(MINI, IOS_SIM), runner(MINI), runner(MINI, IOS_SIM, busy=True),
-                   runner(MINI, IOS_SIM, status="offline"), runner(IOS_SIM), runner("glaeda-std-xcode-26.5", IOS_SIM)]
-        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW), ios_pool.LiveFree(pool=3, sim=2))
+        # Two simulator minis with four instances each; mini-a's simulator job holds one slot.
+        runners = [runner("mini-a", k, MINI, IOS_SIM, busy=k == 0) for k in range(4)]
+        runners += [runner("mini-b", k, MINI, IOS_SIM) for k in range(4)]
+        runners += [runner("mini-c", 0, MINI), runner("mini-d", 0, MINI, IOS_SIM, status="offline"),
+                    runner("mini-e", 0, IOS_SIM), runner("mini-f", 0, "glaeda-std-xcode-26.5", IOS_SIM)]
+        # Eight idle pool runners; two online simulator minis, not six idle simulator runners.
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=3), ios_pool.LiveFree(pool=8, sim=2))
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=1), ios_pool.LiveFree(pool=8, sim=1))
         title = "iOS tests · main · {} · all · {} · default · on {}"
         fresh = pool.iso(NOW - dt.timedelta(minutes=1))
         recent = [{"display_title": title.format("simulator", "iphone", "auto"), "created_at": fresh},  # 2, 1 sim
                   {"display_title": title.format("CmuxSyncStore", "all", "auto"), "created_at": fresh},  # 1, 0
                   {"display_title": title.format("simulator", "all", "blacksmith-6vcpu-macos-26")},  # none
                   {"display_title": "iOS screenshots"}]  # unparsed: in full
-        self.assertEqual(ios_pool.live_free(runners, MINI, recent, now=NOW),
-                         ios_pool.LiveFree(pool=3 - 5, sim=2 - 3))
-        # A run past the live window still holds its later simulator matrix, not unstarted machines.
-        older = [{"display_title": title.format("simulator", "all", "auto"),
-                  "created_at": pool.iso(NOW - dt.timedelta(minutes=20))}]
-        self.assertEqual(ios_pool.live_free(runners, MINI, older, now=NOW), ios_pool.LiveFree(pool=3, sim=0))
+        self.assertEqual(ios_pool.live_free(runners, MINI, recent, now=NOW, capacity=3),
+                         ios_pool.LiveFree(pool=8 - 5, sim=2 - 3))
+        # A run past the live window holds its simulators (mini-a's busy one), not unstarted machines.
+        older = [{"display_title": title.format("simulator", "iphone", "auto"),
+                  "created_at": pool.iso(NOW - dt.timedelta(minutes=90))}]
+        self.assertEqual(ios_pool.live_free(runners, MINI, older, now=NOW, capacity=3),
+                         ios_pool.LiveFree(pool=8, sim=1))
+        # No runner in the pool: raise, so main() falls back to the snapshot.
+        with self.assertRaises(RuntimeError):
+            ios_pool.live_free([runner("mini-e", 0, IOS_SIM)], MINI, [], now=NOW, capacity=3)
 
     def test_main_reads_runners_with_the_route_token_and_falls_back_on_error(self):
-        idle = [{"status": "online", "busy": False, "labels": [{"name": MINI}, {"name": IOS_SIM}]}] * 2
+        idle = [{"name": f"mini-{n}-glaeda", "status": "online", "busy": False,
+                 "labels": [{"name": MINI}, {"name": IOS_SIM}]} for n in range(2)]
 
         class FakeGitHub:
             fail = False
