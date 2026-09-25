@@ -327,8 +327,7 @@ cmux_codex_cua_attachment_present() {
 # do not launch a helper or probe the daemon.
 cmux_codex_cua_attachment_reason() {
     if ! cmux_codex_computer_use_enabled_for_invocation "$@"; then
-        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] ||
-           ! cmux_codex_computer_use_app_enabled; then
+        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]]; then
             printf '%s' 'computer-use-disabled'
         else
             printf '%s' 'strict-mcp-config'
@@ -350,9 +349,17 @@ cmux_codex_cua_attachment_reason() {
     printf '%s' 'attachment-unavailable'
 }
 
+# Local/tagged builds often run Codex through an ad-hoc-signed wrapper (for
+# example the developer's `sr` launcher), so the helper cannot verify the
+# production OpenAI parent requirement. Keep the helper's escape hatch scoped
+# to the two identity values baked into a reload.sh tagged app; stable builds
+# retain the signed-parent gate.
+cmux_codex_is_tagged_dev_build() {
+    [[ -n "${CMUX_TAG:-}" && "${CMUX_BUNDLE_ID:-}" == com.cmuxterm.app.debug.* ]]
+}
+
 cmux_codex_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
-    cmux_codex_computer_use_app_enabled || return 1
     local arg
     for arg in "$@"; do
         case "$arg" in
@@ -416,6 +423,12 @@ cmux_codex_emit_computer_use_args() {
         "mcp_servers.cmux-cua.env.NODE_OPTIONS=\"\"" \
         "-c" \
         "mcp_servers.cmux-cua.env.BUN_OPTIONS=\"\""
+
+    if cmux_codex_is_tagged_dev_build; then
+        printf '%s\0' \
+            "-c" \
+            'mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT="1"'
+    fi
 }
 
 # The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all START
@@ -595,6 +608,16 @@ if ! should_inject_codex_hooks "$@"; then
     exec_real_codex_passthrough "$@"
 fi
 
+# cmux owns the Computer Use provider for every Codex session it launches.
+# Codex also exposes a native `computer` tool behind the `computer_use` feature;
+# leaving that feature enabled lets the model silently bypass the explicitly
+# requested `cmux-cua` MCP server. Disable the competing provider before any
+# session arguments are forwarded. If cmux-cua cannot attach, the session has
+# no Computer Use provider rather than falling back to Codex Computer Use.
+# This policy is intentionally scoped to cmux-launched sessions. Plain Codex
+# outside cmux keeps its normal native Computer Use behavior.
+cmux_codex_native_computer_use_args=(--disable computer_use)
+
 # Export launch identity so the hook subprocesses and cmux's agent-pid /
 # ended-detection can bind this Codex to its surface and pid. Because we exec
 # codex below, $$ becomes the real codex pid. The invocation token is owned by
@@ -715,11 +738,16 @@ if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
 fi
 
 if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
+    exec "$REAL_CODEX" \
+        "${cmux_codex_native_computer_use_args[@]}" \
+        "${cmux_codex_computer_use_args[@]}" \
+        "${cmux_codex_injected_args[@]}" "$@"
 fi
 
 # A reconciled persistent channel intentionally emits no overrides; an emitter
 # failure also returns nothing. In both cases preserve the cmux surface context
 # and Computer Use attachment so persistent, native, or future hooks can still
 # bind this session.
-exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "$@"
+exec "$REAL_CODEX" \
+    "${cmux_codex_native_computer_use_args[@]}" \
+    "${cmux_codex_computer_use_args[@]}" "$@"

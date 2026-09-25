@@ -50,6 +50,78 @@ def run_text(step):
     return step.get("run") or ""
 
 
+class PublicUploadDecisionTests(unittest.TestCase):
+    def decision(self, files=None, event="schedule", baseline="base", broken=False, retry=False):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / "gh"
+            fake.write_text("#!/usr/bin/env python3\n" + r"""
+import json, os, sys
+args = ' '.join(sys.argv[1:])
+if 'compare/' in args and '/compare/' + os.environ['BASE'] + '...head' not in args:
+    raise SystemExit('wrong upload comparison baseline')
+if 'compare/' in args:
+    if os.environ['BROKEN'] == '1': sys.exit(1)
+    print(json.dumps({'status': 'ahead', 'files': json.loads(os.environ['FILES'])}))
+elif '/artifacts?' in args:
+    print(os.environ['BASE'])
+elif '/runs/123/artifacts' in args:
+    print('456')
+elif sys.argv[1:3] == ['run', 'download']:
+    from pathlib import Path
+    target = Path(sys.argv[sys.argv.index('--dir') + 1])
+    (target / 'upload.json').write_text(json.dumps({'sha': 'head', 'app_id': '6783338052', 'build_number': '12345'}))
+elif 'status=success' in args:
+    print('previous-skipped-run')
+elif 'status=completed' in args:
+    if os.environ['RETRY'] == '1': print('123')
+else:
+    raise SystemExit('unexpected API: ' + args)
+""")
+            fake.chmod(0o755)
+            output = root / "output"
+            summary = root / "summary"
+            result = subprocess.run(
+                ["bash", "-c", load("ios-appstore-upload.yml")["jobs"]["decide"]["steps"][0]["run"]],
+                env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                     "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
+                     "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": "head",
+                     "EVENT_NAME": event, "BASE": baseline, "BROKEN": str(int(broken)), "RETRY": str(int(retry)),
+                     "FILES": json.dumps(files if files is not None else [])},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_public_skips_unrelated_changes(self):
+        for path in ["web/app/page.tsx", "docs/guide.md", "tests/test_ci.py", ".github/workflows/ci.yml"]:
+            with self.subTest(path=path):
+                self.assertEqual(self.decision([{"filename": path}])["upload"], "false")
+
+    def test_public_retry_assignment_precedes_irrelevant_change_skip(self):
+        output = self.decision([{"filename": "web/page.tsx"}], retry=True)
+        self.assertEqual(output, {"last_upload_sha": "base", "upload": "false", "retry_build_number": "12345"})
+
+    def test_public_preserves_build_inputs(self):
+        for path in ["ios/cmuxPackage/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",
+                     "Packages/Shared/CMUXMobileCore/Protocol.swift", "Sources/Mobile/Host.swift",
+                     "scripts/lib/verify-ios-release-origins.sh", ".github/scripts/install-app-store-provisioning-profile.sh",
+                     ".github/workflows/ios-appstore-upload.yml", "ghostty", "unknown-new-input"]:
+            with self.subTest(path=path):
+                self.assertEqual(self.decision([{"filename": path}])["upload"], "true")
+
+    def test_public_rename_out_of_ios_still_builds(self):
+        self.assertEqual(self.decision([{"filename": "docs/old", "previous_filename": "ios/old"}])["upload"], "true")
+
+    def test_public_uncertain_comparisons_and_manual_dispatch_build(self):
+        files = [{"filename": "web/page.tsx"}]
+        self.assertEqual(self.decision(files, broken=True)["upload"], "true")
+        self.assertEqual(self.decision(files, baseline="")["upload"], "true")
+        self.assertEqual(self.decision(files, event="workflow_dispatch")["upload"], "true")
+        self.assertEqual(self.decision(files * 300)["upload"], "true")
+
+
 class WorkflowPolicyTests(unittest.TestCase):
     def test_macos_checkouts_are_shallow_without_submodules(self):
         for name in WORKFLOWS:

@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import struct CmuxSettings.AccountCatalogSection
 import Testing
@@ -193,7 +194,7 @@ extension WorkspaceCreateWorkingDirectoryTests {
         #expect(panel.surface.debugWaitAfterCommand() == false)
     }
 
-    @Test func explicitInitialInputKeepsCloudProjectedSplitLocal() throws {
+    @Test func explicitInitialInputRejectsCloudProjectedSplit() throws {
         let catalog = SurfaceCatalog.shared
         let machine = SurfaceMachineID.cloud("test-cloud-\(UUID().uuidString)")
         let provider = CloudRoutingProvider(machine: machine)
@@ -238,15 +239,11 @@ extension WorkspaceCreateWorkingDirectoryTests {
             focus: false,
             initialInput: input
         )
-        switch outcome {
-        case .created(let panel):
-            #expect(panel.surface.debugInitialInputForTesting() == input)
-            #expect(provider.createTerminalCallCount == 0)
-        case .routedToRemote:
-            Issue.record("a split with explicit initial input must stay local")
-        case .failed:
-            Issue.record("a split with explicit initial input should create a local terminal")
+        guard case .failed = outcome else {
+            Issue.record("Cloud-owned terminal creation must reject unsupported local startup input")
+            return
         }
+        #expect(provider.createTerminalCallCount == 0)
     }
 
     private static func v2SocketResponse(

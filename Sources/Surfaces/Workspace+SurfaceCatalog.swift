@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The workspace's side of the surface catalog: the single seams through which a pane
@@ -55,6 +56,6 @@ extension Workspace {
                 remoteTabID: record.remoteTabID
             )
         }
-        SurfaceCatalog.shared.restore(remapped, workspaceID: id)
+        SurfaceCatalog.shared.restore(remapped, workspaceID: id, restoringWorkspace: self)
     }
 }

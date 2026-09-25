@@ -285,6 +285,35 @@ def run_is_complete(log_text: str) -> tuple[bool, str]:
     return True, "no interruption marker"
 
 
+def recorded_failure_diagnostics(
+    results: dict[str, str],
+    known: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Name every recorded failure without deciding the run's verdict.
+
+    The ratchet below fails fast: it reports new failures and returns without
+    mentioning known ones, because the verdict is already decided. A run that
+    is being reported for some other reason wants the opposite -- the complete
+    picture, since its verdict does not depend on what this finds.
+    """
+    failures = {
+        identifier for identifier, result in results.items() if result == "Failed"
+    }
+    new_failures = sorted(failures - set(known))
+    known_failures = sorted(failures & set(known))
+    messages = [f"RATCHET_NEW_FAILURE {identifier}" for identifier in new_failures]
+    messages += [f"RATCHET_KNOWN_FAILURE {identifier}" for identifier in known_failures]
+    if messages:
+        # Mirror the summary the complete path prints. Without it, a reader
+        # scanning shard output for "the accounting ran" sees the same silence
+        # here that the missing verdicts themselves used to produce.
+        messages.append(
+            f"recorded verdicts: {len(new_failures)} new, "
+            f"{len(known_failures)} known-main; typed test cases: {len(results)}"
+        )
+    return messages
+
+
 def check_run(
     *,
     inventory: set[str],
@@ -293,8 +322,15 @@ def check_run(
     known: dict[str, dict[str, Any]],
     log_text: str,
     xcode_status: int,
+    changed_suites: bool = False,
 ) -> tuple[bool, list[str]]:
-    """Return the fail-closed verdict and diagnostics for one app-host run."""
+    """Return the fail-closed verdict and diagnostics for one app-host run.
+
+    ``changed_suites`` marks a PR run of the suites the PR edited. There a
+    catalog entry that passes must leave the catalog in the same PR: while it
+    stays listed, the run is green whether or not the fix works, which is how
+    a fix PR can merge with its target test still failing.
+    """
     messages: list[str] = []
 
     expected_tests, missing_inventory = selected_inventory(inventory, selectors)
@@ -306,6 +342,9 @@ def check_run(
     complete, reason = run_is_complete(log_text)
     if not complete:
         messages.append(f"incomplete app-host run: {reason}")
+        # A restart or timeout ends the run, not the verdicts recorded before
+        # it; same reasoning as the missing-result gate below.
+        messages.extend(recorded_failure_diagnostics(results, known))
         return False, messages
 
     if not results:
@@ -324,6 +363,12 @@ def check_run(
             messages.append(
                 f"... {len(missing_execution) - 20} additional selected Test Case(s) missing"
             )
+        # An incomplete result set still carries a verdict for everything that
+        # did finish. Naming those costs nothing and is the only way to tell a
+        # shard whose remaining tests regressed from one whose remaining tests
+        # went green -- without it both print the same "incomplete" line, and a
+        # full suite can be red while naming no regression at all.
+        messages.extend(recorded_failure_diagnostics(results, known))
         return False, messages
 
     if xcode_status not in {0, 65}:
@@ -358,9 +403,21 @@ def check_run(
         return False, messages
 
     known_failures = sorted(failures & set(known))
+    for identifier in known_failures:
+        messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
+    now_passing = sorted(
+        identifier for identifier in known if results.get(identifier) == "Passed"
+    )
+    for identifier in now_passing:
+        messages.append(f"RATCHET_KNOWN_NOW_PASSING {identifier}")
+    if changed_suites and now_passing:
+        messages.append(
+            "this PR's selected suites pass tolerated known-main failures; remove them "
+            "from scripts/ci/app-host-known-failures.json so the run has to prove the fix"
+        )
+        return False, messages
+
     if known_failures:
-        for identifier in known_failures:
-            messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
         messages.append(
             f"known-main failures tolerated: {len(known_failures)}; "
             f"typed test cases: {len(results)}"
@@ -405,6 +462,7 @@ def command_check_run(args: argparse.Namespace) -> int:
         known=known,
         log_text=log_text,
         xcode_status=args.xcode_status,
+        changed_suites=args.changed_suites,
     )
     for message in messages:
         print(message, file=sys.stdout if passed else sys.stderr)
@@ -428,6 +486,14 @@ def command_catalog_diff(args: argparse.Namespace) -> int:
         return 1
 
     additions = sorted(set(new) - set(old))
+    if old_bootstrap is None and not old and new_bootstrap is not None:
+        # The one permitted growth: an empty, never-bootstrapped catalog takes
+        # its census from the main commit validate_catalog just pinned. From
+        # then on the SHA is immutable and the set may only shrink.
+        print(
+            f"known-failure catalog bootstrapped at {new_bootstrap}: {len(new)} tests"
+        )
+        return 0
     if additions:
         for identifier in additions:
             print(f"known-failure catalog may only shrink: added {identifier}", file=sys.stderr)
@@ -459,6 +525,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--log", type=Path, required=True)
     check.add_argument("--xcode-status", type=int, required=True)
     check.add_argument("--tests-json", nargs="+", required=True)
+    check.add_argument(
+        "--changed-suites",
+        action="store_true",
+        help="fail when a known-failure catalog entry passes (PR changed-suites runs)",
+    )
 
     catalog_diff = subparsers.add_parser("catalog-diff")
     catalog_diff.add_argument("--base", type=Path, required=True)

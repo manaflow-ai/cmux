@@ -61,6 +61,10 @@ from queue_janitor import (  # noqa: E402
     linux_only_workflow_paths,
     parse_time,
 )
+from runner_label_policy import (  # noqa: E402
+    PolicyUnreadable,
+    drifted_runner_variables,
+)
 
 
 API = "https://api.github.com"
@@ -242,6 +246,16 @@ class JobRow:
     fork: bool
 
 
+def never_got_a_runner(job: Mapping[str, Any]) -> bool:
+    """A job that finished without ever being assigned a runner.
+
+    The Actions API reports such a job (cancelled while queued) with
+    `runner_id: 0`, an empty runner name and no steps. A skipped job has
+    `runner_id: null` instead and no start time, so it is not matched here.
+    """
+    return job.get("runner_id") == 0 and not job.get("runner_name") and not job.get("steps")
+
+
 def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: str) -> list[JobRow]:
     """Flatten one run's jobs into rows the aggregations read.
 
@@ -254,6 +268,10 @@ def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: st
         created = parse_time(job.get("created_at"))
         started = parse_time(job.get("started_at"))
         completed = parse_time(job.get("completed_at"))
+        if never_got_a_runner(job):
+            # GitHub stamps started_at = created_at on a job cancelled while
+            # still queued, so started -> completed would be the whole wait.
+            started = completed
         minutes = 0.0
         if started and completed and completed > started:
             minutes = (completed - started).total_seconds() / 60.0
@@ -551,6 +569,101 @@ def unchanged_tree_reruns(
         )
     repeated.sort(key=lambda item: (-(item.runs + item.retries), item.workflow, item.head_sha))
     return repeated
+
+
+# Third-party providers this repo pays per minute. Depot is permitted by
+# `tests/test_ci_self_hosted_guard.sh` and documented alongside Warp, so a
+# single-prefix check would total zero and report "none in the window" the
+# moment a variable is pinned to it -- exactly the silent drift this measures.
+PAID_RUNNER_PREFIXES = ("warp-", "depot-")
+
+
+def paid_runner_minutes(
+    rows: Iterable[JobRow],
+) -> tuple[int, float, list[tuple[str, int, float]]]:
+    """Jobs that ran on metered capacity, and the minutes they billed.
+
+    WarpBuild and Depot bill this repository per minute, at roughly double
+    the rate on 12-vCPU labels. Blacksmith is sponsored for this organization
+    and GitHub-hosted runners are free on a public repo, so neither shows up
+    on an invoice today. The runner label is the only place that difference is
+    visible, so a lane that drifts onto metered capacity reads as an ordinary
+    row in the tables above and nobody notices until somebody reads a bill.
+
+    docs/ci-runners.md records an intended steady state for every
+    MACOS_RUNNER_* variable. Minutes here that are not a deliberate, temporary
+    overflow mean a variable has drifted away from that steady state.
+    """
+    per_label: dict[str, tuple[int, float]] = {}
+    jobs = 0
+    minutes = 0.0
+    for row in rows:
+        if not row.label.startswith(PAID_RUNNER_PREFIXES):
+            continue
+        jobs += 1
+        minutes += row.minutes
+        label_jobs, label_minutes = per_label.get(row.label, (0, 0.0))
+        per_label[row.label] = (label_jobs + 1, label_minutes + row.minutes)
+    breakdown = sorted(
+        ((label, n, m) for label, (n, m) in per_label.items()),
+        key=lambda item: -item[2],
+    )
+    return jobs, minutes, breakdown
+
+
+RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
+
+
+def _runner_variable_drift_lines() -> list[str]:
+    """What the runner repository variables currently hold, if we can see them.
+
+    Everything else in this report is measured from jobs that already ran, so
+    it can only show drift after the minutes are spent. This shows the
+    configuration itself, which is the only way to catch a variable that has
+    been repointed but whose lane has not fired yet.
+
+    The workflow passes one `NAME=value` line per runner variable, read from
+    the expression context, because a variable's value is readable there
+    without any token scope -- this report's token is deliberately
+    `actions: read` and cannot query the variables API. When the environment
+    variable is absent (a local run, or an older workflow), say so rather than
+    claiming the configuration is clean.
+    """
+    raw = os.environ.get(RUNNER_VARIABLES_ENV, "").strip()
+    if not raw:
+        return [
+            "**Runner variable values:** not checked — "
+            f"`{RUNNER_VARIABLES_ENV}` was not set for this run."
+        ]
+    variables = {}
+    for line in raw.splitlines():
+        name, separator, value = line.strip().partition("=")
+        if not separator or not name:
+            return [f"**Runner variable values:** unreadable (line {_escape(line.strip())!r})."]
+        variables[name] = value
+
+    try:
+        drifted = drifted_runner_variables(variables)
+    except PolicyUnreadable as error:
+        return [f"**Runner variable values:** policy unreadable ({_escape(str(error))})."]
+
+    if not drifted:
+        return [
+            "**Runner variable values:** every runner variable holds a label "
+            "`tests/test_ci_self_hosted_guard.sh` would accept in a workflow, and "
+            "`CI_PR_POOL_ORDER` names only those or owned pools."
+        ]
+    detail = "; ".join(
+        f"`{_escape(name)}` = `{_escape(value)}` ({reason})"
+        for name, value, reason in drifted
+    )
+    return [
+        f"**Runner variable values:** {len(drifted)} variable(s) hold a label "
+        f"that would fail `check_no_self_hosted_fleet_runners` if it appeared in "
+        f"a workflow file — {detail}. Nothing lints variable values, so this is "
+        "the only place it shows up; fix with `gh variable set`, or widen the "
+        "allow-list in that guard if the label is genuinely approved."
+    ]
 
 
 def fork_runs_without_cache(rows: Iterable[JobRow]) -> tuple[int, float]:
@@ -1001,6 +1114,29 @@ def render_report(
             )
     else:
         lines.append("_None in the window._")
+    lines.append("")
+
+    paid_jobs, paid_minutes, paid_breakdown = paid_runner_minutes(current.rows)
+    if paid_jobs:
+        detail = ", ".join(
+            f"{_escape(label)} {n} job(s)/{m:.0f} min" for label, n, m in paid_breakdown
+        )
+        lines.append(
+            f"**Paid runner capacity:** {paid_jobs} sampled job(s), "
+            f"{paid_minutes:.0f} runner minutes — {detail}. These are the metered "
+            "third-party labels; Blacksmith is sponsored for this organization and "
+            "GitHub-hosted runners are free on a public repo. Check these against the "
+            "intended steady state in `docs/ci-runners.md`; a lane that is not "
+            "deliberate overflow should be moved back."
+        )
+    else:
+        lines.append(
+            "**Paid runner capacity:** none in the window."
+        )
+    lines.append("")
+
+    for line in _runner_variable_drift_lines():
+        lines.append(line)
     lines.append("")
 
     fork_jobs, fork_minutes = fork_runs_without_cache(current.rows)

@@ -6,6 +6,7 @@ import { acceptCloudTelemetry, claimCloudDiagnostics, finishCloudDiagnostics } f
 import { CloudTelemetryConflictError } from "../services/observability/cloudTelemetryIngest";
 import { CloudOperationProgress, readCloudOperationProgress } from "../services/observability/cloudOperationProgress";
 import type { CloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
+import { parseCloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
 
 const enabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = enabled ? test : test.skip;
@@ -32,6 +33,19 @@ afterEach(async () => {
 });
 
 describe("Cloud diagnostic durable storage", () => {
+  dbTest("accepted placement diagnostics retain their category through the durable outbox", async () => {
+    const { owner, batch } = fixture();
+    const submitted = { ...batch, spans: [{ ...batch.spans[0]!, failure: "placement" }] };
+    const parsed = parseCloudTelemetryBatch(submitted);
+    expect(parsed).not.toBeNull();
+    expect(await acceptCloudTelemetry(owner, parsed!)).toBe(1);
+    const claimed = await claimCloudDiagnostics(100, owner);
+    expect(claimed.rows).toHaveLength(1);
+    expect(claimed.rows[0]!.payload.span).toEqual(submitted.spans[0]);
+    await finishCloudDiagnostics(claimed.leaseId, true);
+    expect((await claimCloudDiagnostics(100, owner)).rows).toEqual([]);
+  });
+
   dbTest("concurrent retry receipts store one event and charge once", async () => {
     const { owner, batch } = fixture();
     expect(await Promise.all(Array.from({ length: 6 }, () => acceptCloudTelemetry(owner, batch)))).toEqual([1, 1, 1, 1, 1, 1]);

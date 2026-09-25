@@ -190,9 +190,17 @@ extension MobileShellComposite {
                     macDeviceID: instance.deviceId,
                     instanceTag: instance.tag
                 )
+                // An untagged legacy row adopts its device's sole
+                // route-advertising build; `applyPushedRoutes` checks that
+                // this instance is that build before writing.
+                let legacyPairingID = MobilePairedMac.pairingID(
+                    macDeviceID: instance.deviceId,
+                    instanceTag: nil
+                )
                 if await self.applyPushedRoutes(
                     from: instance,
-                    pairedMac: pairedMacsByPairingID[pairingID],
+                    pairedMac: pairedMacsByPairingID[pairingID]
+                        ?? pairedMacsByPairingID[legacyPairingID],
                     scope: scope
                 ) {
                     persistedRoutes = true

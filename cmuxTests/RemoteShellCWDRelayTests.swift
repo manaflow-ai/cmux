@@ -1,6 +1,91 @@
 import Foundation
 import Testing
 
+// Shared by the shell integration fixtures in this test target.
+enum GhosttyShellIntegrationTestResources {
+    static func resolve(repositoryRoot: URL, bundleResourceURL: URL? = Bundle.main.resourceURL) throws -> URL {
+        let candidates = [
+            bundleResourceURL?.appendingPathComponent("ghostty", isDirectory: true),
+            repositoryRoot.appendingPathComponent("ghostty/src", isDirectory: true),
+        ].compactMap { $0 }
+        for candidate in candidates {
+            let integration = candidate.appendingPathComponent("shell-integration/zsh/ghostty-integration")
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: integration.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isReadableFile(atPath: integration.path) {
+                return candidate
+            }
+        }
+        throw NSError(
+            domain: "GhosttyShellIntegrationTestResources",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey:
+                "Ghostty zsh integration is missing from the app product and source checkout: "
+                    + candidates.map(\.path).joined(separator: ", ")]
+        )
+    }
+}
+
+@Suite
+struct GhosttyShellIntegrationTestResourcesTests {
+    private func makeResourceTree(_ root: URL) throws {
+        let integration = root.appendingPathComponent("shell-integration/zsh", isDirectory: true)
+        try FileManager.default.createDirectory(at: integration, withIntermediateDirectories: true)
+        try "# fixture integration\n".write(
+            to: integration.appendingPathComponent("ghostty-integration"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    @Test
+    func productOnlyConsumerUsesBundledResourcesWithoutASubmodule() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleResources = root.appendingPathComponent("cmux.app/Contents/Resources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try makeResourceTree(bundledGhostty)
+        let resolved = try GhosttyShellIntegrationTestResources.resolve(
+            repositoryRoot: root.appendingPathComponent("checkout"),
+            bundleResourceURL: bundleResources
+        )
+        #expect(resolved == bundledGhostty)
+    }
+
+    @Test
+    func completeBundleWinsOverADeveloperSubmodule() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleResources = root.appendingPathComponent("Resources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try makeResourceTree(bundledGhostty)
+        try makeResourceTree(root.appendingPathComponent("ghostty/src", isDirectory: true))
+        #expect(try GhosttyShellIntegrationTestResources.resolve(
+            repositoryRoot: root, bundleResourceURL: bundleResources
+        ) == bundledGhostty)
+    }
+
+    @Test
+    func developerCheckoutIsUsedWhenBundleIsIncomplete() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("ghostty/src", isDirectory: true)
+        try makeResourceTree(source)
+        #expect(try GhosttyShellIntegrationTestResources.resolve(
+            repositoryRoot: root, bundleResourceURL: root.appendingPathComponent("missing")
+        ) == source)
+    }
+
+    @Test
+    func missingIntegrationIsAnErrorRatherThanASkip() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        #expect(throws: NSError.self) {
+            try GhosttyShellIntegrationTestResources.resolve(repositoryRoot: root, bundleResourceURL: nil)
+        }
+    }
+}
+
 @Suite(.serialized)
 struct RemoteShellCWDRelayTests {
     @Test
@@ -33,8 +118,11 @@ struct RemoteShellCWDRelayTests {
             _CMUX_PORTS_LAST_RUN=$(_cmux_now)
             _CMUX_PWD_LAST_PWD="/tmp/local-launch"
             _cmux_precmd
-            repeat 20; do
-              [[ -s "\(logPath.path)" ]] && break
+            # _cmux_precmd reports shell state and the pwd from separate
+            # background calls, so wait for the pwd line itself rather than
+            # for the first line of any kind.
+            repeat 100; do
+              [[ -s "\(logPath.path)" && "$(<"\(logPath.path)")" == *surface.report_pwd* ]] && break
               sleep 0.05
             done
             cat "\(logPath.path)"
@@ -128,7 +216,7 @@ struct RemoteShellCWDRelayTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
-        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let ghosttyResources = try GhosttyShellIntegrationTestResources.resolve(repositoryRoot: repoRoot)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")

@@ -110,7 +110,7 @@ struct WorkspaceDragSplitFocusSwiftTests {
     }
 
     @Test
-    func nonFocusSplitPreservesCursorAndHibernationDuringSuspendedPresentation() throws {
+    func nonFocusSplitPreservesCursorAndHibernationDuringSuspendedPresentation() async throws {
         let originalAppDelegate = AppDelegate.shared
 
         let owner = TerminalPortalTestWorkspace()
@@ -161,6 +161,7 @@ struct WorkspaceDragSplitFocusSwiftTests {
                 focusIntent: .preserveCurrent
             )
         )
+        await AppKitTestEventPump().drain()
 
         #expect(
             fixture.workspace.bonsplitController.tabs(inPane: newPane)

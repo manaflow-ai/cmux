@@ -170,6 +170,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+            .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(section: .terminal, id: "agent-hibernation", title: String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), synonyms: "Agent Hibernation terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: String(localized: "settings.terminal.agentHibernation.idleSeconds", defaultValue: "Hibernate After Idle Seconds"), synonyms: "Hibernate After Idle Seconds terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
@@ -401,7 +402,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "enabled",
-                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
+                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable cmux Computer Use"),
                 paths: ["computerUse.enabled"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.enabled", defaultValue: "computerUse.enabled enable disable computer use cua mcp agent sessions")
             ),
@@ -414,7 +415,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "show-in-menu-bar",
-                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show Computer Use in Menu Bar"),
+                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show cmux Computer Use in Menu Bar"),
                 paths: ["computerUse.showInMenuBar"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
             ),

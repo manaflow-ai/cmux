@@ -5,14 +5,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-enum WorkspaceMacSelection: Hashable {
-    case automatic
-    case all
-    /// A pairing id for saved app instances, or a bare device id for an
-    /// unpaired workspace-only computer.
-    case machine(String)
-}
-
 extension WorkspaceListView {
     var displayPairedMacsForPicker: [MobilePairedMac] {
         if let store {

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -6,7 +8,7 @@ extension SurfaceCatalog {
     /// authoritative snapshot must expose the last accepted name for identities
     /// already present in `cloudStates`.
     private func authoritativeMachineInfo(_ info: SurfaceMachineInfo) -> SurfaceMachineInfo {
-        guard case .cloud = info.id,
+        guard info.id.tuiMachineID != nil,
               let state = cloudStates[info.id],
               let workspaces = info.remoteWorkspaces else { return info }
         let accepted = Dictionary(uniqueKeysWithValues: state.workspaces.map { workspace in

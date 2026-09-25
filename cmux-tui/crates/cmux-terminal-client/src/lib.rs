@@ -2083,6 +2083,7 @@ mod tests {
                 pid: None,
                 command: Vec::new(),
                 cwd: None,
+                osc_progress: String::new(),
             },
         )
         .unwrap()

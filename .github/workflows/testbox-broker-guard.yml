@@ -19,7 +19,7 @@ concurrency:
 jobs:
   guard:
     name: Testbox broker trust boundary
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -61,6 +61,10 @@ jobs:
 
       - name: Check that every workflow is linted
         run: python3 tests/test_ci_actionlint_covers_every_workflow.py
+
+      - name: Check that push and pull_request path filters agree
+        run: |
+          "$TESTBOX_GUARD_PYTHON" tests/test_ci_workflow_path_filter_parity.py
 
       - name: Lint every workflow
         env:

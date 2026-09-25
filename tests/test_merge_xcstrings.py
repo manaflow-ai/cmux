@@ -90,13 +90,40 @@ def test_delete_versus_modify_conflicts():
     assert code == 1, stderr
 
 
-def test_non_canonical_input_falls_back():
+def test_non_canonical_input_merges_without_reformatting():
+    """Branches routinely carry a different catalog style from main. The driver
+    must merge them anyway, and must not rewrite either side's formatting."""
     base = catalog({"a": unit("A")})
-    ours = json.dumps(catalog({"a": unit("A"), "b": unit("B")}), indent=4)  # wrong indent
+    ours = json.dumps(catalog({"a": unit("A"), "b": unit("B")}), indent=4)
     theirs = catalog({"a": unit("A"), "c": unit("C")})
-    code, _, stderr = run(base, ours, theirs)
-    assert code == 1, "must not rewrite a catalog it cannot reproduce byte-for-byte"
-    assert "canonically serialized" in stderr, stderr
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert set(json.loads(merged)["strings"]) == {"a", "b", "c"}
+    assert '\n        "a"' in merged, "our four-space layout must survive"
+    assert "canonically serialized" not in stderr
+
+
+def test_xcode_spaced_style_is_preserved():
+    """Xcode writes `"key" : value`. Merging must not collapse that spacing."""
+    base = catalog({"a": unit("A")})
+    ours = render(catalog({"a": unit("A"), "b": unit("B")})).replace('": ', '" : ')
+    theirs = catalog({"a": unit("A"), "c": unit("C")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert set(json.loads(merged)["strings"]) == {"a", "b", "c"}
+    assert '"sourceLanguage" : "en"' in merged, "our spacing must survive"
+
+
+def test_key_text_comes_verbatim_from_the_side_that_supplied_it():
+    """A key theirs changed arrives with theirs' bytes; ours' keys keep ours'."""
+    base = catalog({"a": unit("A"), "b": unit("B")})
+    ours = render(catalog({"a": unit("A"), "b": unit("ours-b")}))
+    theirs = json.dumps(catalog({"a": unit("theirs-a"), "b": unit("B")}), indent=4)
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    strings = json.loads(merged)["strings"]
+    assert strings["a"] == unit("theirs-a"), "theirs' change to a must win"
+    assert strings["b"] == unit("ours-b"), "our change to b must win"
 
 
 def test_unparseable_input_falls_back():

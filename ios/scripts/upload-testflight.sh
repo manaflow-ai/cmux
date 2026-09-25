@@ -101,6 +101,8 @@ resign_notification_service_extensions() {
   local host_bundle_id="$4"
   local entitlements_source="$5"
   local extension extension_candidate extension_bundle_id profile profile_entitlements merged_entitlements candidate_bundle_id
+  local expected_extension_bundle_id
+  expected_extension_bundle_id="$(bash "$SCRIPT_DIR/notification-service-bundle-id.sh" "$host_bundle_id")"
 
   if [[ ! -f "$entitlements_source" ]]; then
     echo "error: notification extension entitlements are missing: $entitlements_source" >&2
@@ -109,7 +111,7 @@ resign_notification_service_extensions() {
   extension=""
   while IFS= read -r -d '' extension_candidate; do
     candidate_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension_candidate/Info.plist" 2>/dev/null || true)"
-    if [[ "$candidate_bundle_id" == "$host_bundle_id.NotificationService" ]]; then
+    if [[ "$candidate_bundle_id" == "$expected_extension_bundle_id" ]]; then
       extension="$extension_candidate"
       break
     fi
@@ -119,8 +121,8 @@ resign_notification_service_extensions() {
     return 1
   fi
   extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension/Info.plist" 2>/dev/null || true)"
-  if [[ "$extension_bundle_id" != "$host_bundle_id.NotificationService" ]]; then
-    echo "error: notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$host_bundle_id.NotificationService'" >&2
+  if [[ "$extension_bundle_id" != "$expected_extension_bundle_id" ]]; then
+    echo "error: notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$expected_extension_bundle_id'" >&2
     return 1
   fi
 
@@ -194,6 +196,8 @@ verify_ipa_bundle_identity() {
   local team_id="$3"
   local expected_crash_reporting="${4:-}"
   local expected_app_id="$team_id.$expected_bundle_id"
+  local expected_extension_bundle_id
+  expected_extension_bundle_id="$(bash "$SCRIPT_DIR/notification-service-bundle-id.sh" "$expected_bundle_id")"
   local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id profile_aps profile_time_sensitive ent ent_app_id extension extension_bundle_id extension_entitlements extension_app_id extension_group
 
   workdir="$(mktemp -d)"
@@ -297,8 +301,8 @@ PY
     return 1
   fi
   extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension/Info.plist" 2>/dev/null || true)"
-  if [[ "$extension_bundle_id" != "$expected_bundle_id.NotificationService" ]]; then
-    echo "error: signed IPA notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$expected_bundle_id.NotificationService': $ipa" >&2
+  if [[ "$extension_bundle_id" != "$expected_extension_bundle_id" ]]; then
+    echo "error: signed IPA notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$expected_extension_bundle_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -314,8 +318,8 @@ PY
     return 1
   fi
   extension_app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$extension_entitlements" 2>/dev/null || true)"
-  if [[ "$extension_app_id" != "$expected_app_id.NotificationService" ]]; then
-    echo "error: signed IPA notification extension application-identifier is '${extension_app_id:-<absent>}', expected '$expected_app_id.NotificationService': $ipa" >&2
+  if [[ "$extension_app_id" != "$team_id.$expected_extension_bundle_id" ]]; then
+    echo "error: signed IPA notification extension application-identifier is '${extension_app_id:-<absent>}', expected '$team_id.$expected_extension_bundle_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -787,6 +791,7 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
+NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER="$(bash "$SCRIPT_DIR/notification-service-bundle-id.sh" "$PRODUCT_BUNDLE_IDENTIFIER")"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
@@ -1053,6 +1058,24 @@ EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
 
 mkdir -p "$OUT_DIR"
 
+# CI caches, both opt-in. CMUX_IOS_SPM_CACHE_DIR reuses cloned Swift packages
+# (the ios-spm- cache test-ios.yml seeds). CMUX_IOS_COMPILATION_CACHE=1 turns
+# on Xcode's compilation cache, stored under $DERIVED_DATA/CompilationCache.noindex
+# so the workflow can restore and save it around this script.
+BUILD_CACHE_ARGS=()
+if [[ -n "${CMUX_IOS_SPM_CACHE_DIR:-}" ]]; then
+  BUILD_CACHE_ARGS+=(
+    -clonedSourcePackagesDirPath "$CMUX_IOS_SPM_CACHE_DIR"
+    -packageCachePath "$CMUX_IOS_SPM_CACHE_DIR/.package-cache"
+  )
+fi
+if [[ "${CMUX_IOS_COMPILATION_CACHE:-0}" == "1" ]]; then
+  BUILD_CACHE_ARGS+=(
+    COMPILATION_CACHE_ENABLE_CACHING=YES
+    COMPILATION_CACHE_LIMIT_SIZE=3221225472
+  )
+fi
+
 XCODE_AUTH_ARGS=()
 if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
   XCODE_AUTH_ARGS=(
@@ -1077,11 +1100,13 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      ${BUILD_CACHE_ARGS[@]+"${BUILD_CACHE_ARGS[@]}"} \
       -allowProvisioningUpdates \
       ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
@@ -1103,9 +1128,11 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      ${BUILD_CACHE_ARGS[@]+"${BUILD_CACHE_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
@@ -1231,14 +1258,18 @@ if [[ "$SIGNING" == "automatic" ]]; then
   # naming a profile that isn't installed makes -exportArchive fail.
   plutil -insert signingStyle -string automatic "$EXPORT_OPTIONS"
 else
-  # Manual signing: requires the "Apple Distribution" certificate and the named
+  # Manual signing: requires the distribution certificate and the named
   # provisioning profile to already be present in the local keychain.
+  # IOS_SIGNING_CERTIFICATE selects the certificate TYPE name Xcode matches
+  # against ("Apple Distribution" default; set "iPhone Distribution" when the
+  # keychain only holds an iOS-only distribution cert, whose identity string
+  # uses the legacy prefix).
   plutil -insert signingStyle -string manual "$EXPORT_OPTIONS"
-  plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
+  plutil -insert signingCertificate -string "${IOS_SIGNING_CERTIFICATE:-Apple Distribution}" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
   if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
-    EXTENSION_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.NotificationService"
+    EXTENSION_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER"
     if [[ "$LANE" == "appstore" ]]; then
       EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
     else
@@ -1772,6 +1803,10 @@ fi
 # Audience: --external uses the External audience; the default internal cut uses
 # the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that
 # actually shipped (post-guard, or the reused archive's embedded version).
+if [[ -n "${CMUX_TESTFLIGHT_NOTES_REQUEST_FILE:-}" ]]; then
+  # Reused runner directories must never upload a previous build's request.
+  rm -f "$CMUX_TESTFLIGHT_NOTES_REQUEST_FILE"
+fi
 if [[ "$TESTFLIGHT_NOTES_LANE" -ne 1 ]]; then
   echo "note: lane '$LANE' is not a TestFlight lane; skipping TestFlight What to Test notes" >&2
 elif [[ "$SKIP_NOTES" -eq 1 ]]; then
@@ -1820,7 +1855,25 @@ else
     NOTES_SOURCE_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
   fi
   echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ${NOTES_SOURCE_DESC}" >&2
-  if ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+  # CI can release the Mac before Apple's processing wait. Keep the exact
+  # validated/generated arguments; credentials stay in the downstream job.
+  # Standalone callers retain the synchronous behavior below.
+  if [[ -n "${CMUX_TESTFLIGHT_NOTES_REQUEST_FILE:-}" ]]; then
+    if ! python3 - "$CMUX_TESTFLIGHT_NOTES_REQUEST_FILE" \
+      --build-number "$SHIPPED_BUILD_NUMBER" \
+      --audience "$NOTES_AUDIENCE" \
+      --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+      ${NOTES_SOURCE_ARGS[@]+"${NOTES_SOURCE_ARGS[@]}"} <<'PY_NOTES'
+import json
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]) + "\n")
+PY_NOTES
+    then
+      echo "warning: could not defer TestFlight notes (the upload succeeded); re-run set-testflight-notes.sh later" >&2
+    fi
+  elif ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
      ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
      "$SCRIPT_DIR/set-testflight-notes.sh" \
        --build-number "$SHIPPED_BUILD_NUMBER" \

@@ -42,8 +42,8 @@ on:
     inputs:
       macos_runner:
         # A branch dogfood publish only needs its commit-addressed objects; let
-        # it build the macOS targets on an idle self-hosted label (for example
-        # tart-macos-15) instead of waiting behind the shared hosted queue.
+        # it build the macOS targets on an idle self-hosted label instead of
+        # waiting behind the shared hosted queue.
         description: "Optional macOS runner label override for this publish"
         required: false
         default: ""
@@ -94,7 +94,7 @@ jobs:
     # main-push or manual dispatch.
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read

@@ -174,7 +174,10 @@ public struct ComputerUseRuntimePaths: Sendable {
     /// on every app launch leaves those otherwise healthy proxies permanently
     /// authenticated to the previous helper generation. The file is accepted
     /// only when the kernel confirms that it is a single-link, owner-only
-    /// regular file; an explicit Computer Use disable still deletes it.
+    /// regular file. Disabling the user setting stops the helper but leaves
+    /// this owner-only capability ready for an explicit `$cmux-cua` request.
+    /// `stopForTermination()` also keeps it for the next host restart; the
+    /// next helper launch rewrites the file atomically when needed.
     private static func persistedAuthenticationToken(
         at fileURL: URL,
         ownedBy expectedOwner: uid_t

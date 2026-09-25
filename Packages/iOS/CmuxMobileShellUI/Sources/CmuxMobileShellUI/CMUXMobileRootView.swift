@@ -29,6 +29,7 @@ struct CMUXMobileRootView: View {
     /// capability closures are rebuilt for the newly selected method.
     @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    @Environment(\.mobileLocalDataEraser) private var localDataEraser
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -61,6 +62,11 @@ struct CMUXMobileRootView: View {
     #endif
     #endif
     @State private var pendingAttachURL: String?
+    #if os(iOS)
+    /// Non-nil once "Erase All Data on This Device" starts; the reset screen
+    /// then replaces every other surface until the app is relaunched.
+    @State private var localDataResetPhase: MobileLocalDataResetPhase?
+    #endif
     @State private var didAuthenticateWithAttachTicket = false
     /// Prevents the initial authenticated publication from dialing before the
     /// auth coordinator finishes loading the account's effective team. That
@@ -280,6 +286,14 @@ struct CMUXMobileRootView: View {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
         }
+        // Outside the root sheet so its Settings page gets the action too;
+        // a sheet reads the environment where `.sheet` is applied.
+        .environment(
+            \.mobileResetLocalData,
+            localDataEraser.map { eraser in
+                MobileResetLocalDataAction { resetLocalData(eraser: eraser) }
+            }
+        )
         #else
         .sheet(isPresented: addDeviceSheetBinding) {
             pairingSheet(initialPresentation: pairingPresentation)
@@ -518,6 +532,23 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
+        #if os(iOS)
+        if let localDataResetPhase {
+            MobileLocalDataResetView(phase: localDataResetPhase) {
+                if let localDataEraser {
+                    resetLocalData(eraser: localDataEraser)
+                }
+            }
+        } else {
+            standardRootContent
+        }
+        #else
+        standardRootContent
+        #endif
+    }
+
+    @ViewBuilder
+    private var standardRootContent: some View {
         if shouldShowPushReadinessPreview {
             pushReadinessPreview
         } else if shouldShowChangesPreview {
@@ -663,7 +694,7 @@ struct CMUXMobileRootView: View {
     /// Drives one stable sheet host from the root presentation state.
     private var rootPresentationBinding: Binding<Bool> {
         Binding(
-            get: { rootPresentation.isRootSheetPresented },
+            get: { localDataResetPhase == nil && rootPresentation.isRootSheetPresented },
             set: { isPresented in
                 guard !isPresented else { return }
                 handleRootPresentation(.sheetDidRequestDismissal)
@@ -1128,9 +1159,13 @@ struct CMUXMobileRootView: View {
             guard allowRetry, !didReconnect, !Task.isCancelled else { return }
             startupReconnectRetryTask?.cancel()
             startupReconnectRetryTask = Task { @MainActor in
-                try? await ContinuousClock().sleep(for: .seconds(1))
+                // Mark the retry as reconnecting before its first await. A
+                // delayed root-level retry leaves the global status at
+                // Not Connected while the same Mac is already being retried.
                 guard !Task.isCancelled else { return }
-                reconnectStoredMacIfNeeded(allowRetry: false)
+                _ = await store.retryActiveMacReconnect(
+                    stackUserID: stackUserID
+                )
             }
         }
     }
@@ -1428,29 +1463,49 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
+        Task { await performSignOut() }
+    }
+
+    private func performSignOut() async {
         diagnosticLog?.recordAppEvent(.authSignOutStarted)
+        // Local shell teardown first so the whole UI lands signed out
+        // immediately; authManager.signOut clears the local session up
+        // front and only then runs its bounded best-effort server teardown
+        // (push-token DELETE, Stack session revocation).
+        didAuthenticateWithAttachTicket = false
+        didExceedStartupRestoringGate = false
+        startupConnectionCoordinator.reset()
+        // Hard context switch: queued toasts must not outlive the
+        // session. The connection presenter also suppresses its capsule
+        // once isSignedIn flips, but that races the snapshot change
+        // store.signOut() makes; this clears everything up front.
+        toasts.dismissAll()
+        store.signOut()
+        let serverTeardown = signOutHook.begin()
+        await authManager.signOut(onSignedOut: serverTeardown)
+        diagnosticLog?.recordAppEvent(
+            authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,
+            failure: authManager.isAuthenticated ? .protocolViolation : nil
+        )
+    }
+
+    #if os(iOS)
+    /// Signs out through the normal path (which revokes the push token and the
+    /// Stack session on the server, when signed in), then erases everything
+    /// cmux stores on this device. Server-side data is never deleted.
+    private func resetLocalData(eraser: MobileLocalDataEraser) {
+        guard localDataResetPhase == nil || localDataResetPhase == .failed else { return }
+        localDataResetPhase = .erasing
         Task {
-            // Local shell teardown first so the whole UI lands signed out
-            // immediately; authManager.signOut clears the local session up
-            // front and only then runs its bounded best-effort server teardown
-            // (push-token DELETE, Stack session revocation).
-            didAuthenticateWithAttachTicket = false
-            didExceedStartupRestoringGate = false
-            startupConnectionCoordinator.reset()
-            // Hard context switch: queued toasts must not outlive the
-            // session. The connection presenter also suppresses its capsule
-            // once isSignedIn flips, but that races the snapshot change
-            // store.signOut() makes; this clears everything up front.
-            toasts.dismissAll()
-            store.signOut()
-            let serverTeardown = signOutHook.begin()
-            await authManager.signOut(onSignedOut: serverTeardown)
-            diagnosticLog?.recordAppEvent(
-                authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,
-                failure: authManager.isAuthenticated ? .protocolViolation : nil
-            )
+            // `isAuthenticated` includes attach-ticket sessions, whose shell
+            // connection must also be torn down before the erase.
+            if isAuthenticated {
+                await performSignOut()
+            }
+            localDataResetPhase = await eraser.erase() ? .finished : .failed
         }
     }
+    #endif
 
     @discardableResult
     private func connectUITestAttachURLIfNeeded() -> Bool {

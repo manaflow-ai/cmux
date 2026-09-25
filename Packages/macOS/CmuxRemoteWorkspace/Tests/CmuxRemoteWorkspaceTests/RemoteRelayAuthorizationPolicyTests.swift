@@ -5,6 +5,21 @@ import Testing
 
 @Suite("Remote relay authorization policy")
 struct RemoteRelayAuthorizationPolicyTests {
+    @Test("An SSH peer cannot start another local SSH workspace", arguments: [false, true])
+    func sshWorkspaceCreationRemainsLocalOnly(withCommand: Bool) {
+        let owner = UUID()
+        var parameters: [String: Any] = ["workspace_id": owner.uuidString, "destination": "another-host"]
+        if withCommand { parameters["initial_command"] = "echo remote-command" }
+        let decision = RemoteRelayAuthorizationPolicy().validate(
+            method: "workspace.ssh.open", parameters: parameters,
+            ownerWorkspaceID: owner, surfaceIDs: []
+        )
+        guard case .denied = decision else {
+            Issue.record("workspace.ssh.open must remain unavailable to remote relay callers")
+            return
+        }
+    }
+
     @Test("tmux surface mutations require exact in-workspace selectors")
     func tmuxSurfaceSelectors() {
         let policy = RemoteRelayAuthorizationPolicy()

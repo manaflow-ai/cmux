@@ -23,7 +23,11 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        // WHY /tmp: a Unix socket path must fit sun_path (104 bytes). Under a
+        // runner's `/private/var/folders/.../T/` the temporary directory plus
+        // this UUID-named root overflows it and the harness `listen` fails.
+        let socketPath = "/tmp/cmux-oc-\(UUID().uuidString.prefix(8)).sock"
+        defer { unlink(socketPath) }
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
         let bunURL = try Self.bunExecutableURL()
@@ -227,15 +231,10 @@ const fs = require("node:fs");
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         return ProcessRunResult(
             status: process.terminationStatus,
