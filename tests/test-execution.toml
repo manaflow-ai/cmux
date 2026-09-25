@@ -818,6 +818,11 @@ path = "tests/test_cli_contract_help.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_review_runner.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_creation_initial_command.py"
 lane = "legacy"
 

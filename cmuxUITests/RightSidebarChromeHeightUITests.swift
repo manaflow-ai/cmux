@@ -4,6 +4,31 @@ import CoreGraphics
 import ImageIO
 
 final class RightSidebarChromeHeightUITests: XCTestCase {
+    func testReviewPaneOpensFromModeBar() {
+        let app = XCUIApplication.cmuxTestApplication()
+        let dataPath = "/tmp/cmux-ui-review-pane-\(UUID().uuidString).json"
+        defer { try? FileManager.default.removeItem(atPath: dataPath) }
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        defer { app.terminate() }
+        guard waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 25) != nil else {
+            XCTFail("Timed out waiting for the isolated sidebar fixture")
+            return
+        }
+        let reviews = app.buttons["RightSidebarModeButton.reviews"]
+        XCTAssertTrue(reviews.waitForExistence(timeout: 5))
+        reviews.click()
+        XCTAssertTrue(app.buttons["review.refresh"].waitForExistence(timeout: 5), "Expected the native review pane")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Native review pane"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testSecondaryBarMatchesModeBarAndPaneTabs() {
         let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-right-sidebar-chrome-\(UUID().uuidString).json"
