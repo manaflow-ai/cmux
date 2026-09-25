@@ -165,7 +165,10 @@ class State:
         if path.exists():
             on_disk = json.loads(path.read_text()).get("probes", {})
             for sha, probe in on_disk.items():
-                self.probes.setdefault(sha, Probe(**probe))
+                mine = self.probes.get(sha)
+                # The newer dispatch or adoption of a commit has the higher run id.
+                if mine is None or (probe.get("run_id") or 0) > (mine.run_id or 0):
+                    self.probes[sha] = Probe(**probe)
         scratch = path.with_suffix(f".{os.getpid()}.tmp")
         scratch.write_text(json.dumps(dataclasses.asdict(self), indent=2) + "\n")
         scratch.replace(path)
@@ -372,7 +375,10 @@ def next_points(state: State, include_fixed: bool = False) -> list[str]:
     """
     picks = set()
     for left, right in open_windows(state, include_fixed):
-        inside = [sha for sha in between(state, left, right) if sha not in state.probes]
+        window = between(state, left, right)
+        if any(state.probes.get(sha, Probe("", "")).status == "pending" for sha in window):
+            continue  # its answer is on the way
+        inside = [sha for sha in window if sha not in state.probes]
         if inside:
             picks.add(inside[len(inside) // 2])
     return sorted(picks, key=state.history.index)

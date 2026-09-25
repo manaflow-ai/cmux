@@ -130,6 +130,15 @@ class NextPointsSkipTests(unittest.TestCase):
         self.assertIn(picks[0], inside)
 
 
+class PendingWindowTests(unittest.TestCase):
+    def test_window_with_a_pending_probe_waits(self):
+        s, shas = state([set(), {"t"}])
+        inside = MODULE.between(s, shas[0], shas[1])
+        middle = inside[len(inside) // 2]
+        s.probes[middle] = MODULE.Probe(sha=middle, branch="b/m")
+        self.assertEqual(MODULE.next_points(s), [])
+
+
 class SaveTests(unittest.TestCase):
     def test_save_keeps_probes_another_invocation_added(self):
         import tempfile

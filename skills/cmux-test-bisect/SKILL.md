@@ -51,8 +51,8 @@ python3 $T --package CmuxMobileShell cleanup           # delete probe branches
   with a `--patch`) beside the first.
 - State is shared by every worktree of the checkout, in
   `<git-common-dir>/package-bisect/<name>.json`. Finished job logs are cached
-  beside it, and `status --refetch` re-parses them without spending the shared
-  REST budget.
+  beside it per run attempt, so `status --refetch` costs one run lookup per
+  probe and downloads only logs it has not seen.
 
 ## Read the matrix
 
