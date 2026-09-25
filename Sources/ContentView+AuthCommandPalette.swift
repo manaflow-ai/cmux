@@ -36,7 +36,7 @@ extension ContentView {
             CommandPaletteCommandContribution(
                 commandId: commandPaletteAuthTeamPickerCommandId,
                 title: constant(String(localized: "command.auth.teamPicker.title", defaultValue: "Open Team Picker")),
-                subtitle: constant(String(localized: "command.auth.subtitle", defaultValue: "Account")),
+                subtitle: constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud")),
                 keywords: ["account", "auth", "team", "teams", "switch", "create"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.authSignedIn)
@@ -70,7 +70,10 @@ extension ContentView {
             }
         }
         registry.register(commandId: Self.commandPaletteAuthTeamPickerCommandId) {
-            NotificationCenter.default.post(name: .cmuxTeamPickerShortcutRequested, object: self)
+            _ = AppDelegate.shared?.openCloudTeamPicker(
+                preferredWindow: tabManager.window,
+                debugSource: "palette.auth.teamPicker"
+            )
         }
     }
 }
