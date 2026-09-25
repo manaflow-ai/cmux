@@ -16,6 +16,11 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
     public var projectRootPath: String?
     /// Current git branch summary.
     public var branchSummary: String?
+    /// Effective workspace-group icon symbol, when the host has configured a
+    /// group identity for this workspace.
+    public var workspaceGroupIconSymbol: String?
+    /// Effective workspace-group tint color as a CSS-style hex string.
+    public var workspaceGroupColorHex: String?
     /// Remote target label, if connected to a remote backend.
     public var remoteDisplayTarget: String?
     /// Remote connection state label.
@@ -46,6 +51,8 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
         rootPath: String?,
         projectRootPath: String?,
         branchSummary: String?,
+        workspaceGroupIconSymbol: String? = nil,
+        workspaceGroupColorHex: String? = nil,
         remoteDisplayTarget: String?,
         remoteConnectionState: String?,
         unreadCount: Int,
@@ -64,6 +71,8 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
         self.rootPath = rootPath
         self.projectRootPath = projectRootPath
         self.branchSummary = branchSummary
+        self.workspaceGroupIconSymbol = workspaceGroupIconSymbol
+        self.workspaceGroupColorHex = workspaceGroupColorHex
         self.remoteDisplayTarget = remoteDisplayTarget
         self.remoteConnectionState = remoteConnectionState
         self.unreadCount = unreadCount

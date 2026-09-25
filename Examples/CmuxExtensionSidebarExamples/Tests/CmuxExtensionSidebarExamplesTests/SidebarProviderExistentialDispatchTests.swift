@@ -52,6 +52,46 @@ final class SidebarProviderExistentialDispatchTests: XCTestCase {
         }
     }
 
+    /// Built-in views keep the workspace group's visual identity when the
+    /// provider does not supply a more specific row icon.
+    func testBuiltInRowsPreserveWorkspaceGroupIdentity() throws {
+        let workspaceID = UUID()
+        let workspace = CmuxSidebarProviderWorkspace(
+            id: workspaceID,
+            title: "Grouped workspace",
+            customDescription: nil,
+            isPinned: false,
+            rootPath: "/tmp/grouped",
+            projectRootPath: "/tmp/grouped",
+            branchSummary: "main",
+            workspaceGroupIconSymbol: "shippingbox.fill",
+            workspaceGroupColorHex: "#123456",
+            remoteDisplayTarget: nil,
+            remoteConnectionState: "disconnected",
+            unreadCount: 0,
+            latestNotificationText: nil,
+            latestSubmittedMessage: nil,
+            latestSubmittedAt: nil,
+            listeningPorts: []
+        )
+        let snapshot = CmuxSidebarProviderSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: nil,
+            workspaces: [workspace]
+        )
+
+        let model = AttentionQueueSidebar().render(snapshot: snapshot)
+        let row = try XCTUnwrap(model.sections.flatMap(\.rows).first)
+
+        XCTAssertEqual(
+            row.leadingIcon,
+            CmuxSidebarProviderIcon(
+                systemImageName: "shippingbox.fill",
+                foregroundColorHex: "#123456"
+            )
+        )
+    }
+
     private static func snapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {
         let workspaces = (0..<workspaceCount).map { index in
             CmuxSidebarProviderWorkspace(
