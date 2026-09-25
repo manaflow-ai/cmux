@@ -134,6 +134,25 @@ class BaselineTests(unittest.TestCase):
             ({"A/a()": ["j1"], "C/c()": ["j3", "j4"]}, ["B/b()"]),
         )
 
+    def test_shard_map_changed_compares_the_packing_inputs(self):
+        import subprocess, tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            def git(*args):
+                return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            git("config", "user.email", "t@t"); git("config", "user.name", "t")
+            (pathlib.Path(repo) / "cmuxTests").mkdir()
+            (pathlib.Path(repo) / "cmuxTests/A.swift").write_text("a")
+            git("add", "-A"); git("commit", "-qm", "a"); first = git("rev-parse", "HEAD")
+            (pathlib.Path(repo) / "Sources").mkdir()
+            (pathlib.Path(repo) / "Sources/B.swift").write_text("b")
+            git("add", "-A"); git("commit", "-qm", "b"); second = git("rev-parse", "HEAD")
+            (pathlib.Path(repo) / "cmuxTests/A.swift").write_text("a2")
+            git("add", "-A"); git("commit", "-qm", "c"); third = git("rev-parse", "HEAD")
+            self.assertFalse(MODULE.shard_map_changed(pathlib.Path(repo), first, second))
+            self.assertTrue(MODULE.shard_map_changed(pathlib.Path(repo), second, third))
+            self.assertTrue(MODULE.shard_map_changed(pathlib.Path(repo), first, "0" * 40))
+
     def test_shard_of_reads_the_job_name(self):
         self.assertEqual(MODULE.shard_of({"name": "macos / app-host unit tests (4/7)"}), "4")
 

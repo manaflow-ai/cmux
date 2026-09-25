@@ -9,7 +9,8 @@ shard ratchet reported as RATCHET_NEW_FAILURE, or xcodebuild listed under
 known-failures catalog and did not fail in the previous full-suite run whose app-host
 shards all finished. A failure in a shard that run did not fully grade (a
 dedicated lane failed first, or the batch stopped early) is listed as having
-no baseline instead.
+no baseline instead, and so is every failure when such a shard exists and the
+test list or shard packing changed between the runs.
 
 Each new failure is attributed to the commits between the two runs' head
 SHAs, mapped to the pull requests merged into main by those commits. One pull
@@ -426,6 +427,18 @@ def job_failures(
     return failures, shards, ungraded
 
 
+SHARD_INPUTS = ("cmuxTests", "scripts/ci/cmux-unit-test-timings.json", "scripts/ci/cmux_unit_test_shard.py")
+
+
+def shard_map_changed(root: Path, base: str, head: str) -> bool:
+    """True unless the test list and shard packing are the same at both commits."""
+    result = subprocess.run(
+        ["git", "-C", str(root), "diff", "--quiet", base, head, "--", *SHARD_INPUTS],
+        capture_output=True, text=True,
+    )
+    return result.returncode != 0
+
+
 def associated_prs(repo: str, shas: list[str]) -> dict[str, list[dict]]:
     owner, name = repo.split("/", 1)
     result: dict[str, list[dict]] = {}
@@ -558,6 +571,11 @@ def command_report(args: argparse.Namespace) -> int:
     failures: dict[str, list[str]] = {}
     no_baseline: list[str] = []
     if previous:
+        if previous_ungraded and shard_map_changed(args.root, str(previous["head_sha"]), str(run["head_sha"])):
+            # Shards are packed from the test list and timings, so a change to
+            # either can move a test into a shard it never ran in before. With
+            # an ungraded baseline shard, no shard number can then be trusted.
+            previous_ungraded = {shard_of(job) for job in app_host_jobs(jobs)}
         failures, no_baseline = new_failures(current, current_shards, previous_failures, previous_ungraded)
     prs: list[PullRequest] = []
     direct: list[str] = []
