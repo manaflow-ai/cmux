@@ -28,14 +28,28 @@ take an owned Mac? Owned Macs are `glaeda-<class>-xcode-<version>` pools
                                      `contents: read`, so its runner job cannot
                                      hold the `actions: read` the queue snapshot
                                      needs; it reaches the minis only on request
-    the pool has room              the picker finds LANES[lane].jobs machines
-                                     free on an owned pool
+    the pool has room              the pull request rule places LANES[lane].jobs
+                                     jobs on an owned pool, within its queue
+                                     rounds (below)
     the simulators have room       SIM_LABEL has the run's simulator jobs free
 
 Otherwise the run keeps the default, exactly as before: when the picker would
 have chosen a Blacksmith pool (12vcpu overflow, say), iOS still takes its own
-variable, so MACOS_RUNNER_IOS keeps meaning what it meant. No job is sent to
-wait in an owned queue.
+variable, so MACOS_RUNNER_IOS keeps meaning what it meant.
+
+Queue rounds. The pool rule is pull request CI's with its
+vars.CI_PR_POOL_QUEUE_ROUNDS (`--queue-rounds`): an owned pool takes the run
+while its jobs start there within that many job lengths and no later than on
+the best Blacksmith pool, and the queue stays within machines x (1 + rounds)
+(pr_runner_pool.owned_room()). Without the rounds the picker used the kill
+switch rule, which counts every in-flight run's whole future peak (the
+janitor's `committed`) as taken now: on 2026-09-25 (run 36136190497) that read
+43 of 32 std machines taken while 8 ran, so the run went to the 6vcpu macOS
+26 pool with 62 jobs queued and waited 15 minutes there. `--queue-rounds 0`
+restores that rule; a caller that omits the flag gets it too.
+ci-owned-pool-rescue.yml gives a test-ios.yml run's owned jobs the same queue
+allowance as a CI run's before it moves them. The simulators are not queued
+for: SIM_LABEL must have the run's simulator jobs free now.
 
 Simulator capacity. glaeda puts SIM_LABEL (`glaeda-ios-sim`) on the runners of
 minis that have an iOS simulator role and an iOS 26.x runtime, and runs one
@@ -221,6 +235,7 @@ def resolve(
     pr_xcode_app: str | None,
     order: str | None,
     max_queued: str | None,
+    queue_rounds: str | None = None,
     ios_version: str | None = None,
     device_family: str | None = None,
     swift_package: str | None = None,
@@ -230,9 +245,15 @@ def resolve(
     measure: Callable[[], IOSLoad],
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
+    fork: bool = False,
 ) -> Route:
     """The route for one run, from its inputs and variables. Raises ValueError on a refused request."""
     config = LANES[lane]
+    if fork:
+        # A fork's pull request: never an owned Mac (they keep build state
+        # between jobs), and never a variable that could name one.
+        log(f"a fork pull request; staying on {SMALL_RUNNER}")
+        return ephemeral(SMALL_RUNNER)
     requested = (requested or "").strip()
     default = (variable or "").strip() or SMALL_RUNNER
     if requested and requested not in ("auto", OWNED_CHOICE):
@@ -271,9 +292,10 @@ def resolve(
     if needed and not capacity:
         log(f"{pr_runner_pool.SLOTS_VARIABLE} gives {SIM_LABEL} no machines; staying on {default}")
         return ephemeral(default)
-    limits = e2e_runner_pool.settings(order, max_queued, owned, pr_xcode_app)
+    limits = e2e_runner_pool.settings(order, max_queued, owned, pr_xcode_app, queue_rounds)
     if limits is None or not any(pr_runner_pool.persistent(label) for label in limits.order):
-        log(f"no owned pool in {pr_runner_pool.ORDER_VARIABLE} for {pr_runner_pool.PR_XCODE_VARIABLE}; "
+        log(f"no owned pool in {pr_runner_pool.ORDER_VARIABLE} for {pr_runner_pool.PR_XCODE_VARIABLE}, or an invalid "
+            f"{pr_runner_pool.ORDER_VARIABLE}/{pr_runner_pool.MAX_QUEUED_VARIABLE}/{pr_runner_pool.QUEUE_ROUNDS_VARIABLE}; "
             f"staying on {default}")
         return ephemeral(default)
     try:
@@ -329,6 +351,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--lane", required=True, choices=sorted(LANES))
     parser.add_argument("--requested", default="", help="the workflow's runner input")
+    parser.add_argument("--fork", default="", help="'true' for a pull request from a fork")
     parser.add_argument("--variable", default="", help="the lane's runner variable")
     parser.add_argument("--ios-owned", default="", help=f"vars.{IOS_OWNED_VARIABLE}")
     parser.add_argument("--owned", default="", help=f"vars.{pr_runner_pool.OWNED_VARIABLE}")
@@ -336,6 +359,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--pr-xcode-app", default="", help=f"vars.{pr_runner_pool.PR_XCODE_VARIABLE}")
     parser.add_argument("--order", default="", help=f"vars.{pr_runner_pool.ORDER_VARIABLE}")
     parser.add_argument("--max-queued", default="", help=f"vars.{pr_runner_pool.MAX_QUEUED_VARIABLE}")
+    parser.add_argument("--queue-rounds", default=None,
+                        help=f"vars.{pr_runner_pool.QUEUE_ROUNDS_VARIABLE} (\"\" is its default; omitted is 0)")
     parser.add_argument("--ios-version", default="", help="the workflow's ios_version input")
     parser.add_argument("--device-family", default="", help="the workflow's device_family input")
     parser.add_argument("--swift-package", default="", help="the workflow's swift_package input")
@@ -367,10 +392,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             args.lane, args.requested, args.variable,
             ios_owned=args.ios_owned, owned=args.owned, owned_slots=args.owned_slots,
             pr_xcode_app=args.pr_xcode_app, order=args.order, max_queued=args.max_queued,
+            queue_rounds=args.queue_rounds,
             ios_version=args.ios_version, device_family=args.device_family,
             swift_package=args.swift_package, upload=args.upload, called=args.called,
             seed_cache=args.seed_cache,
-            measure=measure, now=now, log=log,
+            measure=measure, now=now, log=log, fork=args.fork.strip() == "true",
         )
     except ValueError as error:
         print(f"::error::{error}", file=sys.stderr)
