@@ -1,13 +1,50 @@
 import Foundation
 
 extension CMUXCLI {
+    func validateExplicitSurfaceTargetBeforeSocket(
+        command: String,
+        commandArgs: [String]
+    ) throws {
+        guard command == "send" || command == "send-key" || command == "read-screen" else {
+            return
+        }
+
+        let (workspaceArgument, afterWorkspace) = parseOption(commandArgs, name: "--workspace")
+        let (surfaceArgument, _) = parseOption(afterWorkspace, name: "--surface")
+        try requireExplicitSurfaceTarget(
+            commandName: command,
+            workspaceArgument: workspaceArgument,
+            surfaceArgument: surfaceArgument
+        )
+    }
+
+    func requireExplicitSurfaceTarget(
+        commandName: String,
+        workspaceArgument: String?,
+        surfaceArgument: String?
+    ) throws {
+        let hasWorkspace = workspaceArgument?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasSurface = surfaceArgument?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard hasWorkspace || hasSurface else {
+            let message = String(
+                format: String(
+                    localized: "cli.error.explicitSurfaceTargetRequired",
+                    defaultValue: "%1$@: --workspace or --surface is required; pass an explicit target instead of relying on the focused workspace."
+                ),
+                commandName
+            )
+            throw CLIError(message: message, exitCode: 2)
+        }
+    }
+
     func runSurfaceSelectionCommand(
         commandName: String,
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
         windowOverride: String?,
-        includeContextInPlainOutput: Bool
+        includeContextInPlainOutput: Bool,
+        requireExplicitTarget: Bool = false
     ) throws {
         let (workspaceOption, remainingAfterWorkspace) = parseOption(
             commandArgs,
@@ -30,6 +67,14 @@ extension CMUXCLI {
                 commandName,
                 trailing.joined(separator: " ")
             ))
+        }
+
+        if requireExplicitTarget {
+            try requireExplicitSurfaceTarget(
+                commandName: commandName,
+                workspaceArgument: workspaceOption,
+                surfaceArgument: surfaceOption
+            )
         }
 
         let windowRaw = windowOption ?? windowOverride

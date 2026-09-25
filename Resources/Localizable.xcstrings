@@ -557994,6 +557994,65 @@
           }
         }
       }
+    },
+    "cli.error.explicitSurfaceTargetRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: --workspace or --surface is required; pass an explicit target instead of relying on the focused workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: يجب تحديد --workspace أو --surface؛ حدّد هدفًا صريحًا بدلًا من الاعتماد على مساحة العمل المركّز عليها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: --workspace oder --surface ist erforderlich; geben Sie ein explizites Ziel an, statt sich auf den fokussierten Arbeitsbereich zu verlassen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: se requiere --workspace o --surface; indica un destino explícito en lugar de depender del espacio de trabajo enfocado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : --workspace ou --surface est requis ; indiquez une cible explicite au lieu de dépendre de l’espace de travail actif."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：--workspace または --surface が必要です。フォーカス中のワークスペースに依存せず、明示的な対象を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: --workspace 또는 --surface가 필요합니다. 포커스된 작업 공간에 의존하지 말고 대상을 명시하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：需要指定 --workspace 或 --surface；请明确指定目标，不要依赖当前聚焦的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：需要指定 --workspace 或 --surface；請明確指定目標，不要依賴目前聚焦的工作區。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

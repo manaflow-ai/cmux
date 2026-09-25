@@ -4998,6 +4998,11 @@ struct CMUXCLI {
             return
         }
 
+        try validateExplicitSurfaceTargetBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
+
         // Automation tests are deliberately offline: they validate the
         // checked-in rule and synthetic event without opening a socket or
         // executing actions. The live engine uses the identical matcher when
@@ -7400,7 +7405,8 @@ struct CMUXCLI {
                     client: client,
                     jsonOutput: jsonOutput,
                     windowOverride: windowId,
-                    includeContextInPlainOutput: false
+                    includeContextInPlainOutput: false,
+                    requireExplicitTarget: true
                 )
                 break
             }
@@ -7413,6 +7419,12 @@ struct CMUXCLI {
             if !trailing.isEmpty {
                 throw CLIError(message: "read-screen: unexpected arguments: \(trailing.joined(separator: " "))")
             }
+
+            try requireExplicitSurfaceTarget(
+                commandName: "read-screen",
+                workspaceArgument: wsArg,
+                surfaceArgument: sfArg
+            )
 
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
@@ -7449,6 +7461,11 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            try requireExplicitSurfaceTarget(
+                commandName: "send",
+                workspaceArgument: wsArg,
+                surfaceArgument: sfArg
+            )
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
@@ -7469,6 +7486,11 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            try requireExplicitSurfaceTarget(
+                commandName: "send-key",
+                workspaceArgument: wsArg,
+                surfaceArgument: sfArg
+            )
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
