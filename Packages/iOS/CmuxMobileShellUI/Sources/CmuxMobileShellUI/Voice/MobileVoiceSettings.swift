@@ -23,6 +23,8 @@ public final class MobileVoiceSettings {
     private static let speakCodeBlocksKey = "cmux.mobile.voice.speakCodeBlocks"
     private static let speakToolActivityKey = "cmux.mobile.voice.speakToolActivity"
     private static let spokenReplyLengthKey = "cmux.mobile.voice.spokenReplyLength"
+    private static let orchestratorBypassPermissionsKey =
+        "cmux.mobile.voice.orchestratorBypassPermissions"
 
     /// The GPT-Live voices the picker offers, `marin` first as the API
     /// default. Voice is a session-creation-time choice, so changes apply to
@@ -88,6 +90,18 @@ public final class MobileVoiceSettings {
         didSet { defaults.set(spokenReplyLength.rawValue, forKey: Self.spokenReplyLengthKey) }
     }
 
+    /// Bypass All Permissions: the orchestrator executes every tool,
+    /// destructive ones included, without the on-screen approval card.
+    /// Defaults to `false`.
+    public var orchestratorBypassPermissions: Bool {
+        didSet {
+            defaults.set(
+                orchestratorBypassPermissions,
+                forKey: Self.orchestratorBypassPermissionsKey
+            )
+        }
+    }
+
     /// The user's own OpenAI API key (bring-your-own-key). Read once from the
     /// key store at init; assignment writes through. Empty/whitespace clears.
     /// Voice sessions require it: the key goes straight from this device to
@@ -127,6 +141,8 @@ public final class MobileVoiceSettings {
         self.speakToolActivity = defaults.bool(forKey: Self.speakToolActivityKey)
         self.spokenReplyLength = defaults.string(forKey: Self.spokenReplyLengthKey)
             .flatMap(SpokenReplyLength.init(rawValue:)) ?? .medium
+        self.orchestratorBypassPermissions =
+            defaults.bool(forKey: Self.orchestratorBypassPermissionsKey)
         self.userOpenAIAPIKey = apiKeyStore.load() ?? ""
     }
 }

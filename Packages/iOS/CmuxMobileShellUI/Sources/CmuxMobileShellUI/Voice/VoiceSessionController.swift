@@ -62,6 +62,18 @@ public final class VoiceSessionController {
         public var text: String
     }
 
+    /// A destructive tool call held open until the user approves or denies
+    /// it on screen (orchestrator mode, Bypass All Permissions off).
+    public struct PendingToolApproval: Identifiable, Equatable, Sendable {
+        public let id: UUID
+        public let callID: String
+        public let toolName: String
+        public let argumentsJSON: String
+        /// Resolved human-readable target (e.g. the workspace name), when
+        /// the arguments name one.
+        public let target: String?
+    }
+
     public private(set) var phase: Phase = .idle
     public private(set) var transcript: [TranscriptLine] = []
     /// Whether assistant speech is currently playing (drives the speaking
@@ -70,6 +82,11 @@ public final class VoiceSessionController {
     /// Terminal mode: no live agent session was found, so delegated speech is
     /// typed into the terminal instead of the agent chat.
     public private(set) var usesTerminalFallback = false
+    /// Destructive tool calls awaiting the user's on-screen decision, FIFO.
+    /// The sheet renders the first; tool calls are serial
+    /// (`parallel_tool_calls: false`), so more than one pending entry only
+    /// occurs across an approval the model talks through.
+    public private(set) var pendingApprovals: [PendingToolApproval] = []
 
     public var microphoneMuted = false {
         didSet {
@@ -278,13 +295,14 @@ public final class VoiceSessionController {
     private func makeSessionConfig(model: String) async -> VoiceLiveSessionConfig {
         switch mode {
         case .orchestrator:
+            let bypass = settings.orchestratorBypassPermissions
             return VoiceLiveSessionConfig(
                 model: model,
                 voice: settings.voiceName,
-                instructions: Self.orchestratorVoiceInstructions,
+                instructions: Self.orchestratorVoiceInstructions(bypassPermissions: bypass),
                 delegation: .responses(
                     model: Self.orchestratorBackendModel,
-                    instructions: Self.orchestratorBackendInstructions,
+                    instructions: Self.orchestratorBackendInstructions(bypassPermissions: bypass),
                     tools: VoiceOrchestratorToolExecutor.tools
                 )
             )
@@ -304,21 +322,37 @@ public final class VoiceSessionController {
     /// becomes a setting if model choice ever matters to users.
     private static let orchestratorBackendModel = "gpt-5.6-terra"
 
-    private static let orchestratorVoiceInstructions = """
-    You are the voice assistant for cmux, an app for running AI coding agents \
-    in terminal workspaces on the user's computers. Be brief and \
-    conversational. Delegate any request about the user's workspaces or \
-    agents to the backend. Confirm with the user before anything is sent to \
-    an agent or interrupted.
-    """
+    private static func orchestratorVoiceInstructions(bypassPermissions: Bool) -> String {
+        let confirmation = bypassPermissions
+            ? "The user has enabled Bypass All Permissions: act on requests immediately without asking for confirmation first."
+            : "Confirm with the user before acting on a workspace (sending prompts, answering for the agent, interrupting, renaming, closing)."
+        return """
+        You are the voice assistant for cmux, an app for running AI coding \
+        agents in terminal workspaces on the user's computers. Be brief and \
+        conversational. Delegate any request about the user's workspaces, \
+        agents, or notifications to the backend; it can read everything and \
+        act on the app like an on-device user. \(confirmation)
+        """
+    }
 
-    private static let orchestratorBackendInstructions = """
-    You act on the user's cmux workspaces through the provided tools. Use \
-    list_workspaces or read_workspace to ground every answer; never invent \
-    workspace names or states. Sending a prompt or interrupting an agent \
-    requires the user's spoken confirmation first. Keep results short and \
-    speakable: no code, no markdown, no long paths.
-    """
+    private static func orchestratorBackendInstructions(bypassPermissions: Bool) -> String {
+        let approval = bypassPermissions
+            ? "The user has enabled Bypass All Permissions: execute tools immediately, destructive ones included, without waiting for approval."
+            : """
+            Acting tools need the user's spoken confirmation first. \
+            Destructive tools (close_workspace) additionally show the user an \
+            on-screen approval card: after calling one, tell the user to \
+            approve or deny on screen and wait for the tool result.
+            """
+        return """
+        You act on the user's cmux app through the provided tools: read \
+        workspaces, agent conversations, and notifications; send prompts and \
+        answers to agents; open, create, rename, pin, and close workspaces; \
+        manage read state. Ground every answer in a read tool first; never \
+        invent workspace names or states. \(approval) Keep results short and \
+        speakable: no code, no markdown, no long paths.
+        """
+    }
 
     private static func terminalVoiceInstructions(workspaceName: String) -> String {
         """
@@ -353,12 +387,7 @@ public final class VoiceSessionController {
                 await forwardUtteranceToAgent(delegationID: id)
             }
         case .functionCall(let callID, let name, let argumentsJSON, _):
-            let executor = VoiceOrchestratorToolExecutor(store: store)
-            let output = await executor.execute(name: name, argumentsJSON: argumentsJSON)
-            enqueueSend { client in
-                try await client.send(.functionCallOutput(callID: callID, output: output))
-                try await client.send(.responseCreate)
-            }
+            await handleFunctionCall(callID: callID, name: name, argumentsJSON: argumentsJSON)
         case .errorEvent(let code, let message):
             voiceSessionLog.error(
                 "live session error code=\(code ?? "?", privacy: .public) message=\(message ?? "", privacy: .public)"
@@ -370,6 +399,74 @@ public final class VoiceSessionController {
             teardown()
         case .usageUpdated, .other:
             break
+        }
+    }
+
+    /// Execute a backend tool call, or hold a destructive one open on the
+    /// on-screen approval card. The held call's output is only sent after
+    /// ``resolvePendingApproval(_:approved:)``, so the app (not the model)
+    /// enforces the confirmation.
+    private func handleFunctionCall(
+        callID: String, name: String, argumentsJSON: String
+    ) async {
+        let permission = VoiceToolCatalog.permission(forTool: name)
+        if permission == .destructive, !settings.orchestratorBypassPermissions {
+            let executor = VoiceOrchestratorToolExecutor(store: store)
+            let approval = PendingToolApproval(
+                id: UUID(),
+                callID: callID,
+                toolName: name,
+                argumentsJSON: argumentsJSON,
+                target: executor.approvalTarget(forTool: name, argumentsJSON: argumentsJSON)
+            )
+            pendingApprovals.append(approval)
+            enqueueThinking(
+                """
+                cmux is showing the user an on-screen approval card for the \
+                destructive action "\(name)"\(approval.target.map { " on \($0)" } ?? ""). \
+                Tell the user to approve or deny it on screen, and do not \
+                assume the outcome; the tool result will arrive after they \
+                decide.
+                """
+            )
+            return
+        }
+        await executeFunctionCall(callID: callID, name: name, argumentsJSON: argumentsJSON)
+    }
+
+    private func executeFunctionCall(
+        callID: String, name: String, argumentsJSON: String
+    ) async {
+        let executor = VoiceOrchestratorToolExecutor(store: store)
+        let output = await executor.execute(name: name, argumentsJSON: argumentsJSON)
+        enqueueSend { client in
+            try await client.send(.functionCallOutput(callID: callID, output: output))
+            try await client.send(.responseCreate)
+        }
+    }
+
+    /// The user decided the approval card. Approved calls execute now; denied
+    /// ones return a denial as the tool output so the conversation moves on.
+    public func resolvePendingApproval(_ id: UUID, approved: Bool) {
+        guard let index = pendingApprovals.firstIndex(where: { $0.id == id }) else { return }
+        let approval = pendingApprovals.remove(at: index)
+        Task { [weak self] in
+            guard let self else { return }
+            if approved {
+                await self.executeFunctionCall(
+                    callID: approval.callID,
+                    name: approval.toolName,
+                    argumentsJSON: approval.argumentsJSON
+                )
+            } else {
+                self.enqueueSend { client in
+                    try await client.send(.functionCallOutput(
+                        callID: approval.callID,
+                        output: "The user denied this action on the approval card. Do not retry it unless asked."
+                    ))
+                    try await client.send(.responseCreate)
+                }
+            }
         }
     }
 

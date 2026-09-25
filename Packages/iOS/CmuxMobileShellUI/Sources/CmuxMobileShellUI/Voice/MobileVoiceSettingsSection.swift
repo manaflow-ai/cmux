@@ -11,6 +11,36 @@ struct MobileVoiceSettingsSection: View {
     var body: some View {
         if let voiceSettings {
             MobileVoiceSettingsSectionContent(settings: voiceSettings)
+            if voiceSettings.voiceModeEnabled {
+                MobileVoicePermissionsSectionContent(settings: voiceSettings)
+            }
+        }
+    }
+}
+
+/// Separate section so the bypass switch carries its own warning footer.
+private struct MobileVoicePermissionsSectionContent: View {
+    @Bindable var settings: MobileVoiceSettings
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $settings.orchestratorBypassPermissions) {
+                Text(L10n.string(
+                    "mobile.voice.settings.bypass",
+                    defaultValue: "Bypass All Permissions"
+                ))
+            }
+            .tint(.red)
+            .accessibilityIdentifier("MobileSettingsVoiceBypassToggle")
+        } footer: {
+            Text(L10n.string(
+                "mobile.voice.settings.bypassFooter",
+                defaultValue: """
+                The voice assistant acts on your workspaces immediately, \
+                including destructive actions like closing a workspace, \
+                without the on-screen approval card.
+                """
+            ))
         }
     }
 }

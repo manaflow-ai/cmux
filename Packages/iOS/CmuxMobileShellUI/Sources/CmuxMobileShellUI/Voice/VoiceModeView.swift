@@ -90,10 +90,64 @@ private struct VoiceModeContentView: View {
             statusHeader
                 .padding(.top, 12)
             transcriptList
+            if let approval = controller.pendingApprovals.first {
+                approvalCard(approval)
+            }
             controls
                 .padding(.bottom, 12)
         }
         .padding(.horizontal, 20)
+    }
+
+    /// On-screen gate for a destructive tool call: the call's output is held
+    /// until the user taps, so voice alone can never close a workspace.
+    private func approvalCard(_ approval: VoiceSessionController.PendingToolApproval) -> some View {
+        VStack(spacing: 10) {
+            Text(L10n.string("mobile.voice.approval.title", defaultValue: "Approval Needed"))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(Self.approvalText(approval))
+                .font(.callout)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 12) {
+                Button(role: .cancel) {
+                    controller.resolvePendingApproval(approval.id, approved: false)
+                } label: {
+                    Text(L10n.string("mobile.voice.approval.deny", defaultValue: "Deny"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("MobileVoiceApprovalDeny")
+                Button(role: .destructive) {
+                    controller.resolvePendingApproval(approval.id, approved: true)
+                } label: {
+                    Text(L10n.string("mobile.voice.approval.approve", defaultValue: "Approve"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("MobileVoiceApprovalApprove")
+            }
+            .buttonBorderShape(.capsule)
+        }
+        .padding(14)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileVoiceApprovalCard")
+    }
+
+    private static func approvalText(
+        _ approval: VoiceSessionController.PendingToolApproval
+    ) -> String {
+        if approval.toolName == "close_workspace", let target = approval.target {
+            return L10n.string(
+                "mobile.voice.approval.closeWorkspace",
+                defaultValue: "Close workspace “\(target)”? Its terminals and agent sessions end."
+            )
+        }
+        return L10n.string(
+            "mobile.voice.approval.generic",
+            defaultValue: "Allow the voice assistant to run “\(approval.toolName)”?"
+        )
     }
 
     @ViewBuilder

@@ -55,6 +55,9 @@ struct VoiceLiveEventsTests {
         let responses = try #require(delegation["responses"] as? [String: Any])
         #expect(responses["model"] as? String == "gpt-5.6-terra")
         #expect(responses["tool_choice"] as? String == "auto")
+        // Serial calls keep the approval gate's one-output-then-continue
+        // contract sound.
+        #expect(responses["parallel_tool_calls"] as? Bool == false)
         let tools = try #require(responses["tools"] as? [[String: Any]])
         #expect(tools.count == 1)
         #expect(tools[0]["type"] as? String == "function")

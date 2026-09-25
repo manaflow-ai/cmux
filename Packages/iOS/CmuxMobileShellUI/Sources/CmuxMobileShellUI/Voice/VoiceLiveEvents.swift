@@ -153,6 +153,11 @@ public enum VoiceLiveClientEvent: Sendable {
                         ]
                     },
                     "tool_choice": "auto",
+                    // Serial tool calls: the app must return every pending
+                    // call's output before response.create, and the
+                    // destructive-approval gate can hold one call open for
+                    // arbitrarily long. One-at-a-time keeps that sound.
+                    "parallel_tool_calls": false,
                 ] as [String: Any],
             ]
         }

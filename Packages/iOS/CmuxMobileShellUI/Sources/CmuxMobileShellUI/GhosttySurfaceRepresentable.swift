@@ -59,6 +59,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
+    /// Opens the workspace's voice-mode sheet. Nil when voice mode is off,
+    /// which keeps the composer's dictation mic in place instead.
+    var onOpenVoiceMode: (@MainActor () -> Void)? = nil
 
     func makeUIView(context: Context) -> UIView {
         let runtime: GhosttyRuntime
@@ -146,6 +149,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
         context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
+        context.coordinator.onOpenVoiceMode = onOpenVoiceMode
         context.coordinator.terminalFolderTapEnabled = terminalFolderTapEnabled
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
@@ -208,6 +212,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
+        /// Live voice-mode entrypoint; the composer reads it through a
+        /// provider closure so availability changes reach an already-mounted
+        /// composer. Nil = voice mode off.
+        var onOpenVoiceMode: (@MainActor () -> Void)?
         private var outputTask: Task<Void, Never>?
         private var outputConsumerOwnerID: UUID?
         /// Monotonic owner for the mounted output consumer. A stream can end
@@ -1418,6 +1426,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 },
                 photoPickerDidDismiss: { [weak self] in
                     self?.surfaceView?.photoPickerDidDismiss()
+                },
+                voiceModeAction: { [weak self] in
+                    self?.onOpenVoiceMode
                 }
             )
             let controller = UIHostingController(rootView: view)

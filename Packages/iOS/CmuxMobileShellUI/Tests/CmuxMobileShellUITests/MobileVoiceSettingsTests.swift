@@ -26,6 +26,7 @@ struct MobileVoiceSettingsTests {
         #expect(!settings.speakToolActivity)
         #expect(settings.spokenReplyLength == .medium)
         #expect(settings.userOpenAIAPIKey.isEmpty)
+        #expect(!settings.orchestratorBypassPermissions)
     }
 
     @Test("mutations persist across instances")
@@ -37,6 +38,7 @@ struct MobileVoiceSettingsTests {
         settings.voiceName = "cinder"
         settings.speakCodeBlocks = true
         settings.spokenReplyLength = .long
+        settings.orchestratorBypassPermissions = true
         settings.userOpenAIAPIKey = " sk-test-123 "
 
         let reloaded = MobileVoiceSettings(defaults: defaults, apiKeyStore: keyStore)
@@ -44,6 +46,7 @@ struct MobileVoiceSettingsTests {
         #expect(reloaded.voiceName == "cinder")
         #expect(reloaded.speakCodeBlocks)
         #expect(reloaded.spokenReplyLength == .long)
+        #expect(reloaded.orchestratorBypassPermissions)
         // The key round-trips trimmed, through the key store only.
         #expect(reloaded.userOpenAIAPIKey == "sk-test-123")
         #expect(keyStore.load() == "sk-test-123")

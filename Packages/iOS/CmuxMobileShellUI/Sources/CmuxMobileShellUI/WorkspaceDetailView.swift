@@ -59,7 +59,9 @@ struct WorkspaceDetailView: View {
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
     @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(MobileVoiceSettings.self) var voiceSettings: MobileVoiceSettings?
-    @State private var voiceModePresented = false
+    // Internal (not private): the composer's voice button lives in
+    // WorkspaceDetailView+TerminalArtifacts and presents through this state.
+    @State var voiceModePresented = false
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
@@ -454,11 +456,6 @@ struct WorkspaceDetailView: View {
                 workspaceChangesToolbarContent
             }
         }
-        if voiceModeIsAvailable {
-            ToolbarItem(id: "workspace-voice", placement: .topBarTrailing) {
-                voiceToolbarContent
-            }
-        }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             trailingClusterToolbarContent
         }
@@ -477,12 +474,6 @@ struct WorkspaceDetailView: View {
         if workspaceChangesAreAvailable {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
                 workspaceChangesToolbarContent
-            }
-            .visibilityPriority(.high)
-        }
-        if voiceModeIsAvailable {
-            ToolbarItem(id: "workspace-voice", placement: .topBarTrailing) {
-                voiceToolbarContent
             }
             .visibilityPriority(.high)
         }
@@ -539,25 +530,13 @@ struct WorkspaceDetailView: View {
         var keys = ["trailing-cluster"]
         if altScreenNoticeIsVisible { keys.append("altscreen-notice") }
         if workspaceChangesAreAvailable { keys.append("changes") }
-        if voiceModeIsAvailable { keys.append("voice") }
         return keys
     }
 
-    private var voiceModeIsAvailable: Bool {
+    // Internal (not private): read by the composer wiring in
+    // WorkspaceDetailView+TerminalArtifacts.
+    var voiceModeIsAvailable: Bool {
         voiceSettings?.voiceModeEnabled ?? false
-    }
-
-    private var voiceToolbarContent: some View {
-        Button {
-            voiceModePresented = true
-        } label: {
-            Image(systemName: "waveform")
-        }
-        .accessibilityLabel(
-            L10n.string("mobile.voice.terminalButton", defaultValue: "Voice")
-        )
-        .accessibilityIdentifier("MobileWorkspaceVoiceButton")
-        .measureTrailingToolbarItem("voice", into: $trailingToolbarItemWidths)
     }
 
     private var workspaceTitleToolbarMenu: some View {
