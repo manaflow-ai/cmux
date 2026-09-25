@@ -501,11 +501,14 @@ jobs:
       # A warm Mac's kept DerivedData is the previous pull request's build, so
       # its compile also undoes that diff (365-428 s on 2026-09-25), while a
       # seed a few commits behind compiled in 50-160 s. With
-      # CI_OWNED_PREFER_SEED set, adopt the seed instead when it rebuilds
-      # fewer inputs: `local` compares only with a seed this Mac keeps (no
-      # download), a number N also takes a downloaded seed at most N commits
-      # behind. owned_build_state.py `prefer` has the rules; unset, nothing
-      # changes. If the seed then misses, the kept DerivedData is adopted.
+      # CI_OWNED_PREFER_SEED set, adopt the seed instead when it compiles
+      # less: first whether a local package source changed (that recompiles
+      # the whole app), then how many inputs changed. `local` compares only
+      # with a seed this Mac keeps (no download); a number N also takes a
+      # downloaded seed at most N commits behind, or at any distance when it
+      # alone spares the app recompile. owned_build_state.py `prefer` has the
+      # rules; unset, nothing changes. If the seed then misses, the kept
+      # DerivedData is adopted.
       - name: Prefer a near seed over this owned Mac's DerivedData
         id: prefer-seed
         if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm == 'true' && vars.CI_OWNED_PREFER_SEED != '' && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
