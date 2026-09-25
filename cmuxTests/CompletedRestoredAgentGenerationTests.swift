@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -298,6 +299,7 @@ struct CompletedRestoredAgentGenerationTests {
             lifecycle: .running,
             updatedAt: updatedAt,
             processLiveness: .running,
+            hasRecordedProcessID: true,
             processIDs: [Int(identity.pid)],
             processIdentities: [Int(identity.pid): identity],
             agentProcessIDs: [Int(identity.pid)],

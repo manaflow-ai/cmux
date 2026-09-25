@@ -204,7 +204,7 @@ extension RemoteTmuxControlConnection {
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
                 windowTitleRowPlacements = windowTitleRowPlacements.filter { liveIDs.contains($0.key) }
-                prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
+                prunePaneState(keeping: paneIDsForStatePruning())
                 #if DEBUG
                 cmuxDebugLog(
                     "remote.window.snapshot order=\(order)"
@@ -239,8 +239,10 @@ extension RemoteTmuxControlConnection {
                 // (see ``PostAttachAction``).
                 switch pendingPostAttachAction {
                 case .reseed:
+                    pushMirrorSessionEnvironment()
                     reseedAfterReconnect()
                 case .applyClientSize:
+                    pushMirrorSessionEnvironment()
                     // A surface that hasn't computed a grid yet is covered by the
                     // debounced `setClientSize` instead.
                     if let size = lastClientSize {

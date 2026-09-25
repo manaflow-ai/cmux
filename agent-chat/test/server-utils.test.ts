@@ -237,6 +237,9 @@ assert(attributed.map((f) => f.path).join("|") === "changed.txt|new.txt", `basel
 const noFilesRoot = join(import.meta.dir, "..", "scratch", "no-files-baseline-test");
 await rm(noFilesRoot, { recursive: true, force: true });
 await mkdir(noFilesRoot, { recursive: true });
+// Its own repository: inside the cmux checkout, git status on the whole
+// checkout can outlast the 500 ms budget below.
+await run(["git", "init"], noFilesRoot);
 const noFilesSession = {
   cwd: noFilesRoot,
   internal: {

@@ -29,6 +29,55 @@ struct GitHubPullRequestRequestTests {
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().isEmpty)
     }
 
+    @Test func userAgentIdentifiesApplicationVersion() async throws {
+        let expectedVersion = (Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? "unknown"
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        let request = try #require(GitHubPullRequestStubURLProtocol.capturedRequests().first)
+        #expect(
+            request.value(forHTTPHeaderField: "User-Agent")
+                == "cmux-workspace-pr-poller/\(expectedVersion)"
+        )
+    }
+
+    @Test func userAgentValueAppendsApplicationVersion() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "1.2.3")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueTrimsSurroundingWhitespace() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  1.2.3  ")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueFallsBackWhenApplicationVersionIsUnavailable() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: nil)
+                == "cmux-workspace-pr-poller/unknown"
+        )
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  ")
+                == "cmux-workspace-pr-poller/unknown"
+        )
+    }
+
     @Test func cachedETagRevalidatesAndReusesBodyAfterNotModified() async throws {
         let body = Data("[{\"number\":8175}]".utf8)
         GitHubPullRequestStubURLProtocol.reset(stubs: [
@@ -301,6 +350,56 @@ struct GitHubPullRequestRequestTests {
                 == now.addingTimeInterval(120)
         )
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
+    }
+
+    @Test func secondaryRateLimitAcceptsHTTPDateRetryAfter() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retryDate = now.addingTimeInterval(120)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss 'GMT'"
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(
+                statusCode: 429,
+                headers: ["Retry-After": formatter.string(from: retryDate)]
+            ),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        #expect(
+            await coordinator.retryDate(authHeader: "Bearer test-token")
+                == retryDate
+        )
+    }
+
+    @Test func bareRateLimitUsesConservativeRetryFloor() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 429),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        #expect(
+            await coordinator.retryDate(authHeader: "Bearer test-token")
+                == now.addingTimeInterval(60)
+        )
     }
 
     @Test func duplicateEndpointRequestsShareOneInFlightTransport() async {

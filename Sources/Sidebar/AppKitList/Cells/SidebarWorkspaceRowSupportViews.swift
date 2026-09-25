@@ -23,17 +23,13 @@ struct SidebarRowPalette {
         sidebarSelectedWorkspaceForegroundNSColor(on: selectedBackground, opacity: opacity)
     }
 
-    /// Preserves semantic colors, applying opacity lazily in the drawing appearance.
+    /// Resolves semantic colors against the row's concrete cmux scheme.
     func semantic(_ color: NSColor, opacity: CGFloat? = nil) -> NSColor {
-        guard let opacity else { return color }
-        return NSColor(name: nil) { appearance in
-            var resolved = color
-            appearance.performAsCurrentDrawingAppearance {
-                let candidate = color.withAlphaComponent(opacity)
-                resolved = candidate.usingColorSpace(.sRGB) ?? candidate
-            }
-            return resolved
-        }
+        SidebarAppearanceColorResolver().resolvedColor(
+            color,
+            for: colorScheme,
+            opacity: opacity
+        )
     }
 
     var primaryText: NSColor {
@@ -554,7 +550,7 @@ final class SidebarRowPullRequestLine: NSView {
         if clickable {
             titleButton.configure(
                 title: title, font: font, color: color, underlined: true,
-                toolTip: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open pull request"),
+                toolTip: String(format: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open %1$@ #%2$lld"), display.label, Int64(display.number)),
                 onClick: onOpen
             )
         } else {

@@ -574,10 +574,13 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
 }
 
 enum MinimalModeTitlebarDebugSettings {
-    static let leftControlsLeadingInsetKey = "titlebarDebug.leftControlsLeadingInset"
-    static let leftControlsTopInsetKey = "titlebarDebug.leftControlsTopInset"
-    static let trafficLightTabBarInsetKey = "titlebarDebug.trafficLightTabBarInset"
-    static let trafficLightTitlebarLeadingInsetKey = "titlebarDebug.trafficLightTitlebarLeadingInset"
+    // No "." in these keys: ContentView and VerticalTabsSidebar read them through
+    // @AppStorage, and SwiftUI re-evaluated every view holding a dotted
+    // @AppStorage key when an unrelated key changed (#13930).
+    static let leftControlsLeadingInsetKey = "titlebarDebugLeftControlsLeadingInset"
+    static let leftControlsTopInsetKey = "titlebarDebugLeftControlsTopInset"
+    static let trafficLightTabBarInsetKey = "titlebarDebugTrafficLightTabBarInset"
+    static let trafficLightTitlebarLeadingInsetKey = "titlebarDebugTrafficLightTitlebarLeadingInset"
 
     static let defaultLeftControlsLeadingInset = 72.0
     static let defaultLeftControlsTopInset = 2.0
@@ -656,6 +659,24 @@ enum MinimalModeTitlebarDebugSettings {
             trafficLightTabBarLeadingInset: Double(trafficLightTabBarLeadingInset(defaults: defaults)),
             trafficLightTitlebarLeadingInset: Double(trafficLightTitlebarLeadingInset(defaults: defaults))
         )
+    }
+
+    /// Moves values saved under the dotted keys these settings used before #13930.
+    /// A value already stored under the new key wins; the legacy key is removed.
+    static func migrateLegacyKeysIfNeeded(defaults: UserDefaults = .standard) {
+        let legacyKeys = [
+            ("titlebarDebug.leftControlsLeadingInset", leftControlsLeadingInsetKey),
+            ("titlebarDebug.leftControlsTopInset", leftControlsTopInsetKey),
+            ("titlebarDebug.trafficLightTabBarInset", trafficLightTabBarInsetKey),
+            ("titlebarDebug.trafficLightTitlebarLeadingInset", trafficLightTitlebarLeadingInsetKey),
+        ]
+        for (legacyKey, key) in legacyKeys {
+            guard let value = defaults.object(forKey: legacyKey) else { continue }
+            defaults.removeObject(forKey: legacyKey)
+            if defaults.object(forKey: key) == nil {
+                defaults.set(value, forKey: key)
+            }
+        }
     }
 
     private static func storedDouble(
@@ -813,7 +834,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
-    case cloudVM
+    case newWorkspaceMenu
     case focusHistoryBack
     case focusHistoryForward
 
@@ -825,8 +846,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "titlebarControl.showNotifications"
         case .newTab:
             return "titlebarControl.newTab"
-        case .cloudVM:
-            return "titlebarControl.cloudVM"
+        case .newWorkspaceMenu:
+            return "titlebarControl.newWorkspaceMenu"
         case .focusHistoryBack:
             return "titlebarControl.focusHistoryBack"
         case .focusHistoryForward:
@@ -842,8 +863,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
             return String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace")
-        case .cloudVM:
-            return String(localized: "titlebar.cloudVM.accessibilityLabel", defaultValue: "Cloud VM")
+        case .newWorkspaceMenu:
+            return String(localized: "titlebar.newWorkspace.menu.accessibilityLabel", defaultValue: "New Workspace Menu")
         case .focusHistoryBack:
             return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
         case .focusHistoryForward:
@@ -859,8 +880,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "showNotifications"
         case .newTab:
             return "newTab"
-        case .cloudVM:
-            return "cloudVM"
+        case .newWorkspaceMenu:
+            return "newWorkspaceMenu"
         case .focusHistoryBack:
             return "focusHistoryBack"
         case .focusHistoryForward:
@@ -870,7 +891,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .toggleSidebar, .newTab, .cloudVM, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .newTab, .newWorkspaceMenu, .focusHistoryBack, .focusHistoryForward:
             return true
         case .showNotifications:
             return false

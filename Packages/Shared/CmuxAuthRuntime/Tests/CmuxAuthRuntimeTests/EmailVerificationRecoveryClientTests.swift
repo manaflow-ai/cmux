@@ -57,4 +57,28 @@ import Testing
             }
         }
     }
+
+    @Test func postsBillingRecoveryToTheDedicatedEndpoint() async throws {
+        let client = EmailVerificationRecoveryClient(
+            apiBaseURL: "https://cmux.com",
+            load: { request in
+                #expect(request.url?.absoluteString == "https://cmux.com/api/billing/recover")
+                #expect(request.httpMethod == "POST")
+                let body = try #require(request.httpBody)
+                let object = try #require(
+                    JSONSerialization.jsonObject(with: body) as? [String: String]
+                )
+                #expect(object == ["email": "billingfixture@gmail.com"])
+                let response = try #require(HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 202,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
+                return (Data(#"{"ok":true}"#.utf8), response)
+            }
+        )
+
+        try await client.requestBillingRecovery(for: " BillingFixture@Gmail.com ")
+    }
 }

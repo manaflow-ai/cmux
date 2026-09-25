@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXAuthCore
 import CmuxAuthRuntime
 import AppKit
@@ -26,6 +27,8 @@ struct MacAuthComposition {
     let browserAppSession: BrowserAppSessionController
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
+    /// Reconciles Cloud transports with the coordinator's selected team.
+    let cloudTeamScopeObserver: CloudTeamScopeObserver
 
     /// Build the auth graph.
     /// - Parameters:
@@ -114,14 +117,18 @@ struct MacAuthComposition {
             ),
             defaults: defaults
         )
+        let includesDevAuth = Self.includesDevAuth(
+            resolvedAuthEnvironment: resolvedAuthEnvironment
+        )
+        let replacesStoredDevSession = includesDevAuth
+            && resolvedEnvironment["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1"
         let launch = AuthLaunchOptions(
             clearAuthRequested: resolvedEnvironment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: false,
             environment: resolvedEnvironment,
-            includesDevAuth: Self.includesDevAuth(
-                resolvedAuthEnvironment: resolvedAuthEnvironment
-            ),
-            clearStaleAuthOnLaunch: authProjectSwitched
+            includesDevAuth: includesDevAuth,
+            clearStaleAuthOnLaunch: authProjectSwitched,
+            replaceStoredSessionWithAutoLogin: replacesStoredDevSession
         )
 
         let anchor = AuthPresentationContextProvider()
@@ -141,6 +148,7 @@ struct MacAuthComposition {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
             onSignedIn: {
+                await CmuxTuiSurfaceProviderRegistry.shared.resumeAfterSignIn()
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
@@ -173,14 +181,32 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
+                // Tear down local Cloud VM workspaces before the coordinator
+                // clears auth. This closes live WebSockets, removes persisted
+                // reconnect configuration, and prevents a signed-out Mac (or
+                // a paired phone still connected to it) from retaining a
+                // usable remote surface.
+                AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
-                MobileHostIrohRuntime.shared.beginSignOutPreparation()
+                DeviceRegistryClient.shared.beginSignOut()
+                MobileHostIrxRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
-                await MobileHostIrohRuntime.shared.revokeAfterSignOut(
+                await DeviceRegistryClient.shared.withdrawForSignOut(
+                    accessToken: accessToken, refreshToken: refreshToken
+                )
+                await VMClient.revokeCloudAccess(
+                    deviceID: MobileHostIdentity.deviceID(),
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
+                // Endpoint/preview credentials are separate from Stack Auth;
+                // revoke them with the captured pre-clear token pair before
+                // the coordinator's server-session revocation tail completes.
+                await VMClient.revokeEndpointLeases(
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
@@ -191,11 +217,15 @@ struct MacAuthComposition {
             coordinator: coordinator,
             browserSignIn: browserSignIn
         )
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        }
     }
 
     /// Begin asynchronous session restore. Call once after construction, at
     /// the composition root.
     func start() {
+        cloudTeamScopeObserver.start()
         coordinator.start()
     }
 
@@ -282,11 +312,32 @@ struct MacAuthComposition {
             )
         }
         guard let resolved = resolver.resolve() else {
-            return environment
+            var unresolved = environment
+            unresolved["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = nil
+            unresolved["CMUX_DEV_AUTH_REPLACE_SESSION"] = nil
+            return unresolved
         }
+        let replacementRequested = environment[DebugDogfoodCredentialResolver.authProfileEnvironmentKey] != nil
+            || environment[DebugDogfoodCredentialResolver.explicitCredentialsFileEnvironmentKey] != nil
+            || environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
         var merged = environment
         merged["CMUX_UITEST_STACK_EMAIL"] = resolved.email
         merged["CMUX_UITEST_STACK_PASSWORD"] = resolved.password
+        if replacementRequested {
+            // Credential resolution is the deterministic identity selection
+            // for an explicit tagged DEBUG launch, even when the source is a
+            // file and the secret values never arrive in the process
+            // environment. Mirror the iOS launch contract so a stale stored
+            // session cannot survive under a different account.
+            merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = "1"
+            merged["CMUX_DEV_AUTH_REPLACE_SESSION"] = "1"
+        } else {
+            // Preserve legacy launches that only discover ambient credentials:
+            // they may auto-login when signed out, but must not clear an active
+            // persisted session on every ordinary restart.
+            merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] = nil
+            merged["CMUX_DEV_AUTH_REPLACE_SESSION"] = nil
+        }
         return merged
     }
     #else
