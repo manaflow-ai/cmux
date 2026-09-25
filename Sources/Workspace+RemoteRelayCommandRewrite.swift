@@ -36,29 +36,15 @@ extension Workspace {
         surfaceAliases: [UUID: UUID],
         remoteWorkspaceID: UUID? = nil
     ) -> Data {
-        rewriteRemoteRelayCommandLineAndExtractMethod(
-            commandLine,
-            workspaceAliases: workspaceAliases,
-            surfaceAliases: surfaceAliases,
-            remoteWorkspaceID: remoteWorkspaceID
-        ).commandLine
-    }
-
-    nonisolated static func rewriteRemoteRelayCommandLineAndExtractMethod(
-        _ commandLine: Data,
-        workspaceAliases: [UUID: UUID],
-        surfaceAliases: [UUID: UUID],
-        remoteWorkspaceID: UUID? = nil
-    ) -> (commandLine: Data, method: String?) {
         guard !workspaceAliases.isEmpty || !surfaceAliases.isEmpty || remoteWorkspaceID != nil,
               let line = String(data: commandLine, encoding: .utf8) else {
-            return (commandLine, nil)
+            return commandLine
         }
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedLine.hasPrefix("{"),
               let requestData = trimmedLine.data(using: .utf8),
               var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return (commandLine, nil)
+            return commandLine
         }
         let method = (request["method"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -118,12 +104,12 @@ extension Workspace {
         guard didRewrite,
               JSONSerialization.isValidJSONObject(request),
               let rewritten = try? JSONSerialization.data(withJSONObject: request, options: []) else {
-            return (commandLine, method)
+            return commandLine
         }
         if commandLine.last == 0x0A {
-            return (rewritten + Data([0x0A]), method)
+            return rewritten + Data([0x0A])
         }
-        return (rewritten, method)
+        return rewritten
     }
 
     private nonisolated static func remappedRemoteRelayValue(
