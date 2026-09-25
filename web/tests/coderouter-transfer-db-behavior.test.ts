@@ -4,7 +4,7 @@ import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import { encryptCredential, decryptCredential, type CredentialKeyService } from "../services/coderouter/encryption";
 import { CodeRouterCredentialRace, encryptedCredentialForAccount, transferEncryptedAccount } from "../services/coderouter/repository";
-import { parseCredential } from "../services/coderouter/accounts";
+import { parseCredential, transferAccount } from "../services/coderouter/accounts";
 
 const enabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = enabled ? test : test.skip;
@@ -79,4 +79,24 @@ dbTest("a duplicate destination identity rolls back both rows", async () => {
   const stored = await encryptedCredentialForAccount(source, input.accountId);
   expect(stored?.credentialRevision).toBe(1);
   expect(await decryptCredential(stored!, keys)).toEqual(credential);
+});
+
+dbTest("refuses another member's private account before any key operation", async () => {
+  const input = await fixture();
+  await db`update coderouter_accounts set visibility = 'private', created_by = 'transfer-other-user' where id = ${input.accountId}`;
+  let keyOperations = 0;
+  const countingKeys: CredentialKeyService = {
+    async generateDataKey(request) { keyOperations += 1; return await keys.generateDataKey(request); },
+    async decryptDataKey(request) { keyOperations += 1; return await keys.decryptDataKey(request); },
+  };
+  expect(await transferAccount({
+    accountId: input.accountId,
+    sourceTeamId: source,
+    destinationTeamId: destination,
+    stackUserId: "transfer-test-user",
+  }, countingKeys)).toBe(false);
+  expect(keyOperations).toBe(0);
+  const [account] = await db`select team_id from coderouter_accounts where id = ${input.accountId}`;
+  expect(account?.team_id).toBe(source);
+  expect((await encryptedCredentialForAccount(source, input.accountId))?.credentialRevision).toBe(1);
 });
