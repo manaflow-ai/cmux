@@ -136,8 +136,7 @@ private struct AgentLockHolderFixture {
         pid, fd = pty.fork()
         if pid == 0:
             signal.signal(signal.SIGHUP, lambda *_: os.write(ack, b'hup\\n'))
-            if ignore_term:
-                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN if ignore_term else signal.SIG_DFL)
             lock = open(lock_path, 'a+')
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             os.write(ack, (str(os.getpid()) + '\\n').encode())
@@ -252,6 +251,17 @@ private struct AgentLockHolderFixture {
         arguments: [String],
         environment: [String: String]
     ) throws -> pid_t {
+        // GCD workers can block SIGHUP. The child must start with its own
+        // unblocked signal state so its explicit acknowledgments are meaningful.
+        var attributes: posix_spawnattr_t?
+        var status = posix_spawnattr_init(&attributes)
+        guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO) }
+        defer { posix_spawnattr_destroy(&attributes) }
+        var signalMask = sigset_t()
+        sigemptyset(&signalMask)
+        status = posix_spawnattr_setsigmask(&attributes, &signalMask)
+        if status == 0 { status = posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGMASK)) }
+        guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO) }
         var processID: pid_t = 0
         var argumentPointers = arguments.map { strdup($0) }
         argumentPointers.append(nil)
@@ -268,7 +278,7 @@ private struct AgentLockHolderFixture {
                         &processID,
                         executablePointer,
                         nil,
-                        nil,
+                        &attributes,
                         argumentBuffer.baseAddress,
                         environmentBuffer.baseAddress
                     )

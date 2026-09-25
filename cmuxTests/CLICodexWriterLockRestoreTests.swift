@@ -77,15 +77,22 @@ struct CLICodexWriterLockRestoreTests {
             let socket = "/tmp/cmux-writer-\(UUID().uuidString.prefix(8)).sock"
             let responder = try UnixSocketResponder(path: socket, responses: responses)
             defer { responder.stop() }
+            var environment = [
+                "HOME": root.path, "CFFIXED_USER_HOME": root.path, "PATH": "/usr/bin:/bin",
+                "CMUX_SOCKET_PATH": socket, "CMUX_CLI_SENTRY_DISABLED": "1", "SHELL": "/bin/sh"
+            ]
+            // CI relocates test-built package frameworks. Preserve only those
+            // loader overrides, so this CLI uses the same product as its host.
+            for key in ["DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH"] {
+                environment[key] = ProcessInfo.processInfo.environment[key]
+            }
             let result = runner.runProcess(
                 executablePath: cli, arguments: ["restore", "--surface", surface, "codex", session],
-                environment: [
-                    "HOME": root.path, "CFFIXED_USER_HOME": root.path, "PATH": "/usr/bin:/bin",
-                    "CMUX_SOCKET_PATH": socket, "CMUX_CLI_SENTRY_DISABLED": "1", "SHELL": "/bin/sh"
-                ],
+                environment: environment,
                 timeout: 20
             )
             try #require(!result.timedOut, Comment(rawValue: result.diagnostics))
+            try #require(!result.diedFromSignal, Comment(rawValue: result.diagnostics))
             let requests = try responder.receivedRequests.map { request in
                 try #require(JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])
             }
