@@ -20,6 +20,23 @@ from unittest.mock import patch
 import yaml
 
 
+def _disable_git_auto_maintenance() -> None:
+    """Stop git from leaving a background writer in fixture repositories.
+
+    git commit, fetch, and clone start `git maintenance run --auto --detach`,
+    which can outlive the command and still be writing into `.git` when a
+    TemporaryDirectory is removed ("Directory not empty: '.git'"). Every git
+    child of this module, including the ones the routed workflow scripts
+    start, inherits this environment.
+    """
+    index = int(os.environ.get("GIT_CONFIG_COUNT") or 0)
+    os.environ[f"GIT_CONFIG_KEY_{index}"] = "maintenance.auto"
+    os.environ[f"GIT_CONFIG_VALUE_{index}"] = "false"
+    os.environ["GIT_CONFIG_COUNT"] = str(index + 1)
+
+
+_disable_git_auto_maintenance()
+
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
