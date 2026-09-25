@@ -40,10 +40,14 @@ struct FoundationRemoteReverseRelayProcessTests {
         }
 
         var iterator = details.makeAsyncIterator()
-        #expect(
-            await iterator.next()
-                == "Error: remote port forwarding failed for listen port 64044"
-        )
+        let nextDetail = await iterator.next()
+        guard let optionalDetail = nextDetail, let detail = optionalDetail else {
+            Issue.record("Expected a termination diagnostic")
+            return
+        }
+        #expect(detail.contains("Error: remote port forwarding failed for listen port 64044"))
+        #expect(detail.contains("Connection to example.com closed."))
+        #expect(detail.contains("debug1: cleanup"))
         #expect(process.terminationStatus == 255)
     }
 
