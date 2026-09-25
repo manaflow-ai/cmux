@@ -2433,19 +2433,33 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(self.live(9, 9, variable="blacksmith-12vcpu-macos-26").persistent)
         self.assertFalse(self.live(9, 9, ios_version="26.4").persistent)
 
+    def test_live_capacity_respects_the_pool_order(self):
+        load = ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=9, sim=9))
+        kwargs = dict(ios_owned="1", owned="1", owned_slots=json.dumps(IOS_SLOTS), pr_xcode_app=PR_XCODE,
+                      max_queued="", measure=lambda: load, now=NOW)
+        self.assertTrue(ios_pool.resolve("test-ios", "auto", "", order="", **kwargs).persistent)
+        light = MINI.replace("-std-", "-light-")
+        self.assertFalse(ios_pool.resolve("test-ios", "auto", "", order=f"{light},{SMALL}", **kwargs).persistent)
+
     def test_live_free_counts_idle_pool_runners_and_the_simulators_among_them(self):
         def runner(*labels, status="online", busy=False):
             return {"status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
 
         runners = [runner(MINI, IOS_SIM), runner(MINI, IOS_SIM), runner(MINI), runner(MINI, IOS_SIM, busy=True),
                    runner(MINI, IOS_SIM, status="offline"), runner(IOS_SIM), runner("glaeda-std-xcode-26.5", IOS_SIM)]
-        self.assertEqual(ios_pool.live_free(runners, MINI, []), ios_pool.LiveFree(pool=3, sim=2))
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW), ios_pool.LiveFree(pool=3, sim=2))
         title = "iOS tests · main · {} · all · {} · default · on {}"
-        recent = [{"display_title": title.format("simulator", "iphone", "auto")},  # 2 machines, 1 simulator
-                  {"display_title": title.format("CmuxSyncStore", "all", "auto")},  # 1 machine
+        fresh = pool.iso(NOW - dt.timedelta(minutes=1))
+        recent = [{"display_title": title.format("simulator", "iphone", "auto"), "created_at": fresh},  # 2, 1 sim
+                  {"display_title": title.format("CmuxSyncStore", "all", "auto"), "created_at": fresh},  # 1, 0
                   {"display_title": title.format("simulator", "all", "blacksmith-6vcpu-macos-26")},  # none
                   {"display_title": "iOS screenshots"}]  # unparsed: in full
-        self.assertEqual(ios_pool.live_free(runners, MINI, recent), ios_pool.LiveFree(pool=3 - 5, sim=2 - 3))
+        self.assertEqual(ios_pool.live_free(runners, MINI, recent, now=NOW),
+                         ios_pool.LiveFree(pool=3 - 5, sim=2 - 3))
+        # A run past the live window still holds its later simulator matrix, not unstarted machines.
+        older = [{"display_title": title.format("simulator", "all", "auto"),
+                  "created_at": pool.iso(NOW - dt.timedelta(minutes=20))}]
+        self.assertEqual(ios_pool.live_free(runners, MINI, older, now=NOW), ios_pool.LiveFree(pool=3, sim=0))
 
     def test_main_reads_runners_with_the_route_token_and_falls_back_on_error(self):
         idle = [{"status": "online", "busy": False, "labels": [{"name": MINI}, {"name": IOS_SIM}]}] * 2
