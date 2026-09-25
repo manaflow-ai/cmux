@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Gives both levels of the account menu the same compact row rhythm.
+/// Gives account actions and the Cloud team menu the same compact row rhythm.
 struct SidebarAccountMenuButtonStyle: ButtonStyle {
     static let rowHeight: CGFloat = 26
 

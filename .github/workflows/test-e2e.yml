@@ -29,7 +29,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; on the 6vcpu macOS 26 default it takes the macOS 26 pool pull request CI would, 12vcpu first while it has headroom; tart-* choices use isolated VMs)"
+        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; on the 6vcpu macOS 26 default it takes the pool pull request CI would: an owned Mac with a free slot when CI_PR_POOL_OWNED is 1, else 12vcpu while it has headroom, else 6vcpu; glaeda-* are the owned Macs and record no video)"
         required: false
         default: "auto"
         type: choice
@@ -39,9 +39,7 @@ on:
           - blacksmith-6vcpu-macos-26
           - blacksmith-12vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
-          - tart-canary
-          - tart-dual
-          - tart-small
+          - glaeda-std-xcode-26.6
 
 # run-name and the concurrency group cannot read job outputs, so they spell
 # `auto` as the 6vcpu default even when the runner job routes the run to
@@ -69,12 +67,16 @@ jobs:
     # The macOS pool build and test run on. `auto` follows MACOS_RUNNER_TESTS.
     # On the 6vcpu macOS 26 default an E2E run takes a macOS 26 pool by pull
     # request CI's rule (pr_runner_pool.py): the first pool in CI_PR_POOL_ORDER
-    # (12vcpu, then 6vcpu) with fewer than CI_PR_POOL_MAX_QUEUED jobs queued
-    # (default 3) and no release or nightly job queued on it. Every Blacksmith
+    # (12vcpu, then 6vcpu) with a machine free and no release or nightly job
+    # queued on it, else the shorter queue in rounds. Every Blacksmith
     # pool is sponsored; only a queued release or nightly job holds 12vcpu
     # back. Any error reading the queue stays on 6vcpu, and
     # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the
-    # same rule from the same script.
+    # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
+    # (glaeda-*) comes first while its job starts within CI_PR_POOL_QUEUE_ROUNDS
+    # job lengths and no later than on Blacksmith, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
+    # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
+    # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
@@ -86,6 +88,9 @@ jobs:
       # e2e_runner_pool.py only knows the manaflow-ai pools, so a fork takes
       # the GitHub-hosted image here, as in run-name and the concurrency group.
       label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
+      # What build and test take from attempt 2 on: the label, except that an
+      # owned Mac becomes the 6vcpu macOS 26 pool (same Xcode build).
+      retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -108,6 +113,12 @@ jobs:
           LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
         run: |
           set -euo pipefail
           label="$(python3 scripts/ci/e2e_runner_pool.py \
@@ -115,14 +126,59 @@ jobs:
             --variable "$RUNNER_VARIABLE" \
             --overflow "$LARGE_POOL_OVERFLOW" \
             --order "$POOL_ORDER" \
-            --max-queued "$POOL_MAX_QUEUED")"
-          echo "label=$label" >> "$GITHUB_OUTPUT"
-          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto})"
+            --max-queued "$POOL_MAX_QUEUED" \
+            --queue-rounds "$POOL_QUEUE_ROUNDS" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP" \
+            --test-filter "$TEST_FILTER" \
+            --owned-ui "$OWNED_UI")"
+          retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label")"
+          {
+            echo "label=$label"
+            echo "retry_label=$retry_label"
+          } >> "$GITHUB_OUTPUT"
+          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto}; a re-run takes $retry_label)"
+
+      # ci-owned-pool-rescue.yml's sweeper watches a run
+      # with this marker and re-runs a job an owned Mac leaves queued or
+      # refuses. Fail-safe: without it the run is only not watched.
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+      # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
+      # it watches by this fixed name, one listing for all of them.
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
 
   filter:
     # Seconds on Linux, and it rejects a malformed selector before either
     # macOS job is scheduled. After the build/test split a bad filter would
     # otherwise surface only once a full compile had already been paid for.
+    # It reads the pool only to turn video off on owned Macs.
+    needs: [runner]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       target: ${{ steps.filter.outputs.target }}
@@ -137,6 +193,7 @@ jobs:
         env:
           TEST_FILTER_INPUT: ${{ inputs.test_filter }}
           RECORD_VIDEO_INPUT: ${{ inputs.record_video }}
+          RUNNER_LABEL: ${{ needs.runner.outputs.label }}
         run: |
           set -euo pipefail
           raw_filter="$TEST_FILTER_INPUT"
@@ -234,6 +291,17 @@ jobs:
           if [ "$test_target" = "cmuxUITests" ] && [ "$RECORD_VIDEO_INPUT" = "true" ]; then
             record_video_effective="true"
           fi
+          # Owned Macs (glaeda-*) keep SIP on, so the workflow cannot grant
+          # screen capture through the TCC database the way it does on
+          # Blacksmith. Their tests run without video rather than fail on it.
+          case "$RUNNER_LABEL" in
+            glaeda-*)
+              if [ "$record_video_effective" = "true" ]; then
+                echo "::notice::No video on owned Mac $RUNNER_LABEL; the tests still run."
+              fi
+              record_video_effective="false"
+              ;;
+          esac
 
           {
             echo "target=$test_target"
@@ -285,7 +353,7 @@ jobs:
     needs: [resolve-ref, filter, runner, sibling]
     # The sibling wait never gates the build.
     if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && needs.filter.result == 'success' && needs.runner.result == 'success' }}
-    runs-on: ${{ needs.runner.outputs.label }}
+    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
     # Reuse lists this contract's artifacts and downloads one from an earlier
     # run. Nothing else in this lane reads the Actions API, and nothing writes.
     permissions:
@@ -307,7 +375,9 @@ jobs:
       # can match; elsewhere keep select-ci-xcode.sh's pool default, which is
       # the only Xcode the macOS 15 image carries (as pr_runner_pool.py pairs
       # them).
-      CMUX_CI_XCODE_APP: ${{ contains(needs.runner.outputs.label, 'macos-26') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names that same
+      # pin, and a re-run of it takes a macOS 26 pool.
+      CMUX_CI_XCODE_APP: ${{ (contains(needs.runner.outputs.label, 'macos-26') || startsWith(needs.runner.outputs.label, 'glaeda-')) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # Match the compile-admission contract so an E2E dispatch can adopt the
       # product a pull request already compiled for the same revision.
       # contract() hashes the Xcode and SDK that were selected, not the
@@ -316,7 +386,7 @@ jobs:
       # same Xcode build and macOS major. The intra-run handoff uses the
       # artifact id, not the name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.label }}
+      CMUX_PRODUCT_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -335,25 +405,6 @@ jobs:
               fi
               ;;
           esac
-
-      - name: Validate Tart canary identity
-        if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-              exit 1
-              ;;
-          esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -464,11 +515,20 @@ jobs:
           mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
           echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
+      # Restore only, from the seed nightly.yml saves after a resolve. This job
+      # resolves in the canonical root, so the workspace copy is still exactly
+      # what was restored: saving it (as actions/cache did) stored a fallback
+      # restore of the previous Package.resolved under the new exact key, and
+      # every later exact hit then failed its offline resolve and fetched every
+      # remote (run 36134675453: 44 s wasted, then 86 s online).
       - name: Cache Swift packages
         id: swift-package-cache
         if: ${{ steps.reuse.outputs.hit != 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
@@ -584,7 +644,19 @@ jobs:
           # (Build/._Products) for Xcode's xattrs. macOS tar folds them back
           # in on extract, so the test job never noticed, but cross-run reuse
           # extracts with Python and rejects them as unscoped paths.
-          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
+          # Build/Products reaches each framework binary through Versions/Current
+          # symlinks, and product extractors accept no symlinks, so `tar -h` stored
+          # every framework binary three times: 1.9 GB on disk became 2.7 GB of
+          # tar and 830 MB gzipped. Stage the tree as hard links with the symlinks
+          # followed (the same tree `tar -h` wrote, beside the DerivedData so the
+          # links stay on one volume); tar then stores each file once and every
+          # other path as a hard link, which tar -x, aa and
+          # reuse_app_host_products.py all extract. Same files, 572 MB, packed
+          # faster.
+          stage="$(mktemp -d "${CMUX_DERIVED_DATA_PATH%/*}/.product-pack.XXXXXX")"
+          trap 'rm -rf "$stage"' EXIT
+          (cd "$CMUX_DERIVED_DATA_PATH" && pax -rwlL Build/Products "$stage")
+          COPYFILE_DISABLE=1 tar -cf - -C "$stage" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "bytes=$(wc -c < "$archive" | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
@@ -728,7 +800,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ needs.runner.outputs.label }}
+    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
@@ -764,25 +836,6 @@ jobs:
               fi
               ;;
           esac
-
-      - name: Validate Tart canary identity
-        if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-              exit 1
-              ;;
-          esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -1060,8 +1113,8 @@ jobs:
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
             # A persistent AVFoundation capture session prevents
-            # XCUIApplication from foregrounding a macOS app on both Warp and
-            # Tart. Capture independent JPEG frames instead, then assemble
+            # XCUIApplication from foregrounding a macOS app on self-hosted
+            # VMs. Capture independent JPEG frames instead, then assemble
             # them after XCTest exits. No recorder owns the display while the
             # app is activating.
             GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"

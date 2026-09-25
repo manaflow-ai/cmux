@@ -12,6 +12,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Run directly by CI and loaded by path from tests; keep the sibling import
+# working under both.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import product_input_identity as product_inputs  # noqa: E402
+
 SCHEMES = {
     "cmux": "CMUX_UI_XCTESTRUN",
     "cmux-unit": "CMUX_APP_HOST_XCTESTRUN",
@@ -75,9 +81,15 @@ def check_xcode(produced: str | None, current: str) -> None:
 
 
 def manifests(products: Path) -> dict[str, Path]:
-    """Require one test manifest for each scheme, never silently select an old one."""
+    """Require one test manifest per scheme the active profile builds.
+
+    Exactly the profile's schemes, never a subset: a product missing a manifest
+    its key claims is a partial product, and a consumer restoring it would test
+    something that was never built. The scheme set comes from PRODUCT_PROFILES
+    so this check and the build cannot disagree.
+    """
     found = {}
-    for scheme in SCHEMES:
+    for scheme in product_inputs.profile_schemes():
         matches = list(products.glob(f"{scheme}_*.xctestrun"))
         if len(matches) != 1:
             raise ValueError(f"expected one {scheme} test manifest, found {len(matches)}")

@@ -6,6 +6,7 @@
     seed_derived_data.py start DERIVED_DATA PREFIX REVISION
     seed_derived_data.py adopt SOURCE DERIVED_DATA PREFIX REVISION
     seed_derived_data.py scope PREFIX
+    seed_derived_data.py prefetch STORE REVISION
 
 nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
@@ -44,12 +45,33 @@ prefix a saver writes under, and `start` and `adopt` take the unscoped
 PREFIX, prefer their own width, and fall back to another width's seed,
 which still beats a cold build.
 
+An owned Mac downloads a seed at about a third of Blacksmith's speed (about
+190 s against 64 s on 2026-09-25). With CMUX_SEED_LOCAL_CACHE set, `adopt`
+clones the seed it just restored into that directory, keeping as many as the
+disk holds (prune_local), and `start` and `adopt` clone an exact key from there instead of
+downloading it. A clone shares blocks on APFS, so it costs seconds.
+owned_build_state.py `prefer` reads the same cache. The cache is this Mac's
+own state, like its kept DerivedData: nothing in it is uploaded.
+
+A job's own download still costs it those 190 s whenever the Mac has not seen
+the seed yet, and the newest seed moves with every main push. So an idle
+owned Mac fetches ahead: `prefetch` reads the seed prefix the last owned job
+on that root recorded (SEED_SOURCE in STORE, written by owned_build_state.py
+`check`), finds REVISION's nearest seed of this width, and downloads it into
+STORE/seeds when it is not there yet. It runs outside any job, from glaeda on
+the Mac, with no credentials: the bucket is publicly readable, and REVISION's
+history comes from a local git directory (CMUX_SEED_GIT_DIR) instead of the
+GitHub API. Nothing a job is cloning is pruned under it: `adopt` touches the
+seed before cloning, and the prune spares seeds touched in the last
+PRUNE_GRACE_SECONDS.
+
 Only jobs holding the bucket credentials can write R2 objects or pointers, and
 only the main-branch seeder is given them, so a pull request can read the seed
 but never replace it.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -77,9 +99,34 @@ R2_CACHE = Path(__file__).resolve().parent / "r2-cache.sh"
 # main seeds about one commit in ten, so fifty ancestors reach back several
 # seeds; past that the newest pointer is as good as anything.
 ANCESTOR_LIMIT = 50
-# The widths seed-derived-data.yml seeds at: the 12 and 6 vCPU macOS 26 pools.
-SEEDED_JOB_WIDTHS = (12, 6)
+# The widths seed-derived-data.yml seeds at: 12 on the 12 vCPU macOS 26 pool,
+# 6 on the 6 vCPU macOS 26 and macOS 15 pools, 14 on the trusted owned mini
+# (M4 Pro) that seeds for the owned std pool. The macOS 15 seeds carry their
+# own Xcode in the key's fingerprint, so a width is shared, never a seed.
+# Fallbacks go in this order after a runner's own width.
+SEEDED_JOB_WIDTHS = (12, 6, 14)
 USER_AGENT = "cmux-ci-seed-derived-data"
+# Seeds each canonical root keeps in its CMUX_SEED_LOCAL_CACHE (roots do not
+# share seeds: the keys carry the root). The disk is there to use: a kept seed
+# clones in 14 to 42 s where a download takes 180 to 280 s, and main moves 5 to
+# 8 commits per seed, so every seed within ANCESTOR_LIMIT commits of a job's
+# base can be its cheapest start. Keep up to LOCAL_KEEP per root, and drop the
+# oldest seeds on the whole Mac, whichever root holds them, while free space is
+# under LOCAL_KEEP_MIN_FREE_BYTES: the admission floor (25 + 25 GiB per slot,
+# 125 GiB at 4 slots) plus one cold compile (up to 36 GiB) and one seed
+# download (about 8 GB). That is also above glaeda-disk's pressure trigger
+# (15% of the disk, capped at 150 GiB). Each root keeps its newest
+# LOCAL_KEEP_LOW_DISK whatever the disk says.
+LOCAL_KEEP = 48
+LOCAL_KEEP_LOW_DISK = 2
+LOCAL_KEEP_MIN_FREE_BYTES = 170 * 1024**3
+# Seeds are APFS clones of DerivedData that jobs also clone, so deleting one
+# may free little. Under pressure, stop once a delete frees less than this.
+PRUNE_MIN_FREED_BYTES = 1024**3
+# A seed touched this recently may be mid-clone by a job; the prune spares it.
+PRUNE_GRACE_SECONDS = 600
+# owned_build_state.py `check` records here which seeds this root adopts.
+SEED_SOURCE = "seed-source.json"
 # Shorter than the adopt step's 8-minute timeout, so adopt stops the detached
 # download itself rather than leaving it pulling a seed through the compile.
 FETCH_WAIT_SECONDS = 420
@@ -126,6 +173,17 @@ def prune(derived: Path) -> dict[str, object]:
 def lineage(revision: str) -> list[str]:
     """REVISION, then its ancestors newest first. Only REVISION if unknown."""
     repository = os.environ.get("GITHUB_REPOSITORY", "")
+    git_dir = os.environ.get("CMUX_SEED_GIT_DIR", "")
+    if not repository and git_dir:
+        try:
+            listed = subprocess.run(
+                ["git", "-C", git_dir, "rev-list", "--first-parent", f"--max-count={ANCESTOR_LIMIT}", revision],
+                check=True, capture_output=True, text=True, timeout=60,
+            ).stdout.split()
+        except (OSError, subprocess.SubprocessError) as error:
+            print(f"seed: ancestors of {revision} unknown ({type(error).__name__}); trying it alone")
+            return [revision]
+        return [revision] + [sha for sha in listed if sha != revision]
     if not repository:
         return [revision]
     try:
@@ -234,13 +292,167 @@ def fetch_detached(derived: Path, exact: str, prefix: str) -> None:
     partial.rename(beside(derived, ".seed.result"))
 
 
+def local_cache() -> Path | None:
+    value = os.environ.get("CMUX_SEED_LOCAL_CACHE", "")
+    return Path(value) if value else None
+
+
+def cached(key: str) -> Path | None:
+    """This Mac's copy of seed KEY, when it has a complete one."""
+    cache = local_cache()
+    if cache is None or not key or "/" in key or key.startswith("."):
+        return None
+    copy = cache / key
+    return copy if (copy / MANIFEST).is_file() else None
+
+
+def clone_tree(source: Path, destination: Path) -> None:
+    """An APFS clone of a directory tree, falling back to a copy."""
+    shutil.rmtree(destination, ignore_errors=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.copytree(source, destination, symlinks=True)
+
+
+def age(path: Path) -> float:
+    """Seconds since PATH was touched; 0 when another process just moved it away."""
+    try:
+        return time.time() - path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def free_bytes(cache: Path) -> int:
+    """Free space on CACHE's volume; 0 when it cannot be read, so the prune stays conservative."""
+    try:
+        return shutil.disk_usage(cache).free
+    except OSError:
+        return 0
+
+
+def seed_caches(cache: Path) -> list[Path]:
+    """Every root's seed cache on this Mac, CACHE first.
+
+    Root 1 keeps STATE/seeds and root N STATE/cmux-ci-N/seeds, and they share
+    one disk, so a short disk prunes the oldest seed of any root.
+    """
+    state = cache.parent.parent if cache.parent.name.startswith("cmux-ci-") else cache.parent
+    found = [cache]
+    for other in [state / "seeds", *sorted(state.glob("cmux-ci-*/seeds"))]:
+        if other.is_dir() and other.resolve() != cache.resolve():
+            found.append(other)
+    return found
+
+
+def prune_local(cache: Path, spare: Path | None = None) -> None:
+    """Drop each root's seeds past LOCAL_KEEP, then the Mac's oldest while the disk is short.
+
+    Every root keeps its newest LOCAL_KEEP_LOW_DISK. A seed touched in the last
+    PRUNE_GRACE_SECONDS (a job may be cloning it) and SPARE always stay.
+    """
+    candidates = []
+    for root in seed_caches(cache):
+        try:
+            entries = [entry for entry in root.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
+        except OSError:
+            continue
+        newest_first = sorted(entries, key=age)
+        for index, entry in enumerate(newest_first):
+            if index < LOCAL_KEEP_LOW_DISK or entry == spare or age(entry) <= PRUNE_GRACE_SECONDS:
+                continue
+            if index >= LOCAL_KEEP:
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                candidates.append(entry)
+    for entry in sorted(candidates, key=age, reverse=True):  # oldest first, across roots
+        before = free_bytes(cache)
+        if before >= LOCAL_KEEP_MIN_FREE_BYTES:
+            break
+        shutil.rmtree(entry, ignore_errors=True)
+        if free_bytes(cache) - before < PRUNE_MIN_FREED_BYTES:
+            break
+
+
+def keep_local(cache: Path, incoming: Path, key: str) -> None:
+    """Rename INCOMING into the cache as KEY, then prune the oldest (prune_local).
+
+    A complete copy of KEY that appeared meanwhile (a job stashed it during a
+    prefetch) stays: a job may be cloning it, so INCOMING goes instead.
+    """
+    if cached(key):
+        shutil.rmtree(incoming, ignore_errors=True)
+        with contextlib.suppress(OSError):
+            os.utime(cache / key)
+    else:
+        shutil.rmtree(cache / key, ignore_errors=True)
+        incoming.rename(cache / key)
+        os.utime(cache / key)
+    for stale in cache.glob(".*.incoming-*"):
+        if stale != incoming and age(stale) > PRUNE_GRACE_SECONDS:
+            shutil.rmtree(stale, ignore_errors=True)
+    prune_local(cache, spare=cache / key)
+
+
+def stash(derived: Path, key: str) -> None:
+    """Keep a copy of the seed just adopted, and prune the oldest (prune_local)."""
+    cache = local_cache()
+    if cache is None or not key or "/" in key or key.startswith(".") or cached(key):
+        return
+    incoming = cache / f".{key}.incoming-{os.getpid()}"
+    clone_tree(derived, incoming)
+    keep_local(cache, incoming, key)
+
+
+def prefetch(store: Path, revision: str) -> dict[str, object]:
+    """Download REVISION's nearest seed of this width into STORE/seeds, unless it is there."""
+    try:
+        source = json.loads((store / SEED_SOURCE).read_text())
+    except (OSError, ValueError):
+        return {"fetched": "false", "reason": "no owned job has recorded a seed prefix here"}
+    prefix = source.get("prefix", "")
+    if not isinstance(prefix, str) or not prefix.startswith("admission-derived-data-v1-"):
+        return {"fetched": "false", "reason": "recorded seed prefix is invalid"}
+    for name, value in (("RUNNER_OS", source.get("runner_os")), ("RUNNER_ARCH", source.get("runner_arch")),
+                        ("CI_CACHE_R2_PUBLIC_URL", source.get("public_url"))):
+        if isinstance(value, str) and value:
+            os.environ.setdefault(name, value)
+    cache = store / "seeds"
+    os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+    found = nearest(scoped(prefix), lineage(revision))
+    if found is None:
+        return {"fetched": "false", "reason": "no seed of this width in REVISION's history"}
+    key, distance = found
+    if cached(key):
+        # Nothing new lands, but a job may have filled the disk since: prune.
+        prune_local(cache, spare=cache / key)
+        return {"fetched": "false", "reason": "already kept", "key": key, "distance": distance}
+    cache.mkdir(parents=True, exist_ok=True)
+    incoming = cache / f".{key}.incoming-{os.getpid()}"
+    started = time.monotonic()
+    try:
+        matched = fetch(incoming, key, key)
+        if matched != key or not (beside(incoming, ".seed") / MANIFEST).is_file():
+            return {"fetched": "false", "reason": "download did not complete", "key": key}
+        beside(incoming, ".seed").rename(incoming)
+        keep_local(cache, incoming, key)
+    finally:
+        shutil.rmtree(incoming, ignore_errors=True)
+        clear_download(incoming)
+    return {"fetched": "true", "key": key, "distance": distance, "seconds": f"{time.monotonic() - started:.1f}"}
+
+
 def start(derived: Path, exact: str, prefix: str, revision: str = "", distance: int | None = None) -> None:
     """Download the seed in a process that outlives the calling step.
 
     Its output goes to a file, not the step's pipes, so the runner does not
-    wait for it at the end of the step. `adopt` prints that file.
+    wait for it at the end of the step. `adopt` prints that file. A seed this
+    Mac keeps (CMUX_SEED_LOCAL_CACHE) needs no download: `adopt` clones it.
     """
     clear_download(derived)
+    if cached(exact):
+        print(f"This Mac keeps {exact}; adopt clones it instead of downloading")
+        return
     derived.parent.mkdir(parents=True, exist_ok=True)
     with beside(derived, ".seed.log").open("w") as log:
         process = subprocess.Popen(
@@ -341,9 +553,17 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
     staging = beside(derived, ".seed")
     started = time.monotonic()
     try:
-        key = await_download(derived, exact, prefix)
-        if key is None:
-            key = fetch(derived, exact, prefix)
+        local = cached(exact)
+        if local:
+            # Nothing was started for it; a leftover ticket is another job's.
+            clear_download(derived)
+            os.utime(local)  # before the clone: the prune spares seeds touched just now
+            clone_tree(local, staging)
+            key = exact
+        else:
+            key = await_download(derived, exact, prefix)
+            if key is None:
+                key = fetch(derived, exact, prefix)
         if not key:
             return {"hit": "false", "reason": "no-seed"}
         manifest = staging / MANIFEST
@@ -352,6 +572,14 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
         recorded = json.loads(manifest.read_text())
         shutil.rmtree(derived, ignore_errors=True)
         staging.rename(derived)
+        stashed = "local" if local else "false"
+        if not local and local_cache() is not None:
+            try:
+                stash(derived, key)
+                stashed = "true"
+            except (OSError, shutil.Error) as error:
+                # The next job downloads it again; this one is unaffected.
+                print(f"Could not keep the seed on this Mac: {error}")
         unchanged, changed = warm.replay(source, recorded)
         if sys.platform == "darwin":
             # Both the checkout and the extracted DerivedData have new inodes;
@@ -366,9 +594,19 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
             "unchanged_inputs": str(unchanged),
             "changed_inputs": str(changed),
             "seconds": f"{time.monotonic() - started:.1f}",
+            "local": stashed,
         }
     finally:
         clear_download(derived)
+
+
+def chosen() -> tuple[str, int | None] | None:
+    """The kept seed owned_build_state.py `prefer` compared (CMUX_SEED_EXACT), if this Mac still has it."""
+    exact = os.environ.get("CMUX_SEED_EXACT", "")
+    if not cached(exact):
+        return None
+    distance = os.environ.get("CMUX_SEED_DISTANCE", "")
+    return exact, int(distance) if distance.isdigit() else None
 
 
 def main(argv: list[str]) -> int:
@@ -383,9 +621,12 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) == 5 and argv[1] == "start":
         prefix, revision = argv[3], argv[4]
-        exact, distance = locate(prefix, revision)
+        exact, distance = chosen() or locate(prefix, revision)
         # The newest-pointer fallback stays within this width.
         start(Path(argv[2]), exact, scoped(prefix), revision, distance)
+        return 0
+    if len(argv) == 4 and argv[1] == "prefetch":
+        print(json.dumps(prefetch(Path(argv[2]), argv[3])))
         return 0
     if len(argv) == 5 and argv[1] == "fetch":
         fetch_detached(Path(argv[2]), argv[3], argv[4])
@@ -394,7 +635,7 @@ def main(argv: list[str]) -> int:
         source, derived = Path(argv[2]).resolve(), Path(argv[3])
         prefix, revision = argv[4], argv[5]
         try:
-            exact, distance = picked(derived, scoped(prefix), revision) or locate(prefix, revision)
+            exact, distance = chosen() or picked(derived, scoped(prefix), revision) or locate(prefix, revision)
             result = adopt(source, derived, exact, scoped(prefix))
             if result.get("hit") == "true":
                 # Commits between the seed and REVISION; empty means the

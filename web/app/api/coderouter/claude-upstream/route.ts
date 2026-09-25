@@ -1,7 +1,7 @@
 import { coderouterControlRoute, spanned } from "@/services/coderouter/requestTelemetry";
 // Team Claude upstream accounts: list, add, remove all. One account is
-// addressed under ./[accountId]. Any team member may read; `manageAccounts`
-// (every member today) may write. Secrets never leave the server: responses
+// addressed under ./[accountId]. Every team member may read and write
+// (`manageAccounts` is team membership, permissions.ts). Secrets never leave the server: responses
 // carry masked identifiers only.
 import {
   addClaudeAccount,

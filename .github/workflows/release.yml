@@ -11,6 +11,10 @@ permissions:
   attestations: write
   id-token: write
 
+concurrency:
+  group: stable-appcast-publication
+  cancel-in-progress: false
+
 env:
   CREATE_DMG_VERSION: 8.0.0
 
@@ -501,6 +505,10 @@ jobs:
             cmux.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
 
+      - name: Verify bundled Mach-O load commands
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: ./scripts/verify-bundle-load-commands.sh "build-universal/Build/Products/Release/cmux.app"
+
       - name: Verify signed app SSH daemon contract
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -576,6 +584,12 @@ jobs:
           fi
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
+
+      - name: Gate distribution with syspolicy_check
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          syspolicy_check distribution "build-universal/Build/Products/Release/cmux.app"
 
       - name: Upload dSYMs to Sentry
         if: steps.guard_release_assets.outputs.skip_all != 'true'
