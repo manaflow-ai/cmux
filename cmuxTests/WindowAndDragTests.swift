@@ -1004,6 +1004,46 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testDragHandleYieldsAtResizableWindowHorizontalEdges() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected a window content view")
+            return
+        }
+        let dragHandle = NSView(
+            frame: NSRect(
+                x: contentView.bounds.minX,
+                y: contentView.bounds.maxY - 36,
+                width: contentView.bounds.width,
+                height: 36
+            )
+        )
+        contentView.addSubview(dragHandle)
+        window.makeKeyAndOrderFront(nil)
+
+        for x in [contentView.bounds.minX + 1, contentView.bounds.maxX - 1] {
+            let edge = x == contentView.bounds.minX + 1 ? "left" : "right"
+            XCTAssertFalse(
+                windowDragHandleShouldCaptureHit(
+                    NSPoint(x: x, y: dragHandle.bounds.midY),
+                    in: dragHandle,
+                    eventType: .leftMouseDown,
+                    eventWindow: window
+                ),
+                "The titlebar drag surface must yield at the \(edge) resizable edge"
+            )
+        }
+    }
+
     func testDragHandleYieldsWhenSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
