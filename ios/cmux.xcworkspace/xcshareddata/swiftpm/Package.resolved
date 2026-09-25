@@ -1,5 +1,5 @@
 {
-  "originHash" : "4b58057b9f5a2dab70e2b15ff647cac85d70c0b968b8ddc3588ad69a58d2120b",
+  "originHash" : "f54f15ee24a7e4c103df21de60f84415c8f2f094b2aeba559786a12987421823",
   "pins" : [
     {
       "identity" : "highlightr",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
       "state" : {
-        "revision" : "e10013af9ab5d541b3b9d632fda502b8232d3796",
-        "version" : "1.0.2-cmux.4"
+        "revision" : "af08f0e1b9bb3ddb839210b175738d5761fea686",
+        "version" : "1.0.2-cmux.7.ios17.3"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/getsentry/sentry-cocoa.git",
       "state" : {
-        "revision" : "53eb9bd5da18e208cfd80e86863d3f4c7ba21b1d",
-        "version" : "9.21.0"
+        "revision" : "cd213f98af160e6497eeff0707bc3f6a205b159c",
+        "version" : "9.26.0"
       }
     },
     {

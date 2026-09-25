@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileSupport
 import SwiftUI
@@ -6,6 +7,7 @@ import SwiftUI
 struct MobileSettingsAccountSection: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let signOut: (() -> Void)?
 
     @State private var showingDeleteAccountConfirmation = false
@@ -91,6 +93,7 @@ struct MobileSettingsAccountSection: View {
     private func deleteAccount() {
         guard !deletingAccount, deleteAccountTask == nil else { return }
         deletingAccount = true
+        diagnosticLog?.recordAppEvent(.authAccountDeletionStarted)
         deleteAccountTask = Task {
             defer {
                 deleteAccountTask = nil
@@ -100,14 +103,23 @@ struct MobileSettingsAccountSection: View {
                 let result = try await authManager.deleteAccount()
                 switch result {
                 case .completed:
+                    diagnosticLog?.recordAppEvent(.authAccountDeletionSucceeded)
                     await signOutDeletedAccount()
                     dismiss()
                 case .completedWithIncompleteServerCleanup:
+                    diagnosticLog?.recordAppEvent(
+                        .authAccountDeletionFailed,
+                        failure: .protocolViolation
+                    )
                     deleteAccountFailureKind = .serverCleanupIncomplete
                     signOutAfterDeleteAccountFailureAcknowledgement = deleteAccountFailureKind.signsOutAfterAcknowledgement
                     showingDeleteAccountFailure = true
                 }
             } catch {
+                diagnosticLog?.recordAppEvent(
+                    .authAccountDeletionFailed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
                 deleteAccountFailureKind = DeleteAccountFailureKind(error: error)
                 signOutAfterDeleteAccountFailureAcknowledgement = deleteAccountFailureKind.signsOutAfterAcknowledgement
                 showingDeleteAccountFailure = true

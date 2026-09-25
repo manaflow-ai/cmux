@@ -5,7 +5,10 @@ extension CMUXCLI {
     func resolvedUserSSHControlOptions(for options: SSHCommandOptions) -> [String]? {
         guard let output = resolvedSSHConfigurationOutput(for: options) else { return nil }
         return SSHConnectionSharingOptions()
-            .userConfiguredControlOptions(fromSSHConfigOutput: output)
+            .userConfiguredControlOptions(
+                fromSSHConfigOutput: output,
+                explicitOptions: options.sshOptions
+            )
     }
 
     func resolvedCmuxControlPathOptions(for options: SSHCommandOptions) -> [String] {
@@ -28,8 +31,23 @@ extension CMUXCLI {
         }
     }
 
-    func resolvedSSHConfigurationOutput(for options: SSHCommandOptions) -> String? {
+    func resolvedSSHConfigurationOutput(
+        for options: SSHCommandOptions,
+        timeout: TimeInterval = 2
+    ) -> String? {
+        let result = resolvedSSHConfigurationResult(for: options, timeout: timeout)
+        return result.status == 0 ? result.stdout : nil
+    }
+
+    func resolvedSSHConfigurationResult(
+        for options: SSHCommandOptions,
+        timeout: TimeInterval = 2,
+        configurationFile: String? = nil
+    ) -> CLIProcessResult {
         var arguments = ["-G"]
+        if let configurationFile {
+            arguments += ["-F", configurationFile]
+        }
         if let port = options.port {
             arguments += ["-p", String(port)]
         }
@@ -46,12 +64,11 @@ extension CMUXCLI {
             arguments += ["-o", option]
         }
         arguments.append(options.destination)
-        let result = CLIProcessRunner.runProcess(
+        return CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/ssh",
             arguments: arguments,
-            timeout: 2
+            timeout: timeout
         )
-        return result.status == 0 ? result.stdout : nil
     }
 
     func sshConfigurationValue(named name: String, in output: String) -> String? {

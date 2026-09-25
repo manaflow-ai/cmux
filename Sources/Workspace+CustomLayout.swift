@@ -38,7 +38,7 @@ extension Workspace {
     /// Sends a config-defined workspace `setup` command to the first terminal
     /// panel. Used by workspace actions/commands that define no custom layout.
     func sendConfigSetupCommand(_ command: String) {
-        let firstTerminal: TerminalPanel? = focusedTerminalPanel ?? {
+        let firstTerminal: TerminalPanel? = focusedTerminalInputTarget()?.panel ?? {
             for paneId in bonsplitController.allPaneIds {
                 for tab in bonsplitController.tabs(inPane: paneId) {
                     if let panelId = panelIdFromSurfaceId(tab.id),
@@ -198,7 +198,11 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .layoutApplication,
+                // Applying a layout with the browser disabled must not fan
+                // out one system-browser tab per declared browser surface;
+                // the surfaces are simply skipped.
+                allowsExternalBrowserFallback: false
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -247,7 +251,11 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .layoutApplication,
+                // Applying a layout with the browser disabled must not fan
+                // out one system-browser tab per declared browser surface;
+                // the surfaces are simply skipped.
+                allowsExternalBrowserFallback: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }

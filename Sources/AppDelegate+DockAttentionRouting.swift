@@ -3,35 +3,96 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
-    /// Resolves the current notification owner for a surface across every
-    /// container. Dock IDs are stable notification namespaces (`workspaceId`
-    /// is the workspace ID for a workspace Dock and the window ID for a global
-    /// Dock); main-tree surfaces keep the existing workspace owner.
-    func notificationSurfaceOwner(
+    /// Resolves the current owner for a surface across every live container.
+    /// Workspace-scoped Docks remain valid ownership targets for process and
+    /// Feed attribution even though they are no longer rendered as Docks.
+    func liveSurfaceOwner(
         surfaceID: UUID,
         preferredTabID: UUID? = nil
-    ) -> (tabID: UUID, surfaceID: UUID, tabManager: TabManager)? {
+    ) -> (
+        tabID: UUID,
+        surfaceID: UUID,
+        tabManager: TabManager,
+        windowDock: DockSplitStore?,
+        isNotificationRenderable: Bool
+    )? {
         if let preferredTabID,
            let manager = tabManagerFor(tabId: preferredTabID),
            let workspace = manager.workspacesById[preferredTabID],
-           workspace.panels[surfaceID] != nil,
-           workspace.surfaceIdFromPanelId(surfaceID) != nil {
-            return (preferredTabID, surfaceID, manager)
+           let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
+            return (preferredTabID, target.surfaceID, manager, nil, true)
         }
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
             let manager = dock.scope == .global
                 ? tabManagerFor(windowId: dock.workspaceId)
                 : tabManagerFor(tabId: dock.workspaceId)
             guard let manager else { return nil }
-            return (dock.workspaceId, surfaceID, manager)
+            let isNotificationRenderable = dock.scope == .global
+            return (
+                dock.workspaceId,
+                surfaceID,
+                manager,
+                isNotificationRenderable ? dock : nil,
+                isNotificationRenderable
+            )
         }
         guard let owner = workspaceContainingPanel(
             panelId: surfaceID,
             preferredWorkspaceId: preferredTabID
         ) else {
+            var seenManagers = Set<ObjectIdentifier>()
+            for summary in listMainWindowSummaries() {
+                guard let manager = tabManagerFor(windowId: summary.windowId),
+                      seenManagers.insert(ObjectIdentifier(manager)).inserted,
+                      let workspace = manager.tabs.first(where: {
+                          $0.surfaceOwnershipTarget(for: surfaceID) != nil
+                      }),
+                      let target = workspace.surfaceOwnershipTarget(for: surfaceID) else {
+                    continue
+                }
+                return (workspace.id, target.surfaceID, manager, nil, true)
+            }
+            if let manager = tabManager,
+               seenManagers.insert(ObjectIdentifier(manager)).inserted,
+               let workspace = manager.tabs.first(where: {
+                   $0.surfaceOwnershipTarget(for: surfaceID) != nil
+               }),
+               let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
+                return (workspace.id, target.surfaceID, manager, nil, true)
+            }
             return nil
         }
-        return (owner.workspace.id, surfaceID, owner.tabManager)
+        guard let target = owner.workspace.surfaceOwnershipTarget(for: surfaceID) else {
+            return nil
+        }
+        return (owner.workspace.id, target.surfaceID, owner.tabManager, nil, true)
+    }
+
+    /// Resolves the current rendered notification owner for a surface.
+    /// Legacy workspace-scoped Docks remain live for compatibility but cannot
+    /// be opened without revealing a different Dock and clearing an invisible
+    /// panel's attention state.
+    func notificationSurfaceOwner(
+        surfaceID: UUID,
+        preferredTabID: UUID? = nil
+    ) -> (
+        tabID: UUID,
+        surfaceID: UUID,
+        tabManager: TabManager,
+        windowDock: DockSplitStore?
+    )? {
+        guard let owner = liveSurfaceOwner(
+            surfaceID: surfaceID,
+            preferredTabID: preferredTabID
+        ), owner.isNotificationRenderable else {
+            return nil
+        }
+        return (
+            owner.tabID,
+            owner.surfaceID,
+            owner.tabManager,
+            owner.windowDock
+        )
     }
 
     /// Shared notification-attention route for every surface container. Dock
@@ -55,19 +116,19 @@ extension AppDelegate {
 
         guard let workspace = workspaceFor(tabId: workspaceID) ??
                 tabManager?.tabs.first(where: { $0.id == workspaceID }),
-              let panel = workspace.panels[panelID],
-              panel.panelType == .terminal else {
+              let target = workspace.surfaceOwnershipTarget(for: panelID),
+              target.panel.panelType == .terminal else {
             return false
         }
         if shouldFocus {
-            workspace.focusPanel(panelID)
+            workspace.focusPanel(target.surfaceID)
         }
         if requiresSplit,
            workspace.bonsplitController.allPaneIds.count <= 1,
            workspace.panels.count <= 1 {
             return true
         }
-        workspace.requestAttentionFlash(panelId: panelID, reason: reason)
+        target.panel.triggerFlash(reason: reason)
         return true
     }
 

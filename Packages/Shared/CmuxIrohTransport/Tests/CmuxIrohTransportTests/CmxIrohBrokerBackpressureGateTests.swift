@@ -6,6 +6,16 @@ import Testing
 struct CmxIrohBrokerBackpressureGateTests {
     private let start = Date(timeIntervalSince1970: 1_782_000_000)
 
+    @Test func oversizedPersistedCooldownDoesNotOverflow() async throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let gate = CmxIrohBrokerBackpressureGate(store: store, now: { start })
+        await recordRateLimit(gate: gate, accountID: "account-a", operation: .discovery, seconds: Int.max)
+        let restored = CmxIrohBrokerBackpressureGate(store: store, now: { start })
+        #expect(await restored.remainingSeconds(accountID: "account-a", operation: .discovery) == Int.max)
+    }
+
     @Test
     func persistedDeadlineSurvivesGateRecreation() async throws {
         let (defaults, suiteName) = try makeDefaults()
@@ -254,6 +264,85 @@ struct CmxIrohBrokerBackpressureGateTests {
         #expect(store.string(forKey: CmxIrohBrokerBackpressureGate.persistenceKey) == nil)
     }
 
+    @Test
+    func registrationMutationsAreSpacedByClientFloor() async throws {
+        let clock = BackpressureGateClock(start)
+        let sleeps = BackpressureGateSleepRecorder()
+        let gate = CmxIrohBrokerBackpressureGate(
+            now: { clock.now() },
+            sleep: { interval in
+                sleeps.record(interval)
+                clock.set(clock.now().addingTimeInterval(interval))
+            }
+        )
+
+        // The first mutation is immediate.
+        try await gate.perform(accountID: "account-a", operation: .registration) {}
+        #expect(sleeps.all().isEmpty)
+
+        // A back-to-back mutation waits out the client floor instead of
+        // failing, so a legitimate quick re-activation still succeeds.
+        try await gate.perform(accountID: "account-a", operation: .registration) {}
+        #expect(sleeps.all() == [2])
+
+        // The floor is global: another account's mutation shares the pace.
+        try await gate.perform(accountID: "account-b", operation: .registration) {}
+        #expect(sleeps.all() == [2, 2])
+
+        // Once the spacing has elapsed naturally there is no wait.
+        clock.set(clock.now().addingTimeInterval(10))
+        try await gate.perform(accountID: "account-a", operation: .registration) {}
+        #expect(sleeps.all() == [2, 2])
+    }
+
+    @Test
+    func wedgedRegistrationLoopCannotExceedThirtyAttemptsPerMinute() async throws {
+        let clock = BackpressureGateClock(start)
+        let gate = CmxIrohBrokerBackpressureGate(
+            now: { clock.now() },
+            sleep: { interval in
+                clock.set(clock.now().addingTimeInterval(interval))
+            }
+        )
+
+        // A wedged client hammering registration is paced by the client-side
+        // floor even though the server never returns a rate-limit directive.
+        for _ in 0 ..< 31 {
+            _ = try? await gate.perform(
+                accountID: "account-a",
+                operation: .registration
+            ) {
+                throw BackpressureGateTestError.unavailable
+            }
+        }
+        #expect(clock.now().timeIntervalSince(start) >= 60)
+    }
+
+    @Test
+    func readOperationsAreNeverPaced() async throws {
+        let clock = BackpressureGateClock(start)
+        let sleeps = BackpressureGateSleepRecorder()
+        let gate = CmxIrohBrokerBackpressureGate(
+            now: { clock.now() },
+            sleep: { interval in
+                sleeps.record(interval)
+                clock.set(clock.now().addingTimeInterval(interval))
+            }
+        )
+
+        try await gate.perform(accountID: "account-a", operation: .discovery) {}
+        try await gate.perform(accountID: "account-a", operation: .discovery) {}
+        try await gate.perform(
+            accountID: "account-a",
+            operation: .relayCredential
+        ) {}
+        try await gate.perform(
+            accountID: "account-a",
+            operation: .relayPreference
+        ) {}
+        #expect(sleeps.all().isEmpty)
+    }
+
     private func recordRateLimit(
         gate: CmxIrohBrokerBackpressureGate,
         accountID: String,
@@ -279,6 +368,23 @@ struct CmxIrohBrokerBackpressureGateTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return (defaults, suiteName)
+    }
+}
+
+private enum BackpressureGateTestError: Error {
+    case unavailable
+}
+
+private final class BackpressureGateSleepRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var intervals: [TimeInterval] = []
+
+    func record(_ interval: TimeInterval) {
+        lock.withLock { intervals.append(interval) }
+    }
+
+    func all() -> [TimeInterval] {
+        lock.withLock { intervals }
     }
 }
 

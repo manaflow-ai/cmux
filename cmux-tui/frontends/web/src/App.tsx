@@ -2,6 +2,7 @@ import { useReducer } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ConnectScreen } from "./components/ConnectScreen";
 import { ClientsIndicator } from "./components/ClientsIndicator";
+import { RenderGraphicsBudgetProvider } from "./components/RenderGraphics";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TerminalPane } from "./components/TerminalPane";
@@ -12,6 +13,14 @@ import { t } from "./i18n";
 import { drawerReducer } from "./lib/mobile";
 
 export default function App() {
+  return (
+    <RenderGraphicsBudgetProvider>
+      <AppContent />
+    </RenderGraphicsBudgetProvider>
+  );
+}
+
+function AppContent() {
   useVisualViewport();
   const connection = useCmuxClient();
   const [drawer, dispatchDrawer] = useReducer(drawerReducer, "closed");

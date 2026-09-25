@@ -61,6 +61,13 @@ export default function DockPage() {
       "title": "Feed",
       "command": "cmux feed tui --opentui",
       "height": 320
+    },
+    {
+      "id": "dashboard",
+      "title": "Dashboard",
+      "type": "browser",
+      "url": "http://127.0.0.1:8877/sidebar",
+      "chrome": false
     }
   ]
 }`}</CodeBlock>
@@ -91,6 +98,24 @@ export default function DockPage() {
               <code>command</code>
             </td>
             <td>{t("fieldCommand")}</td>
+          </tr>
+          <tr>
+            <td>
+              <code>type</code>
+            </td>
+            <td>{t("fieldType")}</td>
+          </tr>
+          <tr>
+            <td>
+              <code>url</code>
+            </td>
+            <td>{t("fieldUrl")}</td>
+          </tr>
+          <tr>
+            <td>
+              <code>chrome</code>
+            </td>
+            <td>{t("fieldChrome")}</td>
           </tr>
           <tr>
             <td>

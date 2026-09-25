@@ -34,23 +34,24 @@ defensively.
 
 The LAN rendezvous key is HMAC-derived from an independent random server secret,
 the exact Stack user id, and an account generation. Discovery reads active
-bindings and that generation in one transaction under the same account lock as
-registration and revocation, so it cannot mix tuples from opposite sides of a
-revocation. Every successful binding revoke increments the generation in the
-revocation transaction. Sign-out callers must invoke the authenticated revoke
-route with their captured binding id before discarding the Stack credential.
+bindings in stable UUID order, 128 rows per page. Its opaque cursor carries the
+generation and last binding id; registration and revocation rotate the
+generation whenever the active set changes, so a later page cannot mix tuples
+from opposite sides of a mutation. Legacy requests without `page_size` receive
+at most 256 bindings and no cursor, keeping old clients within their decoder
+limit while upgraded clients traverse every page. Sign-out callers must invoke
+the authenticated revoke route with their captured binding id before discarding
+the Stack credential.
 
-Postgres advisory locks make the authoritative limits concurrency-safe: six
-challenges per device per ten minutes, 32 outstanding challenges per account,
-32 active bindings per account, eight active bindings per physical device, 60
-pair grants per account per hour, three relay mints per endpoint per ten
-minutes, 12 relay mints per endpoint per day, and 100 relay mints per account
-per day. A relay reservation remains active for 60 seconds, then the next
-account-scoped reservation marks it expired before applying those quotas. The
-optional Vercel Firewall rule is defense in depth. A tagged-build
-device-limit override requires a server flag, an exact authenticated user-id
-allowlist match, and an exact deployment-environment allowlist match; it never
-raises the 32-binding account limit and records an audit marker on the binding.
+There is no total active-binding limit per account or device. Postgres advisory
+locks keep request-rate limits concurrency-safe: six challenges per device per
+ten minutes, 32 outstanding challenges per account, 60 pair grants per account
+per hour, three relay mints per endpoint per ten minutes, 12 relay mints per
+endpoint per day, and 100 relay mints per account per day. A relay reservation
+remains active for 60 seconds, then the next account-scoped reservation marks it
+expired before applying those quotas. The optional Vercel Firewall rule is
+defense in depth. A tagged-build override widens challenge issuance only after
+an exact authenticated user-id and deployment-environment allowlist match.
 
 Registration bootstraps a relay credential only when it creates a binding.
 Signed refreshes of the same binding return `relay.status = "not_requested"`;

@@ -71,6 +71,10 @@ impl FileBrowser {
         self.visible.iter().map(|index| &self.entries[*index])
     }
 
+    pub fn visible_entry(&self, index: usize) -> Option<&FileEntry> {
+        self.visible.get(index).map(|entry| &self.entries[*entry])
+    }
+
     pub fn total_len(&self) -> usize {
         self.entries.len()
     }
@@ -191,8 +195,14 @@ impl FileBrowser {
         changed
     }
 
-    pub fn visible_filter_text_and_cursor(&mut self, width: usize) -> (String, usize) {
+    pub fn visible_filter_text_and_cursor(&self, width: usize) -> (String, usize) {
         self.query.visible_text_and_cursor(width)
+    }
+
+    pub fn sync_filter_viewport(&mut self, width: usize) {
+        if self.filter_mode {
+            self.query.sync_viewport(width);
+        }
     }
 
     pub fn set_filter_cursor_from_visible_column(&mut self, column: usize, width: usize) {

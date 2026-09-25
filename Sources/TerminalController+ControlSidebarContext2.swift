@@ -3,7 +3,6 @@ import CmuxRemoteSession
 import Foundation
 import CmuxWorkspaces
 import CmuxSidebar
-
 /// The live-app half of the v1 sidebar telemetry/report commands
 /// (`report_git_branch` / `report_pr` / `report_ports` / `report_pwd` /
 /// `report_shell_state` / `report_tty` / `ports_kick` / `sidebar_state` /
@@ -11,7 +10,6 @@ import CmuxSidebar
 /// former `TerminalController` v1 handlers ran.
 extension TerminalController {
     // MARK: - Git branch
-
     /// All scoped schedulers below enqueue with a replace key: the worker
     /// lane replies before main drains, so a client can keep reporting while
     /// the main actor is blocked. Last-write-wins coalescing per
@@ -25,7 +23,7 @@ extension TerminalController {
         isDirty: Bool?
     ) {
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
+            replaceKey: TerminalMutationReplaceKey.scoped(
                 tabId: scope.workspaceID,
                 surfaceId: scope.panelID,
                 kind: .gitBranch
@@ -50,11 +48,12 @@ extension TerminalController {
             )
         }
     }
-
     func controlSidebarUpdateGitBranch(tabArg: String?, branch: String, isDirty: Bool?) -> Bool {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
         }
+        if tab.cloudVMBinding != nil { tab.clearSidebarGitMetadata(); return true }
+        if let focusedPanelId = tab.focusedPanelId, tab.cloudDirectoryProvenanceRequired(panelId: focusedPanelId) { tab.clearPanelGitBranch(panelId: focusedPanelId); return true }
         guard SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard).acceptsPassiveReports else {
             tab.gitBranch = nil
             return true
@@ -67,13 +66,12 @@ extension TerminalController {
         )
         return true
     }
-
     /// Shares `.gitBranch` with the update scheduler: update-then-clear (or
     /// clear-then-update) coalesces to the newest write, matching what the
     /// serialized path leaves as the final state.
     nonisolated func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
+            replaceKey: TerminalMutationReplaceKey.scoped(
                 tabId: scope.workspaceID,
                 surfaceId: scope.panelID,
                 kind: .gitBranch
@@ -89,7 +87,6 @@ extension TerminalController {
             tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
         }
     }
-
     func controlSidebarClearGitBranch(tabArg: String?) -> Bool {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
@@ -97,13 +94,10 @@ extension TerminalController {
         tab.gitBranch = nil
         return true
     }
-
     // MARK: - Pull requests (panel metadata mutations)
-
     nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool {
         SidebarPullRequestStatus(rawValue: raw) != nil
     }
-
     /// PR metadata mutations intentionally do NOT coalesce:
     /// `shouldReplacePullRequest` applies an ordering guard against the state
     /// current at drain, so collapsing an update chain to its newest entry
@@ -127,7 +121,6 @@ extension TerminalController {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
-
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
@@ -217,47 +210,80 @@ extension TerminalController {
         return .done
     }
 
-    /// The dedupe compare-and-set runs at DRAIN time, inside the enqueued
-    /// main-actor closure, not at enqueue time on the worker: this witness is
-    /// called from per-connection socket-worker threads, and a gate taken
-    /// before the enqueue could record two connections' states for the same
-    /// surface in one order but enqueue them in the other, leaving the
-    /// applied model state disagreeing with the dedupe cache until the next
-    /// running/prompt cycle. Recording where the bus drains keeps record
-    /// order identical to apply order, as the serialized pre-worker-lane
-    /// path guaranteed.
-    ///
-    /// Boundedness: the worker lane replies without waiting for main, so a
-    /// client can keep reporting while the main actor is blocked and unable
-    /// to drain. The replace-key enqueue below keeps at most ONE pending
-    /// shell-state mutation per (workspace, panel) — a fresh report replaces
-    /// the superseded pending one (last-write-wins; only the final state is
-    /// observable once main unblocks). This is a strictly tighter bound than
-    /// the pre-worker-lane path, which enqueued every state CHANGE. The CAS
-    /// at drain time stays authoritative for publish/skip.
+    /// The protocol witness shares the same admitted, bounded mutation path as
+    /// v2 `surface.report_shell_state`.
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
+        _ = controlScheduleScopedShellActivityState(
+            scope: scope,
+            stateRawValue: stateRawValue
+        )
+    }
+
+    /// Admits and schedules a shell-state mutation from either socket API.
+    ///
+    /// Lifecycle validation and the dedupe compare-and-set execute while the
+    /// mutation bus holds its ordering lock. A report therefore cannot validate
+    /// an old generation, pause while a replacement report queues, then displace
+    /// that replacement. The logical `(surface, shellActivity)` key keeps
+    /// exactly one pending mutation regardless of caller-supplied UUIDs;
+    /// delivery validates the generation again after any intervening respawn.
+    @discardableResult
+    nonisolated func controlScheduleScopedShellActivityState(
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    ) -> Bool {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
-            return
+            return false
         }
         let fastPathState = socketFastPathState
-        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
-                tabId: scope.workspaceID,
-                surfaceId: scope.panelID,
-                kind: .shellActivity
-            )
-        ) {
-            guard fastPathState.shouldPublishShellActivity(
-                workspaceId: scope.workspaceID,
-                panelId: scope.panelID,
-                state: state.rawValue
-            ) else {
-                return
+        let registry = GhosttyApp.terminalSurfaceRegistry
+        let admittedTerminalLifecycleID: UUID
+        if let reportedTerminalLifecycleID = scope.terminalLifecycleID {
+            admittedTerminalLifecycleID = reportedTerminalLifecycleID
+        } else {
+            guard let currentTerminalLifecycleID = registry.terminalLifecycleID(
+                      surfaceID: scope.panelID
+                  ) else {
+                return false
             }
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID) else { return }
-            tabManager.updateSurfaceShellActivity(tabId: scope.workspaceID, surfaceId: scope.panelID, state: state)
+            admittedTerminalLifecycleID = currentTerminalLifecycleID
         }
+        return TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: .shellActivity(surfaceId: scope.panelID),
+            admitting: {
+                guard registry.isCurrentSurface(
+                    id: scope.panelID,
+                    terminalLifecycleID: admittedTerminalLifecycleID
+                ) else {
+                    return false
+                }
+                return fastPathState.shouldPublishShellActivity(
+                    workspaceId: scope.workspaceID,
+                    panelId: scope.panelID,
+                    terminalLifecycleID: admittedTerminalLifecycleID,
+                    relayConnectionID: scope.remoteRelayConnectionID,
+                    state: state.rawValue
+                )
+            }
+        ) { [weak self] in
+            guard let self else { return }
+            self.controlApplyScopedShellActivityState(
+                workspaceID: scope.workspaceID,
+                surfaceID: scope.panelID,
+                terminalLifecycleID: admittedTerminalLifecycleID,
+                state: state,
+                remoteRelayOwnerWorkspaceID: scope.remoteRelayOwnerWorkspaceID,
+                remoteRelayConnectionID: scope.remoteRelayConnectionID
+            )
+        }
+    }
+
+    nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String {
+        String(
+            localized: "controlSocket.reportShellState.invalidTerminalLifecycleID",
+            defaultValue: "ERROR: Terminal session is out of date; restart the shell and try again"
+        )
     }
 
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution {
@@ -291,7 +317,7 @@ extension TerminalController {
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            tab.surfaceTTYNames[scope.panelID] = ttyName
+            tab.registerReportedSurfaceTTYName(ttyName, panelId: scope.panelID)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelID)
@@ -308,7 +334,7 @@ extension TerminalController {
             prune: false,
             requireLiveSurface: true
         ) { tab, surfaceId in
-            tab.surfaceTTYNames[surfaceId] = ttyName
+            tab.registerReportedSurfaceTTYName(ttyName, panelId: surfaceId)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
@@ -326,7 +352,7 @@ extension TerminalController {
         // Keyed by reason: a kick is an idempotent rescan trigger, so
         // same-reason duplicates collapse while distinct reasons each run.
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
+            replaceKey: TerminalMutationReplaceKey.scoped(
                 tabId: scope.workspaceID,
                 surfaceId: scope.panelID,
                 kind: .portsKick(reason)

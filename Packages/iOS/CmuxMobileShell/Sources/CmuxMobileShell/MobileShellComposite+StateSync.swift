@@ -53,6 +53,7 @@ extension MobileShellComposite {
             return
         }
         let result: MobileSyncApplyResult
+        let appliedRevision: UInt64
         let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
         let removedWorkspaceIDs: [String]
         switch header.collection {
@@ -67,6 +68,7 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.workspaces.apply(delta: delta)
+            appliedRevision = delta.toRev
             changesSummaryRefreshScope = .workspaceDelta(delta.records.map(\.id))
             removedWorkspaceIDs = delta.removedIDs
         case .groups:
@@ -77,6 +79,7 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.groups.apply(delta: delta)
+            appliedRevision = delta.toRev
             changesSummaryRefreshScope = .groupOnlyDelta
             removedWorkspaceIDs = []
         default:
@@ -86,6 +89,12 @@ extension MobileShellComposite {
         }
         switch result {
         case .applied:
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "sync.applied",
+                "coll=\(header.collection.rawValue) rev=\(appliedRevision)"
+            )
+            #endif
             evictWorkspaceChangesSummaryState(workspaceIDs: removedWorkspaceIDs)
             applyStateSyncProjection(
                 changesSummaryRefreshScope: changesSummaryRefreshScope
@@ -178,6 +187,7 @@ extension MobileShellComposite {
         }
         stateSyncFetchTask?.cancel()
         let generation = UUID()
+        recordAppEvent(.workspaceStateSyncStarted, correlationID: foregroundMacDeviceID)
         stateSyncFetchGeneration = generation
         stateSyncFetchClientID = ObjectIdentifier(client)
         stateSyncFetchFollowUpRequested = false
@@ -244,6 +254,11 @@ extension MobileShellComposite {
             guard response.workspaces != nil, response.groups != nil else {
                 guard !Task.isCancelled, stateSyncFetchGeneration == generation else { return false }
                 mobileStateSyncLog.error("state sync fetch returned a partial response; staying on legacy")
+                recordAppEvent(
+                    .workspaceStateSyncFailed,
+                    correlationID: foregroundMacDeviceID,
+                    failure: .protocolViolation
+                )
                 fallBackToLegacyListAfterFetchFailure(client: client)
                 return false
             }
@@ -260,6 +275,11 @@ extension MobileShellComposite {
                         : .workspaceDelta(response.workspaces?.records.map(\.id) ?? [])
                 applyStateSyncProjection(
                     changesSummaryRefreshScope: changesSummaryRefreshScope
+                )
+                recordAppEvent(
+                    .workspaceStateSyncSucceeded,
+                    correlationID: foregroundMacDeviceID,
+                    count: response.workspaces?.records.count ?? 0
                 )
             case .staleIgnored:
                 break
@@ -279,12 +299,22 @@ extension MobileShellComposite {
                 // Legacy Mac: stay on the workspace.updated refetch loop for
                 // this connection. Not an error.
                 stateSyncAuthorityClientID = nil
+                recordAppEvent(
+                    .workspaceStateSyncFellBack,
+                    correlationID: foregroundMacDeviceID,
+                    failure: .policyUnavailable
+                )
                 return false
             }
             mobileStateSyncLog.error(
                 "state sync fetch failed: \(String(describing: error), privacy: .private)"
             )
             MobileDebugLog.anchormux("sync.v2 fetch failed; falling back")
+            recordAppEvent(
+                .workspaceStateSyncFailed,
+                correlationID: foregroundMacDeviceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             fallBackToLegacyListAfterFetchFailure(client: client)
             return false
         }
@@ -304,6 +334,10 @@ extension MobileShellComposite {
         // guard on current authority here would skip exactly the recovery
         // this exists for.
         stateSyncAuthorityClientID = nil
+        recordAppEvent(
+            .workspaceStateSyncFellBack,
+            correlationID: foregroundMacDeviceID
+        )
         MobileDebugLog.anchormux("sync.v2 fallback to legacy after fetch failure")
         Task { @MainActor [weak self] in
             // The missed delta may have been the last event, so this reload
@@ -348,6 +382,7 @@ extension MobileShellComposite {
                 previewAt: record.previewAt,
                 lastActivityAt: record.lastActivityAt,
                 hasUnread: record.hasUnread,
+                unreadCount: record.unreadCount,
                 terminals: record.terminals.map { terminal in
                     MobileSyncWorkspaceListResponse.Terminal(
                         id: terminal.id,
@@ -356,7 +391,17 @@ extension MobileShellComposite {
                         isFocused: terminal.isFocused,
                         isReady: terminal.isReady
                     )
-                }
+                },
+                surfaces: record.surfaces?.map { surface in
+                    MobileSyncWorkspaceListResponse.Surface(
+                        surfaceID: surface.surfaceID,
+                        kind: surface.kind,
+                        title: surface.title,
+                        filePath: surface.filePath,
+                        todo: surface.todo
+                    )
+                },
+                simulators: record.simulators
             )
         }
         let groups = stateSyncMirror.groups.orderedRecords.map { record in
@@ -365,7 +410,9 @@ extension MobileShellComposite {
                 name: record.name,
                 isCollapsed: record.isCollapsed,
                 isPinned: record.isPinned,
-                anchorWorkspaceID: record.anchorWorkspaceID
+                iconSymbol: record.iconSymbol,
+                anchorWorkspaceID: record.anchorWorkspaceID,
+                isEmpty: record.isEmpty
             )
         }
         applyRemoteWorkspaceList(
