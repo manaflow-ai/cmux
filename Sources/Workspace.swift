@@ -3862,6 +3862,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
+            tabWidthMode: .shrink,
             tabTitleFontSize: tabTitleFontSize,
             dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
