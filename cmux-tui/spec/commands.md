@@ -133,8 +133,14 @@ Each client reports the cell grid available for every surface it displays with
 and terminal view receive explicit geometry authority through
 `set-client-sizing`. One terminal has at most one geometry owner. Other views
 crop, pan, or scale the canonical grid and never resize the PTY. Input does not
-claim geometry. Releasing or disconnecting the owner freezes the current grid;
-the server does not silently elect another owner.
+claim geometry. When the owner releases (`release-attached-view-size`,
+`set-client-sizing` disabled for itself, or detaching its report) or
+disconnects, geometry returns to the most recent owner that this owner
+displaced and that still reports a viewport for a view of the same terminal,
+and the grid resizes to that report. A client that disconnected or dropped its
+report is never re-elected. With no such owner the current grid freezes.
+`set-client-sizing` enabled without a client (use all sizes) always freezes the
+grid and forgets displaced owners.
 
 Browser surfaces retain the legacy smallest-reported-grid reducer because a
 browser surface still has one live tab. When a browser tab becomes hidden, the
