@@ -14,6 +14,7 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from typing import Optional
 from unittest.mock import patch
 
 import yaml
@@ -1644,22 +1645,87 @@ def test_macos_workflow_job_edits_select_release_only_for_release_jobs() -> None
     mac_only = areas(macos=True)
     with_release = areas(macos=True, release_build=True)
     for job in ("app-host-unit-tests", "tests-build-and-lag"):
-        assert change_areas(real, edit_job(real, job)) == mac_only, job
+        assert change_areas(real, edit_macos_job(real, job)) == mac_only, job
     # Admission builds the product the CLI lane restores, so it also runs that lane.
-    assert change_areas(real, edit_job(real, "macos-compile-admission")) == areas(macos=True, cli=True)
+    assert change_areas(real, edit_macos_job(real, "macos-compile-admission")) == areas(macos=True, cli=True)
     # swift-package-tests produces the helper release-build consumes through
     # its outputs, and macos-status reports the Release verdict.
     for job in ("release-admission", "release-build", "swift-package-tests", "macos-status"):
-        assert change_areas(real, edit_job(real, job)) == with_release, job
+        assert change_areas(real, edit_macos_job(real, job)) == with_release, job
     assert change_areas(
-        real, edit_job(edit_job(real, "app-host-unit-tests"), "release-build"),
+        real, edit_macos_job(edit_macos_job(real, "app-host-unit-tests"), "release-build"),
     ) == with_release
     for head in (
-        real.replace("\njobs:\n", "\n# preamble edit\njobs:\n", 1),
+        real.replace("\njobs:\n", "\nconcurrency: edited\njobs:\n", 1),
         "not a workflow",
         real,
     ):
         assert change_areas(real, head) is None
+
+
+def edit_macos_job(workflow: str, job: str) -> str:
+    """Change one ci-macos.yml job; a comment alone changes no job there."""
+    return edit_job(workflow, job, marker="edited: true")
+
+
+def test_macos_workflow_comment_edits_change_no_job() -> None:
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.macos_workflow_change_areas
+    # The macOS area still runs the file; no job's own lane does.
+    for job in ("release-build", "cli-product-tests", "macos-compile-admission"):
+        assert change_areas(real, edit_job(real, job)) == areas(macos=True), job
+    in_preamble = real.replace("\njobs:\n", "\n# preamble comment\njobs:\n", 1)
+    assert change_areas(real, in_preamble) == areas(macos=True)
+
+
+def test_macos_workflow_input_edits_reach_only_the_jobs_that_read_them() -> None:
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.macos_workflow_change_areas
+    entry = "      pr_xcode_app:\n        required: false\n        default: \"\"\n        type: string\n"
+    assert entry in real
+    # A new input nothing reads yet reaches no job.
+    added = real.replace(entry, entry + "      new_knob:\n        required: false\n        default: \"\"\n        type: string\n", 1)
+    assert change_areas(real, added) == areas(macos=True)
+    # A changed input reaches every job that reads it, and no other.
+    changed = real.replace(entry, entry.replace('default: ""', 'default: "x"'), 1)
+    jobs = module.split_workflow_jobs(real)[1]
+    readers = {name for name, block in jobs.items() if "inputs.pr_xcode_app" in block}
+    assert readers and readers != set(jobs)
+    assert change_areas(real, changed) == areas(
+        macos=True,
+        release_build=bool(readers & module._release_jobs(jobs)),
+        cli=bool(readers & module.MACOS_CLI_LANE_JOBS),
+    )
+    # release_build itself is read by the Release jobs.
+    release_entry = "      release_build:\n        required: true\n        type: string\n"
+    assert release_entry in real
+    retyped = real.replace(release_entry, release_entry.replace("required: true", "required: false"), 1)
+    assert change_areas(real, retyped).release_build
+    # An input the workflow's own env reads reaches every job through it.
+    macos_entry = "      macos:\n        required: true\n        type: string\n"
+    assert macos_entry in real and "inputs.macos" in module.split_workflow_jobs(real)[0]
+    assert change_areas(real, real.replace(macos_entry, macos_entry.replace("required: true", "required: false"), 1)) is None
+    # Anything else above `jobs:` still reaches every job.
+    assert change_areas(real, real.replace("permissions:\n  contents: read", "permissions:\n  contents: write", 1)) is None
+
+
+def test_macos_workflow_input_parsing_refuses_what_it_cannot_split() -> None:
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.macos_workflow_change_areas
+    entry = "      unit_in_admission:\n        required: false\n        default: \"\"\n        type: string\n"
+    assert entry in real
+    # A trailing comment still names the input it opens.
+    commented = real.replace(entry, entry.replace("unit_in_admission:", "unit_in_admission: # set by choose_ci_suite.py"), 1)
+    edited = commented.replace(
+        "unit_in_admission: # set by choose_ci_suite.py\n        required: false\n        default: \"\"",
+        "unit_in_admission: # set by choose_ci_suite.py\n        required: false\n        default: \"true\"", 1,
+    )
+    assert commented != edited
+    assert change_areas(commented, edited) == change_areas(real, real.replace(entry, entry.replace('default: ""', 'default: "true"'), 1))
+    assert change_areas(commented, edited).cli
+    # A flow-style input cannot be split, so every job runs.
+    flow = real.replace(entry, entry + '      release_flavor: {type: string, required: false, default: "a"}\n', 1)
+    assert change_areas(flow, flow.replace('default: "a"}', 'default: "b"}')) is None
 
 
 def test_macos_workflow_release_feeders_are_derived_from_outputs() -> None:
@@ -1695,9 +1761,9 @@ def test_macos_workflow_areas_route_through_classify_files() -> None:
 def test_macos_workflow_cli_lane_edits_route_the_cli_lane() -> None:
     real = MACOS_WORKFLOW.read_text(encoding="utf-8")
     change_areas = module.macos_workflow_change_areas
-    assert change_areas(real, edit_job(real, "cli-product-tests")).cli
-    assert change_areas(real, edit_job(real, "macos-compile-admission")).cli
-    assert not change_areas(real, edit_job(real, "app-host-unit-tests")).cli
+    assert change_areas(real, edit_macos_job(real, "cli-product-tests")).cli
+    assert change_areas(real, edit_macos_job(real, "macos-compile-admission")).cli
+    assert not change_areas(real, edit_macos_job(real, "app-host-unit-tests")).cli
 
 
 def test_cli_product_lane_scripts_route_the_cli_lane() -> None:
@@ -1719,8 +1785,8 @@ def test_cli_product_lane_scripts_route_the_cli_lane() -> None:
 def test_workflow_routes_macos_shard_edit_without_release_build() -> None:
     real = MACOS_WORKFLOW.read_text(encoding="utf-8")
     path = ".github/workflows/ci-macos.yml"
-    shard = edit_job(real, "app-host-unit-tests")
-    release = edit_job(real, "release-build")
+    shard = edit_macos_job(real, "app-host-unit-tests")
+    release = edit_macos_job(real, "release-build")
     # The normal router, and the trusted base router a policy edit selects.
     for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
         for head, release_build in ((shard, "false"), (release, "true")):
@@ -2465,31 +2531,128 @@ ROUTED_TREE = {
 GUARD_ONLY_REFERENCES = (frozenset(), frozenset({"tests/test_helper.py"}))
 
 
-def reaches(files: dict[str, str]) -> bool:
-    return module.ci_helper_reaches_routed_lane(
-        "scripts/ci/helper.py", _helper_repo({**ROUTED_TREE, **files}), GUARD_ONLY_REFERENCES
-    )
+def helper_areas(files: dict[str, str], *, base: Optional[dict[str, str]] = None, references=GUARD_ONLY_REFERENCES):
+    head = _helper_repo({**ROUTED_TREE, **files})
+    base_root = _helper_repo(base) if base is not None else None
+    return module.ci_helper_areas("scripts/ci/helper.py", head, references, base_root=base_root)
 
 
 def test_helper_run_only_outside_the_routed_workflow_tree_reaches_no_lane() -> None:
     dispatch = {".github/workflows/dispatch.yml": "on: workflow_dispatch\njobs:\n  run:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n"}
-    assert not reaches(dispatch)
+    assert helper_areas(dispatch) == areas()
     # Its own Linux guard naming it as `test_helper` does not make it routed.
-    assert not reaches({})
+    assert helper_areas({}) == areas()
 
 
-def test_helper_a_routed_job_can_execute_still_fails_open() -> None:
-    assert reaches({".github/workflows/ci-guards.yml": ROUTED_TREE[".github/workflows/ci-guards.yml"] + "      - run: python3 scripts/ci/helper.py\n"})
-    # Through a script a routed workflow runs.
-    assert reaches({
+def test_helper_a_routed_linux_job_runs_selects_only_the_areas_gating_it() -> None:
+    # The guards route themselves; running a helper there needs no product area.
+    guard = ROUTED_TREE[".github/workflows/ci-guards.yml"] + "      - run: python3 scripts/ci/helper.py\n"
+    assert helper_areas({".github/workflows/ci-guards.yml": guard}) == areas()
+    # A Linux ci.yml job behind an area selects that area.
+    gated = ROUTED_TREE[".github/workflows/ci.yml"] + (
+        "  lint:\n    if: ${{ needs.changes.outputs.web == 'true' }}\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: python3 scripts/ci/helper.py\n"
+    )
+    assert helper_areas({".github/workflows/ci.yml": gated}) == areas(web=True)
+
+
+def test_helper_a_routed_mac_or_routing_job_runs_still_fails_open() -> None:
+    mac_job = "  mac:\n    runs-on: macos-15\n    steps:\n      - run: scripts/ci/wrapper.sh\n"
+    # Through a script a routed Mac job runs.
+    assert helper_areas({
         "scripts/ci/wrapper.sh": "python3 \"$(dirname \"$0\")/helper.py\"\n",
-        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      - run: scripts/ci/wrapper.sh\n",
-    })
-    # Through a composite action a routed workflow uses.
-    assert reaches({
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + mac_job,
+    }) is None
+    # Through a composite action a routed Mac job uses.
+    assert helper_areas({
         ".github/actions/run-helper/action.yml": "runs:\n  using: composite\n  steps:\n    - run: python3 scripts/ci/helper.py\n      shell: bash\n",
         ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      - uses: ./.github/actions/run-helper\n",
-    })
+    }) is None
+    # The routing job decides every lane.
+    assert helper_areas({
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  changes:\n    runs-on: ubuntu-latest\n    steps:\n      - run: python3 scripts/ci/helper.py\n",
+    }) is None
+
+
+def test_helper_ci_macos_runs_selects_the_lanes_of_its_jobs() -> None:
+    macos = {
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  macos:\n    uses: ./.github/workflows/ci-macos.yml\n",
+        ".github/workflows/ci-macos.yml": (
+            "on: workflow_call\njobs:\n"
+            "  macos-compile-admission:\n    runs-on: macos-15\n    steps:\n      - run: echo\n"
+            "  app-host-unit-tests:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n"
+            "  release-build:\n    if: ${{ inputs.release_build == 'true' }}\n    runs-on: macos-15\n    steps:\n      - run: echo\n"
+        ),
+    }
+    assert helper_areas(macos) == areas(macos=True)
+    released = dict(macos)
+    released[".github/workflows/ci-macos.yml"] = macos[".github/workflows/ci-macos.yml"].replace(
+        "      - run: echo\n", "      - run: echo\n      - run: python3 scripts/ci/helper.py\n",
+    )
+    assert helper_areas(released) == areas(macos=True, cli=True, release_build=True)
+
+
+def test_helper_named_only_in_comments_docstrings_or_routing_tables_is_not_run() -> None:
+    mac_job = "  mac:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/caller.py\n"
+    ci = ROUTED_TREE[".github/workflows/ci.yml"] + mac_job
+    for caller in (
+        '"""Pairs with helper.py."""\nprint(1)\n',
+        "# helper.py does the rest\nprint(1)\n",
+    ):
+        assert helper_areas({".github/workflows/ci.yml": ci, "scripts/ci/caller.py": caller}) == areas(), caller
+    # An import, or a path it runs, is a real call.
+    for caller in ("import helper\n", 'import subprocess\nsubprocess.run(["python3", "scripts/ci/helper.py"])\n'):
+        assert helper_areas({".github/workflows/ci.yml": ci, "scripts/ci/caller.py": caller}) is None, caller
+    # A comment in a routed Mac job names nothing either.
+    commented = ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      # helper.py later\n      - run: echo\n"
+    assert helper_areas({".github/workflows/ci.yml": commented}) == areas()
+    # The router lists helpers as data.
+    table = ROUTED_TREE[".github/workflows/ci.yml"] + "  changes:\n    runs-on: ubuntu-latest\n    steps:\n      - run: python3 scripts/ci/detect_ci_change_areas.py\n"
+    assert helper_areas({
+        ".github/workflows/ci.yml": table,
+        "scripts/ci/detect_ci_change_areas.py": 'OWNED = {"scripts/ci/helper.py"}\n',
+    }) == areas()
+
+
+def test_helper_in_a_linux_job_gated_beyond_its_if_fails_open() -> None:
+    ci = ROUTED_TREE[".github/workflows/ci.yml"]
+    step = "    steps:\n      - run: python3 scripts/ci/helper.py\n"
+    # Waits on another job, which an area may skip.
+    assert helper_areas({".github/workflows/ci.yml": ci + "  late:\n    needs: [changes, linux-preflight]\n    runs-on: ubuntu-latest\n" + step}) is None
+    assert helper_areas({".github/workflows/ci.yml": ci + "  late:\n    needs:\n      - changes\n      - linux-preflight\n    runs-on: ubuntu-latest\n" + step}) is None
+    # A folded condition is read whole.
+    folded = "  lint:\n    if: >-\n      needs.changes.outputs.web == 'true'\n    runs-on: ubuntu-latest\n" + step
+    assert helper_areas({".github/workflows/ci.yml": ci + folded}) == areas(web=True)
+    # A step condition counts, and so does an output derived from macOS.
+    stepped = "  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - if: ${{ needs.changes.outputs.web == 'true' }}\n        run: python3 scripts/ci/helper.py\n"
+    assert helper_areas({".github/workflows/ci.yml": ci + stepped}) == areas(web=True)
+    derived = "  pin:\n    if: ${{ needs.changes.outputs.ghosttykit_release == 'true' }}\n    runs-on: ubuntu-latest\n" + step
+    assert helper_areas({".github/workflows/ci.yml": ci + derived}) == areas(macos=True)
+    # An output this cannot place runs every area.
+    unknown = "  other:\n    if: ${{ needs.changes.outputs.browser == 'true' }}\n    runs-on: ubuntu-latest\n" + step
+    assert helper_areas({".github/workflows/ci.yml": ci + unknown}) is None
+
+
+def test_helper_the_swift_package_lane_runs_fails_open() -> None:
+    macos = {
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  macos:\n    uses: ./.github/workflows/ci-macos.yml\n",
+        ".github/workflows/ci-macos.yml": "on: workflow_call\njobs:\n  swift-package-tests:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n",
+    }
+    assert helper_areas(macos) is None
+
+
+def test_routing_tables_still_run_what_they_import() -> None:
+    table = ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/workflow_guard_groups.py\n"
+    listed = {".github/workflows/ci.yml": table, "scripts/ci/workflow_guard_groups.py": 'GROUPS = {"scripts/ci/helper.py": "ci"}\n'}
+    assert helper_areas(listed) == areas()
+    imported = {".github/workflows/ci.yml": table, "scripts/ci/workflow_guard_groups.py": "import helper\n"}
+    assert helper_areas(imported) is None
+
+
+def test_a_shebang_in_a_script_is_not_a_comment() -> None:
+    assert module._names("#!/usr/bin/env helper\n", "helper")
+    assert not module._names("# helper later\n", "helper")
+    assert module._FULL_LINE_COMMENT_RE.sub("", "#!/bin/sh\n# note\n") == "#!/bin/sh\n"
 
 
 def test_a_pull_request_cannot_unroute_a_workflow_by_editing_ci_yml() -> None:
@@ -2498,37 +2661,45 @@ def test_a_pull_request_cannot_unroute_a_workflow_by_editing_ci_yml() -> None:
         ".github/workflows/mac.yml": "on: workflow_call\njobs:\n  build:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n",
     }
     # A quoted call is still a call.
-    assert reaches(mac_helper)
+    assert helper_areas(mac_helper) is None
     # The head drops the call; the base still has it.
-    base = _helper_repo({**ROUTED_TREE, **mac_helper})
-    head = _helper_repo({**ROUTED_TREE, ".github/workflows/mac.yml": mac_helper[".github/workflows/mac.yml"]})
-    assert not module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES)
-    assert module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES, base_root=base)
+    head_only = {".github/workflows/mac.yml": mac_helper[".github/workflows/mac.yml"]}
+    assert helper_areas(head_only) == areas()
+    assert helper_areas(head_only, base={**ROUTED_TREE, **mac_helper}) is None
 
 
 def test_helper_named_by_product_source_or_a_native_test_fails_open() -> None:
-    assert reaches({"Sources/Build.swift": "// scripts/ci/helper.py\n"})
-    native = module.ci_helper_reaches_routed_lane(
-        "scripts/ci/helper.py",
-        _helper_repo(ROUTED_TREE),
-        (frozenset({"tests/test_helper.py"}), frozenset({"tests/test_helper.py"})),
-    )
-    assert native
+    assert helper_areas({"Sources/Build.swift": "// scripts/ci/helper.py\n"}) is None
+    native = (frozenset({"tests/test_helper.py"}), frozenset({"tests/test_helper.py"}))
+    assert helper_areas({}, references=native) is None
 
 
 def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
     tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
-    assert module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", _helper_repo(tree), GUARD_ONLY_REFERENCES)
+    why: list[str] = []
+    assert module.ci_helper_areas("scripts/ci/helper.py", _helper_repo(tree), GUARD_ONLY_REFERENCES, why=why) is None
+    assert why == ["nothing names helper"]
 
 
 def test_repository_helpers_route_by_where_they_run() -> None:
     references = module.load_macos_job_test_references(ROOT)
+
+    def route(path: str):
+        return module.ci_helper_areas(path, ROOT, references, base_root=ROOT)
+
     # Runs only in the dispatch-only E2E lane.
-    assert not module.ci_helper_reaches_routed_lane("scripts/ci/preflight-e2e-screen-capture.py", ROOT, references)
-    # seed_derived_data.py imports it, and ci-macos.yml compile admission runs that.
-    assert module.ci_helper_reaches_routed_lane("scripts/ci/e2e_warm_derived_data.py", ROOT, references)
-    # run_python_test_lane.py imports it and ci-macos.yml runs that on a Mac.
-    assert module.ci_helper_reaches_routed_lane("scripts/ci/test_execution_registry.py", ROOT, references)
+    assert route("scripts/ci/preflight-e2e-screen-capture.py") == areas()
+    # Runs only in its own workflow_run workflow; pr_runner_pool.py names it
+    # in a docstring, which is not a call.
+    assert route("scripts/ci/owned_pool_rescue.py") == areas()
+    # compile admission runs it (and seed_derived_data.py, which imports
+    # e2e_warm_derived_data.py): macOS, and the CLI lane that product feeds.
+    assert route("scripts/ci/owned_build_state.py") == areas(macos=True, cli=True)
+    assert route("scripts/ci/e2e_warm_derived_data.py") == areas(macos=True, cli=True)
+    # Only the Release lane runs it.
+    assert route("scripts/ci/reuse_release_product.py") == areas(macos=True, release_build=True)
+    # run_python_test_lane.py imports it, and ci.yml's routing job runs that.
+    assert route("scripts/ci/test_execution_registry.py") is None
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
