@@ -83,3 +83,25 @@ public final class AgentFooterStateStore {
         entries.removeValue(forKey: lease.surfaceID)
     }
 }
+
+/// The lifecycle surface used by a terminal runtime to publish pane footer
+/// snapshots without owning the store or its UI delivery mechanism.
+public protocol AgentFooterStatePublishing: AnyObject, Sendable {
+    /// Starts a new lease for a surface instance.
+    @MainActor
+    func activate(surfaceID: UUID) -> AgentFooterStateStore.Lease
+
+    /// Applies a snapshot for a leased surface instance.
+    func post(state: AgentFooterState?, for lease: AgentFooterStateStore.Lease)
+
+    /// Reads the latest snapshot for initial panel rendering.
+    @MainActor
+    func snapshot(for surfaceID: UUID) -> AgentFooterState?
+
+    /// Retires a surface and clears its visible snapshot.
+    @MainActor
+    func retire(surfaceID: UUID)
+
+    /// Balances a tee lease after its callback context is released.
+    func release(_ lease: AgentFooterStateStore.Lease)
+}

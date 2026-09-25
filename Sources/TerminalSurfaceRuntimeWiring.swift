@@ -96,20 +96,32 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
-        private let footerLease: AgentFooterStateStore.Lease
+        private let footerPublisher: (any AgentFooterStatePublishing)?
+        private let footerLease: AgentFooterStateStore.Lease?
 
         init(
             context: Unmanaged<TerminalOutputTeeContext>,
-            footerLease: AgentFooterStateStore.Lease
+            footerPublisher: (any AgentFooterStatePublishing)?,
+            footerLease: AgentFooterStateStore.Lease?
         ) {
             self.context = context
+            self.footerPublisher = footerPublisher
             self.footerLease = footerLease
         }
 
         func release() {
             context.release()
-            TerminalAgentFooterUpdate.teeDidRelease(lease: footerLease)
+            if let footerPublisher, let footerLease {
+                footerPublisher.release(footerLease)
+            }
         }
+    }
+
+    private let agentFooter: (any AgentFooterStatePublishing)?
+
+    @MainActor
+    init(agentFooter: (any AgentFooterStatePublishing)?) {
+        self.agentFooter = agentFooter
     }
 
     @MainActor
@@ -118,10 +130,11 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
-        let footerLease = TerminalAgentFooterUpdate.activate(surfaceID: surfaceID)
+        let footerLease = agentFooter?.activate(surfaceID: surfaceID)
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
+            footerPublisher: agentFooter,
             footerLease: footerLease,
             agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
         ))
@@ -130,12 +143,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext, footerLease: footerLease)
+        return Lease(
+            context: teeContext,
+            footerPublisher: agentFooter,
+            footerLease: footerLease
+        )
     }
 
     @MainActor
     func dropSurface(surfaceID: UUID) {
-        TerminalAgentFooterUpdate.retire(surfaceID: surfaceID)
+        agentFooter?.retire(surfaceID: surfaceID)
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
     }
 }

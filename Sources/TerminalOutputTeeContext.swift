@@ -2,60 +2,64 @@ import CmuxTerminalCore
 import Foundation
 import os
 
-/// A pane-local agent footer update delivered from the terminal output stream.
-struct TerminalAgentFooterUpdate: Sendable {
-    let surfaceID: UUID
-    let state: AgentFooterState?
+/// Composition-root-owned footer lifecycle and UI delivery bridge.
+///
+/// The state store is injected once and shared by the tee, surface lifecycle,
+/// and panel. Notifications use the surface id as their object so observers
+/// can subscribe only to the pane they render.
+final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked Sendable {
+    private let store: AgentFooterStateStore
+
+    /// Creates a publisher backed by the composition root's state store.
+    @MainActor
+    init(store: AgentFooterStateStore) {
+        self.store = store
+    }
 
     @MainActor
-    private static let stateStore = AgentFooterStateStore()
-
-    /// Installs a new lease before the PTY callback can publish output.
-    @MainActor
-    static func activate(surfaceID: UUID) -> AgentFooterStateStore.Lease {
-        stateStore.activate(surfaceID: surfaceID)
+    func activate(surfaceID: UUID) -> AgentFooterStateStore.Lease {
+        store.activate(surfaceID: surfaceID)
     }
 
     /// Publishes a PTY snapshot through the main-actor state owner.
     ///
     /// The lease check runs before the notification is posted, so an update
     /// from an old tee cannot restore state after teardown or surface reuse.
-    static func post(lease: AgentFooterStateStore.Lease, state: AgentFooterState?) {
+    func post(state: AgentFooterState?, for lease: AgentFooterStateStore.Lease) {
+        let store = store
         Task { @MainActor in
-            guard stateStore.update(state, for: lease) else { return }
+            guard store.update(state, for: lease) else { return }
             NotificationCenter.default.post(
                 name: .terminalAgentFooterDidUpdate,
-                object: TerminalAgentFooterUpdate(surfaceID: lease.surfaceID, state: state)
+                object: lease.surfaceID,
+                userInfo: [
+                    Notification.Name.terminalAgentFooterStateUserInfoKey:
+                        state.map { $0 as Any } ?? NSNull()
+                ]
             )
         }
     }
 
     @MainActor
-    static func latestState(for surfaceID: UUID) -> AgentFooterState? {
-        stateStore.snapshot(for: surfaceID)
+    func snapshot(for surfaceID: UUID) -> AgentFooterState? {
+        store.snapshot(for: surfaceID)
     }
 
     @MainActor
-    static func clear(surfaceID: UUID) {
-        guard stateStore.retire(surfaceID: surfaceID) else { return }
+    func retire(surfaceID: UUID) {
+        guard store.retire(surfaceID: surfaceID) else { return }
         NotificationCenter.default.post(
             name: .terminalAgentFooterDidUpdate,
-            object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
+            object: surfaceID,
+            userInfo: [Notification.Name.terminalAgentFooterStateUserInfoKey: NSNull()]
         )
     }
 
-    @MainActor
-    static func retire(surfaceID: UUID) {
-        guard stateStore.retire(surfaceID: surfaceID) else { return }
-        NotificationCenter.default.post(
-            name: .terminalAgentFooterDidUpdate,
-            object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
-        )
-    }
-
-    static func teeDidRelease(lease: AgentFooterStateStore.Lease) {
+    /// Releases a tee lease after its callback context is destroyed.
+    func release(_ lease: AgentFooterStateStore.Lease) {
+        let store = store
         Task { @MainActor in
-            stateStore.release(lease)
+            store.release(lease)
         }
     }
 }
@@ -64,6 +68,7 @@ extension Notification.Name {
     static let terminalAgentFooterDidUpdate = Notification.Name(
         "cmux.terminalAgentFooterDidUpdate"
     )
+    static let terminalAgentFooterStateUserInfoKey = "state"
 }
 
 /// Per-surface state owned by libghostty's serialized PTY read callback.
@@ -107,7 +112,8 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     let workspaceID: UUID
     let surfaceID: UUID
-    private let footerLease: AgentFooterStateStore.Lease
+    private let footerPublisher: (any AgentFooterStatePublishing)?
+    private let footerLease: AgentFooterStateStore.Lease?
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
@@ -117,11 +123,13 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        footerLease: AgentFooterStateStore.Lease,
+        footerPublisher: (any AgentFooterStatePublishing)?,
+        footerLease: AgentFooterStateStore.Lease?,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.footerPublisher = footerPublisher
         self.footerLease = footerLease
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
@@ -138,10 +146,12 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
-        if let footerState = footerParser.consume(bytes) {
-            TerminalAgentFooterUpdate.post(
-                lease: footerLease,
-                state: footerState.isEmpty ? nil : footerState
+        if let footerState = footerParser.consume(bytes),
+           let footerPublisher,
+           let footerLease {
+            footerPublisher.post(
+                state: footerState.isEmpty ? nil : footerState,
+                for: footerLease
             )
         }
 

@@ -68,14 +68,17 @@ struct TerminalPanelView: View {
             }
         }
         .onAppear {
-            agentFooter = TerminalAgentFooterUpdate.latestState(for: panel.id)
+            agentFooter = panel.surface.agentFooter?.snapshot(for: panel.id)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .terminalAgentFooterDidUpdate)) { notification in
-            guard let update = notification.object as? TerminalAgentFooterUpdate,
-                  update.surfaceID == panel.id else {
-                return
-            }
-            agentFooter = update.state
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .terminalAgentFooterDidUpdate,
+                object: panel.id
+            )
+        ) { notification in
+            agentFooter = notification.userInfo?[
+                Notification.Name.terminalAgentFooterStateUserInfoKey
+            ] as? AgentFooterState
         }
     }
 

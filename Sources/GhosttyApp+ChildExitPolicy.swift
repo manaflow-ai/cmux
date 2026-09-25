@@ -41,7 +41,7 @@ extension GhosttyApp {
                       runtimeSurface.runtimeSurfaceGeneration == runtimeSurfaceGeneration else {
                     return
                 }
-                TerminalAgentFooterUpdate.clear(surfaceID: runtimeSurface.id)
+                runtimeSurface.agentFooter?.retire(surfaceID: runtimeSurface.id)
                 runtimeSurface.markShellExited()
                 if !keepSurfaceVisible,
                    let surfaceId,
