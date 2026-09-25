@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxAppKitSupportUI
 import CMUXMobileCore
 import CmuxFoundation
@@ -638,11 +639,6 @@ extension Workspace {
                     )
                 }
                 guard let effectiveRestorableAgent else { return nil }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
@@ -654,14 +650,29 @@ extension Workspace {
                 ) {
                     return true
                 }
-                return (matchingObservation?.processLiveness ?? .unknown)
-                    .wasRunning(
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
+                guard let matchingObservation else { return false }
+                if let resumeBinding {
+                    return matchingObservation.wasRunningForSnapshot(
+                        effectiveRestorableAgent,
+                        binding: resumeBinding,
                         fallingBackTo: panelShellActivityStates[panelId],
-                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
                     )
+                }
+                return matchingObservation.processLiveness.wasRunning(
+                    fallingBackTo: panelShellActivityStates[panelId],
+                    recordedProcessIdentities: matchingObservation.agentProcessIdentities,
+                    confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                    currentProcessIdentity: currentAgentProcessIdentity,
+                    processPresence: agentProcessPresence
+                ) ?? false
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(

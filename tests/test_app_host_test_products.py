@@ -2,12 +2,14 @@
 """Exercise the build-product handoff across different runner paths and identities."""
 
 import importlib.util
+import os
 import plistlib
 import shutil
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from unittest import mock
 
 HELPER = Path(__file__).resolve().parents[1] / "scripts/ci/app_host_test_products.py"
 spec = importlib.util.spec_from_file_location("app_host_test_products", HELPER)
@@ -30,7 +32,9 @@ class TestProductHandoff(unittest.TestCase):
         executable = products / "Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
         executable.parent.mkdir(parents=True)
         executable.write_text("binary")
-        for scheme in ("cmux", "cmux-unit"):
+        self.cli_bundle = Path("Debug/cmuxCLITests.xctest")
+        (products / self.cli_bundle).mkdir(parents=True)
+        for scheme in ("cmux", "cmux-unit", "cmux-cli-tests"):
             target = {
                 "TestHostPath": "__TESTROOT__/Debug/cmux DEV.app",
                 "TestBundlePath": "__TESTHOST__/Contents/PlugIns/cmuxTests.xctest",
@@ -46,9 +50,36 @@ class TestProductHandoff(unittest.TestCase):
                     "UITargetAppPath": "__TESTROOT__/Debug/cmux DEV.app",
                     "DependentProductPaths": [str(products / self.ui_bundle)],
                 })
+            if scheme == "cmux-cli-tests":
+                # A unit-test target without TEST_HOST is loaded by the
+                # platform's own xctest agent, which is not in Build/Products.
+                target = {
+                    "TestHostPath": "__PLATFORMS__/MacOSX.platform/Developer/Library/Xcode/Agents/xctest",
+                    "TestBundlePath": "__TESTROOT__/Debug/cmuxCLITests.xctest",
+                    "EnvironmentVariables": {"SOURCE": "/producer/work/cmux/fixtures"},
+                    "DependentProductPaths": [str(products / self.cli_bundle)],
+                }
             # Cover both manifest versions Xcode has shipped.
             value = {"cmuxTests": target} if scheme == "cmux-unit" else {"TestConfigurations": [{"TestTargets": [target]}]}
             (products / f"{scheme}_macosx26.5-arm64.xctestrun").write_bytes(plistlib.dumps(value))
+
+    def test_cli_profile_needs_only_its_own_manifest(self):
+        # The cheap producer builds one scheme. Its product is complete for the
+        # cli profile and must stamp, while the app-host profile must still
+        # refuse the same tree as partial -- otherwise a CLI-only build could
+        # answer an app-host consumer's restore.
+        products = self.producer / "Build/Products"
+        for scheme in ("cmux", "cmux-unit"):
+            (products / f"{scheme}_macosx26.5-arm64.xctestrun").unlink()
+
+        with mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": "cli"}):
+            found = module.manifests(products)
+        self.assertEqual(list(found), ["cmux-cli-tests"])
+
+        with mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": "app-host"}):
+            with self.assertRaises(ValueError) as caught:
+                module.manifests(products)
+        self.assertIn("cmux", str(caught.exception))
 
     def transfer(self):
         module.stamp(self.producer, self.identity)
@@ -59,13 +90,26 @@ class TestProductHandoff(unittest.TestCase):
         self.transfer()
         current = {**self.identity, "checkout": "/consumer/work/cmux", "developer": "/consumer/Xcode.app/Contents/Developer"}
         outputs = module.restore(self.consumer, current)
-        self.assertEqual(set(outputs), {"CMUX_APP_HOST_XCTESTRUN", "CMUX_NUMERIC_LOCALE_XCTESTRUN", "CMUX_UI_XCTESTRUN"})
+        self.assertEqual(
+            set(outputs),
+            {
+                "CMUX_APP_HOST_XCTESTRUN",
+                "CMUX_CLI_TESTS_XCTESTRUN",
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN",
+                "CMUX_UI_XCTESTRUN",
+            },
+        )
         self.assertEqual(outputs["CMUX_NUMERIC_LOCALE_XCTESTRUN"], outputs["CMUX_APP_HOST_XCTESTRUN"])
         for path in outputs.values():
             value = plistlib.loads(Path(path).read_bytes())
             target = list(module.targets(value))[0]
             self.assertEqual(target["EnvironmentVariables"]["SOURCE"], "/consumer/work/cmux/fixtures")
-            bundle = self.ui_bundle if "UITargetAppPath" in target else self.bundle
+            if "UITargetAppPath" in target:
+                bundle = self.ui_bundle
+            elif not module.hosted_by_product(target):
+                bundle = self.cli_bundle
+            else:
+                bundle = self.bundle
             self.assertEqual(target["DependentProductPaths"], [str(self.consumer / "Build/Products" / bundle)])
             self.assertTrue(Path(target["DependentProductPaths"][0]).exists())
 
@@ -75,6 +119,7 @@ class TestProductHandoff(unittest.TestCase):
             {
                 "cmux": "CMUX_UI_XCTESTRUN",
                 "cmux-unit": "CMUX_APP_HOST_XCTESTRUN",
+                "cmux-cli-tests": "CMUX_CLI_TESTS_XCTESTRUN",
             },
         )
         self.assertEqual(

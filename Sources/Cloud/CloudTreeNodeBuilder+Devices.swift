@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -43,10 +44,10 @@ extension CloudTreeNodeBuilder {
         return [CloudTreeNode(
             id: devicesSectionNodeID,
             kind: .devicesSection(header),
-            children: rows.isEmpty ? [CloudTreeNode(
+            children: rows + [CloudTreeNode(
                 id: "devices-section/empty",
                 kind: .devicesEmpty(header)
-            )] : rows
+            )]
         )]
     }
 

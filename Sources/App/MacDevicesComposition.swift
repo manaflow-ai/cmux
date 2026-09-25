@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSurfaceCatalogModel
@@ -17,6 +18,9 @@ struct MacDevicesComposition {
         preferences.start()
         let registry = DeviceSurfaceProviderRegistry(
             preferences: preferences,
+            // Link events share the transport journal, so one JSONL file holds
+            // the dial, the admission verdict, and the row's resulting state.
+            diagnostics: DeviceLinkDiagnostics(journal: MobileHostIrxRuntime.journal),
             makeAutomaticClient: { identity, teamID in
                 MobileHostIrxRuntime.shared.makeDeviceClient(identity: identity, teamID: teamID)
             },

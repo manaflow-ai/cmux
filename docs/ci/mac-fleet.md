@@ -8,13 +8,24 @@ This document is the capacity and operations layer. It does not restate the
 routing contract, which already exists:
 
 - [`ci-runners.md`](../ci-runners.md) owns the runner-variable table, the
-  persistent compile-admission pilot contract, the Tart pool, and the
-  direct-physical-host boundary.
+  pull request pool preference (including owned pools), the Tart pool, and
+  the direct-physical-host boundary.
 - [`fleet-enrollment.md`](../fleet-enrollment.md) owns machine onboarding.
 - [`workload-profiles.md`](../workload-profiles.md) owns workload identity.
 
 Read those first. This document answers "how many, which lane, and what
 happens at 3 a.m.", and it is the one that carries measurements.
+
+> **Pull request compile pilot retired (#14232).** The persistent
+> compile-admission pilot this plan builds on (`persistent-macos-compile.yml`,
+> `persistent-macos-router.yml`, `CI_PERSISTENT_MAC_COMPILE` and
+> `scripts/persistent-compile`) was removed before it routed any pull request.
+> No workflow targets the `cmux-persistent-compile` runner group any more, so
+> an org admin can remove the group and deregister its runners. Owned minis
+> will take pull request jobs through the pool picker instead
+> (`scripts/ci/pr_runner_pool.py`, #14205, #14237). The sections marked
+> "retired" below describe the removed pilot and are kept for their
+> measurements and reasoning. The nightly mini lane was removed separately (#14243).
 
 ## TL;DR
 
@@ -29,8 +40,10 @@ happens at 3 a.m.", and it is the one that carries measurements.
   unset.
 - **Four minis** hold the compile lane's peak. **One** (issue #13491) is the
   canary and is worth roughly 1.0-1.3 servers of relief on its own.
-- The minis never become required-CI runners. They produce a compile artifact
-  that a hosted job revalidates. That is what keeps a public repo safe.
+- Owned minis take trusted pull request jobs only through the owned-pool
+  picker (`scripts/ci/pr_runner_pool.py`), when `CI_PR_POOL_OWNED` is 1:
+  same-repository heads on a first attempt, with Blacksmith as overflow
+  (#14237, #14244). Fork pull requests never reach them.
 
 ## 1. Measured demand
 
@@ -215,6 +228,10 @@ that single fact.
 
 ### 2.1 What is already enforced
 
+> Retired with the pilot (#14232): the `check_persistent_compile_*`
+> functions and `tests/test_ci_persistent_mac_compile.py` rows below no longer
+> exist. `check_no_self_hosted_fleet_runners` still applies.
+
 | Control | Where |
 | --- | --- |
 | Producer is `workflow_dispatch`-only | `check_persistent_compile_lane` |
@@ -329,6 +346,10 @@ Registering the GitHub Actions runner is a **separate** step that
 in Glaeda is not yet a runner.
 
 ### 3.2 Labels and runner group
+
+> Retired (#14232): no workflow targets this group or label any more. The
+> guard still refuses both names in a required job.
+> Owned minis will join the pool picker's `POOLS` behind a dedicated label.
 
 Exactly one group and one label set, byte-for-byte, because the guard compares
 them literally:
@@ -547,6 +568,10 @@ required, the existing Tart pool provides it (fresh VM clone per job, deleted
 after) and is where that requirement belongs.
 
 ## 5. Rollout
+
+> Retired (#14232): `scripts/persistent-compile` and the variables below
+> were removed with the pilot. Rollout of owned minis for pull requests now
+> goes through `scripts/ci/pr_runner_pool.py` (`POOLS`, `CI_PR_POOL_ORDER`).
 
 `scripts/persistent-compile` runs every step below that can be scripted. Run
 it with no arguments from anywhere to see what is set up and the one command

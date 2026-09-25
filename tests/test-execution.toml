@@ -344,6 +344,14 @@ path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cli_lane_in_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reverse_test_impact.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
@@ -404,11 +412,7 @@ path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_persistent_compile_fleet.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_persistent_mac_compile.py"
+path = "tests/test_ci_cli_product_routing.py"
 lane = "linux-guard"
 
 [[test]]
@@ -420,7 +424,15 @@ path = "tests/test_ci_prune_xcode_compilation_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_owned_build_state.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_warm_labels.py"
 lane = "linux-guard"
 
 [[test]]
@@ -437,6 +449,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_repo_variable_defaults.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_cache_public_url.py"
 lane = "linux-guard"
 
 [[test]]
@@ -824,6 +840,10 @@ path = "tests/test_cli_version_memory_guard.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cli_version_memory_guard_harness.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_cli_vm_create_name.py"
 lane = "legacy"
 
@@ -865,10 +885,6 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_codex_wrapper_hook_append.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_current_cli_workflow.py"
 lane = "legacy"
 
 [[test]]
@@ -1153,6 +1169,10 @@ path = "tests/test_seed_derived_data.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_seed_decide.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_video_recording.py"
 lane = "linux-guard"
 
@@ -1171,3 +1191,19 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_macos_info_plist.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_e2e_sibling_build.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_git_seed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_13766_terminal_history.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_surface_scoped_keys.py"
+lane = "linux-guard"
