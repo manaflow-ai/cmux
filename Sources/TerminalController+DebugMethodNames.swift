@@ -46,9 +46,12 @@ extension TerminalController {
         "debug.session_snapshot_benchmark",
         "debug.session_snapshot_seed_scrollback",
         "debug.window.screenshot",
+        "debug.cloudtree.gallery",
+        "debug.cloudtree.spacing",
         "debug.terminal.simulate_file_drop",
         "debug.sidebar.simulate_drag",
         "debug.mobile.transport.disconnect",
+        "debug.mobile.transport.reconnect_loop",
         "mobile.dev_stack_auth.configure",
     ]
 }

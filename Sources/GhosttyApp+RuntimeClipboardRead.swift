@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxTerminal
 import CmuxTerminalCore
@@ -175,6 +176,44 @@ extension GhosttyApp {
             case .insertText(let text):
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
+                let target = requestTerminalSurface
+                    .resolvedImageTransferTarget()
+                let plan = TerminalImageTransferPlanner.plan(
+                    fileURLs: fileURLs,
+                    target: target
+                )
+                if case .pasteCloudImages = plan {
+                    guard inputAdmission.reservesInput else {
+                        preparedContent.cleanupTransferredTemporaryFiles(using: terminalPasteboard)
+                        completeClipboardRequest(with: "")
+                        return
+                    }
+                    // The daemon pastes on the authenticated lease. Complete the
+                    // Ghostty request empty so no Mac path enters manual I/O.
+                    requestTerminalSurface.hostedView.beginImageTransferIndicator(
+                        for: operation,
+                        onCancel: {}
+                    )
+                    let task = Task { @MainActor in
+                        defer {
+                            requestTerminalSurface.hostedView.endImageTransferIndicator(for: operation)
+                            completeClipboardRequest(with: "")
+                        }
+                        do {
+                            try await requestTerminalSurface.pasteCloudImages(
+                                fileURLs,
+                                operation: operation
+                            )
+                        } catch is CancellationError {
+                            _ = operation.cancel()
+                        } catch {
+                            _ = operation.finish()
+                        }
+                    }
+                    operation.installCancellationHandler { task.cancel() }
+                    return
+                }
+
                 let indicatorView = requestTerminalSurface.hostedView
                 indicatorView.beginImageTransferIndicator(
                     for: operation,
@@ -185,13 +224,6 @@ extension GhosttyApp {
                 overflowCleanup = {
                     indicatorView.endImageTransferIndicator(for: operation)
                 }
-
-                let target = requestTerminalSurface
-                    .resolvedImageTransferTarget()
-                let plan = TerminalImageTransferPlanner.plan(
-                    fileURLs: fileURLs,
-                    target: target
-                )
 
                 let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
                     plan: plan,
@@ -260,7 +292,7 @@ extension GhosttyApp {
                             }
                             completeClipboardRequest(with: text)
                         },
-                        onFailure: { _ in
+                        onFailure: { error in
                             let shouldPresentFailure = MainActor.assumeIsolated {
                                 indicatorView.endImageTransferIndicator(
                                     for: operation
@@ -269,7 +301,9 @@ extension GhosttyApp {
                                     requestTerminalSurface
                                 )
                             }
-                            if shouldPresentFailure {
+                            if shouldPresentFailure, ManagedFileTransferPolicy.isRefusal(error) {
+                                ManagedFileTransferPolicy.presentRefusal()
+                            } else if shouldPresentFailure {
                                 NSSound.beep()
 #if DEBUG
                                 cmuxDebugLog(

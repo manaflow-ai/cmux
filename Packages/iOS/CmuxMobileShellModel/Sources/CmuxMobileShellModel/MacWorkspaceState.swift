@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// The phone's view of ONE Mac's workspaces: the per-Mac source of truth behind
@@ -37,6 +38,9 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// connecting/reconnecting/offline and the derivation can decide whether a
     /// dropped Mac's last-known rows stay (greyed) or are dropped.
     public var status: MobileMacConnectionStatus
+    /// Whether the rows came from a complete workspace snapshot for the
+    /// current connection generation. Retained rows stay false during recovery.
+    public var workspaceSnapshotIsAuthoritative: Bool
     /// Workspace actions supported by this Mac.
     public var actionCapabilities: MobileWorkspaceActionCapabilities
 
@@ -45,8 +49,10 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// separator is the same U+001F unit separator `MobilePairedMac.pairingID`
     /// uses (this package deliberately does not depend on that module).
     public var id: String {
-        guard let instanceTag, !instanceTag.isEmpty else { return macDeviceID }
-        return "\(macDeviceID)\u{1F}\(instanceTag)"
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
     }
 
     /// Create one per-Mac workspace state snapshot.
@@ -58,15 +64,21 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         groups: [MobileWorkspaceGroupPreview] = [],
         workspaceGroupsAreAuthoritative: Bool = false,
         status: MobileMacConnectionStatus = .reconnecting,
+        workspaceSnapshotIsAuthoritative: Bool = false,
         actionCapabilities: MobileWorkspaceActionCapabilities = .none
     ) {
-        self.macDeviceID = macDeviceID
-        self.instanceTag = instanceTag
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
+        self.instanceTag = identity.instanceTag
         self.displayName = displayName
         self.workspaces = workspaces
         self.groups = groups
         self.workspaceGroupsAreAuthoritative = workspaceGroupsAreAuthoritative
         self.status = status
+        self.workspaceSnapshotIsAuthoritative = workspaceSnapshotIsAuthoritative
         self.actionCapabilities = actionCapabilities
     }
 }

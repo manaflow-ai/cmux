@@ -2,6 +2,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileRPC
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
@@ -64,6 +65,8 @@ private actor MobilePushSingleFlight<Value: Sendable> {
 @MainActor
 @Observable
 public final class MobilePushCoordinator {
+    /// The alert type exposed by the push coordinator.
+    public typealias TabUnavailableAlert = MobilePushTabUnavailableAlert
     private let registration: any PushRegistering
     private let analytics: any AnalyticsEmitting
     private let diagnosticLog: DiagnosticLog?
@@ -103,21 +106,27 @@ public final class MobilePushCoordinator {
     /// mounted (no store bound yet), and even once bound the tapped workspace
     /// is not in the store until the Mac attach finishes. The tap is parked
     /// here and re-applied from ``bind(store:)`` and ``workspacesDidChange()``
-    /// until the target exists or the request expires.
+    /// until the target exists. A delayed recheck cannot prove deletion while
+    /// the owning Mac is unavailable, so the request remains recoverable.
     private struct PendingDeeplink {
+        let id: UUID
         let workspaceId: String?
         let surfaceId: String?
         let macDeviceId: String?
+        let macInstanceTag: String?
         let retargetsToLiveSurfaceOwner: Bool
-        let createdAt: Date
-        let lastNavigatedWorkspaceId: MobileWorkspacePreview.ID?
     }
 
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
-    /// Bounded so a tap from long ago cannot yank the user out of whatever
-    /// they navigated to in the meantime, but generous enough to cover cold
-    /// launch plus sign-in plus a slow attach.
-    private static let pendingDeeplinkLifetime: TimeInterval = 120
+    @ObservationIgnored private var pendingDeeplinkTimedOutID: UUID?
+    @ObservationIgnored private var pendingDeeplinkRecheckTask: Task<Void, Never>?
+    /// Set when a tapped terminal is proven unavailable after the connection
+    /// is ready. It remains observable so a cold-launch tap can present the
+    /// alert after the root mounts.
+    public private(set) var tabUnavailableAlert: TabUnavailableAlert?
+    /// Delayed recheck interval for cold launch and slow attach. It is not a
+    /// deletion deadline because an unavailable Mac cannot prove a tab is gone.
+    private static let pendingDeeplinkRecheckDelay: Duration = .seconds(120)
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var pendingReplyState = PendingReplyState()
     @ObservationIgnored private var replySendInFlight = false
@@ -129,6 +138,22 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var replyRetryTask: Task<Void, Never>?
     @ObservationIgnored private let replyRetrySleep: @Sendable (Duration) async throws -> Void
     private static let replyRetryDelay: Duration = .seconds(5)
+    /// Held from the moment a reply parks until no reply is pending, so a
+    /// lock-screen reply's background wake survives past the notification
+    /// delegate's return long enough for the relay POST (and its bounded
+    /// retries) to complete. Without it iOS suspends the process within
+    /// seconds and the parked reply silently expires.
+    @ObservationIgnored private var replyBackgroundAssertion: BackgroundReplyRuntimeAssertion?
+    @ObservationIgnored private let backgroundRuntime: any BackgroundReplyRuntimeAsserting
+    /// Server relay for replies the phone cannot deliver directly: the
+    /// reliable lane for a backgrounded app, whose whole job is one HTTPS
+    /// POST. The Mac fetches and types the reply on its own schedule.
+    @ObservationIgnored private let replyRelay: any ReplyRelaying
+    @ObservationIgnored private let replyFailureNotifier: any ReplyFailureNoticing
+    @ObservationIgnored private let authenticatedAccountIDProvider: @MainActor () -> String?
+    /// Grace past ``PendingReplyState/lifetime`` so an in-flight final send
+    /// isn't raced by its own failure notice.
+    private static let replyFailureNoticeSlack: TimeInterval = 10
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -164,7 +189,6 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var registrationSnapshotTask: Task<Void, Never>?
     @ObservationIgnored private var registrationRecoveryTask:
         Task<PushRegistrationSnapshot, Never>?
-    @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
     @ObservationIgnored private var hasRequestedRemoteRegistration = false
 
     /// Creates a push coordinator.
@@ -207,12 +231,20 @@ public final class MobilePushCoordinator {
         replyRetrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         },
+        backgroundRuntime: any BackgroundReplyRuntimeAsserting = SystemBackgroundReplyRuntime(),
+        replyRelay: any ReplyRelaying = NoopReplyRelay(),
+        replyFailureNotifier: any ReplyFailureNoticing = SystemReplyFailureNotifier(),
+        authenticatedAccountID: @escaping @MainActor () -> String? = { nil },
         notificationSettingsClock: any Clock<Duration> = ContinuousClock(),
         notificationSettingsTimeout: Duration = .seconds(5),
         authorizationRequestTimeout: Duration = .seconds(120)
     ) {
         self.registration = registration
         self.replyRetrySleep = replyRetrySleep
+        self.backgroundRuntime = backgroundRuntime
+        self.replyRelay = replyRelay
+        self.replyFailureNotifier = replyFailureNotifier
+        self.authenticatedAccountIDProvider = authenticatedAccountID
         self.notificationSettingsClock = notificationSettingsClock
         self.notificationSettingsTimeout = notificationSettingsTimeout
         self.authorizationRequestTimeout = authorizationRequestTimeout
@@ -248,12 +280,23 @@ public final class MobilePushCoordinator {
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { enabledMirror }
 
-    /// Commits a Settings toggle choice synchronously, then reconciles OS and
+    @MainActor
+    public func currentAuthenticatedAccountID() -> String? {
+        authenticatedAccountIDProvider()
+    }
+
+    /// Commits an opt-in/opt-out choice synchronously, then reconciles OS and
     /// backend state for that generation. A later choice invalidates every
     /// continuation of the older operation, so Settings never waits behind a
     /// stalled permission or registration call.
+    /// - Parameter trigger: The analytics surface that made the choice
+    ///   (`settings_toggle` for the Settings switch, `onboarding` for the
+    ///   onboarding push page).
     @discardableResult
-    public func setEnabledIntent(_ enabled: Bool) -> Task<Bool, Never> {
+    public func setEnabledIntent(
+        _ enabled: Bool,
+        trigger: String = "settings_toggle"
+    ) -> Task<Bool, Never> {
         settingsIntentTask?.cancel()
         let generation = beginSettingsIntent(enabled)
         let registration = registration
@@ -271,7 +314,7 @@ public final class MobilePushCoordinator {
             let result: Bool
             if enabled {
                 result = await self.reconcileEnable(
-                    trigger: "settings_toggle",
+                    trigger: trigger,
                     generation: generation,
                     registrationIntentOwnedByService: true
                 )
@@ -357,13 +400,18 @@ public final class MobilePushCoordinator {
 
     /// Opt in: request system authorization, register for remote notifications,
     /// and persist the flag. Returns whether authorization was granted.
+    /// - Parameter trigger: The analytics surface that opted in.
     @discardableResult
-    public func enable() async -> Bool {
-        await setEnabledIntent(true).value
+    public func enable(trigger: String = "settings_toggle") async -> Bool {
+        await setEnabledIntent(true, trigger: trigger).value
     }
 
-    /// Requests or recovers push only after the authenticated workspace shell
-    /// is mounted. An explicit app opt-out remains authoritative.
+    /// Recovers push registration after the authenticated workspace shell is
+    /// mounted. An explicit app opt-out remains authoritative, and an
+    /// undetermined OS status is left untouched: the first system permission
+    /// alert belongs to the onboarding push page (or the Settings toggle),
+    /// never to an automatic surface, so people see the value of notifications
+    /// before iOS burns the app's one prompt.
     public func workspaceListDidBecomeVisible() async {
         let initialSettingsGeneration = settingsIntentGeneration
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
@@ -385,16 +433,7 @@ public final class MobilePushCoordinator {
             // Preserve intent so Settings can explain the blocked OS gate and
             // a later foreground return can recover without another app launch.
             persistEnabledIntent()
-        case .notDetermined:
-            guard !workspaceAuthorizationRequestInFlight else { return }
-            workspaceAuthorizationRequestInFlight = true
-            defer { workspaceAuthorizationRequestInFlight = false }
-            let generation = beginSettingsIntent(true)
-            _ = await reconcileEnable(
-                trigger: "workspace_list",
-                generation: generation
-            )
-        case .unsupported:
+        case .notDetermined, .unsupported:
             break
         }
     }
@@ -830,7 +869,8 @@ public final class MobilePushCoordinator {
     /// status. A missing Mac status fails closed.
     public func readiness(
         macStatus: MobileHostPhonePushStatus?,
-        macAccountMismatch: Bool = false
+        macAccountMismatch: Bool = false,
+        securePushSetupFailed: Bool = false
     ) -> MobilePushReadiness {
         MobilePushReadiness.resolve(
             authorization: authorization,
@@ -838,7 +878,8 @@ public final class MobilePushCoordinator {
             mac: macStatus.map(MobilePushReadiness.MacStatus.init),
             macAccountMismatch: macAccountMismatch,
             systemSettings: systemSettings,
-            phoneAPIOrigin: phoneAPIOrigin
+            phoneAPIOrigin: phoneAPIOrigin,
+            securePushSetupFailed: securePushSetupFailed
         )
     }
 
@@ -921,16 +962,30 @@ public final class MobilePushCoordinator {
     /// Whether to show a banner while the app is foreground. Suppressed when the
     /// user is already viewing the terminal the notification is about.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?) -> Bool {
-        shouldPresentInForeground(workspaceId: workspaceId, surfaceId: surfaceId, macDeviceId: nil)
+        shouldPresentInForeground(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: nil,
+            macInstanceTag: nil
+        )
     }
 
     /// Whether to show a banner while the app is foreground, scoped to the Mac
     /// that sent the notification when the payload includes it.
-    public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?, macDeviceId: String?) -> Bool {
+    public func shouldPresentInForeground(
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        macInstanceTag: String? = nil
+    ) -> Bool {
         diagnosticLog?.recordAppEvent(.pushReceivedInForeground)
         let shouldPresent: Bool
         if let store, let workspaceId,
-           store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) {
+           store.selectedWorkspaceMatches(
+               remoteWorkspaceID: workspaceId,
+               macDeviceID: macDeviceId,
+               instanceTag: macInstanceTag
+           ) {
             if let surfaceId {
                 shouldPresent = store.selectedTerminalID?.rawValue != surfaceId
             } else {
@@ -957,6 +1012,7 @@ public final class MobilePushCoordinator {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: nil,
+            macInstanceTag: nil,
             retargetsToLiveSurfaceOwner: true
         )
     }
@@ -974,19 +1030,50 @@ public final class MobilePushCoordinator {
         workspaceId: String?,
         surfaceId: String?,
         macDeviceId: String?,
+        macInstanceTag: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         diagnosticLog?.recordAppEvent(.pushTapped)
+        tabUnavailableAlert = nil
+        pendingDeeplinkRecheckTask?.cancel()
+        pendingDeeplinkTimedOutID = nil
         pendingDeeplink = PendingDeeplink(
+            id: UUID(),
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-            createdAt: now(),
-            lastNavigatedWorkspaceId: nil
+            macInstanceTag: macInstanceTag,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
+        schedulePendingDeeplinkRecheck()
         diagnosticLog?.recordAppEvent(.pushDeeplinkParked)
         applyPendingDeeplinkIfReady()
+    }
+
+    /// Dismiss the one-shot alert presented for a terminal that no longer
+    /// exists on its owning Mac.
+    public func dismissTabUnavailableAlert() {
+        if tabUnavailableAlert?.kind == .connectionUnavailable {
+            clearPendingDeeplink()
+        }
+        tabUnavailableAlert = nil
+    }
+
+    /// Retries a timed-out notification tap after the user has restored the
+    /// Mac connection. The original target remains parked until it resolves.
+    public func retryPendingDeeplink() {
+        tabUnavailableAlert = nil
+        pendingDeeplinkTimedOutID = nil
+        schedulePendingDeeplinkRecheck()
+        applyPendingDeeplinkIfReady()
+        guard let pending = pendingDeeplink, let store else { return }
+        Task { @MainActor [weak self] in
+            await store.reconnectToMac(
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+            self?.workspacesDidChange()
+        }
     }
 
     /// Parks an inline notification reply and sends it once its exact Mac, workspace, surface, and RPC channel are ready.
@@ -1004,18 +1091,41 @@ public final class MobilePushCoordinator {
         workspaceId: String?,
         surfaceId: String?,
         macDeviceId: String?,
+        macInstanceTag: String? = nil,
+        macInstallationID: String? = nil,
+        macBuildID: String? = nil,
         retargetsToLiveSurfaceOwner: Bool
     ) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         diagnosticLog?.recordAppEvent(.pushReplyStarted)
+        let supersededReplyId = pendingReplyState.pending?.replyId
+        let replyId = UUID().uuidString
         pendingReplyState.park(PendingReply(
+            replyId: replyId,
             text: text,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
+            macInstanceTag: macInstanceTag,
+            macInstallationID: macInstallationID,
+            macBuildID: macBuildID,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now()
         ))
+        // A lock-screen reply wakes the app in the BACKGROUND: hold runtime so
+        // the relay POST + retry ladder outlive the notification delegate, and
+        // pre-schedule the failure notice so even a process kill cannot turn a
+        // lost reply into silence. Both resolve when the reply does. Notices
+        // are keyed per reply id, so a superseded reply's notice is cancelled
+        // here and an older reply resolving can never void a newer notice.
+        beginReplyBackgroundAssertionIfNeeded()
+        await replyFailureNotifier.schedule(
+            after: PendingReplyState.lifetime + Self.replyFailureNoticeSlack,
+            replyId: replyId
+        )
+        if let supersededReplyId {
+            await replyFailureNotifier.cancel(replyId: supersededReplyId)
+        }
         await applyPendingReplyIfReady()
     }
 
@@ -1024,104 +1134,142 @@ public final class MobilePushCoordinator {
     /// ``workspacesDidChange()``.
     private func applyPendingDeeplinkIfReady() {
         guard let pending = pendingDeeplink else { return }
-        guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
-            pendingDeeplink = nil
-            diagnosticLog?.recordAppEvent(
-                .pushDeeplinkExpired,
-                failure: .timedOut
-            )
-            analytics.capture("ios_push_deeplink_failed", ["reason": .string("expired")])
+        guard let store else {
+            // A cold-launch tap remains parked until the shell mounts. There
+            // is no authoritative Mac snapshot yet, so expiry cannot prove
+            // that the target tab was deleted.
             return
         }
-        guard let store else { return }
-        guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
-            pendingDeeplink = nil
+        guard pending.workspaceId != nil || pending.surfaceId != nil else {
+            clearPendingDeeplink()
             diagnosticLog?.recordAppEvent(
                 .pushDeeplinkFailed,
                 failure: .protocolViolation
             )
             return
         }
+        if pendingDeeplinkTimedOutID == pending.id {
+            // A timeout alert pauses automatic work until the owning Mac is
+            // usable again. The connection/topology hooks then resume the
+            // original tap without requiring a second notification tap.
+            guard pendingConnectionIsUsable(pending, store: store) else { return }
+            pendingDeeplinkTimedOutID = nil
+        }
+        guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
+            clearPendingDeeplink()
+            diagnosticLog?.recordAppEvent(
+                .pushDeeplinkFailed,
+                failure: .protocolViolation
+            )
+            return
+        }
+        guard pendingConnectionIsUsable(pending, store: store) else { return }
 
         // Resolve the workspace to navigate to: the explicit target, or for a
         // surface-only tap the workspace that owns the terminal. Unresolvable
         // means "not loaded yet": stay parked for the next topology change so
         // the tap is never spent on a selection that cannot navigate.
+        let liveSurfaceOwner: MobileWorkspacePreview.ID? = {
+            guard pending.retargetsToLiveSurfaceOwner,
+                  let surfaceId = pending.surfaceId else { return nil }
+            return store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+        }()
         var workspaceTarget: MobileWorkspacePreview.ID
-        if let workspaceId = pending.workspaceId {
-            guard let resolved = store.workspaceID(
+        if let liveSurfaceOwner {
+            // A trusted push may name the workspace from before a tab move.
+            // Resolve the terminal's current owner first, even when the old
+            // workspace row is still present in the snapshot.
+            workspaceTarget = liveSurfaceOwner
+        } else if let workspaceId = pending.workspaceId {
+            if let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
-                macDeviceID: pending.macDeviceId
-            ) else { return }
-            workspaceTarget = resolved
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            ) {
+                workspaceTarget = resolved
+            } else {
+                // Once the owning Mac has published an authoritative list, a
+                // missing workspace is a definitive closed-tab result. During
+                // recovery the retained list is only a cache, so keep waiting
+                // for the fresh snapshot before surfacing the alert.
+                guard isWorkspaceListAuthoritative(for: pending, store: store) else { return }
+                clearPendingDeeplink()
+                presentTabUnavailableAlert()
+                return
+            }
         } else if let surfaceId = pending.surfaceId {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
-                macDeviceID: pending.macDeviceId
-            ) else { return }
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            ) else {
+                guard isWorkspaceListAuthoritative(for: pending, store: store) else { return }
+                clearPendingDeeplink()
+                presentTabUnavailableAlert()
+                return
+            }
             workspaceTarget = owner
         } else {
-            pendingDeeplink = nil
+            clearPendingDeeplink()
             diagnosticLog?.recordAppEvent(
                 .pushDeeplinkFailed,
                 failure: .protocolViolation
             )
             return
         }
-        if pending.retargetsToLiveSurfaceOwner,
-           let surfaceId = pending.surfaceId,
-           let liveOwner = store.workspaceID(
-               containingSurfaceID: surfaceId,
-               macDeviceID: pending.macDeviceId
-           ) {
-            workspaceTarget = liveOwner
-        }
-
         if let surfaceId = pending.surfaceId,
            !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
-            // The workspace is here but its terminal snapshot is not (still
-            // loading, closed, or moved). Land the user in the right workspace.
-            if pending.lastNavigatedWorkspaceId != workspaceTarget {
-                store.navigateToWorkspaceForDeeplink(workspaceTarget)
+            // A disconnected or reconnecting Mac may still be filling its
+            // terminal snapshot. Keep the tap parked until that connection is
+            // usable, then distinguish a late snapshot from a closed tab.
+            guard isWorkspaceConnectionReady(store.workspaces.first { $0.id == workspaceTarget }) else {
+                return
             }
+            // A connected transport can still expose the previous snapshot
+            // while recovery is completing. Do not turn that stale miss into
+            // a permanent unavailable alert until the workspace list is
+            // authoritative for this connection.
+            guard isWorkspaceListAuthoritative(for: pending, store: store) else { return }
             if !pending.retargetsToLiveSurfaceOwner,
                let liveOwner = store.workspaceID(
                    containingSurfaceID: surfaceId,
-                   macDeviceID: pending.macDeviceId
+                   macDeviceID: pending.macDeviceId,
+                   instanceTag: pending.macInstanceTag
                ),
                liveOwner != workspaceTarget {
                 // The loaded topology proves the terminal moved elsewhere. A
                 // confined tap cannot follow it, and retaining the request
                 // would replay navigation to the authorized workspace on every
                 // topology update.
-                pendingDeeplink = nil
-                diagnosticLog?.recordAppEvent(.pushDeeplinkResolved)
-                analytics.capture("ios_push_deeplink_resolved", [
-                    "resolved_workspace": .bool(true),
-                    "resolved_surface": .bool(false),
-                ])
+                clearPendingDeeplink()
+                presentTabUnavailableAlert()
                 return
             }
-            // No live owner is loaded yet. Keep the surface parked so a pending
-            // snapshot can still arrive, bounded by the original expiry.
-            pendingDeeplink = PendingDeeplink(
-                workspaceId: pending.retargetsToLiveSurfaceOwner ? nil : pending.workspaceId,
-                surfaceId: surfaceId,
-                macDeviceId: pending.macDeviceId,
-                retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner,
-                createdAt: pending.createdAt,
-                lastNavigatedWorkspaceId: workspaceTarget
-            )
+            // The owning Mac is connected and its snapshot proves the tab is
+            // gone. Leave the current UI where it is and explain why the tap
+            // could not open anything.
+            clearPendingDeeplink()
+            presentTabUnavailableAlert()
             return
         }
 
-        if pending.lastNavigatedWorkspaceId != workspaceTarget {
-            store.navigateToWorkspaceForDeeplink(workspaceTarget)
+        guard isWorkspaceConnectionReady(store.workspaces.first { $0.id == workspaceTarget }) else {
+            return
         }
+        guard isWorkspaceListAuthoritative(for: pending, store: store) else {
+            return
+        }
+
+        store.navigateToWorkspaceForDeeplink(workspaceTarget)
         if let surfaceId = pending.surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
-        pendingDeeplink = nil
+        clearPendingDeeplink()
+        tabUnavailableAlert = nil
         diagnosticLog?.recordAppEvent(.pushDeeplinkResolved)
         analytics.capture("ios_push_deeplink_resolved", [
             "resolved_workspace": .bool(pending.workspaceId != nil),
@@ -1129,8 +1277,128 @@ public final class MobilePushCoordinator {
         ])
     }
 
+    private func clearPendingDeeplink() {
+        pendingDeeplink = nil
+        pendingDeeplinkTimedOutID = nil
+        pendingDeeplinkRecheckTask?.cancel()
+        pendingDeeplinkRecheckTask = nil
+    }
+
+    private func schedulePendingDeeplinkRecheck() {
+        pendingDeeplinkRecheckTask?.cancel()
+        guard let pendingID = pendingDeeplink?.id else { return }
+        pendingDeeplinkRecheckTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(
+                    for: Self.pendingDeeplinkRecheckDelay
+                )
+            } catch {
+                return
+            }
+            guard let self,
+                  self.pendingDeeplink?.id == pendingID else { return }
+            self.pendingDeeplinkRecheckTask = nil
+            self.pendingDeeplinkTimedOutID = pendingID
+            self.presentConnectionUnavailableAlert()
+        }
+    }
+
+    private func isWorkspaceConnectionReady(_ workspace: MobileWorkspacePreview?) -> Bool {
+        guard let workspace else { return false }
+        if let status = workspace.macConnectionStatus {
+            // A stamped row carries the exact Mac's liveness; a disconnected
+            // foreground aggregate must not block a ready secondary pairing.
+            return status == .connected
+        }
+        // Unstamped rows belong to the anonymous foreground connection used by
+        // legacy hosts and deterministic previews. A Mac-scoped row without a
+        // structured status fails closed instead of borrowing global liveness.
+        guard store?.connectionState == .connected else { return false }
+        return workspace.macDeviceID == nil
+    }
+
+    private func isWorkspaceListAuthoritative(
+        for pending: PendingDeeplink,
+        store: CMUXMobileShellStore
+    ) -> Bool {
+        store.isWorkspaceListAuthoritative(
+            forMacDeviceID: pending.macDeviceId,
+            instanceTag: pending.macInstanceTag
+        )
+    }
+
+    private func pendingConnectionIsUsable(
+        _ pending: PendingDeeplink,
+        store: CMUXMobileShellStore
+    ) -> Bool {
+        let resolvedWorkspaceID: MobileWorkspacePreview.ID?
+        if pending.retargetsToLiveSurfaceOwner, let surfaceId = pending.surfaceId {
+            resolvedWorkspaceID = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            ) ?? pending.workspaceId.flatMap {
+                store.workspaceID(
+                    matchingRemoteWorkspaceID: $0,
+                    macDeviceID: pending.macDeviceId,
+                    instanceTag: pending.macInstanceTag
+                )
+            }
+        } else if let workspaceId = pending.workspaceId {
+            resolvedWorkspaceID = store.workspaceID(
+                matchingRemoteWorkspaceID: workspaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+        } else if let surfaceId = pending.surfaceId {
+            resolvedWorkspaceID = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+        } else {
+            return false
+        }
+        guard let resolvedWorkspaceID else {
+            // An authoritative connected list can prove that the target
+            // workspace is gone, allowing the caller to present its alert.
+            return isWorkspaceListAuthoritative(for: pending, store: store)
+        }
+        guard let workspace = store.workspaces.first(where: { $0.id == resolvedWorkspaceID }) else {
+            return false
+        }
+        return isWorkspaceConnectionReady(workspace)
+    }
+
+    private func presentTabUnavailableAlert() {
+        guard tabUnavailableAlert?.kind != .tabUnavailable else { return }
+        // A reconnect can turn a previously timed-out tap into a definitive
+        // missing-tab result. Replace the stale connection prompt with the
+        // authoritative outcome so the user sees the actual next step.
+        tabUnavailableAlert = TabUnavailableAlert(kind: .tabUnavailable)
+        diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .endpointUnavailable)
+        analytics.capture("ios_push_deeplink_failed", ["reason": .string("tab_unavailable")])
+    }
+
+    private func presentConnectionUnavailableAlert() {
+        guard tabUnavailableAlert == nil else { return }
+        tabUnavailableAlert = TabUnavailableAlert(kind: .connectionUnavailable)
+        diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .timedOut)
+        analytics.capture("ios_push_deeplink_failed", ["reason": .string("connection_unavailable")])
+    }
+
     /// Applies the parked reply without mutating UI selection; later topology changes retry only unresolved prerequisites.
+    /// Also reconciles the reply background assertion: it is held exactly while
+    /// a reply is pending (or a send is in flight), so every resolution path —
+    /// sent, relayed, discarded, expired — releases the process back to iOS.
     private func applyPendingReplyIfReady() async {
+        await applyPendingReplyIfReadyCore()
+        if pendingReplyState.pending == nil, !replySendInFlight {
+            endReplyBackgroundAssertionIfHeld()
+        }
+    }
+
+    private func applyPendingReplyIfReadyCore() async {
         guard !replySendInFlight else { return }
         let initialDecision = pendingReplyState.evaluate(
             now: now(),
@@ -1154,7 +1422,7 @@ public final class MobilePushCoordinator {
             return
         }
 
-        guard let pending = pendingReplyState.pending, let store else { return }
+        guard let pending = pendingReplyState.pending else { return }
         guard let surfaceId = pending.surfaceId, !surfaceId.isEmpty else {
             pendingReplyState.discard()
             diagnosticLog?.recordAppEvent(
@@ -1162,6 +1430,18 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping inline reply without a surface id")
+            await replyFailureNotifier.deliverNow(replyId: pending.replyId)
+            return
+        }
+
+        // A backgrounded app is never asked to dial: the direct RPC lane is a
+        // fast path taken only when it can deliver RIGHT NOW. Everything else
+        // — no store yet (a store-less background wake), a target the local
+        // topology cannot resolve, a down or freshly-dead channel — hands the
+        // reply to the server relay in one HTTPS POST and lets the Mac fetch
+        // and type it.
+        guard let store else {
+            await relayPendingReply(pending)
             return
         }
 
@@ -1169,14 +1449,22 @@ public final class MobilePushCoordinator {
         if let workspaceId = pending.workspaceId {
             guard let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
-                macDeviceID: pending.macDeviceId
-            ) else { return }
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            ) else {
+                await relayPendingReply(pending)
+                return
+            }
             workspaceTarget = resolved
         } else if pending.retargetsToLiveSurfaceOwner {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
-                macDeviceID: pending.macDeviceId
-            ) else { return }
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            ) else {
+                await relayPendingReply(pending)
+                return
+            }
             workspaceTarget = owner
         } else {
             pendingReplyState.discard()
@@ -1185,6 +1473,7 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             mobilePushLog.info("dropping confined inline reply without a workspace id")
+            await replyFailureNotifier.deliverNow(replyId: pending.replyId)
             return
         }
 
@@ -1192,14 +1481,13 @@ public final class MobilePushCoordinator {
             guard pending.retargetsToLiveSurfaceOwner,
                   let liveOwner = store.workspaceID(
                       containingSurfaceID: surfaceId,
-                      macDeviceID: pending.macDeviceId
+                      macDeviceID: pending.macDeviceId,
+                      instanceTag: pending.macInstanceTag
               ) else {
-                pendingReplyState.discard()
-                diagnosticLog?.recordAppEvent(
-                    .pushReplyFailed,
-                    failure: .noRoute
-                )
-                mobilePushLog.info("dropping inline reply because the target surface has no permitted live owner")
+                // The LOCAL topology says the target is gone, but a suspended
+                // snapshot is not authoritative — the Mac's resolution is.
+                // Relay and let the shared terminal.paste path decide there.
+                await relayPendingReply(pending)
                 return
             }
             workspaceTarget = liveOwner
@@ -1216,29 +1504,24 @@ public final class MobilePushCoordinator {
                 mobilePushLog.info("dropping expired inline reply")
                 return
             }
-            // Channel not ready. A store/channel event retries immediately,
-            // but a channel that recovers without one would otherwise strand
-            // the reply until its lifetime expires — keep the bounded retry
-            // ladder armed while parked.
-            scheduleReplyRetry()
+            // Channel not usable right now; the relay does not wait for it.
+            await relayPendingReply(pending)
             return
         }
 
         replySendInFlight = true
-        let sent = await store.sendTerminalInput(
-            ready.text + "\r",
+        let sent = await store.sendTerminalPaste(
+            ready.text,
             workspaceID: workspaceTarget,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceId)
         )
         replySendInFlight = false
         if !sent {
             // A failed RPC send must not consume the reply: re-park it (with
-            // its original createdAt, so the 120 s lifetime still bounds the
-            // total retry window). A reply parked mid-send wins instead —
-            // latest user intent replaces the failed one. Store/channel
-            // readiness events retry immediately; the armed delay covers a
-            // transient failure whose topology never changes.
-            mobilePushLog.error("inline reply terminal input failed; re-parking for retry")
+            // its original createdAt, so the lifetime still bounds the total
+            // retry window; a reply parked mid-send wins instead), then hand
+            // it straight to the relay — the channel just proved unreliable.
+            mobilePushLog.error("inline reply terminal paste failed; relaying")
             diagnosticLog?.recordAppEvent(
                 .pushReplyFailed,
                 failure: .connectionClosed
@@ -1246,13 +1529,83 @@ public final class MobilePushCoordinator {
             if pendingReplyState.pending == nil {
                 pendingReplyState.park(ready)
             }
-            scheduleReplyRetry()
+            await relayPendingReply(ready)
             return
         }
         replyRetryTask?.cancel()
         replyRetryTask = nil
         diagnosticLog?.recordAppEvent(.pushReplySucceeded)
+        // Per-reply notices: cancelling this reply's notice can never void a
+        // newer reply's.
+        await replyFailureNotifier.cancel(replyId: ready.replyId)
         await applyPendingReplyIfReady()
+    }
+
+    /// The reliable lane: park the reply in the presence worker's inbox with
+    /// one HTTPS POST; the Mac fetches and types it through the same shared
+    /// terminal.paste path as a direct send. Consumes the reply on acceptance.
+    /// A reply whose push carried no Mac claim cannot be routed by the inbox
+    /// (and a Mac old enough to omit the claim cannot sweep it either), so it
+    /// stays parked for a late direct send within its lifetime.
+    private func relayPendingReply(_ pending: PendingReply) async {
+        guard let surfaceId = pending.surfaceId, !surfaceId.isEmpty else { return }
+        guard let macDeviceId = pending.macDeviceId, !macDeviceId.isEmpty else {
+            scheduleReplyRetry()
+            return
+        }
+        guard !replySendInFlight else { return }
+        replySendInFlight = true
+        let accepted = await replyRelay.relay(RelayedReply(
+            replyId: pending.replyId,
+            macDeviceId: macDeviceId,
+            workspaceId: pending.workspaceId,
+            surfaceId: surfaceId,
+            text: pending.text,
+            accountID: authenticatedAccountIDProvider(),
+            macInstallationID: pending.macInstallationID,
+            macBuildID: pending.macBuildID,
+            macInstanceTag: pending.macInstanceTag,
+            retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner
+        ))
+        replySendInFlight = false
+        guard accepted else {
+            // Transient service failure: stay parked. The ladder re-runs the
+            // whole decision — direct first, relay again — within the
+            // reply's lifetime, and the pre-scheduled notice reports a reply
+            // that never leaves the phone.
+            mobilePushLog.error("inline reply relay POST failed; retrying on the ladder")
+            diagnosticLog?.recordAppEvent(
+                .pushReplyFailed,
+                failure: .connectionClosed
+            )
+            scheduleReplyRetry()
+            return
+        }
+        pendingReplyState.discardIfMatching(replyId: pending.replyId)
+        replyRetryTask?.cancel()
+        replyRetryTask = nil
+        diagnosticLog?.recordAppEvent(.pushReplySucceeded)
+        mobilePushLog.info("inline reply parked in the server relay inbox")
+        // Per-reply notices: cancelling this reply's notice can never void a
+        // newer reply's.
+        await replyFailureNotifier.cancel(replyId: pending.replyId)
+        await applyPendingReplyIfReady()
+    }
+
+    private func beginReplyBackgroundAssertionIfNeeded() {
+        guard replyBackgroundAssertion == nil else { return }
+        replyBackgroundAssertion = backgroundRuntime.begin { [weak self] in
+            // The system window is closing; release promptly. The reply stays
+            // parked — a foreground within its lifetime still delivers it, and
+            // the pre-scheduled failure notice reports it otherwise.
+            self?.endReplyBackgroundAssertionIfHeld()
+        }
+    }
+
+    private func endReplyBackgroundAssertionIfHeld() {
+        guard let assertion = replyBackgroundAssertion else { return }
+        replyBackgroundAssertion = nil
+        backgroundRuntime.end(assertion)
     }
 
     /// Arms one delayed `applyPendingReplyIfReady` pass (see `replyRetryTask`).
@@ -1281,7 +1634,11 @@ public final class MobilePushCoordinator {
     ///     with `cmux.notificationId` as a fallback.
     ///   - macDeviceId: The Mac that owns the notification, from the `cmux`
     ///     payload. Missing older payloads route through the foreground Mac.
-    public func handleDismiss(notificationId: String?, macDeviceId: String?) async {
+    public func handleDismiss(
+        notificationId: String?,
+        macDeviceId: String?,
+        macInstanceTag: String? = nil
+    ) async {
         guard let notificationId else {
             diagnosticLog?.recordAppEvent(.pushDismissFailed, failure: .protocolViolation)
             return
@@ -1293,12 +1650,21 @@ public final class MobilePushCoordinator {
         }
         diagnosticLog?.recordAppEvent(.pushDismissStarted)
         let mac = macDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = macInstanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let store else {
-            pendingDismissQueue.enqueue([trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
+            pendingDismissQueue.enqueue(
+                [trimmed],
+                macDeviceID: mac?.isEmpty == false ? mac : nil,
+                instanceTag: tag?.isEmpty == false ? tag : nil
+            )
             diagnosticLog?.recordAppEvent(.pushDismissSucceeded)
             return
         }
-        await store.dismissNotification(ids: [trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
+        await store.dismissNotification(
+            ids: [trimmed],
+            macDeviceID: mac?.isEmpty == false ? mac : nil,
+            instanceTag: tag?.isEmpty == false ? tag : nil
+        )
         diagnosticLog?.recordAppEvent(.pushDismissSucceeded)
     }
 
@@ -1307,9 +1673,15 @@ public final class MobilePushCoordinator {
     /// delivered banners directly through the system-notification seam — the
     /// store may not exist yet on a background wake — while the badge was
     /// already applied by the system from the push's `aps.badge`.
-    /// - Parameter ids: The dismissed stable notification ids from
-    ///   `cmux.dismissedIds`.
-    public func handleRemoteDismiss(ids: [String]) async {
+    /// - Parameters:
+    ///   - ids: The dismissed stable notification ids from `cmux.dismissedIds`.
+    ///   - macDeviceId: The physical Mac that emitted the dismissal.
+    ///   - macInstanceTag: The exact app instance that emitted the dismissal.
+    public func handleRemoteDismiss(
+        ids: [String],
+        macDeviceId: String?,
+        macInstanceTag: String?
+    ) async {
         let trimmed = ids
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -1318,7 +1690,11 @@ public final class MobilePushCoordinator {
             .pushRemoteDismissReceived,
             count: trimmed.count
         )
-        await deliveredNotificationClearer.removeDelivered(ids: trimmed)
+        await deliveredNotificationClearer.removeDelivered(
+            ids: trimmed,
+            macDeviceID: macDeviceId,
+            instanceTag: macInstanceTag
+        )
         diagnosticLog?.recordAppEvent(.pushRemoteDismissApplied, count: trimmed.count)
     }
 
@@ -1327,7 +1703,7 @@ public final class MobilePushCoordinator {
     /// `cmux` userInfo schema as a Mac-forwarded APNs push, addressed at the
     /// currently selected workspace/terminal. The notification-center response
     /// path cannot tell local from remote, so the inline-reply UX and its full
-    /// handling chain (action routing, reply parking, `terminal.input` RPC back
+    /// handling chain (action routing, reply parking, `terminal.paste` RPC back
     /// to the Mac) are verifiable on a device without any APNs transport — dev
     /// web deployments have no push service configured. Fires after a short
     /// delay so the tester can lock the phone or background the app first.
@@ -1360,6 +1736,9 @@ public final class MobilePushCoordinator {
         ]
         if let macDeviceId = workspace.macDeviceID, !macDeviceId.isEmpty {
             cmux["macDeviceId"] = macDeviceId
+        }
+        if let macInstanceTag = workspace.macInstanceTag, !macInstanceTag.isEmpty {
+            cmux["macInstanceTag"] = macInstanceTag
         }
         content.userInfo = ["cmux": cmux]
         let request = UNNotificationRequest(

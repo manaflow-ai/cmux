@@ -1,6 +1,19 @@
 # Configuration
 
-`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown keys in the typed sections make the raw config invalid, so the TUI logs an error and falls back to defaults.
+`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown top-level keys are rejected, logged, and cause the whole file to use defaults. Known sections are validated independently, so an invalid section is logged and replaced with that section's defaults while valid sections remain active. Section objects reject unknown keys. Action names are strict: an unknown action does not run and is ignored.
+
+## Executable fields and transport rules
+
+These fields are argv arrays. They are executed directly, without shell parsing or interpolation; include the shell explicitly when a shell is needed.
+
+| Field | Shape | Notes |
+| --- | --- | --- |
+| `commands[].run` | non-empty string array | User command program and arguments; empty arguments are preserved |
+| `status_bar.left[].run`, `status_bar.right[].run` | non-empty string array | Periodic status command; the last non-empty stdout line is displayed |
+| `sidebar.plugin.command` | non-empty string array | Sidebar plugin program and arguments, hosted in a PTY |
+| `machine_provider.command` | non-empty string array | Dynamic provider program and arguments; no shell |
+
+Transport choices are mutually exclusive. A machine uses either `transport: "unix"` with `socket`, or `transport: "ssh"` with `host` and its SSH options. A dynamic provider uses one of `machine_provider.command` or `machine_provider.cloud.enabled`; do not combine provider transports with each other, static `machines`, `attach`, server listener or socket flags, `--headless`, or `--term`. Invalid combinations disable that provider configuration rather than merging transports.
 
 Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
@@ -8,8 +21,11 @@ Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
 Selection colors are resolved in this order: explicit cmux-tui config, Ghostty config keys `selection-background` and `selection-foreground`, then built-in defaults. Ghostty configs are read from `$XDG_CONFIG_HOME/ghostty/config` (when set), `~/.config/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`; later entries in the file win.
 
+`theme.chrome` controls cmux-owned interface colors. `auto` selects light or dark chrome from this client's host background reported by OSC 11, then the configured Ghostty terminal background when the host does not report one, and uses dark when neither is available. `light` and `dark` select a fixed chrome theme. Host OSC 10/11 replies are local compatibility input for the attaching frontend; they do not replace shared session or application-authored terminal defaults.
+
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `theme.chrome` | `auto`, `light`, or `dark` | `auto` | cmux-owned chrome theme for this client |
 | `theme.selection_background` | color | `#3a3a3a`, seeded from Ghostty when present | Selection background in PTY panes |
 | `theme.selection_foreground` | color or null | `null`, seeded from Ghostty when present | Selection foreground; `null` keeps each cell's foreground |
 | `theme.sidebar_rail` | color | `110` | Rail color for the active workspace rows |
@@ -52,7 +68,7 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 
 `sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar â†’ Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
 
-Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons directly under the view header instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
+Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons at the view's top instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
 Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
@@ -83,6 +99,18 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
 
+### Agent plugin configuration
+
+Agent plugins are background userland processes. They are configured separately
+from the sidebar plugin and never replace the sidebar view.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `agents.plugin.id` | string | required when `agents.plugin` is present | Stable journal producer ID for the selected userland agent plugin; a missing ID disables the entry |
+| `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
+| `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
+| `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
+
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
 ### Sidebar plugins
@@ -99,14 +127,56 @@ cmux sidebar plugin use fzf
 the optional build command, and verifies the resolved run command is
 executable. `sidebar plugin use <name>` writes `sidebar.plugin.command` as an absolute
 argv and `sidebar.plugin.cwd` as the plugin directory, preserving unrelated
-cmux-tui config keys. A running TUI applies it after config reload; `sidebar plugin use`
-sends that reload automatically when the resolved session socket is reachable.
+cmux-tui config keys. A running TUI applies changes after `cmux server reload-config`;
+the reload re-evaluates the path precedence described above using the running process's
+environment and the files that exist. It therefore can switch between the default and
+legacy fallback files when those files appear or disappear. Changing `CMUX_TUI_CONFIG`
+or `CMUX_MUX_CONFIG` in a separate shell does not change the running process environment.
+`sidebar plugin use` does not send this reload; run `cmux server reload-config`
+separately for a running local session whose socket is reachable.
 
 Return to the built-in sidebar with:
 
 ```bash
 cmux sidebar plugin use --builtin
 ```
+
+### Agent plugins
+
+Agent detection is an optional background userland plugin. It does not run in
+the sidebar and it does not add vendor rules to cmux core. Core supervises the
+process and folds its journal events. The plugin reads terminal screen and
+process metadata, then writes namespaced events.
+
+Install and select a package with:
+
+```bash
+cmux agent plugin install <git-url>
+cmux agent plugin use <name-or-id>
+cmux server reload-config
+```
+
+The manager stores packages in
+`~/.local/share/cmux/mux-plugins/agent/<name>` (or the equivalent
+`$XDG_DATA_HOME` path). It validates `cmux-plugin.toml`, runs its declared
+build command, verifies the executable, and writes an absolute command and
+content revision to `agents.plugin`. The manager does not hide a server reload
+inside an install command. This keeps the config write and process restart
+observable and works when the selected server is remote.
+
+List, replace, or remove packages with:
+
+```bash
+cmux agent plugin list
+cmux agent plugin update <name-or-id>
+cmux agent plugin remove <name-or-id>
+```
+
+The reference screen detector keeps 21 herdr-derived manifests in its own
+package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
+the user invokes it. Startup never performs network access. See
+[`spec/plugins.md`](../spec/plugins.md) for the journal envelope, lifecycle,
+source precedence, process fallback, and attribution rules.
 
 ## Machines
 
@@ -120,7 +190,7 @@ The machine rail is optional. Its position comes from a `sidebar.views` entry wh
 | `machine_sidebar.create_sources` | array | `[]` | Prototype-only native creation choices; no provider command is executed |
 | `machines` | array | `[]` | Static Unix-socket and SSH connection targets |
 
-Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new machine` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
+Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new vm` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
 
 Try the tracked prototype configuration with:
 
@@ -209,7 +279,7 @@ Dynamic provider startup is disabled by default. Persistent configuration curren
 }
 ```
 
-`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries stay client-local. `+ Connect machine` is provider-owned when `connect-external-machine-v1` and the current snapshot bit are both enabled; otherwise its temporary `host` or `user@host` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
+`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries stay client-local. `+ ssh host` is provider-owned when `connect-external-machine-v1` and the current snapshot bit are both enabled; otherwise its temporary `host` or `user@host` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
 
 The cloud connector runs `cmux provider control` and `cmux provider stream` remotely. These are provider service commands, not cmux-tui control-socket verbs. See [Machines](machines.md#dynamic-providers).
 
@@ -280,7 +350,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | --- | --- | --- | --- |
 | `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
 
-`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
+`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Ctrl-b N` or `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
 
 ## Server
 
@@ -288,6 +358,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | --- | --- | --- | --- |
 | `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
 | `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
+| `server.detached_owner` | boolean | `true` | Plain `cmux` starts or reuses a detached headless session owner and attaches as a client, so the session survives every client detaching. `false` hosts the session inside the first TUI process |
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
@@ -325,7 +396,7 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.send-prefix` | chord string or array or `"none"` | current prefix chord | Send the configured prefix to the active surface |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
-| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
+| `keys.new-pane-smart` | chord string or array or `"none"` | `["alt+n","N"]` | New pane using the default automatic layout |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
 | `keys.select-tab-0` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by its zero-based visible index |
@@ -360,8 +431,8 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.swap-pane-prev` | chord string or array or `"none"` | `"{"` | Swap active pane with the previous pane in split-tree order |
 | `keys.swap-pane-next` | chord string or array or `"none"` | `"}"` | Swap active pane with the next pane in split-tree order |
 | `keys.zoom-pane` | chord string or array or `"none"` | `"z"` | Toggle zoom for the active pane |
-| `keys.resize-grow` | chord string or array or `"none"` | `"alt+="` | Grow the focused split |
-| `keys.resize-shrink` | chord string or array or `"none"` | `"alt+-"` | Shrink the focused split |
+| `keys.resize-grow` | chord string or array or `"none"` | `["alt+=","shift+="]` | Grow the focused split |
+| `keys.resize-shrink` | chord string or array or `"none"` | `["alt+-","-"]` | Shrink the focused split |
 | `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
 | `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
 | `keys.clear-history` | chord string or array or `"none"` | `"cmd+k"` | Clear retained PTY history and completed visible rows while preserving active input |
@@ -370,6 +441,7 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
+| `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
 Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` or `keys.super_shortcuts` to `false` to remove that modeless default layer before applying user overrides; explicitly configured chords still work.
@@ -380,6 +452,8 @@ Kitty keyboard reports the same empty-text character sequence for a real termina
 
 Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
+Use `"shift+="` to configure the `+` character, since `+` separates modifiers in chord strings.
+
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, `cmd`, `command`, `super`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
 ## Example
@@ -387,6 +461,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
 ```json
 {
   "theme": {
+    "chrome": "dark",
     "selection_background": "#355c7d",
     "selection_foreground": null,
     "sidebar_rail": "#87afd7",
@@ -430,13 +505,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     }
   ],
   "browser": {
-    "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "mode": "headful",
-    "cdp_url": "http://127.0.0.1:9222",
-    "discover": false,
-    "discover_ports": [9222, 9223],
-    "user_data_dir": "/Users/me/Library/Application Support/cmux-tui/chrome-profile",
-    "ephemeral": false,
+    "cdp_url": null,
     "max_capture_megapixels": 2.0,
     "capture_scale": null
   },
@@ -457,7 +526,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "super_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new_browser_tab": "B",
-    "new-pane-smart": "alt+n",
+    "new-pane-smart": ["alt+n", "N"],
+    "resize-grow": ["alt+=", "shift+="],
+    "resize-shrink": ["alt+-", "-"],
     "next-tab": "tab",
     "prev-tab": "backtab",
     "select-screen-1": "1",
@@ -480,3 +551,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   }
 }
 ```
+
+## Client log
+
+The client appends every user-visible warning (bottom-bar status messages, provider notices, toasts) and its own stderr diagnostics to a rolling log so problems seen in the TUI can be diagnosed after the session. While the TUI owns the terminal, process stderr (including panics) is routed into the same file instead of corrupting the raw-mode screen, and is restored on exit. Each launch writes one startup line with the build commit so log stretches are attributable.
+
+The file lives at the cmux-tui state root: `~/Library/Application Support/cmux-tui/client.log` on macOS, `$XDG_STATE_HOME/cmux-tui/client.log` (or `~/.local/state/cmux-tui/client.log`) on Linux, `%LOCALAPPDATA%\cmux-tui\client.log` on Windows. `CMUX_TUI_LOG_FILE` overrides the path. The active file rolls to `client.log.1` at 2 MiB and one rollover is kept, so the log never grows past roughly 4 MiB. Several cmux-tui processes may share the file: writes and rotation take an exclusive advisory lock, rotation by one process is followed by the others, and the size cap counts every writer.

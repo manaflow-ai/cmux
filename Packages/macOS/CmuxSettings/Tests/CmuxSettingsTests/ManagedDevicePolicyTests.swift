@@ -59,6 +59,41 @@ struct ManagedDevicePolicyTests {
         #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableRemoteControl.rawValue))
     }
 
+    @Test func forcedCloudDisableIsEnforcedAndLocksTheKey() throws {
+        let (defaults, cleanup) = try makeSuite("cloud")
+        defer { cleanup() }
+
+        defaults.set(false, forKey: ManagedDevicePolicyKey.disableCloud.rawValue)
+        defaults.set(true, forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.disableCloud.rawValue)
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: Self.probe
+        )
+
+        #expect(policy.isEnforced(.disableCloud))
+        #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableCloud.rawValue))
+    }
+
+    @Test func allowStyleKeysAreOnlyOffWhenForcedFalse() throws {
+        let (defaults, cleanup) = try makeSuite("allowStyle")
+        defer { cleanup() }
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: Self.probe
+        )
+
+        #expect(policy.isAllowed(.browserAllowLocalhost))
+        defaults.set(true, forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.browserAllowLocalhost.rawValue)
+        #expect(policy.isAllowed(.browserAllowLocalhost))
+        defaults.set("off", forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.browserAllowLocalhost.rawValue)
+        #expect(policy.isAllowed(.browserAllowLocalhost))
+        defaults.set(false, forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.browserAllowLocalhost.rawValue)
+        #expect(!policy.isAllowed(.browserAllowLocalhost))
+        #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.browserAllowLocalhost.rawValue))
+    }
+
     @Test func forcedFalseLocksTheKeyWithoutEnforcingThePolicy() throws {
         let (defaults, cleanup) = try makeSuite("forcedFalse")
         defer { cleanup() }
@@ -154,6 +189,58 @@ struct ManagedDevicePolicyTests {
         // configuration profiles.
         #expect(ManagedDevicePolicyKey.disableEmbeddedBrowser.rawValue == "DisableEmbeddedBrowser")
         #expect(ManagedDevicePolicyKey.disableRemoteControl.rawValue == "DisableRemoteControl")
+        #expect(ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue == "DisableDeviceDiscovery")
+        #expect(ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue == "DisableIncomingDeviceAccess")
+        #expect(ManagedDevicePolicyKey.disableCloud.rawValue == "DisableCloud")
+        #expect(ManagedDevicePolicyKey.disableRemoteConnections.rawValue == "DisableRemoteConnections")
+        #expect(ManagedDevicePolicyKey.disableFileTransfer.rawValue == "DisableFileTransfer")
+        #expect(ManagedDevicePolicyKey.disableIrohNetworking.rawValue == "DisableIrohNetworking")
+        #expect(ManagedDevicePolicyKey.disableTelemetry.rawValue == "DisableTelemetry")
+        #expect(ManagedDevicePolicyKey.disableAutoUpdate.rawValue == "DisableAutoUpdate")
+        #expect(ManagedDevicePolicyKey.disableAutomationWebhooks.rawValue == "DisableAutomationWebhooks")
+        #expect(ManagedDevicePolicyKey.disableTLSTrustBypass.rawValue == "DisableTLSTrustBypass")
+        #expect(ManagedDevicePolicyKey.disableComputerUse.rawValue == "DisableComputerUse")
+        #expect(ManagedDevicePolicyKey.disableCustomSidebars.rawValue == "DisableCustomSidebars")
+        #expect(ManagedDevicePolicyKey.disableAICredentialUpload.rawValue == "DisableAICredentialUpload")
+        #expect(ManagedDevicePolicyKey.browserURLAllowlist.rawValue == "BrowserURLAllowlist")
+        #expect(ManagedDevicePolicyKey.browserAllowLocalhost.rawValue == "BrowserAllowLocalhost")
+        #expect(ManagedDevicePolicyKey.browserAllowLocalFiles.rawValue == "BrowserAllowLocalFiles")
+        #expect(ManagedDevicePolicyKey.socketControlMode.rawValue == "SocketControlMode")
+        #expect(ManagedDevicePolicyKey.allowStyleKeys == [.browserAllowLocalhost, .browserAllowLocalFiles])
         #expect(ManagedDevicePolicy.releasePayloadDomain == "com.cmuxterm.app")
+    }
+
+    @Test func independentDevicePoliciesAreForcedOverUserValues() throws {
+        let (defaults, cleanup) = try makeSuite("devicePolicies")
+        defer { cleanup() }
+        defaults.set(false, forKey: ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue)
+        defaults.set(false, forKey: ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue)
+        defaults.set(true, forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue)
+        defaults.set(true, forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue)
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: Self.probe)
+        #expect(policy.isEnforced(.disableDeviceDiscovery))
+        #expect(policy.isEnforced(.disableIncomingDeviceAccess))
+        #expect(policy.isDeviceDiscoveryDisabled)
+        #expect(policy.isIncomingDeviceAccessDisabled)
+        #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue))
+        #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue))
+    }
+
+    @Test func forcedValueSourceDistinguishesAppAndReleaseDomains() throws {
+        let (appDefaults, appCleanup) = try makeSuite("sourceApp")
+        defer { appCleanup() }
+        let (releaseDefaults, releaseCleanup) = try makeSuite("sourceRelease")
+        defer { releaseCleanup() }
+        let key = ManagedDevicePolicyKey.socketControlMode.rawValue
+        let policy = ManagedDevicePolicy(
+            defaults: appDefaults,
+            releaseDomainDefaults: releaseDefaults,
+            forcedObject: Self.probe
+        )
+        #expect(policy.forcedValueSource(forUserDefaultsKey: key) == nil)
+        releaseDefaults.set("cmuxOnly", forKey: Self.forcedMirrorPrefix + key)
+        #expect(policy.forcedValueSource(forUserDefaultsKey: key) == .releaseDomain)
+        appDefaults.set("off", forKey: Self.forcedMirrorPrefix + key)
+        #expect(policy.forcedValueSource(forUserDefaultsKey: key) == .appDomain)
     }
 }

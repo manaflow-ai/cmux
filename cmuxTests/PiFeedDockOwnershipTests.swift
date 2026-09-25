@@ -165,6 +165,56 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Muted workspaces do not surface or reorder blocking Feed attention")
+    func mutedWorkspaceSuppressesBlockingFeedAttention() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let panel = try workspace.seedPiFeedPanel()
+            workspace.isMuted = true
+            let originalOrder = manager.tabs.map(\.id)
+
+            let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                event: WorkstreamEvent(
+                    sessionId: "pi-muted-blocking-feed",
+                    hookEventName: .permissionRequest,
+                    source: "pi",
+                    workspaceId: workspace.id.uuidString,
+                    surfaceId: panel.id.uuidString,
+                    requestId: "pi-muted-blocking-request"
+                ),
+                resolved: (workspace.id, panel.id),
+                tabManager: manager
+            )
+
+            #expect(target == nil)
+            #expect(manager.tabs.map(\.id) == originalOrder)
+            #expect(workspace.agentLifecycleStatesByPanelId[panel.id] == nil)
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
+        }
+    }
+
+    @MainActor
+    @Test("Malformed Feed surface claims fail closed")
+    func malformedSurfaceClaimDoesNotWidenToWorkspaceDelivery() async throws {
+        try await withAppContext { _, _, workspace, _ in
+            let event = WorkstreamEvent(
+                sessionId: "pi-malformed-surface-feed",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: "not-a-surface-id",
+                requestId: "pi-malformed-surface-request"
+            )
+            let decision = await FeedCoordinator.shared.feedNotificationDeliveryDecision(
+                for: event,
+                effects: TerminalNotificationPolicyEffects()
+            )
+
+            #expect(decision.disposition == .muted)
+            #expect(decision.effects == .allSuppressed)
+        }
+    }
+
+    @MainActor
     @Test("Blocking Feed leaves the agent lifecycle state untouched")
     func blockingFeedLeavesAgentLifecycleStateUntouched() async throws {
         try await withAppContext { _, manager, workspace, _ in
@@ -765,7 +815,7 @@ struct PiFeedDockOwnershipTests {
     func acknowledgedFeedRehomesStaleWorkspaceClaimToWorkspaceDockOwner() async throws {
         try await withAppContext { _, manager, workspace, _ in
             let staleWorkspace = manager.addWorkspace(select: false)
-            let panel = try workspace.dockSplit.seedPiFeedPanel()
+            let panel = try workspace.requiredDockSplitForTesting.seedPiFeedPanel()
             var insertedEvent: WorkstreamEvent?
             let store = WorkstreamStore(ringCapacity: 10) {
                 insertedEvent = $0
@@ -796,7 +846,7 @@ struct PiFeedDockOwnershipTests {
     @Test("Blocking Feed clears attention from its exact workspace Dock owner")
     func blockingFeedClearsAttentionFromExactWorkspaceDockOwner() async throws {
         try await withAppContext { _, manager, workspace, _ in
-            let dock = workspace.dockSplit
+            let dock = try #require(workspace.dockSplit)
             let panel = try dock.seedPiFeedPanel()
             let target = try #require(
                 FeedCoordinator.shared.surfaceBlockingDecisionAttention(
@@ -886,6 +936,7 @@ struct PiFeedDockOwnershipTests {
             let workspace = manager.addWorkspace(select: true)
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 appDelegate.tabManager = nil
                 AppDelegate.shared = previousAppDelegate

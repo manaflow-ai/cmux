@@ -35,8 +35,8 @@ private final class MarkedOptionTextView: NSTextView {
 struct AppDelegateOptionDigitShortcutRoutingTests {
 #if DEBUG
     @Test
-    func fileConfiguredOptionOnlyArrowBindingsRouteBeforeTerminalFallback() throws {
-        try withIsolatedShortcutRoutingState {
+    func fileConfiguredOptionOnlyArrowBindingsRouteBeforeTerminalFallback() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -44,17 +44,30 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: false)
+            let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
 
             let terminalPanelId = try #require(firstWorkspace.focusedPanelId)
             let terminalPanel = try #require(firstWorkspace.terminalPanel(for: terminalPanelId))
+            testWindow.makeKeyAndOrderFront(nil)
+            testWindow.displayIfNeeded()
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.uiWindow === testWindow
+                    && terminalPanel.hostedView.surfaceView.window === testWindow
+            }
+            appDelegate.noteTerminalKeyboardFocusIntent(
+                workspaceId: terminalPanel.surface.tabId,
+                panelId: terminalPanel.id,
+                in: testWindow
+            )
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             terminalPanel.hostedView.moveFocus()
             testWindow.makeKeyAndOrderFront(nil)
             testWindow.displayIfNeeded()
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.isSurfaceViewFirstResponder()
+            }
             #expect(terminalPanel.hostedView.isSurfaceViewFirstResponder())
 
             let settingsFileURL = try writeShortcutSettingsFile(bindings: [
@@ -102,8 +115,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func fileConfiguredOptionOnlyPrintableBindingWinsBeforeTextInput() throws {
-        try withIsolatedShortcutRoutingState {
+    func fileConfiguredOptionOnlyPrintableBindingWinsBeforeTextInput() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -141,8 +154,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func unboundOptionOnlyPrintableTextReachesFirstResponder() throws {
-        try withIsolatedShortcutRoutingState {
+    func unboundOptionOnlyPrintableTextReachesFirstResponder() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -175,8 +188,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func optionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
-        try withIsolatedShortcutRoutingState {
+    func optionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -184,7 +197,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
 
-            let secondWorkspace = manager.addTab(select: false)
+            let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
 
             let optionWorkspaceNumber = optionDigitWorkspaceShortcut()
@@ -205,8 +218,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func focusHistoryRebindingRoutesNewShortcutsAndDropsDefaults() throws {
-        try withIsolatedShortcutRoutingState {
+    func focusHistoryRebindingRoutesNewShortcutsAndDropsDefaults() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -214,7 +227,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
 
             let reboundBack = StoredShortcut(
                 key: "y",
@@ -300,8 +313,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func configuredFocusHistoryShortcutsPrecedeCollidingGhosttySplitFallbacks() throws {
-        try withIsolatedShortcutRoutingState {
+    func configuredFocusHistoryShortcutsPrecedeCollidingGhosttySplitFallbacks() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -309,7 +322,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let terminalPanelId = try #require(secondWorkspace.focusedPanelId)
             let terminalPanel = try #require(secondWorkspace.terminalPanel(for: terminalPanelId))
             let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
@@ -374,8 +387,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func focusHistoryDefaultsNavigateWithSidebarFocusDespiteGhosttyCollision() throws {
-        try withIsolatedShortcutRoutingState {
+    func focusHistoryDefaultsNavigateWithSidebarFocusDespiteGhosttyCollision() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -383,7 +396,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
             let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
             let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
@@ -410,15 +423,15 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func browserDefaultsNavigateBrowserHistoryWithoutChangingFocusHistory() throws {
-        try withIsolatedShortcutRoutingState {
+    func browserDefaultsNavigateBrowserHistoryWithoutChangingFocusHistory() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let browserPanelId = try #require(manager.openBrowser(inWorkspace: secondWorkspace.id))
             let browserPanel = try #require(secondWorkspace.browserPanel(for: browserPanelId))
             let back = KeyboardShortcutSettings.shortcut(for: .browserBack)
@@ -466,13 +479,19 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func focusHistoryRebindingMatchesCommandShiftOptionAndControlVariants() throws {
-        try withIsolatedShortcutRoutingState {
+    func focusHistoryRebindingMatchesCommandShiftOptionAndControlVariants() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
             let testWindow = try #require(self.window(withId: windowId))
+            // Cmd+Shift+Y (New Cloud Workspace) and Cmd+Y (New Cloud Machine) are
+            // Cloud defaults that swapped strokes in 9c2ba78be4; this test isolates
+            // modifier matching for focus history rather than shortcut conflict
+            // priority, so clear both regardless of which one owns the shifted key.
+            KeyboardShortcutSettings.clearShortcut(for: .newCloudWorkspace)
+            KeyboardShortcutSettings.clearShortcut(for: .newCloudMachine)
             let candidates: [(KeyboardShortcutSettings.Action, StoredShortcut, NSEvent.ModifierFlags, String, String, UInt16)] = [
                 (
                     .focusHistoryBack,
@@ -518,15 +537,15 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func markedTextWinsOverConfiguredPrintableOptionShortcut() throws {
-        try withIsolatedShortcutRoutingState {
+    func markedTextWinsOverConfiguredPrintableOptionShortcut() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let selectedWorkspace = manager.addTab(select: true)
+            let selectedWorkspace = try #require(manager.addTab(select: true))
             let textView = MarkedOptionTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
             testWindow.contentView?.addSubview(textView)
             testWindow.makeKeyAndOrderFront(nil)
@@ -582,8 +601,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func terminalKeyEquivalentRoutesActiveOptionDigitWorkspaceShortcut() throws {
-        try withIsolatedShortcutRoutingState {
+    func terminalKeyEquivalentRoutesActiveOptionDigitWorkspaceShortcut() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -594,14 +613,27 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let panelId = try #require(workspace.focusedPanelId)
             let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
 
-            let secondWorkspace = manager.addTab(select: false)
+            let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
+            testWindow.makeKeyAndOrderFront(nil)
+            testWindow.displayIfNeeded()
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.uiWindow === testWindow
+                    && terminalPanel.hostedView.surfaceView.window === testWindow
+            }
+            appDelegate.noteTerminalKeyboardFocusIntent(
+                workspaceId: terminalPanel.surface.tabId,
+                panelId: terminalPanel.id,
+                in: testWindow
+            )
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             terminalPanel.hostedView.moveFocus()
             testWindow.makeKeyAndOrderFront(nil)
             testWindow.displayIfNeeded()
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.isSurfaceViewFirstResponder()
+            }
 
             #expect(
                 terminalPanel.hostedView.isSurfaceViewFirstResponder(),
@@ -626,8 +658,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsPrintableOptionText() throws {
-        try withIsolatedShortcutRoutingState {
+    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsPrintableOptionText() async throws {
+        try await withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let directoryURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -684,41 +716,43 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
         }
     }
 
-    private func withIsolatedShortcutRoutingState(_ body: () throws -> Void) throws {
-        let actionsWithPersistedShortcut = Set(
-            KeyboardShortcutSettings.Action.allCases.filter {
-                UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
-            }
-        )
-        let savedShortcutsByAction = Dictionary(
-            uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
-                (action, KeyboardShortcutSettings.shortcut(for: action))
-            }
-        )
-        KeyboardShortcutRecorderActivity.resetForTesting()
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
-            prefix: "cmux-option-digit-shortcut-routing"
-        )
-        KeyboardShortcutSettings.resetAll()
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-
-        defer {
+    private func withIsolatedShortcutRoutingState(_ body: () async throws -> Void) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let actionsWithPersistedShortcut = Set(
+                KeyboardShortcutSettings.Action.allCases.filter {
+                    UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
+                }
+            )
+            let savedShortcutsByAction = Dictionary(
+                uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
+                    (action, KeyboardShortcutSettings.shortcut(for: action))
+                }
+            )
             KeyboardShortcutRecorderActivity.resetForTesting()
             AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            for action in KeyboardShortcutSettings.Action.allCases {
-                if actionsWithPersistedShortcut.contains(action),
-                   let savedShortcut = savedShortcutsByAction[action] {
-                    KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
-                } else {
-                    KeyboardShortcutSettings.resetShortcut(for: action)
-                }
-            }
+            let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+                prefix: "cmux-option-digit-shortcut-routing"
+            )
+            KeyboardShortcutSettings.resetAll()
             AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-        }
 
-        try body()
+            defer {
+                KeyboardShortcutRecorderActivity.resetForTesting()
+                AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+                KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+                for action in KeyboardShortcutSettings.Action.allCases {
+                    if actionsWithPersistedShortcut.contains(action),
+                       let savedShortcut = savedShortcutsByAction[action] {
+                        KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
+                    } else {
+                        KeyboardShortcutSettings.resetShortcut(for: action)
+                    }
+                }
+                AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            }
+
+            try await body()
+        }
     }
 
     private func withTemporaryShortcut(

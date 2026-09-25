@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxMobileRPC
 import Foundation
 import Testing
 import UserNotifications
@@ -253,6 +254,39 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
 @Suite struct MobilePushCoordinatorLifecycleTests {
     @MainActor
+    @Test func readinessForwardsSecurePushSetupFailure() async {
+        let registration = LifecyclePushRegistration(snapshot: PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: true,
+            backendState: .registered
+        ))
+        let suiteName = "push-coordinator-secure-setup-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            phoneAPIOrigin: "https://cmux.com",
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        )
+        await coordinator.refreshReadiness()
+        let mac = MobileHostPhonePushStatus(
+            forwardingEnabled: true,
+            mode: .always,
+            admission: .allowed,
+            queuePersistence: .healthy,
+            apiOrigin: "https://cmux.com",
+            accountScope: .verifiedSameAccount
+        )
+
+        #expect(coordinator.readiness(macStatus: mac) == .ready(mode: .always))
+        let failed = coordinator.readiness(macStatus: mac, securePushSetupFailed: true)
+        #expect(failed == .blocked(.securePushSetupFailed))
+        #expect(failed.repair == .retrySecurePushSetup)
+    }
+
+    @MainActor
     @Test func callbackFailureOffersRetryAndSuccessfulTokenRecoversReadiness() async {
         let registration = LifecyclePushRegistration()
         var registrationRequests = 0
@@ -369,6 +403,37 @@ private final class LifecyclePushURLProtocol: URLProtocol,
             coordinator.readiness(macStatus: nil)
                 == .blocked(.systemPermissionDenied)
         )
+    }
+
+    /// The workspace list is an automatic surface: it must never spend the
+    /// app's one OS permission prompt. Only an explicit opt-in (the onboarding
+    /// push page or the Settings toggle) may ask an undetermined system.
+    @MainActor
+    @Test func workspaceListNeverPromptsAnUndeterminedSystem() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-workspace-noprompt-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var authorizationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .notDetermined },
+            requestAuthorization: {
+                authorizationRequests += 1
+                return true
+            }
+        )
+
+        await coordinator.workspaceListDidBecomeVisible()
+
+        #expect(authorizationRequests == 0)
+        #expect(!coordinator.isEnabled)
+        #expect(defaults.object(forKey: "cmux.notifications.pushEnabled") == nil)
+
+        #expect(await coordinator.enable(trigger: "onboarding"))
+        #expect(authorizationRequests == 1)
+        #expect(coordinator.isEnabled)
     }
 
     @MainActor

@@ -44,126 +44,6 @@ public struct DiagnosticEventPresentation: Sendable {
         }
     }
 
-    /// The stable machine name of an event code.
-    public func name(_ code: DiagnosticEventCode) -> String {
-        String(describing: code)
-    }
-
-    /// The stable machine name of a failure kind.
-    public func name(_ kind: DiagnosticFailureKind) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a transport kind.
-    public func name(_ kind: DiagnosticTransportKind) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a path kind.
-    public func name(_ kind: DiagnosticPathKind) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a session lifecycle kind.
-    public func name(_ kind: DiagnosticSessionLifecycleKind) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of an app lifecycle phase.
-    public func name(_ phase: DiagnosticAppLifecyclePhase) -> String {
-        String(describing: phase)
-    }
-
-    /// The stable machine name of an app-wide iOS feature event.
-    public func name(_ kind: DiagnosticAppEventKind) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a terminal toolbar action.
-    public func name(_ action: DiagnosticTerminalToolbarAction) -> String {
-        String(describing: action)
-    }
-
-    /// The stable machine name of a terminal zoom action.
-    public func name(_ action: DiagnosticTerminalZoomAction) -> String {
-        String(describing: action)
-    }
-
-    /// The stable machine name of a primary navigation destination.
-    public func name(_ tab: DiagnosticPrimaryTab) -> String {
-        String(describing: tab)
-    }
-
-    /// The stable machine name of a primary search owner.
-    public func name(_ scope: DiagnosticSearchScope) -> String {
-        String(describing: scope)
-    }
-
-    /// The stable machine name of a terminal toolbar configuration mutation.
-    public func name(_ action: DiagnosticToolbarConfigurationAction) -> String {
-        String(describing: action)
-    }
-
-    /// The stable machine name of a feedback delivery route.
-    public func name(_ route: DiagnosticFeedbackRoute) -> String {
-        String(describing: route)
-    }
-
-    /// The stable machine name of a toast style.
-    public func name(_ style: DiagnosticToastStyle) -> String {
-        String(describing: style)
-    }
-
-    /// The stable machine name of a toast dismissal reason.
-    public func name(_ reason: DiagnosticToastDismissReason) -> String {
-        String(describing: reason)
-    }
-
-    /// The stable machine name of a runtime role.
-    public func name(_ role: DiagnosticRuntimeRole) -> String {
-        String(describing: role)
-    }
-
-    /// The stable machine name of a Simulator stream lifecycle edge.
-    public func name(_ kind: DiagnosticSimulatorStreamLifecycle) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a Simulator frame lifecycle edge.
-    public func name(_ kind: DiagnosticSimulatorFrameLifecycle) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a Simulator input lifecycle edge.
-    public func name(_ kind: DiagnosticSimulatorInputLifecycle) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a Simulator input kind.
-    public func name(_ kind: DiagnosticSimulatorInputKind) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a Simulator hardware button kind.
-    public func name(_ kind: DiagnosticSimulatorHardwareButtonKind) -> String {
-        String(describing: kind)
-    }
-
-    /// The stable machine name of a Simulator pointer phase.
-    public func name(_ phase: DiagnosticSimulatorPointerPhase) -> String {
-        String(describing: phase)
-    }
-
-    /// The stable machine name of a Simulator ownership state.
-    public func name(_ state: DiagnosticSimulatorOwnershipState) -> String {
-        String(describing: state)
-    }
-
-    /// The stable machine name of a Simulator coordinate mapping state.
-    public func name(_ state: DiagnosticSimulatorCoordinateState) -> String {
-        String(describing: state)
-    }
-
     /// Human-readable name of a diagnostic failure category.
     public func displayName(_ kind: DiagnosticFailureKind) -> String {
         switch kind {
@@ -218,6 +98,7 @@ public struct DiagnosticEventPresentation: Sendable {
         switch method {
         case .automatic: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect (Iroh)")
         case .tailscale: localized("diagnostics.connectionMethod.tailscale", defaultValue: "Tailscale Only")
+        case .direct: localized("diagnostics.connectionMethod.direct", defaultValue: "Direct")
         }
     }
 
@@ -273,6 +154,9 @@ public struct DiagnosticEventPresentation: Sendable {
     /// Unknown enum values retain their integer inside an explanatory label so
     /// a newer writer still produces useful text on an older reader.
     public func describe(_ event: DiagnosticEvent) -> DescribedEvent {
+        if let work = event.terminalWork {
+            return TerminalWorkDiagnosticPresentation(localization: localization).describe(event, work: work)
+        }
         var fields: [Field] = []
         if let surface = event.surface {
             let key: String
@@ -294,14 +178,21 @@ public struct DiagnosticEventPresentation: Sendable {
             }
             fields.append(Field(key: key, value: String(surface)))
         }
+        if let traceID = event.traceID,
+           let validTraceID = DiagnosticTerminalTraceID(rawValue: traceID) {
+            fields.append(Field(
+                key: "trace_id",
+                value: validTraceID.stringValue
+            ))
+        }
         if let a = event.a {
             fields.append(decodeA(a, code: event.code))
         }
         if let b = event.b {
-            fields.append(decodeB(b, code: event.code))
+            fields.append(decodeB(b, event: event))
         }
         if let ms = event.ms {
-            fields.append(decodeMilliseconds(ms, code: event.code))
+            fields.append(decodeMilliseconds(ms, event: event))
         }
         if let c = event.c {
             fields.append(decodeC(c, event: event))
@@ -336,8 +227,16 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// The failure kind carried in an event's `b` slot, when applicable.
     public func failureKind(of event: DiagnosticEvent) -> DiagnosticFailureKind? {
-        guard Self.codesWithFailureB.contains(event.code), let b = event.b else { return nil }
+        guard Self.carriesFailureInB(event), let b = event.b else { return nil }
         return DiagnosticFailureKind(rawValue: b)
+    }
+
+    private static func carriesFailureInB(_ event: DiagnosticEvent) -> Bool {
+        if event.code == .appFeatureAction,
+           event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue {
+            return false
+        }
+        return codesWithFailureB.contains(event.code)
     }
 
     /// The transport kind carried in an event's `a` slot, when applicable.
@@ -369,6 +268,10 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func title(for code: DiagnosticEventCode) -> String {
         switch code {
+        case .terminalWorkStarted:
+            localized("diagnostics.event.terminalWorkStarted", defaultValue: "Terminal phase started")
+        case .terminalWorkFinished:
+            localized("diagnostics.event.terminalWorkFinished", defaultValue: "Terminal phase completed")
         case .connect:
             localized("diagnostics.event.connect", defaultValue: "Connection attempt started")
         case .pairOk:
@@ -472,6 +375,8 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.transportCloseAttribution", defaultValue: "Transport close attributed")
         case .transportCloseReason:
             localized("diagnostics.event.transportCloseReason", defaultValue: "Remote close reason")
+        case .terminalTrace:
+            localized("diagnostics.event.terminalTrace", defaultValue: "Terminal operation trace")
         case .transportPathEvent:
             localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
         case .browserStreamLifecycle:
@@ -524,6 +429,12 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "network", value: reachabilityName(raw))
         case .transportCloseAttribution:
             return Field(key: "initiator", value: closeInitiatorName(raw))
+        case .transportDialSessionLinked:
+            return Field(key: "attempt", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "cancellation", value: cancellationName(raw))
+        case .transportCloseReason:
+            return Field(key: "reason", value: remoteCloseReasonName(raw))
         case .transportPathEvent:
             return Field(key: "operation", value: pathEventName(raw))
         case .inputSeqBehind:
@@ -570,16 +481,18 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "leg", value: dialLegName(raw))
         case .lanPublicationState:
             return Field(key: "state", value: lanPublicationStateName(raw))
+        case .terminalTrace:
+            return Field(key: "operation", value: terminalTraceOperationName(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
     }
 
-    private func decodeB(_ raw: Int, code: DiagnosticEventCode) -> Field {
-        if Self.codesWithFailureB.contains(code) {
+    private func decodeB(_ raw: Int, event: DiagnosticEvent) -> Field {
+        if Self.carriesFailureInB(event) {
             return Field(key: "failure", value: failureName(raw))
         }
-        switch code {
+        switch event.code {
         case .recoveryStarted:
             return Field(key: "trigger", value: recoveryTriggerName(raw))
         case .transportSessionLifecycle:
@@ -602,12 +515,20 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "private_fallback_paths", value: String(raw))
         case .discoverySucceeded:
             return Field(key: "bindings", value: String(raw))
+        case .appFeatureAction:
+            if event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+               let provider = DiagnosticTaskModelProvider(rawValue: raw) {
+                return Field(key: "provider", value: taskModelProviderName(provider))
+            }
+            return Field(key: "detail_2", value: String(raw))
         case .transportPrivateAddressJoin:
             return Field(key: "configured_addresses", value: String(raw))
         case .transportLANDiscovery:
             return Field(key: "hints", value: String(raw))
         case .lanPublicationState:
             return Field(key: "reason", value: lanPublicationReasonName(raw))
+        case .terminalTrace:
+            return Field(key: "phase", value: terminalTracePhaseName(raw))
         case .simulatorStreamLifecycle:
             return Field(key: "owner", value: simulatorOwnershipName(raw))
         case .simulatorFrameLifecycle:
@@ -625,9 +546,9 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func decodeMilliseconds(
         _ raw: UInt32,
-        code: DiagnosticEventCode
+        event: DiagnosticEvent
     ) -> Field {
-        switch code {
+        switch event.code {
         case .renderGridLag:
             return Field(key: "lag", value: duration(raw))
         case .livenessResubscribe:
@@ -636,6 +557,11 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "retry_delay", value: duration(raw))
         case .transportCloseAttribution:
             return Field(key: "application_error_code", value: String(raw))
+        case .appFeatureAction:
+            if event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue {
+                return Field(key: "effort_count", value: String(raw))
+            }
+            return Field(key: "duration", value: duration(raw))
         case .composerActiveTransition, .composerKeyboardToggleWhilePresented:
             return Field(key: "keyboard_height", value: pointCount(Int(raw)))
         default:
@@ -649,11 +575,15 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "public_relay_urls", value: String(raw))
         case .discoverySucceeded:
             return Field(key: "relay_fleet", value: String(raw))
-        case .transportDialStarted, .transportDialConnected, .transportDialFailed:
+        case .transportDialStarted, .transportDialConnected, .transportDialFailed,
+             .transportDialCancelled:
             return Field(key: "attempt", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,
-             .transportCloseAttribution, .transportPathEvent:
+             .transportCloseAttribution, .transportPathEvent,
+             .transportDialSessionLinked, .transportCloseReason:
             return Field(key: "session", value: String(raw))
+        case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
+            return Field(key: "peer", value: String(raw))
         case .composerActiveTransition:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
         case .browserStreamLifecycle, .browserInputReplayed,
@@ -693,6 +623,10 @@ public struct DiagnosticEventPresentation: Sendable {
                     return Field(key: "method", value: connectionMethodName(raw))
                 case .foregroundTransportSelected:
                     return Field(key: "transport", value: transportName(raw))
+                case .taskModelListResultObserved:
+                    if let source = DiagnosticTaskModelSource(rawValue: raw) {
+                        return Field(key: "source", value: taskModelSourceName(source))
+                    }
                 default:
                     if Self.appEventKindsWithValuePayload.contains(kind) {
                         return Field(key: "value", value: String(raw))
@@ -713,6 +647,16 @@ public struct DiagnosticEventPresentation: Sendable {
             )
         }
         return name(kind)
+    }
+
+    private func terminalTraceOperationName(_ raw: Int) -> String {
+        DiagnosticTerminalTraceOperation(rawValue: raw).map { String(describing: $0) }
+            ?? unknownPayloadName(raw)
+    }
+
+    private func terminalTracePhaseName(_ raw: Int) -> String {
+        DiagnosticTerminalTracePhase(rawValue: raw).map { String(describing: $0) }
+            ?? unknownPayloadName(raw)
     }
 
     private func terminalToolbarActionName(_ raw: Int) -> String {
@@ -758,6 +702,23 @@ public struct DiagnosticEventPresentation: Sendable {
     private func connectionMethodName(_ raw: Int) -> String {
         DiagnosticConnectionMethod(rawValue: raw).map(displayName)
             ?? unknownPayloadName(raw)
+    }
+
+    private func taskModelProviderName(_ provider: DiagnosticTaskModelProvider) -> String {
+        switch provider {
+        case .claude: "claude"
+        case .codex: "codex"
+        case .openCode: "opencode"
+        }
+    }
+
+    private func taskModelSourceName(_ source: DiagnosticTaskModelSource) -> String {
+        switch source {
+        case .discovered: "discovered"
+        case .backend: "backend"
+        case .augmented: "augmented"
+        case .fallback: "fallback"
+        }
     }
 
     private func unknownPayloadName(_ raw: Int) -> String {
@@ -1362,9 +1323,47 @@ public struct DiagnosticEventPresentation: Sendable {
         return String(value)
     }
 
+    private func cancellationName(_ raw: Int) -> String {
+        guard let reason = DiagnosticCancellationReason(rawValue: raw) else {
+            return localized("diagnostics.unknown.cancellation", defaultValue: "Unknown cancellation (\(raw))")
+        }
+        switch reason {
+        case .unknown: return localized("diagnostics.cancellation.unknown", defaultValue: "Unknown cancellation")
+        case .requestCancelled: return localized("diagnostics.cancellation.requestCancelled", defaultValue: "Request cancelled")
+        case .requestTimedOut: return localized("diagnostics.cancellation.requestTimedOut", defaultValue: "Request timed out")
+        case .sessionTeardown: return localized("diagnostics.cancellation.sessionTeardown", defaultValue: "Session torn down")
+        case .sessionDeinitialized: return localized("diagnostics.cancellation.sessionDeinitialized", defaultValue: "Session deinitialized")
+        }
+    }
+
+    private func remoteCloseReasonName(_ raw: Int) -> String {
+        guard let reason = DiagnosticRemoteCloseReason(rawValue: raw) else {
+            return localized("diagnostics.unknown.closeReason", defaultValue: "Unknown remote reason (\(raw))")
+        }
+        switch reason {
+        case .unknown: return localized("diagnostics.closeReason.unknown", defaultValue: "Unknown remote reason")
+        case .clientClosed: return localized("diagnostics.closeReason.clientClosed", defaultValue: "Client closed")
+        case .serverClosed: return localized("diagnostics.closeReason.serverClosed", defaultValue: "Server closed")
+        case .superseded: return localized("diagnostics.closeReason.superseded", defaultValue: "Superseded session")
+        case .admissionLeaseExpired: return localized("diagnostics.closeReason.admissionLeaseExpired", defaultValue: "Admission lease expired")
+        case .admissionRevalidationFailed: return localized("diagnostics.closeReason.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
+        case .sendQueueOverflow: return localized("diagnostics.closeReason.sendQueueOverflow", defaultValue: "Send queue overflow")
+        case .serverFailure: return localized("diagnostics.closeReason.serverFailure", defaultValue: "Server failure")
+        case .serverCancelled: return localized("diagnostics.closeReason.serverCancelled", defaultValue: "Server cancelled")
+        }
+    }
+
     private func label(for key: String) -> String {
         switch key {
+        case "workspace_count": localized("diagnostics.field.workspaceCount", defaultValue: "Workspace count")
+        case "surface_count": localized("diagnostics.field.surfaceCount", defaultValue: "Surface count")
+        case "transition": localized("diagnostics.field.transition", defaultValue: "Transition")
+        case "population": localized("diagnostics.field.population", defaultValue: "Population")
+        case "main_thread": localized("diagnostics.field.mainThread", defaultValue: "Main thread")
         case "surface": localized("diagnostics.field.surface", defaultValue: "Surface")
+        case "peer": localized("diagnostics.field.peer", defaultValue: "Peer")
+        case "recovery": localized("diagnostics.field.recovery", defaultValue: "Recovery")
+        case "cancellation": localized("diagnostics.field.cancellation", defaultValue: "Cancellation")
         case "transport": localized("diagnostics.field.transport", defaultValue: "Transport")
         case "failure": localized("diagnostics.field.failure", defaultValue: "Failure")
         case "attempt": localized("diagnostics.field.attempt", defaultValue: "Attempt")

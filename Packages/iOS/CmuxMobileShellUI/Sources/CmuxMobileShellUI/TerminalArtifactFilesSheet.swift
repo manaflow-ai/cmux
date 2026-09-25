@@ -19,35 +19,23 @@ struct TerminalArtifactSelection: Identifiable, Equatable {
     let workspaceID: String
     let surfaceID: String
     let path: String
-    let sessionID: String?
 
     init(
         workspaceID: String,
         surfaceID: String,
-        path: String,
-        session: ChatSessionDescriptor?
+        path: String
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
 
         if (path as NSString).isAbsolutePath {
             self.path = (path as NSString).standardizingPath
-            sessionID = session?.id
-        } else if let session,
-                  let workingDirectory = session.workingDirectory,
-                  (workingDirectory as NSString).isAbsolutePath {
-            self.path = ((workingDirectory as NSString).appendingPathComponent(path) as NSString)
-                .standardizingPath
-            sessionID = session.id
         } else {
             self.path = path
-            sessionID = nil
         }
     }
 
-    var usesSessionAuthorization: Bool { sessionID != nil }
-
-    var id: String { "\(workspaceID)#\(surfaceID)#\(sessionID ?? "terminal")#\(path)" }
+    var id: String { "\(workspaceID)#\(surfaceID)#\(path)" }
 }
 
 struct TerminalArtifactGalleryFailure: Equatable {

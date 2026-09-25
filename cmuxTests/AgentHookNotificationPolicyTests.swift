@@ -29,14 +29,17 @@ struct AgentHookNotificationPolicyTests {
         #expect(arbitrary.status == nil)
         #expect(arbitrary.notifyCategory == .idleReminder)
 
+        // An empty, cue-less message fabricates nothing: no needs-input
+        // claim and no body (callers reuse a stored summary or skip the
+        // banner). The old "%@ needs your attention" fallback is gone.
         let emptyFallback = AgentHookNotificationClassifier.classify(
             displayName: "Grok",
             signal: "",
             message: "",
             isFallback: true
         )
-        #expect(emptyFallback.status == .needsInput)
-        #expect(emptyFallback.notifyCategory == .idleReminder)
+        #expect(emptyFallback.status == nil)
+        #expect(emptyFallback.body.isEmpty)
         #expect(emptyFallback.isFallback == true)
     }
 
@@ -91,14 +94,16 @@ struct AgentHookNotificationPolicyTests {
             let extended = try #require(category.metaSegment(
                 pending: true,
                 agentKind: "claude",
-                isSubagent: true
+                isSubagent: true,
+                correlationKey: "11111111-1111-1111-1111-111111111111"
             ))
-            #expect(extended == "c=\(category.rawValue);p=1;a=claude;n=1")
+            #expect(extended == "c=\(category.rawValue);p=1;a=claude;n=1;k=11111111-1111-1111-1111-111111111111")
             let parsed = try #require(AgentNotificationMeta(meta: extended))
             #expect(parsed.category.rawValue == category.rawValue)
             #expect(parsed.pending == true)
             #expect(parsed.agentKind == "claude")
             #expect(parsed.isSubagent == true)
+            #expect(parsed.correlationKey == "11111111-1111-1111-1111-111111111111")
         }
 
         // Nil context degrades to the legacy two-field form; an invalid slug
@@ -109,6 +114,12 @@ struct AgentHookNotificationPolicyTests {
         #expect(AgentHookNotifyCategory.turnComplete.metaSegment(
             pending: false, agentKind: "Not A Slug", isSubagent: false
         ) == "c=turn-complete;p=0;n=0")
+        #expect(AgentHookNotifyCategory.turnComplete.metaSegment(
+            pending: false,
+            agentKind: nil,
+            isSubagent: nil,
+            correlationKey: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+        ) == "c=turn-complete;p=0;k=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
         #expect(AgentHookNotifyCategory.other.metaSegment(
             pending: false, agentKind: "claude", isSubagent: true
         ) == nil)
@@ -165,6 +176,147 @@ struct AgentHookNotificationPolicyTests {
                 surfaceTitle: "Unrelated surface title"
             ) == "Codex"
         )
+    }
+
+    @Test func cursorNativeApprovalCandidateHonorsKnownLocalModes() {
+        let payload: [String: Any] = [
+            "command": "git status --short",
+            "sandbox": false,
+        ]
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "unrestricted"
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "auto-review"
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(git *)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(git)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: [
+                    "command": "/tmp/git status --short",
+                    "sandbox": false,
+                ],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(git)"]
+            ) == true
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(git status)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: [
+                    "command": "curl https://example.com",
+                    "sandbox": false,
+                ],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(curl:*)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                deniedShellCommands: ["Shell(git)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: payload,
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(ls)"]
+            ) == true
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "git status --short", "sandbox": false],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(g*:status)"]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "printf 'a  b'", "sandbox": false],
+                approvalMode: "allowlist",
+                allowedShellCommands: ["Shell(printf:'a b')"]
+            ) == true
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "git status --short", "sandbox": true]
+            ) == false
+        )
+        #expect(
+            AgentHookNotificationPolicy.shouldRequestCursorNativeApproval(
+                payload: ["command": "git status --short", "sandbox": "false"],
+                approvalMode: "allowlist"
+            ) == false
+        )
+    }
+
+    @Test func cursorApprovalModeOverrideParsesFlagForms() {
+        #expect(
+            AgentHookNotificationPolicy.cursorApprovalModeOverride(
+                arguments: ["cursor-agent", "--mode", "unrestricted"]
+            ) == "unrestricted"
+        )
+        #expect(
+            AgentHookNotificationPolicy.cursorApprovalModeOverride(
+                arguments: ["cursor-agent", "--mode=auto-review"]
+            ) == "auto-review"
+        )
+        #expect(
+            AgentHookNotificationPolicy.cursorApprovalModeOverride(
+                arguments: ["cursor-agent", "--mode", "unknown"]
+            ) == nil
+        )
+        #expect(
+            AgentHookNotificationPolicy.cursorApprovalModeOverride(
+                arguments: ["cursor-agent", "--", "--mode=unrestricted"]
+            ) == nil
+        )
+    }
+
+    @Test func cursorCommandPreviewRedactsHeaderAndFlagCredentials() {
+        let command = "curl -H 'X-Api-Key: shortsecret' -H 'Authorization: Basic hunter2' --api-key shortsecret --secret-access-key shortsecret --token shorttoken AWS_SECRET_ACCESS_KEY=abc123 -u alice:s3cr3t redis-cli -a s3cr3t mysql -psecret openssl -pass pass:hunter2 gpg --passphrase hunter2"
+        let redacted = AgentHookNotificationPolicy.redactSensitiveCommand(command)
+
+        #expect(!redacted.contains("shortsecret"))
+        #expect(!redacted.contains("shorttoken"))
+        #expect(!redacted.contains("abc123"))
+        #expect(!redacted.contains("alice:s3cr3t"))
+        #expect(!redacted.contains("s3cr3t"))
+        #expect(!redacted.contains("hunter2"))
+        #expect(redacted.contains("<credential>:<token>"))
+        #expect(redacted.contains("<credential>=<token>"))
     }
 
     private func classify(_ message: String) -> AgentHookNotificationSummary {

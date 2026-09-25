@@ -124,6 +124,16 @@ extension TerminalSurface {
         needsConfirmCloseOverrideForTesting = value
     }
 
+    /// Pins whether the current renderer has presented a frame (test hook).
+    /// Clearing the in-flight probe drops a late acknowledgement, so the
+    /// warm/cold reveal policy sees exactly the state a test chose instead of
+    /// whatever the GPU managed to present before the test hid the portal.
+    @MainActor
+    public func setRendererPresentedFrameForTesting(_ presented: Bool) {
+        rendererPresentationState.inFlightToken = nil
+        rendererPresentationState.didPresentFrame = presented
+    }
+
     /// How many runtime-surface create attempts ran (test hook).
     @MainActor
     public func debugRuntimeSurfaceCreateAttemptCountForTesting() -> Int {
@@ -156,7 +166,7 @@ extension TerminalSurface {
             into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0, processOutputItems: 0)
         ) { counts, item in
             switch item {
-            case .key:
+            case .key, .keyText:
                 counts.keyEvents += 1
             case .pasteText:
                 counts.pasteTextItems += 1
@@ -220,8 +230,17 @@ extension TerminalSurface {
     }
 
     /// Test-only helper to install a runtime surface pointer directly.
+    ///
+    /// Most package tests pass a pointer serviced by `GhosttyRuntimeTestStubs`,
+    /// so the native callback wiring remains enabled by default. App-host
+    /// XCTest fixtures link the real GhosttyKit and sometimes use a synthetic
+    /// pointer only to exercise Swift teardown ownership; those callers must
+    /// disable native callback setup so a fake address never crosses the C ABI.
     @MainActor
-    public func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
+    public func installRuntimeSurfaceForTesting(
+        _ runtimeSurface: ghostty_surface_t,
+        configureNativeCallbacks: Bool = true
+    ) {
         let callbackContext: Unmanaged<
             GhosttySurfaceCallbackContext
         >
@@ -240,13 +259,14 @@ extension TerminalSurface {
             surfaceCallbackContext = callbackContext
         }
         surface = runtimeSurface
+        portalLifecycleState = .live
+        runtimeSurfaceFreedOutOfBandForTesting = false
+        guard configureNativeCallbacks else { return }
         _ = callbackContext.takeUnretainedValue()
             .bindRuntimeClipboardSurface(
                 runtimeSurface,
                 generation: runtimeSurfaceGeneration
             )
-        portalLifecycleState = .live
-        runtimeSurfaceFreedOutOfBandForTesting = false
         cacheControllingTTYIdentity(for: runtimeSurface)
         installFontSizeActionObservation(
             on: runtimeSurface,

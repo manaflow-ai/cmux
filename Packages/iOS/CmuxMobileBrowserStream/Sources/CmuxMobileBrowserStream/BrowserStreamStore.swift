@@ -10,6 +10,7 @@ public import Observation
 @Observable
 public final class BrowserStreamStore: BrowserStreamEventReceiving {
     private var descriptorsByWorkspace: [String: [MobileBrowserPanelDescriptor]] = [:]
+    private var panelDiscoveryRevisionsByWorkspace: [String: UInt64] = [:]
     private var statesByPanel: [String: BrowserStreamSurfaceState] = [:]
     private var activePanelByWorkspace: [String: String] = [:]
     private var pendingDialogsByPanel: [String: MobileBrowserDialogEvent] = [:]
@@ -71,12 +72,22 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         descriptorsByWorkspace[workspaceID] ?? []
     }
 
+    /// Monotonic discovery token for a workspace's browser panel list.
+    ///
+    /// SwiftUI uses this instead of scanning the full descriptor list during
+    /// body evaluation, so selection refreshes still run when panels arrive or
+    /// disappear without turning render passes into O(P) work.
+    public func panelDiscoveryRevision(in workspaceID: String) -> UInt64 {
+        panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0]
+    }
+
     /// Replaces the discovered panels for a workspace while preserving existing stream state.
     /// - Parameters:
     ///   - workspaceID: The Mac-local workspace identifier.
     ///   - descriptors: The current browser panel descriptors.
     public func replacePanels(in workspaceID: String, with descriptors: [MobileBrowserPanelDescriptor]) {
         descriptorsByWorkspace[workspaceID] = descriptors
+        panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0] &+= 1
         let currentIDs = Set(descriptors.map(\.panelID))
         for descriptor in descriptors {
             if let state = statesByPanel[descriptor.panelID] {
@@ -329,7 +340,10 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
             activePanelByWorkspace[workspaceID] = nil
         }
         for (workspaceID, descriptors) in descriptorsByWorkspace {
-            descriptorsByWorkspace[workspaceID] = descriptors.filter { $0.panelID != event.panelID }
+            let filtered = descriptors.filter { $0.panelID != event.panelID }
+            guard filtered.count != descriptors.count else { continue }
+            descriptorsByWorkspace[workspaceID] = filtered
+            panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0] &+= 1
         }
         return event.panelID
     }

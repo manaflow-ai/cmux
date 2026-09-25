@@ -10,6 +10,12 @@ Options:
   --target <triple>
                    Build a single target, e.g. `aarch64-macos` or `x86_64-macos`.
   --output <path>  Destination path for the built helper.
+
+Environment:
+  CMUX_GHOSTTY_HELPER_CACHE_DIR
+                   Override the local helper cache directory.
+  CMUX_DISABLE_GHOSTTY_HELPER_CACHE=1
+                   Disable cache reads and writes for this invocation.
 EOF
 }
 
@@ -24,6 +30,14 @@ ZIG_REQUIRED="${ZIG_REQUIRED:-$(ghostty_minimum_zig_version "$REPO_ROOT")}"
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
 UNIVERSAL="false"
+if [[ -n "${CMUX_GHOSTTY_HELPER_CACHE_DIR:-}" ]]; then
+  CACHE_ROOT="$CMUX_GHOSTTY_HELPER_CACHE_DIR"
+elif [[ -n "${HOME:-}" ]]; then
+  CACHE_ROOT="$HOME/Library/Caches/cmux/ghostty-cli-helper"
+else
+  CACHE_ROOT=""
+fi
+CACHE_SCHEMA="ghostty-cli-helper-cache-v1"
 
 zig_binary_arch() {
   local zig_path="$1"
@@ -35,6 +49,95 @@ target_arch_for_triple() {
     aarch64-macos) echo "arm64" ;;
     x86_64-macos) echo "x86_64" ;;
   esac
+}
+
+ghostty_cache_is_safe() {
+  [[ -n "$CACHE_ROOT" ]] || return 1
+  [[ "${CMUX_DISABLE_GHOSTTY_HELPER_CACHE:-0}" != "1" ]] || return 1
+  [[ -d "$GHOSTTY_DIR/.git" || -f "$GHOSTTY_DIR/.git" ]] || return 1
+  # A dirty or caller-owned Ghostty tree must never be substituted by a
+  # revision-only cache entry. Ignored Zig build output is intentionally fine.
+  git -C "$GHOSTTY_DIR" diff --quiet HEAD -- . || return 1
+  [[ -z "$(git -C "$GHOSTTY_DIR" ls-files --others --exclude-standard)" ]] || return 1
+  return 0
+}
+
+ghostty_cache_metadata() {
+  local zig_bin="$1"
+  local target="$2"
+  local effective_target="$3"
+  local zig_version zig_fingerprint ghostty_sha script_sha sdk_version host_version host_arch
+  zig_version="$($zig_bin version 2>/dev/null || true)"
+  zig_fingerprint="$(shasum -a 256 "$zig_bin" 2>/dev/null | awk '{print $1}')"
+  ghostty_sha="$(git -C "$GHOSTTY_DIR" rev-parse HEAD)"
+  script_sha="$(shasum -a 256 "$SCRIPT_DIR/build-ghostty-cli-helper.sh" | awk '{print $1}')"
+  sdk_version="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || echo unknown)"
+  host_version="$(sw_vers -productVersion 2>/dev/null || echo unknown)"
+  host_arch="$(uname -m)"
+  cat <<EOF
+$CACHE_SCHEMA
+ghostty=$ghostty_sha
+script=$script_sha
+zig_version=$zig_version
+zig_sha256=$zig_fingerprint
+requested_target=${target:-native}
+effective_target=${effective_target:-native}
+sdk=$sdk_version
+macos=$host_version
+host_arch=$host_arch
+EOF
+}
+
+ghostty_cache_install_if_valid() {
+  local cache_bin="$1"
+  local cache_manifest="$2"
+  local metadata="$3"
+  local prefix="$4"
+  local cached_metadata cached_sha expected_sha tmp_binary
+  [[ -x "$cache_bin" && -f "$cache_manifest" ]] || return 1
+  cached_metadata="$(sed '/^binary_sha256=/d' "$cache_manifest" 2>/dev/null || true)"
+  [[ "$cached_metadata" == "$metadata" ]] || return 1
+  cached_sha="$(sed -n 's/^binary_sha256=//p' "$cache_manifest" 2>/dev/null || true)"
+  [[ -n "$cached_sha" ]] || return 1
+  mkdir -p "$prefix/bin" || return 1
+  tmp_binary="$(mktemp "$prefix/bin/.ghostty.XXXXXX")" || return 1
+  # Validate the copied bytes, then publish that exact file. A concurrent
+  # cache writer must not replace the bytes between validation and install.
+  if ! install -m 755 "$cache_bin" "$tmp_binary" ||
+     ! expected_sha="$(shasum -a 256 "$tmp_binary" 2>/dev/null | awk '{print $1}')" ||
+     [[ "$cached_sha" != "$expected_sha" ]] ||
+     ! mv -f "$tmp_binary" "$prefix/bin/ghostty"; then
+    rm -f "$tmp_binary"
+    return 1
+  fi
+  echo "Reusing cached Ghostty CLI helper"
+  return 0
+}
+
+ghostty_cache_publish() {
+  local cache_dir="$1"
+  local metadata="$2"
+  local binary="$3"
+  local cache_bin="$cache_dir/ghostty"
+  local cache_manifest="$cache_dir/manifest"
+  local tmp_binary tmp_manifest binary_sha
+  mkdir -p "$cache_dir" || return 1
+  tmp_binary="$(mktemp "$cache_dir/.ghostty.XXXXXX")" || return 1
+  tmp_manifest="$(mktemp "$cache_dir/.manifest.XXXXXX")" || {
+    rm -f "$tmp_binary"
+    return 1
+  }
+  # These functions are called in conditionals, which disable Bash errexit.
+  # Check every operation explicitly; publication remains best effort.
+  if ! install -m 755 "$binary" "$tmp_binary" ||
+     ! binary_sha="$(shasum -a 256 "$tmp_binary" | awk '{print $1}')" ||
+     [[ -z "$binary_sha" ]] ||
+     ! printf '%s\nbinary_sha256=%s' "$metadata" "$binary_sha" > "$tmp_manifest" ||
+     ! mv -f "$tmp_binary" "$cache_bin" ||
+     ! mv -f "$tmp_manifest" "$cache_manifest"; then
+    rm -f "$tmp_binary" "$tmp_manifest"
+    return 1
+  fi
 }
 
 # Real host arch, accounting for Rosetta where `uname -m` reports x86_64 on
@@ -253,6 +356,21 @@ build_helper() {
     effective_target=""
   fi
 
+  local cache_enabled=0
+  local cache_dir=""
+  local cache_metadata=""
+  if ghostty_cache_is_safe; then
+    cache_enabled=1
+    cache_metadata="$(ghostty_cache_metadata "$zig_bin" "$target" "$effective_target")"
+    local cache_key
+    cache_key="$(printf '%s' "$cache_metadata" | shasum -a 256 | awk '{print $1}')"
+    cache_dir="$CACHE_ROOT/$cache_key"
+    if ghostty_cache_install_if_valid \
+      "$cache_dir/ghostty" "$cache_dir/manifest" "$cache_metadata" "$prefix"; then
+      return 0
+    fi
+  fi
+
   local args=(
     "$zig_bin"
     build
@@ -278,6 +396,16 @@ build_helper() {
     # leaves build-runner binaries unlinked against libSystem on a cold cache.
     env -u SDKROOT "${args[@]}"
   )
+
+  [[ -x "$prefix/bin/ghostty" ]] || {
+    echo "error: Zig did not produce a Ghostty CLI helper at $prefix/bin/ghostty" >&2
+    return 1
+  }
+  if [[ "$cache_enabled" -eq 1 ]]; then
+    if ! ghostty_cache_publish "$cache_dir" "$cache_metadata" "$prefix/bin/ghostty"; then
+      echo "warning: unable to publish Ghostty CLI helper cache; continuing with built helper" >&2
+    fi
+  fi
 }
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghostty-helper.XXXXXX")"

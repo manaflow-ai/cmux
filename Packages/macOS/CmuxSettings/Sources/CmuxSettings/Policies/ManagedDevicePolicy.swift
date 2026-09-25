@@ -92,6 +92,20 @@ public struct ManagedDevicePolicy: Sendable {
         forcedBool(for: key) == true
     }
 
+    /// Effective MDM ban for discovering other Macs. The broad remote-control
+    /// Iroh and cmux-remote-connection bans also disable this outbound device feature.
+    public var isDeviceDiscoveryDisabled: Bool {
+        isEnforced(.disableDeviceDiscovery)
+            || isEnforced(.disableRemoteControl)
+            || isEnforced(.disableIrohNetworking)
+            || isEnforced(.disableRemoteConnections)
+    }
+
+    /// Effective MDM ban for this Mac accepting incoming device sessions.
+    public var isIncomingDeviceAccessDisabled: Bool {
+        isEnforced(.disableIncomingDeviceAccess) || isEnforced(.disableRemoteControl)
+    }
+
     /// The profile-forced Boolean for `key`, or `nil` when no profile forces
     /// it (or forces a non-Boolean value).
     public func forcedBool(for key: ManagedDevicePolicyKey) -> Bool? {
@@ -101,14 +115,55 @@ public struct ManagedDevicePolicy: Sendable {
     /// The profile-forced Boolean stored under `userDefaultsKey`, checking
     /// the app's own domain first and then the release fallback domain.
     public func forcedBool(forUserDefaultsKey userDefaultsKey: String) -> Bool? {
+        forcedObject(forUserDefaultsKey: userDefaultsKey) as? Bool
+    }
+
+    /// The profile-forced object stored under `userDefaultsKey`, checking the
+    /// app's own domain before the release-domain fallback. A non-`nil` object
+    /// means the key is managed even when its value has the wrong type.
+    public func forcedObject(forUserDefaultsKey userDefaultsKey: String) -> Any? {
+        forcedValue(forUserDefaultsKey: userDefaultsKey)?.object
+    }
+
+    /// Reads the forced object and its source in one probe pass, so a profile
+    /// change cannot pair a value from one domain with metadata from another.
+    /// - Parameter userDefaultsKey: The exact preference key to probe.
+    /// - Returns: The forced object and domain, or `nil` when unmanaged.
+    public func forcedValue(
+        forUserDefaultsKey userDefaultsKey: String
+    ) -> (object: Any, source: ManagedDevicePolicyValueSource)? {
         if let value = forcedObject(defaults, userDefaultsKey) {
-            return value as? Bool
+            return (value, .appDomain)
         }
         if let releaseDomainDefaults,
            let value = forcedObject(releaseDomainDefaults, userDefaultsKey) {
-            return value as? Bool
+            return (value, .releaseDomain)
         }
         return nil
+    }
+
+    /// Returns the domain that currently forces `userDefaultsKey`, or `nil`
+    /// when the key is only a normal user preference. This consults the same
+    /// `objectIsForced` probe as ``forcedObject(forUserDefaultsKey:)`` and
+    /// therefore cannot be impersonated by an ordinary `defaults write`.
+    public func forcedValueSource(forUserDefaultsKey userDefaultsKey: String) -> ManagedDevicePolicyValueSource? {
+        forcedValue(forUserDefaultsKey: userDefaultsKey)?.source
+    }
+
+    /// Whether a configuration profile forces any value for `key`, regardless
+    /// of its type. Use this for non-Boolean policies such as URL arrays;
+    /// ``isEnforced(_:)`` remains the Boolean `true` policy query.
+    public func isForced(_ key: ManagedDevicePolicyKey) -> Bool {
+        forcedObject(forUserDefaultsKey: key.rawValue) != nil
+    }
+
+    /// The effective value of an allow-style key
+    /// (``ManagedDevicePolicyKey/allowStyleKeys``): `false` only when a
+    /// profile forces the Boolean `false`. An absent key, a forced `true`, or
+    /// a forced non-Boolean value all leave the capability allowed, mirroring
+    /// how ``isEnforced(_:)`` treats malformed values for `Disable…` keys.
+    public func isAllowed(_ key: ManagedDevicePolicyKey) -> Bool {
+        forcedBool(for: key) != false
     }
 
     /// A stream that yields once per ``didChangeNotification`` post. Elements
@@ -164,5 +219,22 @@ public struct ManagedDevicePolicy: Sendable {
     /// domain.
     public func isKeyForcedInAppDomain(_ userDefaultsKey: String) -> Bool {
         forcedObject(defaults, userDefaultsKey) != nil
+    }
+
+    /// Whether the embedded-browser URL allowlist is locked by MDM.
+    ///
+    /// The dedicated policy key and the user-level key are checked across the
+    /// app and release domains. This lets channel builds honor a
+    /// release-domain profile without creating a write loop in their private
+    /// preference suite.
+    public func isBrowserURLAllowlistLocked(userDefaultsKey: String) -> Bool {
+        forcedBrowserURLAllowlistObject(userDefaultsKey: userDefaultsKey) != nil
+    }
+
+    /// Returns the forced value that owns the effective browser URL allowlist.
+    /// The dedicated policy key wins over a directly forced user key.
+    public func forcedBrowserURLAllowlistObject(userDefaultsKey: String) -> Any? {
+        forcedObject(forUserDefaultsKey: ManagedDevicePolicyKey.browserURLAllowlist.rawValue)
+            ?? forcedObject(forUserDefaultsKey: userDefaultsKey)
     }
 }

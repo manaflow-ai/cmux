@@ -9,6 +9,7 @@ enum GhosttyGotoSplitRoute {
 }
 
 extension KeyboardShortcutSettings.Action {
+    /// Selects whether an action resolves through the Dock, responder, or main workspace.
     var dockShortcutRoutingDisposition:
         DockShortcutRoutingDisposition {
         switch self {
@@ -31,6 +32,7 @@ extension KeyboardShortcutSettings.Action {
              .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane,
              .splitRight, .splitDown, .toggleSplitZoom,
+             .resizePaneLeft, .resizePaneRight, .resizePaneUp, .resizePaneDown,
              .equalizeSplits,
              .splitBrowserRight, .splitBrowserDown,
              .openBrowser, .focusBrowserAddressBar,
@@ -45,6 +47,7 @@ extension KeyboardShortcutSettings.Action {
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias,
              .saveFilePreview,
+             .toggleFileEditorWordWrap,
              .browserBack, .browserForward,
              .browserReload, .browserHardReload,
              .browserZoomIn, .browserZoomOut, .browserZoomReset,
@@ -68,21 +71,23 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerNextFile, .diffViewerPreviousFile:
             .focusResolved
 
-        case .openSettings, .reloadConfiguration,
+        case .openSettings, .openTeamPicker, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
-             .toggleSidebar, .newTab, .newBrowserWorkspace,
+             .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread,
              .markOldestUnreadAndJumpNext,
+             .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar,
              .switchRightSidebarToFiles,
              .switchRightSidebarToFind,
              .switchRightSidebarToSessions,
              .switchRightSidebarToFeed,
              .switchRightSidebarToDock,
+             .switchRightSidebarToMachines,
              .nextSidebarTab, .prevSidebarTab,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
@@ -175,7 +180,11 @@ extension AppDelegate {
                   preferredWindow: preferredWindow
               ),
               let pane = store.resolvePane(requestedPaneID: nil),
-              let panelId = store.newSurface(kind: kind, inPane: pane, focus: true) else {
+              let panelId = store.newSurfaceFromDockAffordance(
+                  kind: kind,
+                  inPane: pane,
+                  window: preferredWindow
+              ) else {
             return nil
         }
         if focusAddressBar, kind == .browser, let browser = store.browserPanel(for: panelId) {
@@ -204,15 +213,20 @@ extension AppDelegate {
         ) else {
             return false
         }
+        store.noteKeyboardFocusIntent(window: preferredWindow)
         guard let panelId = store.newSplit(
             kind: kind,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             sourcePanelId: store.focusedPanelId,
-            focus: true
+            focus: false
         ) else {
             return false
         }
+        store.focusPanelFromDockInteraction(
+            panelId,
+            window: preferredWindow
+        )
         if kind == .browser,
            let browser = store.browserPanel(for: panelId) {
             _ = focusBrowserAddressBar(in: browser)

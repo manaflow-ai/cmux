@@ -33,10 +33,15 @@ struct TaskComposerLayout: View {
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     let attachments: [TaskComposerAttachment]
     let showsAttachmentButton: Bool
+    /// Debug-only Labs treatment for comparing the task composer with the
+    /// terminal composer’s Liquid Glass controls.
+    let usesFullLiquidGlass: Bool
     /// Deferred builder: constructing the options sheet walks workspaces for
     /// directory candidates, so it must not run on every keystroke's body
     /// rebuild, only when Task Options is actually presented.
     let optionsSheet: () -> TaskComposerOptionsSheet
+    /// Presents the saved-drafts list; `nil` hides the drafts button.
+    let openDrafts: (() -> Void)?
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectModel: (MobileTaskAgentModel?) -> Void
@@ -48,6 +53,11 @@ struct TaskComposerLayout: View {
     let requestStartAgain: () -> Void
     let chooseAttachmentPhotos: () -> Void
     let chooseAttachmentFiles: () -> Void
+    /// Stages pasted images/files as attachments; `true` consumes the paste.
+    /// Shared by the prompt editor's system Paste action and the attachment
+    /// menu's Paste item (which ignores the result — text-only pasteboards
+    /// simply stage nothing there).
+    let pasteAttachments: () -> Bool
     let removeAttachment: (UUID) -> Void
 
     @State private var isPromptFocused = false
@@ -76,6 +86,19 @@ struct TaskComposerLayout: View {
                     defaultValue: "Cancel"
                 ))
                 .accessibilityIdentifier("MobileTaskComposerCancelButton")
+            }
+            if let openDrafts {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: openDrafts) {
+                        Image(systemName: "tray.full")
+                    }
+                    .disabled(locksDismissal)
+                    .accessibilityLabel(L10n.string(
+                        "mobile.taskComposer.drafts.title",
+                        defaultValue: "Drafts"
+                    ))
+                    .accessibilityIdentifier("MobileTaskComposerDraftsButton")
+                }
             }
         }
         .sheet(isPresented: $isOptionsPresented) {
@@ -106,7 +129,8 @@ struct TaskComposerLayout: View {
                     "mobile.taskComposer.prompt",
                     defaultValue: "Prompt"
                 ),
-                accessibilityHint: promptPlaceholder
+                accessibilityHint: promptPlaceholder,
+                pasteAttachments: pasteAttachments
             )
                 .padding(.horizontal, 20)
                 .padding(.vertical, 18)
@@ -145,58 +169,46 @@ struct TaskComposerLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            HStack(spacing: 10) {
+            HorizontalEdgeFadePillBar(accessibilityIdentifier: "MobileTaskComposerPillScroller") {
                 leadingUtilityButtons
-                    .fixedSize(horizontal: true, vertical: false)
-                    .layoutPriority(1)
+            } pills: {
+                HStack(spacing: 8) {
+                    agentPill
+                        .fixedSize(horizontal: true, vertical: false)
 
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        agentPill
+                    if isModelLoading {
+                        modelLoadingPill
                             .fixedSize(horizontal: true, vertical: false)
-
-                        if isModelLoading {
-                            modelLoadingPill
+                            .transition(modelLoadingTransition)
+                    } else if !models.isEmpty || !efforts.isEmpty || modelErrorText != nil {
+                        if models.isEmpty, modelErrorText != nil {
+                            modelErrorPill
                                 .fixedSize(horizontal: true, vertical: false)
-                                .transition(modelLoadingTransition)
-                        } else if !models.isEmpty || !efforts.isEmpty || modelErrorText != nil {
-                            if models.isEmpty, modelErrorText != nil {
-                                modelErrorPill
-                                    .fixedSize(horizontal: true, vertical: false)
-                            } else {
-                                modelPill
-                                    .fixedSize(horizontal: true, vertical: false)
-                            }
+                        } else {
+                            modelPill
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
 
-                            if !efforts.isEmpty || effortErrorText != nil {
-                                effortPill
-                                    .fixedSize(horizontal: true, vertical: false)
-                            }
+                        if !efforts.isEmpty || effortErrorText != nil {
+                            effortPill
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
                 }
-                .scrollIndicators(.hidden)
-                // The shared picker strip owns overflow. Pills keep their
-                // readable intrinsic widths while the fixed edge controls
-                // claim their space outside this clipped viewport.
-                .frame(minWidth: 0, maxWidth: .infinity)
-                .layoutPriority(0)
-                .clipped()
-                .accessibilityIdentifier("MobileTaskComposerPillScroller")
-
+            } trailing: {
                 submitButton
-                    .fixedSize(horizontal: true, vertical: false)
-                    .layoutPriority(1)
             }
-            .padding(.horizontal, 16)
             .frame(height: 44)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 16)
         }
         // Blend into the canvas like the reference composer; the keyboard
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .background(Color(uiColor: .systemBackground))
+        .background(
+            usesFullLiquidGlass
+                ? Color.clear
+                : Color(uiColor: .systemBackground)
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileTaskComposerAccessoryBar")
     }
@@ -211,8 +223,10 @@ struct TaskComposerLayout: View {
                 TaskComposerAttachmentPickerMenu(
                     style: .circularPlus,
                     isDisabled: isDisabled,
+                    usesFullLiquidGlass: usesFullLiquidGlass,
                     choosePhotos: chooseAttachmentPhotos,
-                    chooseFiles: chooseAttachmentFiles
+                    chooseFiles: chooseAttachmentFiles,
+                    pasteAttachments: { _ = pasteAttachments() }
                 )
             }
         }
@@ -227,7 +241,7 @@ struct TaskComposerLayout: View {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 38, height: 38)
-                .background(Color.primary.opacity(0.07), in: Circle())
+                .modifier(TaskComposerCircleSurface(usesFullLiquidGlass: usesFullLiquidGlass))
                 // Keep the compact 38pt visual while honoring the composer's
                 // 44pt activation-target contract.
                 .frame(width: 44, height: 44)
@@ -276,7 +290,7 @@ struct TaskComposerLayout: View {
             .foregroundStyle(agentErrorText == nil ? Color.primary : Color.red)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
-            .background(Color.primary.opacity(0.07), in: Capsule())
+            .modifier(TaskComposerPillSurface(usesFullLiquidGlass: usesFullLiquidGlass))
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
@@ -310,7 +324,7 @@ struct TaskComposerLayout: View {
         .foregroundStyle(modelErrorText == nil ? Color.primary : Color.red)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
-        .background(Color.primary.opacity(0.07), in: Capsule())
+        .modifier(TaskComposerPillSurface(usesFullLiquidGlass: usesFullLiquidGlass))
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityHidden(true)
@@ -345,7 +359,7 @@ struct TaskComposerLayout: View {
         .foregroundStyle(Color.red)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
-        .background(Color.red.opacity(0.12), in: Capsule())
+        .modifier(TaskComposerPillSurface(usesFullLiquidGlass: usesFullLiquidGlass))
         .frame(minHeight: 44)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(modelErrorText ?? L10n.string(
@@ -374,7 +388,7 @@ struct TaskComposerLayout: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
-        .background(Color.primary.opacity(0.07), in: Capsule())
+        .modifier(TaskComposerPillSurface(usesFullLiquidGlass: usesFullLiquidGlass))
         .frame(minHeight: 44)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.string(
@@ -416,7 +430,7 @@ struct TaskComposerLayout: View {
         )
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
-        .background(Color.primary.opacity(0.07), in: Capsule())
+        .modifier(TaskComposerPillSurface(usesFullLiquidGlass: usesFullLiquidGlass))
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityHidden(true)
@@ -526,6 +540,32 @@ struct TaskComposerLayout: View {
             selectTemplate: selectTemplate,
             editTemplates: editTemplates
         )
+    }
+}
+
+private struct TaskComposerPillSurface: ViewModifier {
+    let usesFullLiquidGlass: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if usesFullLiquidGlass {
+            content.mobileGlassPill()
+        } else {
+            content.background(Color.primary.opacity(0.07), in: Capsule())
+        }
+    }
+}
+
+private struct TaskComposerCircleSurface: ViewModifier {
+    let usesFullLiquidGlass: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if usesFullLiquidGlass {
+            content.mobileGlassCircle()
+        } else {
+            content.background(Color.primary.opacity(0.07), in: Circle())
+        }
     }
 }
 #endif
