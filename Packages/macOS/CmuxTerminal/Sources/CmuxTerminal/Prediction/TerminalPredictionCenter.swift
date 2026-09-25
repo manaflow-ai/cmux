@@ -13,7 +13,7 @@ public import Foundation
 /// read path is one relaxed atomic load.
 @MainActor
 public final class TerminalPredictionCenter {
-    public static let shared = TerminalPredictionCenter()
+    nonisolated public static let shared = TerminalPredictionCenter()
 
     /// Read from the IO thread before any copying happens, so a disabled
     /// feature costs one relaxed load per output chunk and nothing else.
