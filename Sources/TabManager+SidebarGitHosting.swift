@@ -175,6 +175,19 @@ extension TabManager: SidebarGitHosting {
         }
     }
 
+    /// Clears checks through the owning workspace without rescanning `tabs` per panel.
+    func clearAllSidebarPullRequestChecks() {
+        for workspace in tabs {
+            for (panelId, state) in workspace.panelPullRequests where state.checks != nil {
+                workspace.updatePanelPullRequest(
+                    panelId: panelId, number: state.number, label: state.label,
+                    url: state.url, status: state.status, branch: state.branch,
+                    isStale: state.isStale
+                )
+            }
+        }
+    }
+
     // MARK: Environment
 
     var gitMetadataActivity: SidebarGitMetadataActivity {

@@ -199,6 +199,20 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         record(.clearAllPullRequestMetadata)
     }
 
+    func clearAllSidebarPullRequestChecks() {
+        for index in workspaces.indices {
+            for (panelId, panel) in workspaces[index].state.panels {
+                guard let badge = panel.badge, badge.checks != nil else { continue }
+                let cleared = SidebarPullRequestBadge(
+                    number: badge.number, label: badge.label, url: badge.url,
+                    status: badge.status, branch: badge.branch, isStale: badge.isStale
+                )
+                workspaces[index].state.panels[panelId]?.badge = cleared
+                record(.pullRequestBadge(workspaces[index].id, panelId, cleared))
+            }
+        }
+    }
+
     // MARK: Environment
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool { mobileHostActive }

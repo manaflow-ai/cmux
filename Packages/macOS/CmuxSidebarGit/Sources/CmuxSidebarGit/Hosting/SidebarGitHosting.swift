@@ -87,6 +87,9 @@ public protocol SidebarGitHosting: AnyObject {
     /// Clears every workspace's sidebar pull-request badges.
     func clearAllSidebarPullRequestMetadata()
 
+    /// Clears optional check details in one traversal while preserving PR badges.
+    func clearAllSidebarPullRequestChecks()
+
     // MARK: Environment
 
     /// The active/passive/disabled work level for sidebar git metadata.

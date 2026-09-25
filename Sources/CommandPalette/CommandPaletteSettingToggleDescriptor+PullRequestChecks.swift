@@ -1,12 +1,13 @@
 import Foundation
 
-extension CommandPaletteSettingsToggleCommands {
-    static func pullRequestChecksToggle(
-        section: @escaping @Sendable () -> String,
+extension CommandPaletteSettingToggleDescriptor {
+    /// Creates the checks toggle with the sidebar’s visibility dependencies.
+    init(
+        pullRequestChecksIn section: @escaping @Sendable () -> String,
         isAvailable: @escaping @Sendable (UserDefaults) -> Bool
-    ) -> CommandPaletteSettingToggleDescriptor {
-        CommandPaletteSettingToggleDescriptor(
-            commandId: commandIdPrefix + "showPullRequestChecks",
+    ) {
+        self.init(
+            commandId: CommandPaletteSettingsToggleCommands.commandIdPrefix + "showPullRequestChecks",
             settingsKey: "sidebar.showPullRequestChecks",
             title: { String(localized: "settings.app.showPullRequestChecks", defaultValue: "Show Pull Request Checks") },
             sectionTitle: section,

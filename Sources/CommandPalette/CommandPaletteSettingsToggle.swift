@@ -647,7 +647,7 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey,
                 isAvailable: sidebarDetailsAvailable
             ),
-            pullRequestChecksToggle(section: sidebar, isAvailable: sidebarDetailsAvailable),
+            CommandPaletteSettingToggleDescriptor(pullRequestChecksIn: sidebar, isAvailable: sidebarDetailsAvailable),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "makeSidebarPullRequestsClickable",
                 settingsKey: "sidebar.makePullRequestsClickable",
