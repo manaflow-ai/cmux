@@ -655,7 +655,18 @@ extension Workspace {
                 ) {
                     return true
                 }
-                guard let matchingObservation else { return false }
+                // No observation, or liveness the evidence cannot decide, stays
+                // nil ("unknown") so the shell state and the caller's default
+                // decide, as before the Computer Use merge (#13055).
+                guard let matchingObservation else {
+                    return RestorableAgentProcessLiveness.unknown.wasRunning(
+                        fallingBackTo: panelShellActivityStates[panelId],
+                        recordedProcessIdentities: [:],
+                        confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                        currentProcessIdentity: currentAgentProcessIdentity,
+                        processPresence: agentProcessPresence
+                    )
+                }
                 if let resumeBinding {
                     return matchingObservation.wasRunningForSnapshot(
                         effectiveRestorableAgent,
@@ -672,7 +683,7 @@ extension Workspace {
                     confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                     currentProcessIdentity: currentAgentProcessIdentity,
                     processPresence: agentProcessPresence
-                ) ?? false
+                )
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
