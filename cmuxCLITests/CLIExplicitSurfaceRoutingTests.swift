@@ -245,7 +245,7 @@ struct CLIExplicitSurfaceRoutingTests {
             #expect(!result.timedOut, Comment(rawValue: result.stderr + result.stdout))
             #expect(result.status == 2, Comment(rawValue: result.stderr + result.stdout))
             #expect(
-                (result.stderr + result.stdout).contains("requires --workspace or --surface"),
+                (result.stderr + result.stdout).contains("--workspace or --surface is required"),
                 Comment(rawValue: result.stderr + result.stdout)
             )
         }
