@@ -71,7 +71,10 @@ is no head to re-check, and its build and test jobs are not a split that can
 break: from attempt 2 on both take the runner job's retry_label, a macOS 26
 Blacksmith pool on the same Xcode build. So a stuck or refused E2E job gets
 its failed and cancelled jobs re-run, keeping a build that passed, and the
-follow-on watch of attempt 2 finds no owned job and stops. A stuck E2E run
+follow-on watch of attempt 2 finds no owned job and stops. When the build
+itself did not succeed, every job is re-run instead, so the `sibling` job
+looks again for another run compiling the same revision
+(e2e_build_unfinished). A stuck E2E run
 that finished some other way (a newer dispatch in its concurrency group
 cancelled it) is not re-run, since that would cancel the newer one. Its
 watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a
@@ -699,6 +702,24 @@ def next_attempt(target: Target) -> str:
     return f"attempt {following} takes retry_runner on Blacksmith"
 
 
+def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], None],
+                         log: Callable[[str], None]) -> bool:
+    """An E2E run whose build job did not succeed, so its re-run compiles.
+
+    A re-run of failed jobs keeps the `sibling` job's attempt-1 answer, taken
+    before the refusal, so it never waits for a sibling that started compiling
+    the same revision since: run 36168890047's attempt 2 compiled product
+    8c48a10e beside run 36168944875. Re-running every job runs the Linux
+    jobs and that wait again, which costs seconds. A build that passed is
+    kept, as always.
+    """
+    if target.path != E2E_WORKFLOW_PATH:
+        return False
+    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    build = next((job for job in jobs if job.get("name") == "build"), None)
+    return build is None or build.get("conclusion") != "success"
+
+
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does."""
@@ -755,6 +776,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if run.get("status") == "completed":
         if not (failed_only if refused is None else refused):
             return "not rescued: the run already finished"
+        if e2e_build_unfinished(api, target, sleep, log):
+            api.rerun(target.run_id)
+            return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.cancel(target.run_id)
@@ -787,6 +811,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if moved:
         return f"cancelled but not re-run: {moved}"
     if failed_only:
+        if e2e_build_unfinished(api, target, sleep, log):
+            api.rerun(target.run_id)
+            return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id)
