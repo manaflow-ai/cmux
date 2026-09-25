@@ -38,6 +38,7 @@ bool ghostty_surface_read_selection_clipboard_text(
     uintptr_t max_bytes,
     ghostty_text_s *selection);
 
+int ghostty_init(uintptr_t argc, char **argv);
 void *ghostty_config_new(void);
 void ghostty_config_free(void *config);
 void ghostty_config_load_string(
