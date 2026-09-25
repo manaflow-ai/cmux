@@ -362,6 +362,8 @@ func sidebarWorkspaceRowBackgroundStyle(
 
     case .solidFill, .border:
         if isActive {
+            // Border mode keeps the workspace color visible and uses the
+            // outline as the active-state cue.
             return SidebarWorkspaceRowBackgroundStyle(
                 color: activeTabIndicatorStyle == .border
                     ? (customBackground ?? selectedBackground)
