@@ -9,7 +9,7 @@ pools, because the app-host product only loads under the Xcode that linked it
 (#14163). A run on an owned pool may be, per job (see "Per-job placement"
 below).
 
-The run takes the first pool in preference order that has headroom:
+The run goes where it expects to wait least (pick()):
 
     vars.CI_PR_POOL_ORDER, comma-separated; by default
       blacksmith-12vcpu-macos-26   same macOS and Xcode as the lane, faster
@@ -17,24 +17,38 @@ The run takes the first pool in preference order that has headroom:
       blacksmith-6vcpu-macos-15    macOS 15 Xcode (vars.CMUX_CI_XCODE_APP_MACOS_15),
                                    the pool and Xcode main's own CI runs on
 
-    headroom = at most vars.CI_PR_POOL_QUEUE_ROUNDS rounds of queue there
-               once this run's job arrives (default 1: as many jobs queued
-               as the pool has machines, POOL_CAPACITIES), or at most
-               vars.CI_PR_POOL_MAX_QUEUED jobs, whichever is more, and no
-               queued release or nightly job on the pool
+    expected wait = the queue its job joins, in rounds (queued jobs over
+                    machines, POOL_CAPACITIES), times a job's length there
+                    (JOB_MINUTES: 12vcpu jobs run about twice as fast), plus
+                    COLD_ROUNDS on the macOS 15 pool, which has no
+                    DerivedData seed for its Xcode and compiles cold
 
-A round is one job length: with a round of queue, every queued job waits for
-at most about one job on each machine to finish. So a pool rolls over to the
-next one in the order once its queue is a round long. On 2026-09-25 the
-5-machine 12vcpu pool rolled over at its first queued job while the 6vcpu
-pool had 11 queued for 15 minutes; a 12vcpu job runs about twice as fast, so
-a round there beats the 6vcpu queue. The macOS 15 pool's free machine costs
-COLD_ROUNDS more, so a round of queue on a macOS 26 pool is worth waiting for.
-`CI_PR_POOL_QUEUE_ROUNDS == '0'` restores the old rule: a full pool rolls
-over at once. When every pool is past its queue, the run takes the one whose
-queue is shortest in rounds (queued jobs over capacity; the earlier pool on
-a tie). The macOS 15 pool has no DerivedData seed for its Xcode, so its
-queue counts COLD_ROUNDS more there, for the compile it runs cold. A pool
+Owned pools come first in the default order and take the run while the jobs
+they would hold start no later than this run's jobs would on the best
+Blacksmith pool, within vars.CI_PR_POOL_QUEUE_ROUNDS job lengths (default 1,
+at most MAX_QUEUE_ROUNDS), and within the queue bound (owned_room()).
+Otherwise the Blacksmith pool with the least expected wait takes it, the
+earlier in the order on a tie.
+
+The wait counts what holds a label now: jobs queued and running, and each
+run since the snapshot at what it holds (young_charge(): admission and its
+side lanes while it is younger than a job length, its whole peak after, when
+its shards exist). So a run's shards that do not exist yet hold no idle mini:
+a later run takes it, the shards join the label's queue when they exist, and
+GitHub hands out runners in queue order. On 2026-09-25, 31 of 36 owned std
+runners sat idle while 21 jobs queued on Blacksmith for 5 to 12 minutes,
+because every in-flight run's future jobs held machines at its peak ("-5 of
+15 root runners free"). The bound keeps those future jobs from growing the
+queue without limit: everything the runs holding a label will need at their
+peak (the janitor's `committed`, and the markers of runs since) plus this
+run's peak stays within machines x (1 + rounds).
+
+`CI_PR_POOL_QUEUE_ROUNDS == '0'` is the kill switch and restores the old rule
+exactly: an owned pool only when the run's peak is free counting every run's
+peak (committed and markers), then the first Blacksmith pool with a free
+machine (or at most vars.CI_PR_POOL_MAX_QUEUED jobs queued once it arrives),
+and when every pool is full the one whose queue is shortest in rounds (a cold
+pool counting COLD_ROUNDS more). A pool
 holding a queued release or nightly job
 is never chosen: pull requests must not delay those. Every Blacksmith pool
 is sponsored, so cost is not a reason to prefer one.
@@ -58,28 +72,20 @@ published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-26.6": 12}`;
 The janitor's snapshot counts the jobs queued and running on each owned label
 from the job listings it already makes, and `committed`: what the runs
 holding the pool need at their peak, read from the marker each one uploads
-(`macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>`), so a run whose later
-jobs do not exist yet still counts them. No token beyond GITHUB_TOKEN is
-needed. A run takes an owned pool when its own peak (run_jobs) fits in the
-machines free plus the same queue allowance: CI_PR_POOL_QUEUE_ROUNDS times
-the pool's machines, so taken + this run's peak <= machines x (1 + rounds),
-and a queued job waits about one job length behind the busy runners instead
-of the run going to Blacksmith (on 2026-09-25, 31 of 36 owned std runners sat
-idle while 21 jobs queued on Blacksmith for 5 to 12 minutes). The root
-runners get the same allowance over their own count. Rounds above
-MAX_QUEUE_ROUNDS are clamped. When a placed job needs more than the machines
-free now (used_queue()), the `queued` output is true and ci.yml uploads a
-`macos-pool-queued-<run>-<attempt>-owned` marker; ci-owned-pool-rescue.yml
-then adds QUEUE_ROUND_SECONDS per round to that run's budget
-(owned_pool_rescue.py), since its job may wait that long on purpose. Rounds `0` makes a run take an owned pool only when
-its peak is free at once, as before. An owned pool is skipped when it has no slot count, and like every
-pool when the snapshot is older than MAX_SNAPSHOT_MINUTES. With the org
-route App's token, the idle runners carrying its label are its capacity
-instead (live_owned_free), and every other runner counts as busy (live_pools()).
-The allowance is still rounds times the slot count, so a fully busy fleet
-takes a bounded queue. The runners API shows no queue, so it is charged high:
-none on a label with an idle runner, else the snapshot's queue plus the peaks
-of the runs since the snapshot. An offline machine still counts
+(`macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>`). No token beyond
+GITHUB_TOKEN is needed. A run replayed since the snapshot (its pick not
+known yet) counts REPLAYED_RUN_JOBS on the owned pool it could take and one
+on its root runners. With the rounds at 0 every run counts its whole peak
+against the machines, as before (owned_free()). An owned pool is
+skipped when it has no slot count, and like every pool when the snapshot is
+older than MAX_SNAPSHOT_MINUTES. With the org route App's token, the runners
+API gives the idle runners carrying each label, and every other runner
+counts as busy (live_pools()); a label with no idle runner is charged the
+snapshot's queue and the runs since it, since the API shows no queue.
+A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
+job lengths, and ci-owned-pool-rescue.yml gives a CI run's jobs that much
+(QUEUE_ROUND_SECONDS per round) on top of its budget before it moves the
+run to Blacksmith (owned_pool_rescue.py). An offline machine still counts
 as a slot; what that gets wrong, ci-owned-pool-rescue.yml catches: a run whose
 job waits on an owned pool past its budget is re-run on Blacksmith. A re-run
 of failed jobs reuses this run's outputs, so a persistent choice also names
@@ -87,10 +93,10 @@ of failed jobs reuses this run's outputs, so a persistent choice also names
 then `light` (16 GB), then the Blacksmith pools: one order for every job type.
 
 Per-job placement (`vars.CI_PR_POOL_OWNED_SPLIT == '1'`): without it, a run
-takes an owned pool only when its whole peak is free, so a full suite on 9
+takes an owned pool only when its whole peak fits, so a full suite on 9
 idle minis with 2 busy went to Blacksmith entirely and queued there. With it,
 when no owned pool fits the whole run, the run takes the owned pool with the
-most free machines (at least one), and `owned_jobs` names the jobs that fit,
+most room (at least one job), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
 and a mini keeps its warm DerivedData), then the GUI jobs (app-host shards by
 index, tests-build-and-lag), which queue longest on Blacksmith, then the light
@@ -105,9 +111,8 @@ macOS 26 images all reported Xcode 26.6 build 17F113. The product only ever
 moves from a mini to Blacksmith (admission is always placed first), and
 app_host_test_products.check_xcode refuses a product linked by a newer Xcode
 than the consumer's, so a drift fails closed instead of crashing in dlopen.
-The marker's `<jobs>` is the owned machines the run holds at its peak, so the
-janitor's `committed` counts only the owned jobs actually placed. With the
-split off, a run takes an owned pool only when all its owned-eligible jobs fit.
+With the split off, a run takes an owned pool only when all its
+owned-eligible jobs fit.
 
 Root jobs: glaeda gives compile admission, the app-host shards,
 tests-build-and-lag and cli-product-tests (and any job it does not know) the
@@ -119,7 +124,8 @@ re-run. glaeda also labels one runner per mini
 label waits for a free root instead. CI_OWNED_POOL_SLOTS gives the root
 runners' count beside the pool's (`{"std": 40, "root-std": 10}`). A pool with
 a root count sends its placed root jobs (ROOT_JOBS) to the `root_runner`
-output, and place() puts no more of them there than its root runners free; a
+output, and place() puts no more of them there than its root runners have
+room for, by the same expected wait; a
 pool without one keeps the pool label for every job. The side lanes keep the
 pool label either way. A root job also holds one of the pool's machines, so
 it counts against both.
@@ -185,10 +191,11 @@ Main's full suite: ci-main-full-suite.yml dispatches ci.yml on main about
 tests-build-and-lag, cli-product-tests). That is main's own code, so it may
 take an owned pool like a same-repository pull request, and ci-macos.yml
 already routes a `workflow_dispatch` on `refs/heads/main` through the same
-inputs. It is placed like a pull request, split and queue allowance
+inputs. It is placed like a pull request, split and queue rounds
 (CI_PR_POOL_QUEUE_ROUNDS) included, on the owned pools only; what does not
 fit keeps its own route (MACOS_RUNNER_PR), since only an owned pool is a
-candidate for it. CI_OWNED_MAIN_RESERVE (0 when unset) holds that many
+candidate for it. With no Blacksmith pool to compare against, its jobs may
+wait up to the queue rounds and the bound (owned_room()). CI_OWNED_MAIN_RESERVE (0 when unset) holds that many
 machines and root runners back for pull requests; with a reserve it takes
 an owned pool only whole, and only while its peak is free now (no queue
 allowance). Its side lanes (the Claude wrapper and
@@ -279,16 +286,15 @@ MAIN_BRANCH = "main"
 # own. Beside compile admission run the Claude wrapper and remote daemon
 # lanes; once admission passes, a full suite adds APP_HOST_SHARDS
 # shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
-# shard, and a CLI change cli-product-tests. A run takes an owned pool only
-# when its own peak (run_jobs) fits in the machines free plus the queue
-# allowance (owned_room()). A run whose peak is unknown is charged MAX_RUN_JOBS. A run created since the
-# snapshot is looked up first (pull_request_routes_since): its marker gives
-# the owned pool and peak it took, and a finished `changes` job without one
-# means it took none. Only a run still picking is replayed and charged
-# REPLAYED_RUN_JOBS, the peak of a compile-only run with every side lane.
-# Charging every newer run that guess shut a 5-machine pool after two runs
-# while its minis sat idle (2026-09-24). A job that still finds its mini busy
-# is refused or queued, and moved to Blacksmith by ci-owned-pool-rescue.yml.
+# shard, and a CLI change cli-product-tests. A run takes an owned pool when
+# its own peak (run_jobs) fits there by the expected wait and the queue bound
+# (owned_room()); a run whose peak is unknown needs MAX_RUN_JOBS. A run
+# created since the snapshot is looked up first (pull_request_routes_since):
+# its marker gives the owned pool and peak it took, and a finished `changes`
+# job without one means it took none. Its peak counts toward the queue bound,
+# and toward the wait only once it is older than a job (young_charge()).
+# Only a run still picking is replayed and charged REPLAYED_RUN_JOBS, the
+# peak of a compile-only run with every side lane.
 APP_HOST_SHARDS = 7
 SIDE_LANES = 2
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
@@ -416,24 +422,6 @@ class Choice:
     # the placed root jobs take, and its root runners free for this run.
     root_runner: str = ""
     root_budget: int = 0
-    # For a persistent runner only: the machines (and root runners) free now,
-    # without the queue allowance, so main() can tell whether the placed jobs
-    # queue on purpose (used_queue()).
-    free_now: int = 0
-    root_free_now: int = 0
-
-
-def used_queue(choice: Choice, plan: RunJobs, owned_jobs: Sequence[str], held: int) -> bool:
-    """Whether the jobs placed on an owned pool need more than its machines free now.
-
-    Then some of them wait in the queue allowance on purpose, and ci.yml
-    uploads the `macos-pool-queued-...` marker that gives the rescue its
-    longer budget (owned_pool_rescue.py).
-    """
-    if not persistent(choice.runner) or not owned_jobs:
-        return False
-    return held > max(0, choice.free_now) or (
-        bool(choice.root_runner) and root_held(plan, owned_jobs) > max(0, choice.root_free_now))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -441,7 +429,10 @@ class Routed:
     """Pull request runs created since the snapshot and still in flight.
 
     `owned` maps an owned pool to the machines the runs it took there need at
-    their peak, read from each run's marker. `ephemeral` counts runs whose
+    their peak, read from each run's marker. `owned_now` is what they hold
+    now (young_charge()): a run younger than a job length has only
+    admission and its side lanes, at most REPLAYED_RUN_JOBS, and an older
+    one its shards too, so its whole peak. `ephemeral` counts runs whose
     pick already finished without a marker, so they hold no owned machine.
     `unknown` counts runs whose pick this one cannot see yet; they are
     replayed and charged REPLAYED_RUN_JOBS on an owned pool they could take.
@@ -449,6 +440,7 @@ class Routed:
     unknown: int = 0
     owned: Mapping[str, int] = dataclasses.field(default_factory=dict)
     ephemeral: int = 0
+    owned_now: Mapping[str, int] | None = dataclasses.field(default=None, compare=False)  # None: `owned`
 
 
 def flag(value: str | None) -> bool:
@@ -750,6 +742,8 @@ def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int]
     entry = (snapshot.get("pools") or {}).get(label) or {}
     counts = {key: int(entry.get(key) or 0)
               for key in ("queued", "running", "reserved_queued", "oldest_queued_minutes", "committed")}
+    if "future" in entry:
+        counts["future"] = int(entry.get("future") or 0)
     counts["capacity"] = int((owned_slots or {}).get(label) or 0) if persistent(label) else POOL_CAPACITIES.get(label, POOL_CAPACITY)
     counts["cold"] = int(cold(label))
     return counts
@@ -782,6 +776,38 @@ def cold(label: str) -> bool:
     return bool(POOLS.get(label))
 
 
+# Typical minutes of one job on a pool: what one round of its queue costs.
+# Compile admission, the longest job, took a median 638 s on the minis and
+# about 10 minutes on the 6vcpu pools (2026-09-25); a 12vcpu job runs about
+# twice as fast.
+JOB_MINUTES = {LARGE_RUNNER: 5}
+DEFAULT_JOB_MINUTES = 10
+
+
+def job_minutes(label: str) -> int:
+    return JOB_MINUTES.get(pool_label(label), DEFAULT_JOB_MINUTES)
+
+
+def expected_wait(label: str, counts: Mapping[str, int], arriving: int) -> float:
+    """Minutes the last of `arriving` more jobs waits on a pool: its queue in rounds, times a job's length.
+
+    A cold pool (cold()) counts COLD_ROUNDS more, for the compile it runs cold.
+    """
+    return rounds(counts, effective_queue(counts, arriving)) * job_minutes(label)
+
+
+def young_charge(peak: int, age_minutes: float | None) -> int:
+    """What a run holds now: admission and its side lanes while younger than a job, then its whole peak."""
+    if age_minutes is not None and age_minutes < DEFAULT_JOB_MINUTES:
+        return min(peak, REPLAYED_RUN_JOBS)
+    return peak
+
+
+def run_age_minutes(run: Mapping[str, Any], now: dt.datetime) -> float | None:
+    created = parse_time(str(run.get("created_at") or ""))
+    return None if created is None else (now - created).total_seconds() / 60
+
+
 def owned_free(counts: Mapping[str, int], added_runs: int, taken_since: int = 0) -> int:
     """Machines of an owned pool still free once `added_runs` more runs took theirs.
 
@@ -790,25 +816,40 @@ def owned_free(counts: Mapping[str, int], added_runs: int, taken_since: int = 0)
     yet still counts them. `taken_since` is the known peak of the runs that
     took the pool since the snapshot, from their markers. Each run replayed
     since the snapshot is charged REPLAYED_RUN_JOBS, since its own peak is
-    unknown here.
+    unknown here. The kill switch (rounds 0) uses exactly this.
     """
     taken = max(counts["running"] + counts["queued"], counts.get("committed", 0))
     return counts.get("capacity", 0) - taken - taken_since - added_runs * REPLAYED_RUN_JOBS
 
 
-def queue_allowance(counts: Mapping[str, int], rounds: int) -> int:
-    """Jobs that may queue on a pool: `rounds` rounds, each as many jobs as it has machines."""
-    return max(0, rounds) * max(0, counts.get("capacity", POOL_CAPACITY))
+def owned_room(label: str, counts: Mapping[str, int], added_jobs: int, taken_peak: int, taken_now: int,
+               queue_rounds: int, limit_minutes: float) -> int:
+    """How many more jobs an owned label takes for this run.
 
+    Rounds 0 (the kill switch): its machines free now, counting every run's
+    peak (owned_free()), as before. Otherwise the smaller of:
 
-def owned_room(counts: Mapping[str, int], added_runs: int, taken_since: int = 0, rounds: int = 0) -> int:
-    """Jobs an owned pool still takes for this run: its free machines plus the queue allowance.
-
-    So a run fits while what is taken there plus its own peak stays within
-    capacity x (1 + rounds): each of its jobs gets a machine at once or
-    waits about `rounds` job lengths behind the busy runners.
+    - wait: the jobs that start within `limit_minutes`, from what holds the
+      label now: jobs running and queued, `taken_now` for the runs since the
+      snapshot (young_charge()) and `added_jobs` for those replayed. Past
+      the free machines, a job at queue place q waits about q / machines
+      rounds, so limit x machines / job_minutes() places are allowed. A run's
+      shards that do not exist yet hold no machine, so a later run may take
+      the idle ones and the shards queue behind it.
+    - bound: machines x (1 + rounds) less everything the runs holding it will
+      need at their peak (the janitor's `committed`, or `future` read live,
+      and `taken_peak` since the snapshot). So the queue those shards join
+      never grows past `queue_rounds` rounds, however many runs arrive.
     """
-    return owned_free(counts, added_runs, taken_since) + queue_allowance(counts, rounds)
+    capacity = counts.get("capacity", 0)
+    busy = counts["running"] + counts["queued"]
+    if not queue_rounds:
+        return capacity - max(busy, counts.get("committed", 0)) - taken_peak - added_jobs
+    places = int(max(0.0, limit_minutes) * capacity / job_minutes(label) + 1e-9)
+    wait = capacity + places - busy - taken_now - added_jobs
+    committed = counts.get("future", counts.get("committed", 0))
+    bound = capacity * (1 + queue_rounds) - max(busy, committed) - taken_peak - added_jobs
+    return min(wait, bound)
 
 
 def iso(moment: dt.datetime) -> str:
@@ -854,14 +895,13 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
 
     A label's capacity is its slot count (CI_OWNED_POOL_SLOTS), or its idle
     runners when those are more (a label without a count). What is not idle
-    is running, an offline machine included, so an owned pool's machines free
-    are its idle runners, as before. The runners API shows no queue, so the
-    queue is charged high where it can exist: a label with an idle runner
-    has none, and one without counts the snapshot's queue plus the peaks of
-    the runs that took the pool since the snapshot and before the live
-    window (`older`, some of them running already). The queue allowance
-    (queue_allowance()) is then rounds x the slot count, charged against
-    that, so a fully busy fleet still takes a bounded queue.
+    is running, an offline machine included. The runners API shows no queue:
+    a label with an idle runner has none, and one without counts the
+    snapshot's queue plus the peaks of the runs that took the pool since the
+    snapshot and before the live window (`older`), which errs high.
+    `future`, for the queue bound only (owned_room()), is what the runs
+    holding the label will need at their peak: the snapshot's `committed`
+    plus those older peaks, since the API cannot see jobs not created yet.
 
     A root label counts only while CI_OWNED_POOL_SLOTS gives it a root count,
     which is what turns root routing on (root_label()).
@@ -874,51 +914,96 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
         free = max(0, int(count))
         capacity[label] = max(int(slot_counts.get(label) or 0), free)
         seen = (pools.get(label) or {}) if isinstance(pools.get(label), Mapping) else {}
-        queued = 0 if free else int(seen.get("queued") or 0) + older.get(pool_label(label), 0)
-        pools[label] = {"queued": queued, "running": capacity[label] - free, "committed": 0}
+        older_peaks = older.get(pool_label(label), 0)
+        queued = 0 if free else int(seen.get("queued") or 0) + older_peaks
+        pools[label] = {"queued": queued, "running": capacity[label] - free, "committed": 0,
+                        "future": int(seen.get("committed") or 0) + older_peaks}
     return {**snapshot, "pools": pools}, capacity
 
 
+@dataclasses.dataclass(frozen=True)
+class Pick:
+    label: str
+    # "owned": an owned pool holds this run's jobs within `limit` minutes;
+    # "free": a Blacksmith pool with headroom (queueing off); "wait": the
+    # Blacksmith pool with the least expected wait; "fallback": every pool full.
+    how: str
+    room: int = 0  # owned only: this run's jobs it starts within `limit`
+    root_room: int | None = None  # owned with a root count only
+    limit: float = 0.0  # owned only: the wait allowed there, in minutes
+    blacksmith_wait: float | None = None  # the least expected wait on Blacksmith, when queueing
+
+
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
-         max_queued: int, jobs: int = MAX_RUN_JOBS,
-         taken: Mapping[str, int] | None = None, split: bool = False,
-         root_free: Mapping[str, int] | None = None, root_jobs: int = 0,
-         queue_rounds: int = 0, reserve: int = 0) -> tuple[str, bool]:
-    """The rule itself: first usable pool with headroom, else the shortest queue.
+         max_queued: int, jobs: int = MAX_RUN_JOBS, split: bool = False,
+         roots: Mapping[str, Mapping[str, int]] | None = None, root_jobs: int = 0,
+         queue_rounds: int = 0, taken: Mapping[str, int] | None = None,
+         taken_now: Mapping[str, int] | None = None, reserve: int = 0,
+         compared_jobs: int | None = None) -> Pick:
+    """The rule itself. `added` counts runs replayed since the snapshot on each pool.
 
-    An owned pool has headroom while every job of this run (`jobs` of them,
-    its peak) gets a machine at once or a place in its queue allowance
-    (owned_room(), `queue_rounds` rounds): a job queued there waits for that pool
-    alone. With `split`, when no owned pool fits the whole run, the owned pool
-    with the most room (the earlier on a tie) has headroom too, if it has
-    any: the jobs that do not fit go to Blacksmith (place()). A pool in
-    `root_free` (it has a root count; the root runners' room, allowance
-    included) fits the whole run only while it holds `root_jobs`. `reserve`
-    (main's full suite) is kept free on top of both, and turns `split` off.
-    An owned pool is never the fallback.
+    With `queue_rounds` (CI_PR_POOL_QUEUE_ROUNDS) above 0, the run goes where
+    it expects to wait least (expected_wait()): an owned pool, in order,
+    when the jobs it would place there start no later than this run's jobs
+    would on the best Blacksmith pool, within `queue_rounds` job lengths,
+    and within the queue bound (owned_room()); else the Blacksmith pool with
+    the least expected wait, the earlier in order on a tie. `taken` is the
+    peak of the runs since the snapshot that took each owned pool, by their
+    markers, and `taken_now` what they hold now (young_charge()). A
+    replayed run counts REPLAYED_RUN_JOBS on an owned pool and one on its
+    root runners and on Blacksmith. `reserve` (main's full suite with
+    CI_OWNED_MAIN_RESERVE) is kept free on top of this run's jobs and root
+    jobs, and turns `split` off. `compared_jobs` (default `jobs`) is how
+    many jobs the owned and Blacksmith waits are compared at: a replayed run
+    takes the pool with one job but is compared at REPLAYED_RUN_JOBS, the
+    jobs it has at once.
 
-    A Blacksmith pool has headroom while this run's job finds at most
-    `queue_rounds` rounds of queue there once it arrives (queue_allowance()), or
-    at most max_queued jobs, so a pool past that rolls over to the next.
-    When all are, the fallback is the shortest queue in rounds, a cold pool
-    (cold()) counting COLD_ROUNDS more.
+    With 0, the old rule: an owned pool only with machines free now, the
+    first Blacksmith pool with a free machine (or at most max_queued
+    queued), else the shortest queue in rounds.
+
+    An owned pool fits while it holds all `jobs` (and, with a root count,
+    `root_jobs` on its root runners). With `split`, when none does, the owned
+    pool with the most room holds what fits (place()). An owned pool is never
+    the fallback.
     """
-    queued = {label: effective_queue(load[label], added[label] + 1) for label in usable}
-    free = {label: owned_room(load[label], added[label], (taken or {}).get(label, 0), queue_rounds)
-            for label in usable if persistent(label)}
-    reserve = max(0, reserve)
-    fits = [label for label in free if free[label] >= max(1, jobs) + reserve
-            and (root_free or {}).get(label, root_jobs + reserve) >= root_jobs + reserve]
-    if split and not reserve and not fits and free and max(free.values()) >= 1:
-        fits = [max(free, key=lambda label: free[label])]
+    roots, taken, taken_now = roots or {}, taken or {}, taken_now if taken_now is not None else taken or {}
+    blacksmith = [label for label in usable if not persistent(label)]
+    # Which Blacksmith pool: by its wait for this run's admission, since the
+    # shards may take another pool on the lane's Xcode (spread_shards()).
+    waits = {label: expected_wait(label, load[label], added[label] + 1) for label in blacksmith}
+    best = min(blacksmith, key=lambda label: (waits[label], blacksmith.index(label))) if blacksmith else ""
+    # Owned or Blacksmith: the wait of this run's last job on each side, so an
+    # owned pool is measured against Blacksmith holding the same jobs.
+    compared = max(1, jobs if compared_jobs is None else compared_jobs)
+    whole = min((expected_wait(label, load[label], added[label] + compared) for label in blacksmith),
+                default=float("inf"))
+    rooms: dict[str, Pick] = {}
     for label in usable:
-        if persistent(label):
-            if label in fits:
-                return label, True
-        elif queued[label] <= max(max_queued, queue_allowance(load[label], queue_rounds)):
-            return label, True
-    fallback = [label for label in usable if not persistent(label)] or list(usable)
-    return min(fallback, key=lambda label: rounds(load[label], queued[label])), False
+        if not persistent(label):
+            continue
+        limit = min(whole, queue_rounds * job_minutes(label)) if queue_rounds else 0.0
+        peak, now = taken.get(label, 0), taken_now.get(label, 0)
+        room = owned_room(label, load[label], added[label] * REPLAYED_RUN_JOBS, peak, now, queue_rounds, limit)
+        root_room = (owned_room(label, roots[label], added[label], peak, now, queue_rounds, limit)
+                     if label in roots else None)
+        rooms[label] = Pick(label, "owned", room, root_room, limit, whole if best and queue_rounds else None)
+    reserve = max(0, reserve)
+    fits = [label for label, room in rooms.items() if room.room >= max(1, jobs) + reserve
+            and (room.root_room is None or room.root_room >= root_jobs + reserve)]
+    if split and not reserve and not fits and rooms and max(room.room for room in rooms.values()) >= 1:
+        fits = [max(rooms, key=lambda label: rooms[label].room)]
+    for label in usable:
+        if label in fits:
+            return rooms[label]
+        if not queue_rounds and not persistent(label) and \
+                effective_queue(load[label], added[label] + 1) <= max_queued:
+            return Pick(label, "free")
+    if queue_rounds and best:
+        return Pick(best, "wait", blacksmith_wait=waits[best])
+    fallback = blacksmith or list(usable)
+    queued = {label: effective_queue(load[label], added[label] + 1) for label in fallback}
+    return Pick(min(fallback, key=lambda label: rounds(load[label], queued[label])), "fallback")
 
 
 def rounds(counts: Mapping[str, int], queued: int) -> float:
@@ -944,6 +1029,7 @@ def decide(
     shards: int = 0,
     root_jobs: int = 0,
     reserve: int = 0,
+    owned_now: Mapping[str, int] | None = None,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
@@ -954,18 +1040,21 @@ def decide(
     fall back to each job selecting its pool's newest SDK 26 Xcode.
     `choose_from` limits the final pick to some pools of the order (E2E stays
     on macOS 26) while the replay still spreads over the whole order. `jobs`
-    is this run's peak machine count, which an owned pool must have free.
+    is this run's peak machine count, which an owned pool must hold.
     Replayed runs are placed as if they needed one machine (so any that could
     have taken an owned pool is assumed to) and charged REPLAYED_RUN_JOBS there.
     `owned_since` is what runs since the snapshot took on each owned pool, by
-    their markers, and `ephemeral_since` counts runs whose pick finished off
-    the owned pools; those are replayed over the Blacksmith pools only.
+    their markers (their peaks), and `ephemeral_since` counts runs whose pick
+    finished off the owned pools; those are replayed over the Blacksmith
+    pools only.
     `split` lets this run take part of an owned pool (pick(), place()).
     `root_jobs` is this run's peak on root runners, which an owned pool with
     a root count must have free too. Its root runners are charged one per
     replayed run (its admission), and a newer run's whole marker peak, since
     a marker does not split it. `reserve` (main's full suite) is how many
     machines, and root runners, an owned pool must keep free beyond this run.
+    `owned_now` is what the runs in `owned_since` hold now
+    (Routed.owned_now); None means their peaks.
     """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")
@@ -1000,64 +1089,76 @@ def decide(
     skipped = [label for label in limits.order if label not in usable]
     note = f"; skipped {', '.join(skipped)} (reserved, no Xcode pin, or owned without slots)" if skipped else ""
     added = {label: max(0, int((placed or {}).get(label) or 0)) for label in usable}
+    # Runs since the snapshot that took an owned pool, by their markers: their
+    # peak, and what they hold now (young_charge()).
     taken = {label: max(0, int((owned_since or {}).get(label) or 0)) for label in usable if persistent(label)}
+    held = taken if owned_now is None else {
+        label: max(0, int(owned_now.get(label) or 0)) for label in usable if persistent(label)}
     ephemeral = [label for label in usable if not persistent(label)]
     queue_rounds = limits.queue_rounds
     for _ in range(max(0, ephemeral_since) if ephemeral else 0):
-        earlier, _ = pick(load, added, ephemeral, limits.max_queued, jobs=1, queue_rounds=queue_rounds)
-        added[earlier] += 1
+        added[pick(load, added, ephemeral, limits.max_queued, jobs=1, queue_rounds=queue_rounds).label] += 1
     for _ in range(max(0, routed_since)):
-        earlier, _ = pick(load, added, usable, limits.max_queued, jobs=1, taken=taken, queue_rounds=queue_rounds)
-        added[earlier] += 1
+        added[pick(load, added, usable, limits.max_queued, jobs=1, queue_rounds=queue_rounds,
+                   taken=taken, taken_now=held, compared_jobs=REPLAYED_RUN_JOBS).label] += 1
     if reserve:
         # Main's full suite with a reserve (CI_OWNED_MAIN_RESERVE) takes an
         # owned pool only while its peak and the reserve are free now: no
-        # queue allowance, which would queue it behind the pull requests the
-        # reserve keeps room for. The replay above keeps the allowance.
+        # queue, which would put it behind the pull requests the reserve
+        # keeps room for. The replay above keeps the queue rounds.
         queue_rounds = 0
-    # The root runners' room: free, plus the same queue allowance over their count.
-    root_free = {label: owned_room(counts, 0, taken.get(label, 0), queue_rounds) - added[label]
-                 for label, counts in roots.items() if label in usable}
-    label, headroom = pick(load, added, candidates, limits.max_queued, jobs, taken=taken, split=split,
-                           root_free=root_free, root_jobs=root_jobs, queue_rounds=queue_rounds,
-                           reserve=reserve)
-    if persistent(label) and not headroom:
+    chosen = pick(load, added, candidates, limits.max_queued, jobs, split=split, roots=roots,
+                  root_jobs=root_jobs, queue_rounds=queue_rounds, taken=taken, taken_now=held,
+                  reserve=reserve)
+    label = chosen.label
+    if persistent(label) and chosen.how != "owned":
         return Choice("", "", "every owned pool this run may take is busy, and no other pool is in the order")
     replayed = sum(added.values())
     replay = f" after replaying {replayed} newer run(s)" if replayed else ""
     if any(taken.values()):
         replay += " and counting " + ", ".join(f"{count} machine(s) newer runs took on {pool_label}"
                                                for pool_label, count in taken.items() if count)
-    free = 0
-    if headroom and persistent(label):
-        free = owned_room(load[label], added[label], taken.get(label, 0), queue_rounds)
-        allowance = queue_allowance(load[label], queue_rounds)
+    if chosen.how == "owned":
 
-        def room(count: int, capacity: int, allowed: int, what: str) -> str:
-            text = f"{count - allowed} of {capacity} {what} free"
-            return text + f" and {allowed} may queue behind them" if allowed else text
+        def idle(counts: Mapping[str, int], added_jobs: int) -> int:
+            """Free now: machines less running, queued and what newer runs hold (peaks with rounds 0)."""
+            if not queue_rounds:
+                return owned_room(label, counts, added_jobs, taken.get(label, 0), 0, 0, 0)
+            return counts["capacity"] - counts["running"] - counts["queued"] - held.get(label, 0) - added_jobs
 
+        # Clamped for the text: an oversubscribed label has 0 free, not a negative count.
+        free_now = max(0, idle(load[label], added[label] * REPLAYED_RUN_JOBS))
+        places = max(0, chosen.room) - free_now
+        machines = f"{free_now} of {load[label]['capacity']} owned machines free"
+        if places > 0:
+            machines += f" and {places} queue places within {chosen.limit:g} min"
+        if chosen.blacksmith_wait is not None:
+            machines += f" (Blacksmith's expected wait {chosen.blacksmith_wait:g} min)"
         root = ""
-        if label in root_free:
-            root_room = room(root_free[label], roots[label]["capacity"],
-                             queue_allowance(roots[label], queue_rounds), "root runners")
-            root = f"; {root_room}, it needs {root_jobs}"
-        machines = room(free, load[label]["capacity"], allowance, "owned machines")
+        if chosen.root_room is not None:
+            root_now = max(0, idle(roots[label], added[label]))
+            root = f"; {root_now} of {roots[label]['capacity']} root runners free"
+            if chosen.root_room > root_now:
+                root += f" and {chosen.root_room - root_now} queue places"
+            root += f", it needs {root_jobs}"
+        whole = chosen.room >= max(1, jobs) and (chosen.root_room is None or chosen.root_room >= root_jobs)
         kept = f", and {reserve} kept free for pull requests" if reserve else ""
-        if free >= max(1, jobs) and root_free.get(label, root_jobs) >= root_jobs:
+        if whole:
             why = f"first pool in order with headroom ({machines}, this run needs {max(1, jobs)}{root}{kept}){replay}"
         else:
             why = (f"owned pool with the most room ({machines}, this run needs {max(1, jobs)}{root}): "
                    f"the jobs that fit run there, the rest on the retry runner{replay}")
-    elif headroom:
-        limit = max(limits.max_queued, queue_allowance(load[label], queue_rounds))
-        why = f"first pool in order with a free machine{replay}" if not limit else \
-              f"first pool in order with headroom (<= {limit} queued once this run arrives){replay}"
+    elif chosen.how == "wait":
+        why = f"least expected wait ({chosen.blacksmith_wait:g} min, from the jobs queued and running now){replay}"
+        if cold(label):
+            why += f", counting {COLD_ROUNDS} more round for a pool with no seed for its Xcode"
+    elif chosen.how == "free":
+        why = f"first pool in order with a free machine{replay}" if not limits.max_queued else \
+              f"first pool in order with headroom (<= {limits.max_queued} queued){replay}"
     elif len(candidates) == 1:
         why = f"the only pool this run may take{replay}"
     else:
-        full = "past its queue allowance" if queue_rounds or limits.max_queued else "full"
-        why = f"every pool is {full}{replay}; shortest queue in rounds"
+        why = f"every pool is full{replay}; shortest queue in rounds"
         waits = {pool_label: effective_queue(load[pool_label], added[pool_label] + 1) / max(1, load[pool_label]["capacity"])
                  for pool_label in candidates}
         # Name the extra round only where it counted: the winner is cold, or
@@ -1072,20 +1173,17 @@ def decide(
         # named now: the Blacksmith pool this rule would take on the lane's
         # own Xcode, which is also the Xcode the owned label names.
         lane = [pool_label for pool_label in usable if not persistent(pool_label) and not POOLS.get(pool_label)]
-        retry = pick(load, added, lane, limits.max_queued, queue_rounds=queue_rounds)[0] if lane else DEFAULT_RUNNER
+        retry = pick(load, added, lane, limits.max_queued, queue_rounds=queue_rounds).label if lane else DEFAULT_RUNNER
     shard = spread_shards(load, added, usable, label, shards)
     if shard:
         note += f"; its {shards} app-host shards take {shard}, which has more room for them"
-    if persistent(label) and label in root_free:
-        # By keyword: shard_runner comes first, and a persistent pick has none.
-        return Choice(label, xcode(label) or "", why + note, retry, min(free, max(1, jobs)),
-                      shard_runner=shard, root_runner=root_label(label), root_budget=max(0, root_free[label]),
-                      free_now=free - allowance,
-                      root_free_now=root_free[label] - queue_allowance(roots[label], queue_rounds))
-    if persistent(label):
-        return Choice(label, xcode(label) or "", why + note, retry, min(free, max(1, jobs)), shard,
-                      free_now=free - allowance)
-    return Choice(label, xcode(label) or "", why + note, retry, 0, shard)
+    if not persistent(label):
+        return Choice(label, xcode(label) or "", why + note, retry, 0, shard)
+    budget = max(0, min(chosen.room, max(1, jobs)))
+    if chosen.root_room is not None:
+        return Choice(label, xcode(label) or "", why + note, retry, budget, shard_runner=shard,
+                      root_runner=root_label(label), root_budget=max(0, chosen.root_room))
+    return Choice(label, xcode(label) or "", why + note, retry, budget, shard)
 
 
 def spread_shards(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
@@ -1209,8 +1307,8 @@ def choose(
     if retry:
         light = (not fork and run_attempt == LIGHT_RETRY_ATTEMPT and (light_retry or "").strip() == "1"
                  and (triggering_actor or "").strip() == RESCUE_ACTOR)
-        # A retry exists to get off a queue, so it takes no queue allowance:
-        # the light tier only when its peak is free, Blacksmith rolling over
+        # A retry exists to get off a queue, so it does not queue (rounds 0):
+        # the light tier only with its peak free now, Blacksmith rolling over
         # at a full pool, and the rescue's short budget.
         limits = dataclasses.replace(limits, queue_rounds=0, order=tuple(
             label for label in limits.order
@@ -1238,7 +1336,7 @@ def choose(
         if not isinstance(recent, Routed):
             recent = Routed(unknown=int(recent))
         before = routed
-        routed = Routed(unknown=recent.unknown, owned=recent.owned,
+        routed = Routed(unknown=recent.unknown, owned=recent.owned, owned_now=recent.owned_now,
                         ephemeral=routed.ephemeral + max(0, routed.unknown - recent.unknown))
         # Runs since the snapshot but before the live window: their owned jobs
         # are running (so busy below) or still queued, which the runners API
@@ -1249,7 +1347,7 @@ def choose(
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
                     split=(split or "").strip() == "1", shards=shards,
-                    root_jobs=root_jobs, reserve=reserve,
+                    root_jobs=root_jobs, reserve=reserve, owned_now=routed.owned_now,
                     # Main only ever takes an owned pool; the replay still
                     # spreads newer runs over the whole order.
                     choose_from=tuple(label for label in limits.order if persistent(label)) if main else None)
@@ -1387,7 +1485,7 @@ class GitHub:
         return [run for run in runs if isinstance(run, Mapping)]
 
     def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None,
-                                  light_retry: bool = False) -> Routed:
+                                  light_retry: bool = False, now: dt.datetime | None = None) -> Routed:
         """Where the pull request runs (and main's dispatches) since `since` went, so they are not all guessed.
 
         One unfiltered page of CI runs, kept to the routed ones (routed_run()),
@@ -1403,6 +1501,7 @@ class GitHub:
         runs = [run for run in self.runs_since(CI_WORKFLOW, since)
                 if routed_run(run) and run.get("id") != exclude_run_id and run.get("status") != "completed"]
         owned: dict[str, int] = {}
+        owned_now: dict[str, int] = {}
         ephemeral = unknown = looked_up = 0
         for run in runs:
             if not may_hold_owned_pool(run, light_retry=light_retry):
@@ -1418,11 +1517,13 @@ class GitHub:
                 route = None
             if isinstance(route, tuple):
                 owned[route[0]] = owned.get(route[0], 0) + route[1]
+                owned_now[route[0]] = owned_now.get(route[0], 0) + young_charge(
+                    route[1], run_age_minutes(run, now or dt.datetime.now(dt.timezone.utc)))
             elif route == "ephemeral":
                 ephemeral += 1
             else:
                 unknown += 1
-        return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral)
+        return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral, owned_now=owned_now)
 
     def run_route(self, run: Mapping[str, Any]) -> tuple[str, int] | str | None:
         """(owned pool, peak), "ephemeral", or None while this run's pick is unknown."""
@@ -1515,7 +1616,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             return 0
         return client().pull_request_routes_since(
             since, exclude_run_id=int(run_id) if run_id.isdigit() else None,
-            light_retry=(env.get("OWNED_LIGHT_RETRY") or "").strip() == "1")
+            light_retry=(env.get("OWNED_LIGHT_RETRY") or "").strip() == "1", now=now)
 
     event = env.get("EVENT_NAME") or ""
     ref = env.get("GITHUB_REF") or ""
@@ -1621,9 +1722,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # What the root jobs in owned_jobs take instead of
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"root_runner={choice.root_runner}\n"
-                         # true when some placed job waits in the queue allowance
-                         # (ci.yml then uploads the queued marker for the rescue).
-                         f"queued={'true' if used_queue(choice, plan, owned_jobs, held) else 'false'}\n"
                          # JSON labels for admission's attempt 1: the root label
                          # and the warm label of this run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
