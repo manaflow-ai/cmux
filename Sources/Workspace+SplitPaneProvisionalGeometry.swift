@@ -147,9 +147,25 @@ extension Workspace {
                 ?? Self.frameInWindow(of: hostedView)
             return frame.map { (hostedView, $0) }
         }
-        guard let treeFrame = baseFrames.map({ $0.1 }).reduce(nil, { partial, frame in
-            partial.map { $0.union(frame) } ?? frame
-        }) else { return }
+        let treeFrame: NSRect = {
+            let layout = bonsplitController.layoutSnapshot()
+            let bounds = layout.panes.reduce(into: CGRect.null) { result, pane in
+                result = result.union(CGRect(
+                    x: pane.frame.x, y: pane.frame.y,
+                    width: pane.frame.width, height: pane.frame.height
+                ))
+            }
+            guard !bounds.isNull, layout.containerFrame.width > 0, layout.containerFrame.height > 0 else {
+                return baseFrames.map { $0.1 }.reduce(nil) { partial, frame in
+                    partial.map { $0.union(frame) } ?? frame
+                } ?? .zero
+            }
+            return NSRect(
+                x: CGFloat(layout.containerFrame.x), y: CGFloat(layout.containerFrame.y),
+                width: CGFloat(layout.containerFrame.width), height: CGFloat(layout.containerFrame.height)
+            )
+        }()
+        guard treeFrame.width > 0, treeFrame.height > 0 else { return }
 
         let newTabs = bonsplitController.tabs(inPane: newPane)
         let request = SplitPaneGeometryProjection.Request(
