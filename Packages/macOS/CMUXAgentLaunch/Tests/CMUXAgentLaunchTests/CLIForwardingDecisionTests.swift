@@ -1,8 +1,8 @@
 import CMUXAgentLaunch
 import Testing
 
-@Suite("CLIForwardingLaunchPolicy")
-struct CLIForwardingLaunchPolicyTests {
+@Suite("CLIForwardingDecision")
+struct CLIForwardingDecisionTests {
     /// A CLI invocation that reaches the GUI binary with the forwarding
     /// guard already set must not fall through to a GUI launch: hook
     /// commands (`cmux claude-hook …`) would each leave a faceless app
@@ -10,13 +10,13 @@ struct CLIForwardingLaunchPolicyTests {
     @Test("CLI argv with the guard set fails closed")
     func cliArgvWithGuardSetFailsClosed() {
         #expect(
-            CLIForwardingLaunchPolicy.decision(
+            CLIForwardingDecision(
                 arguments: ["cmux", "claude-hook", "pre-tool-use"],
                 forwardingGuardIsSet: true
             ) == .failForwardingLoop
         )
         #expect(
-            CLIForwardingLaunchPolicy.decision(
+            CLIForwardingDecision(
                 arguments: ["cmux", "claude-hook", "pre-tool-use"],
                 forwardingGuardIsSet: false
             ) == .forwardToBundledCLI
@@ -28,28 +28,28 @@ struct CLIForwardingLaunchPolicyTests {
     @Test("GUI argv launches the app even with the guard set")
     func guiArgvLaunchesAppEvenWithGuardSet() {
         #expect(
-            CLIForwardingLaunchPolicy.decision(arguments: ["cmux"], forwardingGuardIsSet: true) == .launchGUI
+            CLIForwardingDecision(arguments: ["cmux"], forwardingGuardIsSet: true) == .launchGUI
         )
         #expect(
-            CLIForwardingLaunchPolicy.decision(
+            CLIForwardingDecision(
                 arguments: ["cmux", "-psn_0_12345"],
                 forwardingGuardIsSet: true
             ) == .launchGUI
         )
         #expect(
-            CLIForwardingLaunchPolicy.decision(
+            CLIForwardingDecision(
                 arguments: ["cmux", "cmux://workspace/foo"],
                 forwardingGuardIsSet: true
             ) == .launchGUI
         )
         #expect(
-            CLIForwardingLaunchPolicy.decision(
+            CLIForwardingDecision(
                 arguments: ["cmux DEV", "DEV"],
                 forwardingGuardIsSet: true
             ) == .launchGUI
         )
         #expect(
-            CLIForwardingLaunchPolicy.decision(
+            CLIForwardingDecision(
                 arguments: ["cmux RC", "RC"],
                 forwardingGuardIsSet: true
             ) == .launchGUI
@@ -59,9 +59,9 @@ struct CLIForwardingLaunchPolicyTests {
     /// CLI-style subcommands forward to the bundled CLI on the first pass.
     @Test("CLI subcommands forward to the bundled CLI")
     func cliSubcommandsForward() {
-        #expect(CLIForwardingLaunchPolicy.shouldForwardToBundledCLI(arguments: ["cmux", "wait-for", "workspace:1"]))
-        #expect(CLIForwardingLaunchPolicy.shouldForwardToBundledCLI(arguments: ["cmux", "hooks", "setup"]))
-        #expect(!CLIForwardingLaunchPolicy.shouldForwardToBundledCLI(arguments: ["cmux", "-psn_0_12345"]))
-        #expect(!CLIForwardingLaunchPolicy.shouldForwardToBundledCLI(arguments: ["cmux", "cmux://workspace/foo"]))
+        #expect(CLIForwardingDecision.shouldForwardToBundledCLI(arguments: ["cmux", "wait-for", "workspace:1"]))
+        #expect(CLIForwardingDecision.shouldForwardToBundledCLI(arguments: ["cmux", "hooks", "setup"]))
+        #expect(!CLIForwardingDecision.shouldForwardToBundledCLI(arguments: ["cmux", "-psn_0_12345"]))
+        #expect(!CLIForwardingDecision.shouldForwardToBundledCLI(arguments: ["cmux", "cmux://workspace/foo"]))
     }
 }

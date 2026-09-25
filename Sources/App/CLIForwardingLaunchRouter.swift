@@ -14,7 +14,7 @@ enum CLIForwardingLaunchRouter {
         arguments argv: [String],
         forwardingGuardIsSet: Bool
     ) -> CLIForwardingDecision {
-        CLIForwardingLaunchPolicy.decision(arguments: argv, forwardingGuardIsSet: forwardingGuardIsSet)
+        CLIForwardingDecision(arguments: argv, forwardingGuardIsSet: forwardingGuardIsSet)
     }
 
     /// If `argv` looks like a CLI invocation, exec the bundled CLI at
@@ -75,7 +75,7 @@ enum CLIForwardingLaunchRouter {
 
     /// Delegates the pure argv classification to CMUXAgentLaunch.
     static func shouldForwardToBundledCLI(arguments argv: [String]) -> Bool {
-        CLIForwardingLaunchPolicy.shouldForwardToBundledCLI(arguments: argv)
+        CLIForwardingDecision.shouldForwardToBundledCLI(arguments: argv)
     }
 
     static func bundledCLIURL(

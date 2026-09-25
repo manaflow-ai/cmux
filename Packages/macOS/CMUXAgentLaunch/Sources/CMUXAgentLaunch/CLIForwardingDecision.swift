@@ -18,9 +18,20 @@ public enum CLIForwardingDecision: Equatable, Sendable {
 /// Pure argv/guard classification for launches of the GUI binary. The app
 /// target owns the glue that acts on the decision (reading the guard
 /// environment variable, exec'ing the bundled CLI, writing errors, exiting).
-public enum CLIForwardingLaunchPolicy {
+extension CLIForwardingDecision {
     /// Launch sentinels passed by tagged GUI builds; never CLI subcommands.
     private static let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY", "RC"]
+
+    /// Classifies a launch of the GUI binary: GUI-style argv launches the
+    /// app, first-pass CLI argv forwards to the bundled CLI, and CLI argv
+    /// with the forwarding guard already set is a forwarding loop.
+    public init(arguments argv: [String], forwardingGuardIsSet: Bool) {
+        if !Self.shouldForwardToBundledCLI(arguments: argv) {
+            self = .launchGUI
+        } else {
+            self = forwardingGuardIsSet ? .failForwardingLoop : .forwardToBundledCLI
+        }
+    }
 
     /// True when `argv` looks like an invocation of the bundled CLI.
     /// macOS-launch arguments (`-psn_...`, other `-` flags), `cmux://` URLs,
@@ -34,16 +45,5 @@ public enum CLIForwardingLaunchPolicy {
         if guiLaunchSentinels.contains(first) { return false }
 
         return true
-    }
-
-    /// Classifies a launch of the GUI binary: GUI-style argv launches the
-    /// app, first-pass CLI argv forwards to the bundled CLI, and CLI argv
-    /// with the forwarding guard already set is a forwarding loop.
-    public static func decision(
-        arguments argv: [String],
-        forwardingGuardIsSet: Bool
-    ) -> CLIForwardingDecision {
-        guard shouldForwardToBundledCLI(arguments: argv) else { return .launchGUI }
-        return forwardingGuardIsSet ? .failForwardingLoop : .forwardToBundledCLI
     }
 }
