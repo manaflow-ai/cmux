@@ -474,6 +474,27 @@ pull request.
 Owned minis serve pull request runs through the pool picker instead; see
 "Pull request pool preference" above.
 
+### Side lanes on owned minis
+
+Seven light macOS jobs outside `ci.yml` have no picker: iroh-v2 `client`,
+cloud-command-deadlines `command-regressions`, terminal-hang-diagnostics
+`portal-reconciliation` and `phase-attribution`, cloud-task-local-tests and
+cloud-machine-tests `lifecycle`, relay-tls `diagnostic-presentation`, and
+auth-refresh-tests. Each is `swift test` or `swiftc` into the workspace or a
+temporary directory, with no GUI, keychain, fixed port or canonical root.
+When `vars.CI_SIDE_LANE_RUNNER` names a `glaeda-side-<class>-xcode-<version>`
+label and `CI_PR_POOL_OWNED` is 1, attempt 1 of a same-repository pull request
+run takes that label. glaeda puts it only on a mini's non-root runners, so a
+side lane never holds a root runner a compile or app-host job is waiting for,
+and glaeda's hook classes these job ids as light. Forks, retries and other
+events keep the Blacksmith default. ci-owned-pool-rescue.yml watches these
+runs while the variable is set and re-runs a job that waits past
+`CI_OWNED_POOL_RESCUE_SECONDS`, or is refused, on Blacksmith.
+
+relay-tls `system-keychain` (it changes the System keychain trust store),
+plain-paste-worker (macOS 15 only) and app-host-test-rerun (a fixed canonical
+root) stay on Blacksmith. Clear the variable to send every side lane back.
+
 ## Tart isolation and capacity
 
 Each GitHub runner identity is sealed into a Tart template. A job runs in a
