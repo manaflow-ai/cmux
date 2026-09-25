@@ -11,6 +11,7 @@ extension CMUXCLI {
         guard let verb = args.first?.lowercased() else { return nil }
         switch verb {
         case "resize": return vmResizeUsage
+        case "network": return vmNetworkUsage
         case "run": return vmRunUsage
         case "route": return vmRouteUsage
         case "agent": return vmAgentUsage

@@ -990,6 +990,7 @@ extension CMUXCLI {
     static func vmVerbUsage(_ verb: String) -> String? {
         switch verb.lowercased() {
         case "resize": return vmResizeUsage
+        case "network": return vmNetworkUsage
         case "layout": return vmLayoutUsage
         case "env": return vmEnvUsage
         case "workspace": return vmWorkspaceUsage

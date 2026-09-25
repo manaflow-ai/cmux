@@ -18,6 +18,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     private var planRefreshTask: Task<Void, Never>?
     private var planRefreshID: UUID?
+    private var networkCatalogTask: Task<Void, Never>?
 
     private override init() { super.init() }
 
@@ -111,6 +112,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         }
         self.model = model
         sheetWindow = window
+        loadNetworkCatalog(into: model)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(refreshPresentedPlan),
@@ -292,8 +294,28 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         }
     }
 
+    /// Loads the preset catalog for the sheet's Network section. A failure
+    /// leaves the section unavailable, so the create sends no policy the
+    /// server might not understand.
+    private func loadNetworkCatalog(into model: NewMachineModel) {
+        networkCatalogTask?.cancel()
+        guard model.supportsNetworkPolicy else { return }
+        guard let client = VMClient.shared else {
+            model.applyNetworkCatalog(nil)
+            return
+        }
+        networkCatalogTask = Task { [weak self, weak model] in
+            let catalog = try? await client.networkPresets()
+            guard !Task.isCancelled, let self, let model, self.model === model else { return }
+            model.applyNetworkCatalog(catalog)
+            self.networkCatalogTask = nil
+        }
+    }
+
     private func dismiss() {
         NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
+        networkCatalogTask?.cancel()
+        networkCatalogTask = nil
         planRefreshID = nil
         planRefreshTask?.cancel()
         planRefreshTask = nil

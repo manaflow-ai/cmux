@@ -382,7 +382,7 @@ extension CMUXCLI {
         return """
         auth <status|login|logout|team>
         login | logout                                      (aliases for auth login/logout)
-        vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+        vm <base|new|ls|domains|tree|self|status|stats|resize|network|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
         remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
         \(simulatorCommandUsageLine)
         \(iosCommandUsageLine)

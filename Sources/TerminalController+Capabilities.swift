@@ -111,6 +111,8 @@ extension TerminalController {
             "vm.status",
             "vm.stats",
             "vm.resize",
+            "vm.network_get",
+            "vm.network_update",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",

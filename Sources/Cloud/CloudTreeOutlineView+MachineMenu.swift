@@ -33,6 +33,9 @@ extension CloudTreeOutlineView.Coordinator {
         if machine.freeAccess != .expired, machine.capabilities.sizing {
             items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
         }
+        if machine.freeAccess != .expired {
+            items.append(item(String(localized: "machines.menu.network", defaultValue: "Network…")) { actions.editNetwork(id, machine.displayName) })
+        }
         items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
         items.append(.separator())
         items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
