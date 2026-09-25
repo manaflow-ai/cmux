@@ -51,6 +51,14 @@ final class cmuxUITests: XCTestCase {
                 withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)
             ))
         }
+        func expandGroupedNotifications() {
+            let summary = springboard.staticTexts.matching(
+                NSPredicate(format: "label BEGINSWITH '+' AND label CONTAINS 'from cmux'")
+            ).firstMatch
+            if summary.waitForExistence(timeout: 3) {
+                summary.tap()
+            }
+        }
         func title(_ value: String) -> XCUIElement {
             springboard.staticTexts[value].firstMatch
         }
@@ -67,6 +75,7 @@ final class cmuxUITests: XCTestCase {
         }
 
         openNotificationCenter()
+        expandGroupedNotifications()
         assertRetained()
         capture("01-delivered-before-cleanup")
 
@@ -75,6 +84,7 @@ final class cmuxUITests: XCTestCase {
         app.activate()
         await awaitReconcile(nextReconcile)
         openNotificationCenter()
+        expandGroupedNotifications()
         assertRetained()
         capture("02-read-state-unavailable-keeps-notifications")
 
@@ -83,6 +93,7 @@ final class cmuxUITests: XCTestCase {
         app.activate()
         await awaitReconcile(nextReconcile)
         openNotificationCenter()
+        expandGroupedNotifications()
         XCTAssertTrue(title("Read on Mac 1").waitForNonExistence(timeout: 8))
         XCTAssertTrue(title("Read on Mac 2").waitForNonExistence(timeout: 8))
         for name in ["Still unread", "Other computer", "Unrelated alert"] {
