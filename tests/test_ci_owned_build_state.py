@@ -234,9 +234,9 @@ class WarmKeys(Fixture):
         super().setUp()
         self.seeds = self.store / "seeds"
 
-    def kept(self, fingerprint="fp", merged_onto=A):
+    def kept(self, fingerprint="fp", merged_onto=A, pr="", store=None):
         self.derived.mkdir(parents=True, exist_ok=True)
-        return run(state.keep, self.store, self.derived, fingerprint, merged_onto)
+        return run(state.keep, store or self.store, self.derived, fingerprint, merged_onto, pr)
 
     def seed(self, commit, fingerprint="fp", jobs=14, when=0, manifest=True):
         path = self.seeds / f"admission-derived-data-v1-macOS-ARM64-{fingerprint}-j{jobs}-{commit}"
@@ -269,12 +269,66 @@ class WarmKeys(Fixture):
         self.assertEqual(self.keys(), {"runner": "cmux11s-glaeda-1", "pool": "glaeda-root-std-xcode-26.6",
                                        "keys": ["a" * 12, "c" * 12, "d" * 12, "b" * 12]})
 
-    def test_at_most_four_keys_without_repeats(self):
+    def test_at_most_eight_keys_without_repeats(self):
         self.kept()
-        for when, commit in enumerate((A, B, C, D, E)):
+        commits = (A, B, C, D, E, *(f"{digit}" * 40 for digit in range(5)))
+        for when, commit in enumerate(commits):
             self.seed(commit, when=when)
-        self.assertEqual(self.keys()["keys"], ["a" * 12, "e" * 12, "d" * 12, "c" * 12])
+        self.assertEqual(self.keys()["keys"], ["a" * 12, *(f"{digit}" * 12 for digit in (4, 3, 2, 1, 0)),
+                                               "e" * 12, "d" * 12])
         self.assertEqual(state.MAX_WARM_KEYS, __import__("owned_warm_state").MAX_KEYS)
+
+    def test_keep_stamps_the_pull_request_after_the_merge_base(self):
+        self.kept(pr="14718")
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["pr"], 14718)
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-14718", "b" * 12])
+        for junk in ("", "0", "x1", "1" * 10):
+            self.kept(pr=junk)
+            self.assertNotIn("pr", json.loads((self.store / "stamp.json").read_text()), junk)
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output):
+            self.assertEqual(state.main(["x", "keep", str(self.store), str(self.derived), "fp", A, "7"]), 0)
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["pr"], 7)
+
+    def test_the_other_roots_keys_follow_this_roots(self):
+        # A job's root follows glaeda's free token, so a runner lists its whole mini.
+        # Each root has its own fingerprint (compile-app-host-test-product.sh adds root=).
+        second = self.store / "cmux-ci-2"
+        self.kept(pr="7")
+        self.kept(fingerprint="fp2", merged_onto=B, pr="8", store=second)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "b" * 12, "pr-8"])
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": ""}):
+            from_second = state.warm_keys(second, "r", "p", "fp2")["keys"]
+        self.assertEqual(from_second, ["b" * 12, "pr-8", "a" * 12, "pr-7"])
+        # Another root counts only with a kept DerivedData of this STATE_VERSION.
+        stamp = json.loads((second / "stamp.json").read_text())
+        (second / "stamp.json").write_text(json.dumps({**stamp, "fingerprint": "fp2-owned-rec0"}))
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
+        (second / "stamp.json").write_text(json.dumps(stamp))
+        state.clear(second / "derived-data")
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
+        # Not a root store: never read.
+        (self.store / "cmux-ci-x").mkdir()
+        self.assertEqual(state.other_root_stores(self.store), [second])
+
+    def test_a_mini_with_a_second_root_lists_no_seeds(self):
+        # glaeda routes a warm admission by stamps only, so it may start at a
+        # root whose store lacks the seed (and whose fingerprint rules it out).
+        # Only stamp keys, which the hook follows to their root, are listed.
+        self.kept(pr="7")
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "b" * 12])
+        second = self.store / "cmux-ci-2"
+        second.mkdir()
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
+        # From the second root, its own seeds are left out too.
+        second_seeds = second / "seeds"
+        name = self.seed(C, fingerprint="fp2").name
+        second_seeds.mkdir()
+        (self.seeds / name).rename(second_seeds / name)
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(second_seeds)}):
+            self.assertEqual(state.warm_keys(second, "r", "p", "fp2")["keys"], ["a" * 12, "pr-7"])
 
     def test_seeds_count_only_when_prefer_may_clone_them(self):
         self.kept()

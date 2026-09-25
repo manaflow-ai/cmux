@@ -214,6 +214,35 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # A trusted seed Mac keeps the seeds it builds and adopts, so the next
+      # seed job on it clones its lane's last seed instead of downloading it
+      # back from R2 (mini-6 and cmux15 seed jobs spent p50 856 s and 512 s
+      # at about 1.9 busy cores on 2026-09-25, cmuxterm-hq#661 Workstream 7).
+      # Only on the runners vars.CI_SEED_KEEP_LOCAL_RUNNERS names (space
+      # separated): the kept seed becomes the next R2 seed, so the Mac must
+      # run nothing else as this user (cmux15; not mini-6, whose dev-build
+      # worker builds PR code as cmux). The same per-root layout owned
+      # admission uses (seed_caches). It starts with 185 GiB free, and once
+      # the cache exists it stays on so prune_local keeps the disk at its
+      # 170 GiB floor (and each root's newest two).
+      - name: Keep seeds on a trusted Mac
+        if: matrix.pool == vars.CI_SEED_TRUSTED_POOL && contains(format(' {0} ', vars.CI_SEED_KEEP_LOCAL_RUNNERS), format(' {0} ', runner.name))
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          state=/Users/Shared/cmux-build-fleet/ci
+          cache="$state/seeds"
+          if [ -n "$CMUX_SEED_ROOT" ] && [ "$CMUX_SEED_ROOT" != 1 ]; then
+            cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"
+          fi
+          free_gib=$(df -g / | awk 'NR==2 {print $4}')
+          if [ -d "$cache" ] || [ "${free_gib:-0}" -ge 185 ]; then
+            echo "CMUX_SEED_LOCAL_CACHE=$cache" >> "$GITHUB_ENV"
+            echo "Keeping seeds in $cache ($free_gib GiB free)"
+          else
+            echo "Not keeping seeds on this Mac: $free_gib GiB free, under 185"
+          fi
+
       - name: Compute seed key
         id: key
         run: |
@@ -387,6 +416,15 @@ jobs:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
+
+      # Before the product steps below rewrite Build/Products: the copy must
+      # be the seed exactly as saved. An APFS clone, so seconds.
+      - name: Keep the seed on this Mac
+        if: steps.bound.outputs.save == 'true' && env.CMUX_SEED_LOCAL_CACHE != ''
+        continue-on-error: true
+        env:
+          SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
+        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY"
 
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
