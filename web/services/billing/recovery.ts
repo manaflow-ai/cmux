@@ -492,9 +492,13 @@ async function purchaseFromStripeCustomer(
       // an incomplete subscription before the first invoice is paid. Require
       // a settled checkout session that names this exact subscription before
       // recovering a one-time Founder entitlement.
-      const settledSession = sessions.find((candidate) =>
-        isSettledFounderCheckoutSession(candidate, subscription.id),
-      );
+      let settledSession: (typeof sessions)[number] | undefined;
+      for (const candidate of sessions) {
+        if (isSettledFounderCheckoutSession(candidate, subscription.id)) {
+          settledSession = candidate;
+          break;
+        }
+      }
       if (!settledSession) continue;
       return {
         kind: "founders_edition",
