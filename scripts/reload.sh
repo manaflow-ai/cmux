@@ -1671,10 +1671,10 @@ if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-0}" != "1" ]]; then
   # Xcode's integrated driver still emits the module in a separate job that
   # type-checks every declaration in the app. The standalone driver with
   # -no-emit-module-separately emits none, the same change #14364 made for
-  # cmuxTests; the app's Debug configuration already generates no Objective-C
-  # header. Settings are per target, so packages and the CLI are unchanged.
-  # App edits rebuild ~13 s faster on a 12-core runner. Set
-  # CMUX_RELOAD_APP_EMIT_MODULE=1 to emit the module again.
+  # cmuxTests; the app's Debug configuration generates no Objective-C header.
+  # Settings are per target, so packages and the CLI are unchanged. App edits
+  # rebuild ~13 s faster on a 12-core runner. lldb's po/expr in app frames need
+  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again.
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   XCODEBUILD_ARGS+=(
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
