@@ -124,10 +124,14 @@ store_archive_in_cache() {
     rm -f "$staged" 2>/dev/null || true
     return 0
   fi
-  # Newest first; drop all but the last few ghostty revisions.
-  ls -t "$ARCHIVE_CACHE_DIR"/*.tar.gz 2>/dev/null | tail -n +"$((ARCHIVE_CACHE_KEEP + 1))" | while IFS= read -r stale; do
+  # Newest first; drop all but the last few ghostty revisions. The other root
+  # on this Mac may prune the same files at once, so a failed listing is fine.
+  case "$ARCHIVE_CACHE_KEEP" in ''|*[!0-9]*) ARCHIVE_CACHE_KEEP=4 ;; esac
+  { ls -t "$ARCHIVE_CACHE_DIR"/*.tar.gz 2>/dev/null || true; } | tail -n +"$((ARCHIVE_CACHE_KEEP + 1))" | while IFS= read -r stale; do
     rm -f "$stale" 2>/dev/null || true
   done
+  # A job cancelled mid-copy leaves a staged file behind; clear old ones.
+  find "$ARCHIVE_CACHE_DIR" -maxdepth 1 -name '.incoming.*' -mmin +60 -delete 2>/dev/null || true
   return 0
 }
 
@@ -186,7 +190,7 @@ fi
 python3 "$ARCHIVE_VALIDATOR" "$ARCHIVE_PATH"
 
 if [ "$FROM_CACHE" -eq 0 ]; then
-  store_archive_in_cache
+  store_archive_in_cache || true
 fi
 
 if [ "$VERIFY_ONLY" -eq 1 ]; then
