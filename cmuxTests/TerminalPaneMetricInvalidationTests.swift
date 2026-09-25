@@ -156,7 +156,7 @@ struct TerminalPaneMetricInvalidationTests {
                 x: 0,
                 y: 0
             ),
-            rectangle: false
+            rectangle: true
         )
         var text = ghostty_text_s()
         guard ghostty_surface_read_text(runtime, selection, &text) else { return "" }
