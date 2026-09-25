@@ -118,6 +118,10 @@ def check_macos_15_pull_request_lane() -> str | None:
         return "ci.yml has no macos-15-unit-tests job"
     if lane.get("uses") != "./.github/workflows/test-macos-suite.yml":
         return "macos-15-unit-tests must call test-macos-suite.yml"
+    if lane.get("if") is not None:
+        return "macos-15-unit-tests must not be path-gated"
+    if lane.get("with", {}).get("skip_unit_tests") is not False:
+        return "macos-15-unit-tests must run unit tests"
     if lane.get("with", {}).get("skip_ui_tests") is not True:
         return "macos-15-unit-tests must skip UI tests"
     if lane.get("with", {}).get("runner") != (

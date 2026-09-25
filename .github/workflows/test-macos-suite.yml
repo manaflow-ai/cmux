@@ -11,7 +11,8 @@ name: Run macOS test suite
 run-name: >-
   macOS tests @ ${{ inputs.ref || github.ref_name }} ·
   unit=${{ inputs.skip_unit_tests && 'off' || inputs.unit_test_suites || 'all' }} ·
-  UI=${{ inputs.skip_ui_tests && 'off' || inputs.test_filter || 'all' }}
+  UI=${{ inputs.skip_ui_tests && 'off' || inputs.test_filter || 'all' }} ·
+  runner=${{ inputs.runner || 'default' }}
 
 on:
   workflow_call:
@@ -34,6 +35,9 @@ on:
       test_timeout:
         type: string
         default: "120"
+      runner:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       ref:
@@ -62,6 +66,10 @@ on:
         description: "Per-test timeout in seconds (default: 120)"
         required: false
         default: "120"
+      runner:
+        description: "macOS runner label; empty uses this workflow's normal test-lane default"
+        required: false
+        default: ""
 
 jobs:
   resolve-ref:
@@ -119,15 +127,15 @@ jobs:
   tests:
     needs: resolve-ref
     if: ${{ !(github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests) }}
-    # Keep this lane on the repository's normal macOS runner and do not
-    # expose a provider override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+    # Keep this lane on the repository's normal macOS runner unless a caller
+    # supplies an explicit label, as the pull-request macOS 15 lane does.
+    runs-on: ${{ inputs.runner || (github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ inputs.runner || (github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
