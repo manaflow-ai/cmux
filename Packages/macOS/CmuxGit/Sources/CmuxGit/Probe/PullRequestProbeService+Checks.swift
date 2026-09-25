@@ -26,6 +26,7 @@ extension PullRequestProbeService {
         var currentSHA: String?
         var mergeStatus: PullRequestMergeStatus = .unknown
         var contexts: [PullRequestCheckIdentity: PullRequestCheckContext] = [:]
+        var ambiguousIdentities: Set<PullRequestCheckIdentity> = []
         var cursor: String?
         var seenCursors: Set<String> = []
         var complete = false
@@ -38,11 +39,15 @@ extension PullRequestProbeService {
                   let page = PullRequestChecksPage(data: response.data) else { break }
             // A push between pages invalidates this collection, even when all
             // fetched pages happened to contain passing checks.
-            guard page.headSHA == headSHA else { return nil }
+            guard page.headSHA == headSHA else {
+                await checksCache.invalidate(key)
+                return nil
+            }
             if let currentSHA, currentSHA != page.headSHA { return nil }
             currentSHA = page.headSHA
             mergeStatus = page.mergeStatus
             for context in page.contexts {
+                if ambiguousIdentities.contains(context.identity) { continue }
                 if let previous = contexts[context.identity] {
                     switch previous.ordering(against: context) {
                     case .newer:
@@ -50,6 +55,7 @@ extension PullRequestProbeService {
                     case .older:
                         break
                     case .ambiguous:
+                        ambiguousIdentities.insert(context.identity)
                         let unavailable = PullRequestCheck(
                             id: context.check.id,
                             name: context.check.name,
@@ -59,8 +65,8 @@ extension PullRequestProbeService {
                         contexts[context.identity] = PullRequestCheckContext(
                             check: unavailable,
                             identity: context.identity,
-                            startedAt: context.startedAt,
-                            runNumber: context.runNumber
+                            startedAt: "",
+                            runNumber: nil
                         )
                         continue
                     }

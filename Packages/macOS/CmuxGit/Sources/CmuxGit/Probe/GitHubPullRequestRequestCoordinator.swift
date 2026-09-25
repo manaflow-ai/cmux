@@ -352,7 +352,8 @@ public actor GitHubPullRequestRequestCoordinator {
             extendRateLimitRetryDate(
                 to: now().addingTimeInterval(TimeInterval(retryAfterSeconds)),
                 authorizationFingerprint: authorizationFingerprint,
-                resource: resource
+                resource: resource,
+                scope: .secondary
             )
         }
     }
@@ -360,11 +361,12 @@ public actor GitHubPullRequestRequestCoordinator {
     private func extendRateLimitRetryDate(
         to retryDate: Date,
         authorizationFingerprint: Data,
-        resource: RateLimitResource
+        resource: RateLimitResource,
+        scope explicitScope: RateLimitScope? = nil
     ) {
         guard retryDate > now() else { return }
         removeExpiredRateLimitRetryDates()
-        let scope: RateLimitScope = resource == .rest ? .secondary : .primary(resource)
+        let scope = explicitScope ?? .primary(resource)
         let key = RateLimitKey(authorizationFingerprint: authorizationFingerprint, scope: scope)
         rateLimitKeysInInsertionOrder.removeAll { $0 == key }
         rateLimitKeysInInsertionOrder.append(key)

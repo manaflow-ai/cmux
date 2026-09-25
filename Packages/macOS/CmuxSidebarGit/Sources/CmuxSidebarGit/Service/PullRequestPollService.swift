@@ -274,11 +274,12 @@ public final class PullRequestPollService: PullRequestProbing {
                 candidates: candidateResolution.candidates,
                 repoResults: repoFetch.repoResults
             )
-            var rateLimitRetryDate = repoFetch.rateLimitRetryDate
+            let rateLimitRetryDate = repoFetch.rateLimitRetryDate
             if includePullRequestChecks {
                 let enriched = await probeService.enrichPullRequestChecks(results, allowCachedResults: allowCachedResults)
                 results = enriched.results
-                rateLimitRetryDate = enriched.rateLimitRetryDate ?? rateLimitRetryDate
+                // GraphQL check backoff is independent from REST PR polling;
+                // the coordinator suppresses only subsequent GraphQL requests.
             }
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
