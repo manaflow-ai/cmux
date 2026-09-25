@@ -38,6 +38,9 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
             XCTAssertTrue(webView.waitForExistence(timeout: 15))
             try assertAligned(webView: webView, window: window, name: "split-\(iteration)")
 
+            // The moved pane overlaps the source terminal; bring the browser
+            // forward so occlusion cannot masquerade as a rendering failure.
+            try socketResult(method: "surface.focus", params: ["surface_id": browserID])
             try setFrame(surfaceID: browserID, workspaceID: workspaceID, x: 120, y: -60)
             try socketResult(
                 method: "canvas.set_viewport",
