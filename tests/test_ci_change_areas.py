@@ -5463,9 +5463,11 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert identity.PRODUCT_PROFILES["app-host"] == (
         "cmux",
         "cmux-unit",
-        "cmux-numeric-locale",
         "cmux-cli-tests",
     )
+    # The numeric-locale gate reuses the cmux-unit xctestrun instead of paying
+    # for another build-for-testing; see scripts/ci/app_host_test_products.py.
+    assert "cmux-numeric-locale" not in compile_script
     assert identity.PRODUCT_PROFILES["cli"] == ("cmux-cli-tests",)
     # Every profile must be distinguishable in the identity, or one profile's
     # product answers another profile's cache lookup.

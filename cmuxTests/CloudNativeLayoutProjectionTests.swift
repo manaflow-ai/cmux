@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxCloud
 import CmuxCore
 import CmuxIrohTransport
 import CmuxSurfaceCatalogModel

@@ -1600,6 +1600,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SurfaceCatalog.shared.installCloudWorkspaceRenameService(
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
+        TerminalPredictionCenter.shared.bindEnabledSetting(
+            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey
+        )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
             SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
@@ -15922,6 +15925,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateForward() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .focusHistoryLast) {
+            if performFocusedDockShortcut(
+                .focusHistoryLast,
+                action: .focusHistoryLast,
+                event: event
+            ) {
+                return true
+            }
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.navigateToLastFocused() != true {
                 NSSound.beep()
             }
             return true
