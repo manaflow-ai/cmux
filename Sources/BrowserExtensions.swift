@@ -107,6 +107,21 @@ final class BrowserExtensions: NSObject, ObservableObject {
         "*://chrome.google.com/webstore/*",
     ]
 
+    fileprivate static func denyProtectedPatterns(in context: WKWebExtensionContext) {
+        for raw in protectedMatchPatterns {
+            if let pattern = try? WKWebExtension.MatchPattern(string: raw) {
+                context.setPermissionStatus(.deniedExplicitly, for: pattern)
+            }
+        }
+    }
+
+    /// Whether a requested pattern names the Web Store specifically.
+    fileprivate static func isProtectedPattern(_ pattern: WKWebExtension.MatchPattern) -> Bool {
+        guard let host = pattern.host?.lowercased(), !pattern.matchesAllHosts else { return false }
+        return host == "chromewebstore.google.com" || host == "chrome.google.com"
+            || host.hasSuffix(".chromewebstore.google.com")
+    }
+
     @Published private(set) var installed: [BrowserExtensionInstallation] = []
     @Published private(set) var busyID: String?
     @Published private(set) var lastError: String?
@@ -557,6 +572,20 @@ final class BrowserExtensions: NSObject, ObservableObject {
         BrowserURLAllowlistPolicy(defaults: .standard).isActive
     }
 
+    /// Called whenever the effective URL allowlist changes: unloads every
+    /// running extension when it turns on, and loads them again when it
+    /// turns off.
+    func applyURLAllowlistPolicy() {
+        if Self.isBlockedByURLAllowlist {
+            for controller in controllers.values {
+                for id in Array(controller.contexts.keys) { controller.unload(id: id) }
+            }
+        } else {
+            for controller in controllers.values { loadInstalled(in: controller) }
+        }
+        objectWillChange.send()
+    }
+
     private func loadInstalled(in controller: Controller) {
         guard !Self.isBlockedByURLAllowlist else { return }
         for item in installations(inProfile: controller.profileKey) where item.enabled {
@@ -596,11 +625,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 }
                 // Like Chrome, no extension may read or script the Web Store,
                 // whatever hosts it was granted.
-                for raw in Self.protectedMatchPatterns {
-                    if let pattern = try? WKWebExtension.MatchPattern(string: raw) {
-                        context.setPermissionStatus(.deniedExplicitly, for: pattern)
-                    }
-                }
+                Self.denyProtectedPatterns(in: context)
                 guard self.installation(id, in: profile)?.enabled == true, controller.contexts[id] == nil else { return }
                 try controller.controller.load(context)
                 controller.contexts[id] = context
@@ -1033,6 +1058,8 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
                   preferredProfileID: anchor.profileID,
                   websiteDataStore: anchor.websiteDataStore
               ) else { return nil }
+        // Redirects of this first load stay under the extension URL policy.
+        panel.extensionNavigationOrigin = extensionID
         // The panel registers itself with its own store's controller when it
         // binds its web view; hand back an adapter only if that is this one.
         guard BrowserExtensions.profileKey(for: panel.websiteDataStore) == profileKey else { return nil }
@@ -1111,6 +1138,10 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionMatchPatterns matchPatterns: Set<WKWebExtension.MatchPattern>, in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext) async -> (Set<WKWebExtension.MatchPattern>, Date?) {
+        // The Web Store stays off limits whatever is asked for at runtime.
+        let matchPatterns = matchPatterns.filter { !BrowserExtensions.isProtectedPattern($0) }
+        guard !matchPatterns.isEmpty else { return ([], nil) }
+        defer { BrowserExtensions.denyProtectedPatterns(in: extensionContext) }
         let all = matchPatterns.contains { $0.matchesAllHosts || $0.matchesAllURLs }
         let detail = all
             ? String(localized: "browser.extensions.access.allSites", defaultValue: "Read and change all your data on all websites")
@@ -1177,16 +1208,17 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
         owner.orderedTabs.firstIndex { $0 === self } ?? NSNotFound
     }
-    /// A tab showing another extension's page is not visible to this
-    /// extension's scripting or capture, whatever hosts it was granted.
-    private func showsForeignExtensionPage(for context: WKWebExtensionContext) -> Bool {
-        guard let url = panel?.webView.url ?? panel?.currentURL,
-              url.scheme?.lowercased() == ChromeExtensionNavigationPolicy.extensionScheme else { return false }
-        return url.host?.lowercased() != context.uniqueIdentifier.lowercased()
+    /// Whether this tab's page is one the extension may script or capture:
+    /// ordinary web pages, about:blank, and its own pages. cmux's own pages
+    /// (`cmux://extensions`, diff viewer), local files, and other
+    /// extensions' pages stay out of reach whatever hosts it was granted.
+    private func showsPageAccessible(to context: WKWebExtensionContext) -> Bool {
+        guard let url = panel?.webView.url ?? panel?.currentURL else { return true }
+        return ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier)
     }
 
     func webView(for context: WKWebExtensionContext) -> WKWebView? {
-        showsForeignExtensionPage(for: context) ? nil : panel?.webView
+        showsPageAccessible(to: context) ? panel?.webView : nil
     }
     func title(for context: WKWebExtensionContext) -> String? { panel?.pageTitle }
     func url(for context: WKWebExtensionContext) -> URL? { panel?.webView.url ?? panel?.currentURL }
@@ -1209,6 +1241,7 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         guard ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier) else {
             throw URLError(.unsupportedURL)
         }
+        panel?.extensionNavigationOrigin = context.uniqueIdentifier
         panel?.navigateWithoutInsecureHTTPPrompt(
             request: URLRequest(url: url),
             recordTypedNavigation: false,
@@ -1236,7 +1269,7 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     }
 
     func takeSnapshot(using configuration: WKSnapshotConfiguration, for context: WKWebExtensionContext) async throws -> NSImage? {
-        guard !showsForeignExtensionPage(for: context), let webView = panel?.webView else { return nil }
+        guard showsPageAccessible(to: context), let webView = panel?.webView else { return nil }
         return try await webView.takeSnapshot(configuration: configuration)
     }
 }
@@ -1302,7 +1335,10 @@ final class BrowserExtensionPageBridge: NSObject, WKScriptMessageHandler, WKScri
         guard message.name == ChromeWebStorePage.messageHandlerName,
               message.frameInfo.isMainFrame,
               let webView = message.webView,
-              let url = webView.url,
+              // The document that sent the message, not the tab's current
+              // address, which the page or an extension could have changed.
+              let url = message.frameInfo.request.url,
+              url.absoluteString == webView.url?.absoluteString,
               ChromeWebStorePage.isStorePage(url),
               let body = message.body as? [String: Any] else { return }
         let extensions = BrowserExtensions.shared

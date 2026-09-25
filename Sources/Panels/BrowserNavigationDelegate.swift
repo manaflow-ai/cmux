@@ -131,6 +131,9 @@ import WebKit
             clearAttemptedRequest(discardPendingBypasses: true)
         }
         didCommit?(webView, navigation)
+        if isCurrentNavigation {
+            owner?.extensionNavigationOrigin = nil
+        }
         if isCurrentNavigation, let committedURL = webView.url {
             // The response callback consumes the one-shot delegate marker
             // before commit; the panel keeps the pending marker until this
@@ -418,6 +421,15 @@ import WebKit
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             if isMainFrame, !isTrustedInternal {
                 (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
+            }
+            // A load a Chrome extension started, including its redirects,
+            // may only reach URLs that extension may open.
+            if isMainFrame, let extensionID = owner?.extensionNavigationOrigin,
+               navigationAction.navigationType == .other,
+               !ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: extensionID) {
+                owner?.extensionNavigationOrigin = nil
+                decisionHandler(.cancel)
+                return
             }
             // cmux://extensions opens only from cmux itself (omnibar, menus,
             // app code), from history, or from its own links. A website can

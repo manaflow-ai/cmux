@@ -78,6 +78,18 @@ import Testing
         #expect(!ChromeExtensionPackage.isVersion("1.x", newerThan: "1.0"))
     }
 
+    @Test func refusesOversizedHeaderBeforeParsing() {
+        var crx = Data("Cr24".utf8)
+        for value in [UInt32(3), UInt32(ChromeExtensionPackage.maximumHeaderBytes + 1)] {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { crx.append(contentsOf: $0) }
+        }
+        crx.append(Data(count: ChromeExtensionPackage.maximumHeaderBytes + 16))
+        #expect(throws: ChromeExtensionPackage.Failure.notCRX3) {
+            try ChromeExtensionPackage.verifiedZip(crx, extensionID: Self.fixtureID)
+        }
+    }
+
     @Test func readsDeclaredUncompressedTotal() {
         let totals = "12 files, 34567 bytes uncompressed, 8901 bytes compressed:  74.2%"
         #expect(ChromeExtensionPackage.declaredUncompressedBytes(inZipInfoTotals: totals) == 34567)

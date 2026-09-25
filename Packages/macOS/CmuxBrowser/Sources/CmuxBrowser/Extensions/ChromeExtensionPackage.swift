@@ -46,6 +46,11 @@ public enum ChromeExtensionPackage {
     public static let maximumExpandedBytes = 512 * 1024 * 1024
     public static let maximumEntryCount = 50_000
 
+    /// Limits on the signed CRX header, checked before its fields are copied.
+    static let maximumHeaderBytes = 256 * 1024
+    static let maximumHeaderFields = 64
+    static let maximumProofBytes = 16 * 1024
+
     /// Returns the 32-letter extension id in a bare id, a
     /// `chromewebstore.google.com/detail/...` URL, or a legacy
     /// `chrome.google.com/webstore/detail/...` URL.
@@ -151,7 +156,7 @@ public enum ChromeExtensionPackage {
         guard bytes.count > 12, Array(bytes[0..<4]) == Array("Cr24".utf8) else { throw Failure.notCRX3 }
         guard littleEndianUInt32(bytes, at: 4) == 3 else { throw Failure.notCRX3 }
         let headerSize = Int(littleEndianUInt32(bytes, at: 8))
-        guard headerSize > 0, 12 + headerSize < bytes.count else { throw Failure.notCRX3 }
+        guard headerSize > 0, headerSize <= maximumHeaderBytes, 12 + headerSize < bytes.count else { throw Failure.notCRX3 }
         let header = Array(bytes[12..<(12 + headerSize)])
         let zip = Data(bytes[(12 + headerSize)...])
 
@@ -159,8 +164,10 @@ public enum ChromeExtensionPackage {
         // 3 = sha256_with_ecdsa proofs, 10000 = signed_header_data
         // (SignedData, whose field 1 is crx_id).
         let fields = lengthDelimitedFields(header)
-        guard let signedHeader = fields.first(where: { $0.field == 10000 })?.bytes,
+        guard fields.count <= maximumHeaderFields,
+              let signedHeader = fields.first(where: { $0.field == 10000 })?.bytes,
               let crxID = lengthDelimitedFields(signedHeader).first(where: { $0.field == 1 })?.bytes,
+              crxID.count == 16,
               letters(crxID) == id
         else { throw Failure.signatureInvalid }
 
@@ -178,6 +185,7 @@ public enum ChromeExtensionPackage {
         let developerSigned = proofs.contains { proof in
             guard let key = proof.first(where: { $0.field == 1 })?.bytes,
                   let signature = proof.first(where: { $0.field == 2 })?.bytes,
+                  key.count <= maximumProofBytes, signature.count <= maximumProofBytes,
                   letters(Array(SHA256.hash(data: Data(key)).prefix(16))) == id
             else { return false }
             return verifyRSA(subjectPublicKeyInfo: Data(key), signature: Data(signature), message: message)
@@ -192,6 +200,7 @@ public enum ChromeExtensionPackage {
         let publisherSigned = ecdsaProofs.contains { proof in
             guard let key = proof.first(where: { $0.field == 1 })?.bytes,
                   let signature = proof.first(where: { $0.field == 2 })?.bytes,
+                  key.count <= maximumProofBytes, signature.count <= maximumProofBytes,
                   Array(SHA256.hash(data: Data(key))) == webStorePublisherKeyHash
             else { return false }
             return verifyP256(subjectPublicKeyInfo: Data(key), derSignature: Data(signature), message: message)
@@ -370,7 +379,7 @@ public enum ChromeExtensionPackage {
             }
             return nil
         }
-        while index < bytes.count {
+        while index < bytes.count, fields.count <= maximumHeaderFields {
             guard let key = readVarint() else { break }
             switch key & 7 {
             case 2:

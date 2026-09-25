@@ -213,6 +213,9 @@ extension AppDelegate {
                 }
             }
         }
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.applyURLAllowlistPolicy()
+        }
     }
 
     private func closeDockBrowserPanelsForManagedPolicy(_ store: DockSplitStore) {

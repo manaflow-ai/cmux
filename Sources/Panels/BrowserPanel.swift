@@ -2003,6 +2003,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID
+    /// Set while a Chrome extension's `tabs.create`/`tabs.update` load is in
+    /// flight (the extension id); redirects of that load must stay within
+    /// `ChromeExtensionNavigationPolicy`. Cleared when the load commits.
+    var extensionNavigationOrigin: String?
     @Published private(set) var historyStore: BrowserHistoryStore
 
     /// The underlying web view
