@@ -132,8 +132,8 @@ Drizzle's TypeScript loader. Pinning the transitive copy to `0.28.1` matches the
 version already used by Wrangler. `bun audit` then reports no advisories; the
 Drizzle loader transform, Worker check and workerd tests pass.
 
-The pinned Iroh FFI release is `1.0.2-cmux.7.ios17.2`, source
-`8da966cad36377e4e55569f80dcde1be91d30a5b`. Querying its 483 registry lockfile
+The pinned Iroh FFI release is `1.0.2-cmux.7.ios17.3`, source
+`af08f0e1b9bb3ddb839210b175738d5761fea686`. Querying its 483 registry lockfile
 entries against OSV identified three patchable advisories:
 
 | Package | Fix in [iroh-ffi #16](https://github.com/manaflow-ai/iroh-ffi/pull/16) | Reachability qualification |
@@ -148,9 +148,9 @@ OSV reports only the existing informational unmaintained notices for
 `atomic-polyfill` and `paste`. Git dependencies and the published binary's
 contents are outside that registry scan.
 
-**The cmux binary pin is not updated by either PR.** A newly built and verified
-XCFramework release, published checksum and cmux pin update remain necessary to
-ship those dependency fixes. No existing release artifact is overwritten.
+The cmux binary now consumes the newly published XCFramework at that pin. Its
+archive checksum is `f1605640a02925dd0941c15765162fac872c449e5e56d39c035ee163d409527e`.
+The update uses a new release artifact; no existing release artifact was overwritten.
 
 Gitleaks scanned 771 tracked source/config/test files across the Worker and both
 transport/client implementations. All 13 matches were inspected: ten were

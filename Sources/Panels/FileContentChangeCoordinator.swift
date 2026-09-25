@@ -15,7 +15,7 @@ final class FileContentChangeCoordinator {
         String,
         URL,
         String.Encoding
-    ) async -> FilePreviewTextSaver.Result
+    ) async -> FilePreviewTextSaveResult
 
     private let makeFileWatcher: FileWatcherFactory
     private var entriesByPath: [String: Entry] = [:]
@@ -143,7 +143,7 @@ final class FileContentChangeCoordinator {
         encoding: String.Encoding,
         using saver: TextSaver,
         excluding excludedObservationID: UUID?
-    ) async -> FilePreviewTextSaver.Result {
+    ) async -> FilePreviewTextSaveResult {
         let result = await saver(content, url, encoding)
         if case .saved = result {
             fileWriteCompleted(
@@ -159,7 +159,7 @@ final class FileContentChangeCoordinator {
         to url: URL,
         encoding: String.Encoding,
         excluding excludedObservationID: UUID?
-    ) async -> FilePreviewTextSaver.Result {
+    ) async -> FilePreviewTextSaveResult {
         await saveTextContent(
             content,
             to: url,
@@ -178,7 +178,7 @@ final class FileContentChangeCoordinator {
     /// If a saving panel moved while its write was suspended, mirrors the
     /// committed-write signal into the panel's current observation domain.
     func republishSuccessfulSaveIfNeeded(
-        _ result: FilePreviewTextSaver.Result,
+        _ result: FilePreviewTextSaveResult,
         to currentCoordinator: FileContentChangeCoordinator,
         at path: String,
         excluding currentObservationID: UUID?

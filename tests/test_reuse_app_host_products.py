@@ -1557,6 +1557,46 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse((self.producer.parent / 'escape').exists())
 
 
+class GateDeclinedProducer(unittest.TestCase):
+    """A compile admission the fast Linux gate declined still published."""
+
+    def job(self, conclusion, *steps):
+        return {
+            "status": "completed",
+            "conclusion": conclusion,
+            "steps": [{"name": name, "conclusion": result} for name, result in steps],
+        }
+
+    def test_a_job_that_failed_only_at_the_gate_step_counts(self):
+        declined = self.job(
+            "failure",
+            ("Compile app-host test product", "success"),
+            (reuse.GATE_DECLINE_STEP, "failure"),
+            ("Run changed app-host suites", "skipped"),
+        )
+        self.assertTrue(reuse.compile_job_admitted(declined))
+        self.assertTrue(reuse.compile_job_admitted(self.job("success")))
+
+    def test_any_other_failure_does_not(self):
+        for label, job in (
+            ("compile failed", self.job(
+                "failure", ("Compile app-host test product", "failure"),
+                (reuse.GATE_DECLINE_STEP, "skipped"))),
+            ("changed suites failed", self.job(
+                "failure", (reuse.GATE_DECLINE_STEP, "success"),
+                ("Run changed app-host suites", "failure"))),
+            ("no steps listed", {"status": "completed", "conclusion": "failure"}),
+            ("cancelled", self.job("cancelled", (reuse.GATE_DECLINE_STEP, "failure"))),
+            ("still running", {**self.job("success"), "status": "in_progress"}),
+        ):
+            with self.subTest(label):
+                self.assertFalse(reuse.compile_job_admitted(job))
+
+    def test_the_step_name_matches_the_workflow(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        self.assertIn(f"      - name: {reuse.GATE_DECLINE_STEP}\n", workflow)
+
+
 class ContractParity(unittest.TestCase):
     """PR compile admission and E2E dispatches must name one product alike.
 
