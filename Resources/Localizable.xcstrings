@@ -1,6 +1,242 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.review.unverifiedRefutation" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unverified challenger refutation: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verifizierte Widerlegung des Gegenprüfers: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réfutation non vérifiée du contradicteur : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دحض غير متحقق منه من المراجع المضاد: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refutación sin verificar del revisor adversarial: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反駁審查者未經驗證的反駁：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反驳审查者未经验证的反驳：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검증되지 않은 반론 검토자의 반박: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反証レビュアーによる未検証の反論: %@"
+          }
+        }
+      }
+    },
+    "cli.review.suppression" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suppressed by the P0–P2 publication policy before challenge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor der Gegenprüfung durch die P0–P2-Veröffentlichungsregel ausgeblendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masqué avant contestation par la politique de publication P0–P2."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم استبعاده قبل المراجعة المضادة وفق سياسة نشر P0–P2."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultado antes del cuestionamiento por la política de publicación P0–P2."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在反駁審查前依 P0–P2 發布政策隱藏。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在反驳审查前按 P0–P2 发布策略隐藏。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "반론 검토 전에 P0–P2 게시 정책에 따라 숨겨졌습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反証レビューの前に P0–P2 の公開方針により非表示になりました。"
+          }
+        }
+      }
+    },
+    "cli.review.coverageGap" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewers received the frozen diff and base-branch rules. Tools and executable verification were disabled."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Prüfer erhielten den eingefrorenen Diff und die Regeln des Basis-Branches. Werkzeuge und ausführbare Überprüfung waren deaktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les réviseurs ont reçu le diff figé et les règles de la branche de base. Les outils et la vérification exécutable étaient désactivés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقى المراجعون الفرق الثابت وقواعد الفرع الأساسي. تم تعطيل الأدوات والتحقق بالتنفيذ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los revisores recibieron el diff congelado y las reglas de la rama base. Las herramientas y la verificación ejecutable estaban desactivadas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查者收到固定的差異與基準分支規則。工具與執行驗證已停用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查者收到固定的差异和基准分支规则。工具和执行验证已禁用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토자는 고정된 차이와 기준 브랜치 규칙을 받았습니다. 도구와 실행 검증은 비활성화되었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュアーには固定された差分と基準ブランチのルールが渡されました。ツールと実行による検証は無効でした。"
+          }
+        }
+      }
+    },
+    "cli.review.usage" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux review <subcommand> [options]\n\nReview a frozen diff; tools and repairs are disabled.\nRunning reviews requires a signed-in Codex CLI.\nModel claims still require executable verification.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nAll subcommands accept --repo <path> and --json.\nNo running cmux app or socket is required."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux review <subcommand> [options]\n\nPrüft einen eingefrorenen Diff; Werkzeuge und Reparaturen sind deaktiviert.\nFür Prüfungen ist eine angemeldete Codex CLI erforderlich.\nModellbehauptungen erfordern weiterhin eine ausführbare Überprüfung.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nAlle Unterbefehle akzeptieren --repo <path> und --json.\nEine laufende cmux-App oder ein Socket ist nicht erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux review <subcommand> [options]\n\nExamine un diff figé ; les outils et les corrections sont désactivés.\nLes revues nécessitent une CLI Codex connectée.\nLes affirmations du modèle nécessitent encore une vérification exécutable.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nTous les sous-commandes acceptent --repo <path> et --json.\nAucune application cmux en cours ni aucun socket ne sont requis."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux review <subcommand> [options]\n\nمراجعة فرق ثابت؛ الأدوات والإصلاحات معطلة.\nتتطلب المراجعات تسجيل الدخول إلى Codex CLI.\nلا تزال ادعاءات النموذج تتطلب تحققًا بالتنفيذ.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nتقبل جميع الأوامر الفرعية --repo <path> و --json.\nلا يلزم تشغيل تطبيق cmux أو مقبس."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux review <subcommand> [options]\n\nRevisa un diff congelado; las herramientas y reparaciones están desactivadas.\nLas revisiones requieren una sesión iniciada en Codex CLI.\nLas afirmaciones del modelo aún requieren verificación ejecutable.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nTodos los subcomandos aceptan --repo <path> y --json.\nNo se requiere una aplicación cmux en ejecución ni un socket."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux review <subcommand> [options]\n\n審查固定的差異；工具與修復已停用。\n執行審查需要已登入的 Codex CLI。\n模型主張仍需執行驗證。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n所有子命令皆接受 --repo <path> 與 --json。\n不需要執行中的 cmux 應用程式或通訊端。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux review <subcommand> [options]\n\n审查固定的差异；工具和修复已禁用。\n运行审查需要已登录的 Codex CLI。\n模型主张仍需执行验证。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n所有子命令均接受 --repo <path> 和 --json。\n不需要运行中的 cmux 应用或套接字。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux review <subcommand> [options]\n\n고정된 차이를 검토합니다. 도구와 수정은 비활성화됩니다.\n검토를 실행하려면 로그인된 Codex CLI가 필요합니다.\n모델의 주장은 여전히 실행 검증이 필요합니다.\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\n모든 하위 명령은 --repo <path> 및 --json을 지원합니다.\n실행 중인 cmux 앱이나 소켓은 필요하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux review <subcommand> [options]\n\n固定された差分をレビューします。ツールと修正は無効です。\nレビューの実行にはログイン済みの Codex CLI が必要です。\nモデルの主張には引き続き実行による検証が必要です。\n\n  run --intent <task> [--base <ref>] [--reviewer <executable>]\n  list\n  show [<id|latest>]\n  findings [<id|latest>] [--all]\n\nすべてのサブコマンドで --repo <path> と --json を指定できます。\n実行中の cmux アプリやソケットは不要です。"
+          }
+        }
+      }
+    },
     "settings.automation.rules.createFailed.title": {
       "extractionState": "manual",
       "localizations": {
@@ -100019,121 +100255,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, reviews, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, custom [sidebar-name]"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, reviews, custom [sidebar-name]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices, reviews 或 custom [sidebar-name]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices oder custom [Seitenleisten-Name]"
+            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices, reviews oder custom [Seitenleisten-Name]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices ou custom [nom-barre-latérale]"
+            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices, reviews ou custom [nom-barre-latérale]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices، أو custom [sidebar-name]"
+            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices, reviews، أو custom [sidebar-name]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices o custom [sidebar-name]"
+            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices, reviews o custom [sidebar-name]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices, reviews 或 custom [sidebar-name]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices 또는 custom [sidebar-name]"
+            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices, reviews 또는 custom [sidebar-name]"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices ili custom [naziv bočne trake]"
+            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices, reviews ili custom [naziv bočne trake]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidepanel]"
+            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices, reviews eller custom [navn på sidepanel]"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices o custom [nome barra laterale]"
+            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices, reviews o custom [nome barra laterale]"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices ឬ custom [ឈ្មោះរបារចំហៀង]"
+            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices, reviews ឬ custom [ឈ្មោះរបារចំហៀង]"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidestolpe]"
+            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices, reviews eller custom [navn på sidestolpe]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices lub custom [nazwa paska bocznego]"
+            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices, reviews lub custom [nazwa paska bocznego]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices ou custom [nome da barra lateral]"
+            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices, reviews ou custom [nome da barra lateral]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices или custom [имя боковой панели]"
+            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices, reviews или custom [имя боковой панели]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices หรือ custom [ชื่อแถบด้านข้าง]"
+            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices, reviews หรือ custom [ชื่อแถบด้านข้าง]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices veya custom [kenar çubuğu adı]"
+            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices, reviews veya custom [kenar çubuğu adı]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices або custom [назва бічної панелі]"
+            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices, reviews або custom [назва бічної панелі]"
           }
         }
       }
@@ -556715,6 +556951,1717 @@
                 }
             }
         }
+    },
+    "cli.review.error.diffTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The review diff is too large. Choose a narrower base revision."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فرق المراجعة كبير جدًا. اختر مراجعة أساسية أقرب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Prüfungsdiff ist zu groß. Wähle eine näher gelegene Basisrevision."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El diff de revisión es demasiado grande. Elige una revisión base más cercana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le diff est trop volumineux. Choisissez une révision de base plus proche."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューの差分が大きすぎます。より近い基準リビジョンを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토 차이가 너무 큽니다. 더 가까운 기준 리비전을 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查差异过大。请选择更接近的基准版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查差異過大。請選擇較接近的基準版本。"
+          }
+        }
+      }
+    },
+    "cli.review.error.invalidResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reviewer returned an invalid response."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد المراجع استجابة غير صالحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Prüfer hat eine ungültige Antwort zurückgegeben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El revisor devolvió una respuesta no válida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le réviseur a renvoyé une réponse invalide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュアーが無効な応答を返しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토자가 유효하지 않은 응답을 반환했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查者返回了无效的响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查者傳回了無效的回應。"
+          }
+        }
+      }
+    },
+    "cli.review.error.runUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux review run --intent <task> [--base <ref>] [--repo <path>] [--reviewer <executable>] [--json]"
+          }
+        }
+      }
+    },
+    "cli.review.run.completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review saved: %@. Use cmux review findings to inspect the result."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم حفظ المراجعة: %@. استخدم cmux review findings لفحص النتيجة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung gespeichert: %@. Mit cmux review findings kannst du das Ergebnis ansehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisión guardada: %@. Usa cmux review findings para consultar el resultado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revue enregistrée : %@. Utilisez cmux review findings pour consulter le résultat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューを保存しました: %@。cmux review findings で結果を確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토가 저장되었습니다: %@. cmux review findings로 결과를 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存审查：%@。使用 cmux review findings 查看结果。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存審查：%@。使用 cmux review findings 檢視結果。"
+          }
+        }
+      }
+    },
+    "cli.review.error.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to capture review source: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر التقاط مصدر المراجعة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfungsquelle konnte nicht erfasst werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo capturar el código para la revisión: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de capturer la source à examiner : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー対象のソースを取得できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토 소스를 캡처할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法捕获审查源代码：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法擷取審查原始碼：%@"
+          }
+        }
+      }
+    },
+    "cli.review.error.invalidDiscovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reviewer returned an invalid finding."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد المراجع نتيجة غير صالحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Prüfer hat einen ungültigen Befund zurückgegeben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El revisor devolvió un hallazgo no válido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le réviseur a renvoyé un constat invalide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュアーが無効な指摘を返しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토자가 유효하지 않은 문제를 반환했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查者返回了无效的发现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查者傳回了無效的發現。"
+          }
+        }
+      }
+    },
+    "cli.review.error.reviewerFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review stage '%@' failed. Check that the reviewer is installed and signed in, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت مرحلة المراجعة '%@'. تأكد من تثبيت المراجع وتسجيل الدخول، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Prüfungsphase '%@' ist fehlgeschlagen. Prüfe, ob der Prüfer installiert und angemeldet ist, und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falló la etapa de revisión '%@'. Comprueba que el revisor esté instalado y haya iniciado sesión, e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’étape de revue « %@ » a échoué. Vérifiez que le réviseur est installé et connecté, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー段階「%@」が失敗しました。レビューツールがインストールされ、ログイン済みであることを確認して再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토 단계 '%@'에 실패했습니다. 검토 도구가 설치되어 있고 로그인되어 있는지 확인한 후 다시 시도하세요。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查阶段“%@”失败。请确认已安装审查工具并登录，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查階段「%@」失敗。請確認已安裝審查工具並登入，然後重試。"
+          }
+        }
+      }
+    },
+    "command.openReviewsPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Reviews as Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح المراجعات في جزء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfungen als Bereich öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir revisiones como panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les revues dans un volet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューをペインで開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰를 패널로 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以窗格打开审查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以窗格開啟審查"
+          }
+        }
+      }
+    },
+    "review.finding.acceptedRisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accepted risk"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مخاطرة مقبولة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzeptiertes Risiko"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riesgo aceptado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risque accepté"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受け入れたリスク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수용된 위험"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已接受风险"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已接受風險"
+          }
+        }
+      }
+    },
+    "review.finding.needsJudgment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs judgment"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب حكمًا بشريًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beurteilung erforderlich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere evaluación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décision nécessaire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断が必要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "판단 필요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要判断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要判斷"
+          }
+        }
+      }
+    },
+    "review.finding.refuted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refuted"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم دحضه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widerlegt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refutado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réfuté"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反証済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "반박됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已反驳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已反駁"
+          }
+        }
+      }
+    },
+    "review.finding.repaired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repaired"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إصلاحه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behoben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corregido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已修复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已修復"
+          }
+        }
+      }
+    },
+    "review.finding.superseded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superseded"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تجاوزه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersetzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置き換え済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대체됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取代"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取代"
+          }
+        }
+      }
+    },
+    "review.finding.suppressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suppressed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم استبعاده"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeblendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masqué"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "숨김 처리됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已隐藏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已隱藏"
+          }
+        }
+      }
+    },
+    "review.finding.evidence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claims and challenge"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الادعاءات والمراجعة المضادة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behauptungen und Gegenprüfung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afirmaciones y cuestionamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affirmations et contestation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主張と反証レビュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주장 및 반론 검토"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主张与反驳审查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主張與反駁審查"
+          }
+        }
+      }
+    },
+    "review.finding.unverified": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No executable verification recorded"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُسجّل تحقق قابل للتنفيذ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine ausführbare Überprüfung erfasst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se registró ninguna verificación ejecutable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune vérification exécutable enregistrée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行による検証の記録はありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행을 통한 검증이 기록되지 않음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未记录可执行的验证"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未記錄可執行的驗證"
+          }
+        }
+      }
+    },
+    "review.pane.loadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to load the review ledger."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحميل سجل المراجعات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Prüfungsprotokoll konnte nicht geladen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el registro de revisiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger le registre des revues."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー記録を読み込めません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰 기록을 불러올 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载审查记录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入審查記錄。"
+          }
+        }
+      }
+    },
+    "review.pane.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reviews saved for this repository."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مراجعات محفوظة لهذا المستودع."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für dieses Repository sind keine Prüfungen gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay revisiones guardadas para este repositorio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune revue enregistrée pour ce dépôt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリポジトリに保存されたレビューはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 저장소에 저장된 리뷰가 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此仓库尚未保存任何审查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此儲存庫尚未儲存任何審查。"
+          }
+        }
+      }
+    },
+    "review.pane.latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأحدث"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neueste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más reciente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La plus récente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        }
+      }
+    },
+    "review.pane.localOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a local Git repository to inspect its reviews."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح مستودع Git محليًا لفحص مراجعاته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne ein lokales Git-Repository, um seine Prüfungen anzusehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre un repositorio Git local para consultar sus revisiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez un dépôt Git local pour consulter ses revues."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルの Git リポジトリを開くとレビューを確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 Git 저장소를 열어 리뷰를 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开本地 Git 仓库以查看其审查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟本機 Git 儲存庫以檢視其審查。"
+          }
+        }
+      }
+    },
+    "review.pane.noFindings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No surfaced findings. This does not establish that the change is defect-free."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد نتائج معروضة. هذا لا يثبت خلو التغيير من العيوب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine angezeigten Befunde. Dies belegt nicht, dass die Änderung fehlerfrei ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay hallazgos visibles. Esto no demuestra que el cambio esté libre de defectos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun constat affiché. Cela ne prouve pas que la modification est exempte de défauts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示対象の指摘はありません。変更に不具合がないことを示すものではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표시할 문제가 없습니다. 변경 사항에 결함이 없다는 뜻은 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有显示的发现。这并不代表变更没有缺陷。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有顯示的發現。這並不代表變更沒有缺陷。"
+          }
+        }
+      }
+    },
+    "review.pane.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh reviews"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث المراجعات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfungen aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar revisiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiser les revues"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューを更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰 새로고침"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新审查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理審查"
+          }
+        }
+      }
+    },
+    "review.pane.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراجعة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查"
+          }
+        }
+      }
+    },
+    "review.pane.showAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show refuted and suppressed findings"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض النتائج المدحوضة والمستبعدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widerlegte und ausgeblendete Befunde anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar hallazgos refutados y ocultados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les constats réfutés et masqués"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反証済みと非表示の指摘を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "반박되거나 숨겨진 문제 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示已反驳及隐藏的发现"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示已反駁及隱藏的發現"
+          }
+        }
+      }
+    },
+    "review.pane.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewed tree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شجرة المصدر المراجَعة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geprüfter Quellbaum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árbol de código revisado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbre source examiné"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー対象のツリー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토된 소스 트리"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已审查的源代码树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已審查的原始碼樹"
+          }
+        }
+      }
+    },
+    "review.pane.sourceHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This receipt applies to the recorded source snapshot. Later edits require a new review."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينطبق هذا السجل على لقطة المصدر المسجلة. تتطلب التعديلات اللاحقة مراجعة جديدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Nachweis gilt für den erfassten Quellstand. Spätere Änderungen erfordern eine neue Prüfung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este registro se aplica a la instantánea de código guardada. Los cambios posteriores requieren otra revisión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce reçu concerne l’instantané source enregistré. Toute modification ultérieure nécessite une nouvelle revue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この記録は保存されたソースのスナップショットに適用されます。その後の変更には新しいレビューが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기록은 저장된 소스 스냅샷에 적용됩니다. 이후 수정에는 새 리뷰가 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此记录适用于所记录的源代码快照。后续编辑需要重新审查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此記錄適用於所記錄的原始碼快照。後續編輯需要重新審查。"
+          }
+        }
+      }
+    },
+    "review.pane.startHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start a review in the terminal with cmux review run --intent <task>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابدأ مراجعة في الطرفية باستخدام cmux review run --intent <task>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starte im Terminal eine Prüfung mit cmux review run --intent <task>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia una revisión en la terminal con cmux review run --intent <task>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lancez une revue dans le terminal avec cmux review run --intent <task>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで cmux review run --intent <task> を実行してレビューを開始します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 cmux review run --intent <task>로 리뷰를 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端中使用 cmux review run --intent <task> 开始审查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機中使用 cmux review run --intent <task> 開始審查。"
+          }
+        }
+      }
+    },
+    "review.pane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviews"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المراجعات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revues"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.reviews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviews"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المراجعات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revues"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -23,24 +23,22 @@ extension CMUXCLI {
     )
 
 
-    static let reviewUsage = String(
-        localized: "cli.review.usage",
+    static let reviewUsage = CMUXDiffViewerLocalization.string(
+        "cli.review.usage",
         defaultValue: """
         Usage: cmux review <subcommand> [options]
 
-        Read local adversarial-review receipts stored in the repository's Git metadata.
-        This command does not require a running cmux app or socket.
+        Review a frozen diff; tools and repairs are disabled.
+        Running reviews requires a signed-in Codex CLI.
+        Model claims still require executable verification.
 
-        Subcommands:
-          list [--repo <path>]
-              List review runs newest first.
-          show [<id|latest>] [--repo <path>]
-              Show one review run (default: latest).
-          findings [<id|latest>] [--repo <path>] [--all]
-              Show findings for one review run. Refuted/suppressed findings are
-              hidden unless --all is supplied.
+          run --intent <task> [--base <ref>] [--reviewer <executable>]
+          list
+          show [<id|latest>]
+          findings [<id|latest>] [--all]
 
-        All subcommands support --json.
+        All subcommands accept --repo <path> and --json.
+        No running cmux app or socket is required.
         """
     )
 
@@ -64,6 +62,9 @@ extension CMUXCLI {
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {
+        case "run":
+            try runReview(commandArgs: rest, jsonOutput: jsonOutput)
+
         case "list", "ls":
             let (repoOption, remainder) = parseOption(rest, name: "--repo")
             try reviewValidateRepoOption(repoOption)
@@ -159,7 +160,7 @@ extension CMUXCLI {
         ))
     }
 
-    private func reviewGitRepoRoot(startingAt directory: String) throws -> String {
+    func reviewGitRepoRoot(startingAt directory: String) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
             arguments: ["git", "-C", directory, "rev-parse", "--show-toplevel"],
@@ -178,7 +179,7 @@ extension CMUXCLI {
         return root
     }
 
-    private func reviewDirectoryURL(repoRoot: String) throws -> URL {
+    func reviewDirectoryURL(repoRoot: String) throws -> URL {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
             arguments: ["git", "-C", repoRoot, "rev-parse", "--git-path", "cmux/reviews"],
@@ -199,7 +200,7 @@ extension CMUXCLI {
             .standardizedFileURL
     }
 
-    private func reviewValidateReceiptPayload(
+    func reviewValidateReceiptPayload(
         _ payload: [String: Any],
         fileName: String
     ) throws -> Date {

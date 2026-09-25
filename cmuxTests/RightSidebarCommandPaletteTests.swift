@@ -21,7 +21,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
 
-            for mode in RightSidebarMode.availableModes() {
+            for mode in RightSidebarMode.availableModes() where mode.shortcutAction != nil {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
                 let contribution = try XCTUnwrap(
                     contributionsByID[commandID],

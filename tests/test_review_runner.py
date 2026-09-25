@@ -36,7 +36,8 @@ def check_review_runner_contract(cli_path: str) -> list[str]:
         git("config", "user.email", "review-fixture@example.invalid")
         git("config", "user.name", "Review fixture")
         (repository / "value.txt").write_text("original\n")
-        git("add", "value.txt")
+        (repository / ".gitattributes").write_text("value.txt export-ignore\n")
+        git("add", "value.txt", ".gitattributes")
         git("commit", "-qm", "fixture")
         head = git("rev-parse", "HEAD")
         (repository / "value.txt").write_text("staged\n")
@@ -57,14 +58,16 @@ assert "read-only" in arguments, arguments
 assert "--ephemeral" in arguments, arguments
 output = pathlib.Path(arguments[arguments.index("--output-last-message") + 1])
 candidate = pathlib.Path(arguments[arguments.index("--cd") + 1])
-assert (candidate / "value.txt").read_text() == "working\\n"
-assert (candidate / "new.txt").read_text() == "untracked\\n"
 prompt = sys.stdin.read()
+assert "+working" in prompt
+assert "+untracked" in prompt
+assert "default_tools_enabled=false" in arguments
+assert "mcp_servers={}" in arguments
 role = output.stem
 if role in ("correctness", "impact"):
     assert "PRIMARY-CLAIM" not in prompt, "discovery was contaminated by a peer"
     findings = [{
-        "title": "PRIMARY-CLAIM", "severity": "P1",
+        "title": "PRIMARY-CLAIM", "severity": "P0" if role == "impact" else "P1",
         "claim": "The changed value breaks a caller",
         "failure_mode": "Caller rejects the value", "paths": ["value.txt"]
     }]
@@ -95,11 +98,15 @@ output.write_text(json.dumps(result))
             assert receipt["source"]["head_sha"] == head
             assert receipt["source"]["base_sha"] == head
             assert receipt["source"]["working_tree_dirty"] is True
+            tree = receipt["source"]["tree_sha"]
+            assert git("show", f"{tree}:value.txt") == "working"
+            assert git("show", f"{tree}:new.txt") == "untracked"
             assert receipt["summary"]["verified"] == 0, "model agreement is not verification"
             assert receipt["summary"]["suppressed"] == 1
             assert len(receipt["findings"]) == 2, "duplicate discoveries must be merged"
             finding = next(f for f in receipt["findings"] if f["title"] == "PRIMARY-CLAIM")
             assert set(finding["discovery_sources"]) == {"correctness", "impact"}
+            assert finding["severity"] == "P0", "deduplication must preserve the strongest severity"
             assert finding["verification"]["result"] == "human_judgment"
             assert finding["disposition"] == "human_required"
             assert all(c["kind"] == "inferred" for c in finding["claims"])
@@ -113,6 +120,16 @@ output.write_text(json.dumps(result))
             assert json.loads(read.stdout) == receipt, "persisted receipt differs from completed run"
         except (AssertionError, KeyError, ValueError, StopIteration) as error:
             failures.append(f"review runner contract: {error}")
+
+        driver.write_text(driver.read_text().replace('"disposition": "survives_challenge"', '"disposition": "refuted"'))
+        disagreement = subprocess.run(command, env=environment, text=True, capture_output=True, timeout=30)
+        if disagreement.returncode != 0:
+            failures.append(f"review challenger fixture failed: {disagreement.stderr}")
+        else:
+            challenged = json.loads(disagreement.stdout)
+            surviving = next(f for f in challenged["findings"] if f["title"] == "PRIMARY-CLAIM")
+            if surviving["disposition"] != "human_required" or surviving["challenge"]["disposition"] != "uncertain":
+                failures.append("model disagreement was promoted to established refutation")
 
         # A failed model call must not publish a clean receipt or disturb prior runs.
         ledger = repository / ".git" / "cmux" / "reviews"
