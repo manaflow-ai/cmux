@@ -52,6 +52,12 @@ PROFILE_WITH_TUNNEL = {
     "ProvisionsAllDevices": True,
 }
 
+HARDENED_RUNTIME_RELAXATIONS = {
+    "com.apple.security.cs.disable-library-validation",
+    "com.apple.security.cs.allow-unsigned-executable-memory",
+    "com.apple.security.cs.allow-jit",
+}
+
 
 def run(entitlements, profile=None, no_profile=False):
     with tempfile.TemporaryDirectory() as tmp:
@@ -74,6 +80,20 @@ def run(entitlements, profile=None, no_profile=False):
 
 
 class ReconcileEntitlementsTests(unittest.TestCase):
+    def test_production_entitlement_files_do_not_request_runtime_relaxations(self):
+        for name in (
+            "cmux.entitlements",
+            "cmux-helper.entitlements",
+            "cmux.release.entitlements",
+            "cmux.nightly.entitlements",
+            "cmux.rc.entitlements",
+        ):
+            entitlements = plistlib.load((ROOT / name).open("rb"))
+            self.assertTrue(
+                HARDENED_RUNTIME_RELAXATIONS.isdisjoint(entitlements),
+                f"{name} requests hardened-runtime relaxations",
+            )
+
     def test_profile_without_tunnel_drops_only_the_tunnel_feature_set(self):
         proc, effective = run(DESIRED, PROFILE_WITHOUT_TUNNEL)
         self.assertEqual(proc.returncode, 0, proc.stderr)
