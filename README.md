@@ -373,7 +373,7 @@ Yes. Skills are reusable workflows you can give any agent running in cmux, for t
 
 ### Can I customize keyboard shortcuts?
 
-Terminal keybindings are read from your Ghostty config file (`~/.config/ghostty/config`). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the [default shortcuts](https://cmux.com/docs/keyboard-shortcuts) for a full list.
+Terminal keybindings are read from your Ghostty config file (`~/.config/ghostty/config`), including leader sequences and key tables. Ghostty tab actions target cmux workspaces; see the [action mapping, precedence, and limitations](docs/ghostty-keybindings.md). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the [default shortcuts](https://cmux.com/docs/keyboard-shortcuts) for a full list.
 
 ### Can I customize cmux?
 
