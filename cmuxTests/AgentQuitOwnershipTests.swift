@@ -26,8 +26,10 @@ import Testing
 
     @MainActor
     @Test func localTerminalDefersQuitWithoutAnyCachedAgentEvidence() {
+        let previousApp = AppDelegate.shared
         let app = AppDelegate()
-        let manager = TabManager()
+        defer { AppDelegate.shared = previousApp }
+        let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.finalizeAllWorkspacesForWindowClose() }
         app.tabManager = manager
         #expect(app.hasLocalTerminalSurfacesForQuit)
