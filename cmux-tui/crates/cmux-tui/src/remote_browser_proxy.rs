@@ -736,7 +736,12 @@ mod tests {
     #[async_trait::async_trait]
     impl SessionEndpoint for TestEndpoint {
         async fn send_frame(
-            &self, _: Option<u64>, lane: Lane, stream: u64, payload: Bytes, flags: FrameFlags,
+            &self,
+            _: Option<u64>,
+            lane: Lane,
+            stream: u64,
+            payload: Bytes,
+            flags: FrameFlags,
         ) -> Result<u64, ServiceError> {
             let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
             self.outgoing
@@ -750,8 +755,12 @@ mod tests {
             Ok(self.incoming.lock().await.recv().await)
         }
 
-        fn subscribe_generation(&self) -> watch::Receiver<u64> { self.generation.subscribe() }
-        async fn close_session(&self) -> Result<(), ServiceError> { Ok(()) }
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
     }
 
     struct ProxyFixture {
@@ -768,12 +777,17 @@ mod tests {
         async fn new() -> Self {
             let (left_tx, left_rx) = mpsc::channel(64);
             let (right_tx, right_rx) = mpsc::channel(64);
-            let endpoint = |outgoing, incoming| Arc::new(TestEndpoint {
-                outgoing, incoming: Mutex::new(incoming), sequence: AtomicU64::new(0),
-                generation: watch::channel(0).0,
-            });
+            let endpoint = |outgoing, incoming| {
+                Arc::new(TestEndpoint {
+                    outgoing,
+                    incoming: Mutex::new(incoming),
+                    sequence: AtomicU64::new(0),
+                    generation: watch::channel(0).0,
+                })
+            };
             let mux = ServiceMultiplexer::new(endpoint(left_tx, right_rx), EndpointRole::Client);
-            let daemon_mux = ServiceMultiplexer::new(endpoint(right_tx, left_rx), EndpointRole::Daemon);
+            let daemon_mux =
+                ServiceMultiplexer::new(endpoint(right_tx, left_rx), EndpointRole::Daemon);
             let routes = Arc::new(AtomicUsize::new(0));
             let service = WorkspaceService::new();
             let server = tokio::task::spawn_local({
@@ -792,31 +806,54 @@ mod tests {
                             };
                             let stream = Arc::new(incoming.stream);
                             if incoming.service == Service::WorkspaceRpc {
-                                stream.send_on(lane, Bytes::from(serde_json::to_vec(
-                                    &ServiceControl::Opened { service: Service::WorkspaceRpc },
-                                ).unwrap())).await.unwrap();
+                                stream
+                                    .send_on(
+                                        lane,
+                                        Bytes::from(
+                                            serde_json::to_vec(&ServiceControl::Opened {
+                                                service: Service::WorkspaceRpc,
+                                            })
+                                            .unwrap(),
+                                        ),
+                                    )
+                                    .await
+                                    .unwrap();
                                 let messages = MessageStream::with_lane(stream, lane);
                                 while let Some(bytes) = messages.receive().await.unwrap() {
-                                    let request: RpcRequest = serde_json::from_slice(&bytes).unwrap();
-                                    if let WorkspaceRequest::CreateRoute { policy, .. } = &request.request {
+                                    let request: RpcRequest =
+                                        serde_json::from_slice(&bytes).unwrap();
+                                    if let WorkspaceRequest::CreateRoute { policy, .. } =
+                                        &request.request
+                                    {
                                         assert_eq!(*policy, RoutePolicy::LoopbackOnly);
                                         routes.fetch_add(1, Ordering::SeqCst);
                                     }
                                     let response = service.handle_rpc(request).await;
-                                    messages.send(&serde_json::to_vec(&response).unwrap()).await.unwrap();
+                                    messages
+                                        .send(&serde_json::to_vec(&response).unwrap())
+                                        .await
+                                        .unwrap();
                                 }
                             } else {
                                 assert_eq!(incoming.service, Service::TcpTunnel);
                                 let route = RouteId(incoming.metadata["route"].parse().unwrap());
                                 let socket = service.dial_route(route).await.unwrap();
-                                stream.send(Bytes::from(serde_json::to_vec(
-                                    &ServiceControl::Opened { service: Service::TcpTunnel },
-                                ).unwrap())).await.unwrap();
+                                stream
+                                    .send(Bytes::from(
+                                        serde_json::to_vec(&ServiceControl::Opened {
+                                            service: Service::TcpTunnel,
+                                        })
+                                        .unwrap(),
+                                    ))
+                                    .await
+                                    .unwrap();
                                 let (mut reader, mut writer) = socket.into_split();
                                 let upload = async {
                                     while let Some(chunk) = stream.receive().await.unwrap() {
                                         writer.write_all(&chunk.payload).await.unwrap();
-                                        if chunk.finished { break; }
+                                        if chunk.finished {
+                                            break;
+                                        }
                                     }
                                     writer.shutdown().await.unwrap();
                                 };
@@ -824,8 +861,13 @@ mod tests {
                                     let mut buffer = [0; 2048];
                                     loop {
                                         let size = reader.read(&mut buffer).await.unwrap();
-                                        if size == 0 { break; }
-                                        stream.send(Bytes::copy_from_slice(&buffer[..size])).await.unwrap();
+                                        if size == 0 {
+                                            break;
+                                        }
+                                        stream
+                                            .send(Bytes::copy_from_slice(&buffer[..size]))
+                                            .await
+                                            .unwrap();
                                     }
                                     stream.close().await.unwrap();
                                 };
@@ -837,9 +879,15 @@ mod tests {
             });
             let client = WorkspaceClient::connect(mux.clone()).await.unwrap();
             let root = tempfile::tempdir().unwrap();
-            let WorkspaceResponse::Workspace { id: workspace, .. } = client.request(
-                WorkspaceRequest::OpenWorkspace { root: root.path().to_string_lossy().into_owned() },
-            ).await.unwrap() else { panic!("workspace was not opened") };
+            let WorkspaceResponse::Workspace { id: workspace, .. } = client
+                .request(WorkspaceRequest::OpenWorkspace {
+                    root: root.path().to_string_lossy().into_owned(),
+                })
+                .await
+                .unwrap()
+            else {
+                panic!("workspace was not opened")
+            };
             Self { client, workspace, routes, mux, daemon_mux, server, _root: root }
         }
 
@@ -849,8 +897,13 @@ mod tests {
             let mut browser = TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
             let (socket, _) = listener.accept().await.unwrap();
             let proxy = serve_browser_connection(
-                socket, self.client.clone(), self.workspace.clone(), Arc::new(policy),
-                "fixture:password".into(), "fixture-token".into(), port,
+                socket,
+                self.client.clone(),
+                self.workspace.clone(),
+                Arc::new(policy),
+                "fixture:password".into(),
+                "fixture-token".into(),
+                port,
             );
             let exchange = async {
                 browser.write_all(request.as_bytes()).await.unwrap();
