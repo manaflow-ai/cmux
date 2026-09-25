@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Fail when a file a build phase uses belongs to no group in the project.
+"""Fail when a file a build phase uses is not reachable from the project's main group.
 
 Xcode files such a reference under a synthesized "Recovered References" group whose id is new on every
 project load. The project's PIF then differs on every build, so Xcode can never reuse its build
 description and re-plans every build, no-ops included. #12976 fixed the first case; two more files
 (MacDevicesComposition.swift, SurfaceCatalogSnapshot+DeviceVisibility.swift) slipped back in unnoticed.
+
+The project is parsed with normalize-pbxproj.py's tokenizer, so indentation, several objects on one line
+and id length do not matter.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -16,40 +20,82 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PBXPROJ = ROOT / "cmux.xcodeproj/project.pbxproj"
 
-OBJECT_RE = re.compile(r"^\t+(?P<id>[0-9A-Za-z]+)(?: /\* (?P<name>[^*]*?) \*/)? = \{(?P<body>.*?)\};$", re.M | re.S)
-FILE_REF_RE = re.compile(r"\bfileRef = (?P<id>[0-9A-Za-z]+)\b")
-CHILDREN_RE = re.compile(r"\bchildren = \((?P<ids>[^)]*)\);", re.S)
-FILES_RE = re.compile(r"\bfiles = \((?P<ids>[^)]*)\);", re.S)
-ID_RE = re.compile(r"\b([0-9A-Za-z]{8,24})\b(?= /\*)")
+_spec = importlib.util.spec_from_file_location("normalize_pbxproj", Path(__file__).with_name("normalize-pbxproj.py"))
+_normalize = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_normalize)
+
+
+def parse(text: str) -> dict:
+    """Parse an OpenStep plist into dicts, lists and strings (quotes stripped, comments dropped)."""
+    _normalize.validate_syntax(text)
+    tokens = []
+    for match in _normalize.OPENSTEP_TOKEN_RE.finditer(text):
+        if match["comment"]:
+            continue
+        token = match.group()
+        if match["string"]:
+            token = ("str", re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m[1], m[1]), token[1:-1]))
+        tokens.append(token)
+    index = 0
+
+    def value():
+        nonlocal index
+        token = tokens[index]
+        index += 1
+        if token == "{":
+            result = {}
+            while tokens[index] != "}":
+                key = value()
+                index += 1  # "="
+                result[key] = value()
+                index += 1  # ";"
+            index += 1
+            return result
+        if token == "(":
+            result = []
+            while tokens[index] != ")":
+                result.append(value())
+                if tokens[index] == ",":
+                    index += 1
+            index += 1
+            return result
+        return token[1] if isinstance(token, tuple) else token
+
+    return value()
+
+
+def orphans(project: dict) -> list[tuple[str, str]]:
+    objects = project["objects"]
+    main_group = objects[project["rootObject"]]["mainGroup"]
+    reachable: set[str] = set()
+    pending = [main_group]
+    while pending:
+        oid = pending.pop()
+        if oid in reachable or oid not in objects:
+            continue
+        reachable.add(oid)
+        pending.extend(objects[oid].get("children", []))
+    built: dict[str, None] = {}
+    for obj in objects.values():
+        if obj.get("isa", "").endswith("BuildPhase"):
+            for build_file in obj.get("files", []):
+                ref = objects.get(build_file, {}).get("fileRef")
+                if ref:
+                    built[ref] = None
+    # Only plain file references: product references and package products live elsewhere.
+    return sorted((ref, objects[ref].get("path") or objects[ref].get("name") or ref) for ref in built
+                  if ref in objects and objects[ref].get("isa") == "PBXFileReference"
+                  and objects[ref].get("sourceTree") != "BUILT_PRODUCTS_DIR" and ref not in reachable)
 
 
 def main() -> int:
-    text = (Path(sys.argv[1]) if len(sys.argv) > 1 else PBXPROJ).read_text(encoding="utf-8")
-    objects = {m["id"]: (m["name"] or m["id"], m["body"]) for m in OBJECT_RE.finditer(text)}
-    in_group: set[str] = set()
-    in_phase: set[str] = set()
-    for body in (b for _, b in objects.values()):
-        if "isa = PBXGroup;" in body or "isa = PBXVariantGroup;" in body or "isa = XCVersionGroup;" in body:
-            children = CHILDREN_RE.search(body)
-            if children:
-                in_group.update(ID_RE.findall(children["ids"]))
-        elif re.search(r"isa = PBX\w+BuildPhase;", body):
-            files = FILES_RE.search(body)
-            if files:
-                in_phase.update(ID_RE.findall(files["ids"]))
-    # Only build files a phase lists count: a stale PBXBuildFile no phase uses builds nothing.
-    used: dict[str, str] = {}
-    for bid in in_phase:
-        ref = FILE_REF_RE.search(objects.get(bid, ("", ""))[1])
-        if ref:
-            used[ref["id"]] = objects[bid][0]
-    orphans = sorted(ref for ref in used if ref not in in_group and ref in objects
-                     and "isa = PBXFileReference;" in objects[ref][1])
-    for ref in orphans:
-        print(f"::error file=cmux.xcodeproj/project.pbxproj::{objects[ref][0]} ({ref}) is built but belongs to no "
-              "group; Xcode recovers it under a group with a new id on every load, so every build re-plans. "
-              "Add it to the group that holds its siblings.", file=sys.stderr)
-    return 1 if orphans else 0
+    path = Path(sys.argv[1]) if len(sys.argv) > 1 else PBXPROJ
+    found = orphans(parse(path.read_text(encoding="utf-8")))
+    for ref, name in found:
+        print(f"::error file=cmux.xcodeproj/project.pbxproj::{name} ({ref}) is built but no group under the main "
+              "group holds it; Xcode recovers it under a group with a new id on every load, so every build "
+              "re-plans. Add it to the group that holds its siblings.", file=sys.stderr)
+    return 1 if found else 0
 
 
 if __name__ == "__main__":
