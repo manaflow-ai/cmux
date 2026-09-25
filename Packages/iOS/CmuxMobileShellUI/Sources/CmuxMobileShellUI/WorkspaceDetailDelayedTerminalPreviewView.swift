@@ -205,7 +205,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         ) ?? 1
         let unreadWorkspaces = (0..<unreadCount).map { index in
             MobileWorkspacePreview(
-                id: "workspace-unread-\(index)",
+                id: MobileWorkspacePreview.ID(rawValue: "workspace-unread-\(index)"),
                 name: "Unread workspace \(index + 1)",
                 hasUnread: true,
                 unreadCount: 1,
