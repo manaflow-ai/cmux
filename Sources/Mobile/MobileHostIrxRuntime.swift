@@ -4,6 +4,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxMobileHost
 import CmuxSettings
 import Foundation
 import IrohLib
@@ -93,6 +94,13 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var relayAddressWatchGeneration: Int?
     private var permissionExpiryTask: Task<Void, Never>?
     private var acceptLoop: Task<Void, Never>?
+    /// Network.framework QUIC listener for Direct and Tailscale Only phones.
+    /// It serves the same irx sessions as the Iroh endpoint, on the
+    /// configured port, without relays or discovery.
+    private var directQuicListener: DirectQuicListener?
+    private var directQuicAcceptLoop: Task<Void, Never>?
+    private var directQuicPort: Int?
+    private let tailscaleRouteResolver = MobileRouteResolver()
     private var lastLoggedControlState: String?
     private var admission: V2InboundAdmissionAuthority?
     /// Compatibility publication for older iOS dialects. It shares the v2
@@ -351,6 +359,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         relayAddressWatch = nil; relayAddressWatchGeneration = nil
         permissionExpiryTask?.cancel(); permissionExpiryTask = nil
         acceptLoop?.cancel(); acceptLoop = nil
+        stopDirectQuicListener()
         admission = nil; registry = nil; identity = nil
         legacyService = nil
         legacyAcceptorPeer = nil
@@ -444,7 +453,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let preferredPort = MobileHostService.configuredPort()
         let supervisor = IrxEndpointSupervisor(configuration: .init(identity: identity, pathMode: Self.pathMode,
-            preferredBindAddress: "0.0.0.0:\(preferredPort)",
+            preferredBindAddress: "0.0.0.0:\(Self.irohPort(configuredPort: preferredPort))",
             initialRemoteBiStreams: 1, initialRemoteUniStreams: 0,
             additionalALPNs: Self.endpointAdditionalALPNs), journal: Self.journal)
         let admission = try V2InboundAdmissionAuthority(host: device)
@@ -687,6 +696,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     await self.refreshListenerState(token: token)
                     guard self.isCurrent(token), !Task.isCancelled else { return }
                     self.startAcceptLoop(token: token)
+                    await self.startDirectQuicListener(token: token)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
                     self.setSettingsPhase(.active)
                     Self.journal.record("v2-host", "endpoint-ready", ["generation": String(await supervisor.currentGeneration)])
                     await self.publishHomeRelayHintIfNeeded(token: token)
@@ -783,11 +794,19 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token), !Task.isCancelled else { return }
         var next = listenerState
         next.phase = healthy ? .ready : .starting
-        next.boundPort = healthy ? port : nil
-        next.localSocketAddresses = healthy ? addresses : []
+        // Users reach the Mac directly on the Direct QUIC port. Without that
+        // listener (macOS 14), the Iroh port is the only direct port.
+        let directPort = directQuicPort ?? port
+        next.preferredPort = directQuicPort == nil
+            ? Self.irohPort(configuredPort: MobileHostService.configuredPort())
+            : MobileHostService.configuredPort()
+        next.boundPort = healthy ? directPort : nil
+        next.localSocketAddresses = healthy
+            ? addresses.map { Self.replacingPort(in: $0, with: directPort) } : []
         listenerState = next
         if healthy { publishRoute(relayURL: relayURL) }
         else if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
+        await publishTailscaleRoutes(token: token)
     }
 
     private func publishRoute(relayURL: String?) {
@@ -805,8 +824,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         MobileHostPublicStatusCache.update(irohIdentity: peer, pathHints: hints)
     }
 
-    private func startAcceptLoop(token: UUID) {
-        guard acceptLoop == nil, let supervisor = endpointSupervisor, let registry, let admission else { return }
+    /// One admission judgment for every carrier: a peer key is admitted by
+    /// the same device-list authority whether it arrived over Iroh or
+    /// Direct QUIC.
+    private func inboundJudgment(admission: V2InboundAdmissionAuthority) -> (IrxGrantJudgment, IrxDeviceListCurrent?) {
         let legacyCurrent = legacyService?.listCurrent
         let v2Judgment = admission.judgment()
         let legacyJudgment = legacyCurrent.map { IrxListJudge(current: $0, journal: Self.journal).judgment() }
@@ -820,6 +841,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             }
             return try v2Judgment(grant, endpoint)
         }
+        return (judgment, legacyCurrent)
+    }
+
+    private func startAcceptLoop(token: UUID) {
+        guard acceptLoop == nil, let supervisor = endpointSupervisor, let registry, let admission else { return }
+        let (judgment, legacyCurrent) = inboundJudgment(admission: admission)
         acceptLoop = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, self.isCurrent(token) else { return }
@@ -865,6 +892,85 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 }
             }
         }
+    }
+
+    /// Iroh binds the port after the configured one, so Direct addresses a
+    /// user already entered (host plus the configured port) reach Direct QUIC.
+    nonisolated static func irohPort(configuredPort: Int) -> Int {
+        configuredPort < 65535 ? configuredPort + 1 : configuredPort - 1
+    }
+
+    private func startDirectQuicListener(token: UUID) async {
+        guard directQuicListener == nil, pairingEnabled(), let identity, let registry, let admission else { return }
+        let port = MobileHostService.configuredPort()
+        let listener: DirectQuicListener
+        do {
+            listener = try DirectQuicListener(port: UInt16(port), identity: identity)
+        } catch {
+            // macOS 14 cannot load the in-memory TLS identity; Iroh still serves.
+            Self.journal.record("direct-quic", "listener-unavailable", ["error": String(describing: error)])
+            return
+        }
+        directQuicListener = listener
+        let boundPort: UInt16
+        do {
+            boundPort = try await listener.start()
+        } catch {
+            Self.journal.record("direct-quic", "listener-failed", ["port": String(port),
+                "error": String(describing: error)])
+            if directQuicListener === listener { stopDirectQuicListener() }
+            return
+        }
+        guard isCurrent(token), directQuicListener === listener else {
+            listener.cancel()
+            return
+        }
+        directQuicPort = Int(boundPort)
+        Self.journal.record("direct-quic", "listening", ["port": String(boundPort)])
+        await refreshListenerState(token: token)
+        guard isCurrent(token), directQuicListener === listener else { return }
+        let (judgment, legacyCurrent) = inboundJudgment(admission: admission)
+        directQuicAcceptLoop = Task { @MainActor [weak self] in
+            for await carrier in listener.connections {
+                guard let self, self.isCurrent(token), !Task.isCancelled else {
+                    carrier.close(errorCode: 1, reason: IrxCloseCode.hostShutdown.reasonData)
+                    return
+                }
+                let connection = IrxConnection(carrier: carrier, role: .acceptor, journal: Self.journal)
+                Task { [weak self] in
+                    await self?.superviseConnection(connection, judgment: judgment,
+                        admission: admission, legacyCurrent: legacyCurrent,
+                        registry: registry, token: token)
+                }
+            }
+        }
+    }
+
+    /// `host:port` or `[v6]:port` with its port swapped.
+    nonisolated static func replacingPort(in socketAddress: String, with port: Int?) -> String {
+        guard let port, let separator = socketAddress.lastIndex(of: ":") else { return socketAddress }
+        return String(socketAddress[..<separator]) + ":\(port)"
+    }
+
+    /// Advertises this Mac's numeric Tailscale addresses on the Direct QUIC
+    /// port, so Tailscale Only phones and Tailscale pairing codes can reach it.
+    private func publishTailscaleRoutes(token: UUID) async {
+        guard publishesPublicHostStatus else { return }
+        guard let port = directQuicPort else {
+            MobileHostPublicStatusCache.update(routes: [])
+            return
+        }
+        let routes = await tailscaleRouteResolver.routesResolvingTailscaleDNS(port: port).routes
+            .filter { $0.kind == .tailscale }
+        guard isCurrent(token), directQuicPort == port else { return }
+        MobileHostPublicStatusCache.update(routes: routes)
+    }
+
+    private func stopDirectQuicListener() {
+        directQuicAcceptLoop?.cancel(); directQuicAcceptLoop = nil
+        directQuicListener?.cancel(); directQuicListener = nil
+        if directQuicPort != nil, publishesPublicHostStatus { MobileHostPublicStatusCache.update(routes: []) }
+        directQuicPort = nil
     }
 
     private func legacyAcceptor(token: UUID) -> CmxIrohGrantPeer? {

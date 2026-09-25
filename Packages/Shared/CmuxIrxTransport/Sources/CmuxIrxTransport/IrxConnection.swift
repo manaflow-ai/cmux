@@ -6,16 +6,16 @@ public import IrohLib
 /// Serialized writer for one QUIC send stream: concurrent senders cannot
 /// interleave bytes mid-frame.
 public actor IrxStreamWriter {
-    private let stream: SendStream
+    private let stream: any IrxCarrierSendStream
     private var finished = false
 
-    init(_ stream: SendStream) {
+    init(_ stream: any IrxCarrierSendStream) {
         self.stream = stream
     }
 
     public func write(_ data: Data) async throws {
         guard !finished else { throw IrxFrameCodecError.unexpectedEOF }
-        try await stream.writeAll(buf: data)
+        try await stream.writeAll(data)
     }
 
     public func writeControlFrame(_ value: some Encodable) async throws {
@@ -23,7 +23,7 @@ public actor IrxStreamWriter {
     }
 
     public func setPriority(_ priority: Int32) async throws {
-        try await stream.setPriority(p: priority)
+        try await stream.setPriority(priority)
     }
 
     public func finish() async {
@@ -42,11 +42,11 @@ public actor IrxStreamWriter {
 /// component owns each reader (the field bug this kills: a second drain loop
 /// starves the real consumer frame by frame).
 public actor IrxStreamReader {
-    private let stream: RecvStream
+    private let stream: any IrxCarrierRecvStream
     private var buffer = Data()
     private var eof = false
 
-    init(_ stream: RecvStream) {
+    init(_ stream: any IrxCarrierRecvStream) {
         self.stream = stream
     }
 
@@ -139,7 +139,7 @@ public actor IrxConnection {
 
     nonisolated public let role: Role
     nonisolated public let remoteEndpointIDHex: String
-    private let connection: Connection
+    private let connection: any IrxCarrierConnection
     /// Instant of the most recent keepalive pong; nil before the first pong.
     /// This is diagnostic history; age alone never proves the peer is dead.
     public private(set) var lastPongAt: ContinuousClock.Instant?
@@ -164,17 +164,26 @@ public actor IrxConnection {
         connection: Connection, role: Role, journal: IrxJournal,
         diagnosticLog: DiagnosticLog? = nil
     ) {
-        self.connection = connection
+        self.connection = IrohCarrierConnection(connection)
         self.role = role
         self.journal = journal
         pathDiagnostics = diagnosticLog.map {
             CmxIrohConnectionPathDiagnostics(connection: connection, diagnosticLog: $0)
         }
-        remoteEndpointIDHex = connection.remoteId().toBytes()
-            .map { String(format: "%02x", $0) }.joined()
+        remoteEndpointIDHex = self.connection.remoteEndpointIDHex
     }
 
-    public nonisolated var underlying: Connection { connection }
+    /// Runs irx over a carrier that already authenticated its peer key.
+    public init(carrier: any IrxCarrierConnection, role: Role, journal: IrxJournal) {
+        connection = carrier
+        self.role = role
+        self.journal = journal
+        pathDiagnostics = nil
+        remoteEndpointIDHex = carrier.remoteEndpointIDHex
+    }
+
+    /// The QUIC connection underneath this session.
+    public nonisolated var carrier: any IrxCarrierConnection { connection }
 
     public var isClosed: Bool {
         closedFlag || nativeClosureObserved || connection.closeReason() != nil
@@ -249,15 +258,14 @@ public actor IrxConnection {
     /// server right after admission (lanes) and by the client for the
     /// server-opened events lane.
     public func raiseRemoteStreamCredit(bi: UInt64, uni: UInt64) {
-        try? connection.setMaxConcurrentBiStreams(count: bi)
-        try? connection.setMaxConcurrentUniStreams(count: uni)
+        connection.setMaxConcurrentStreams(bi: bi, uni: uni)
     }
 
     /// Opens a bidirectional lane and sends its descriptor.
     public func openLane(_ descriptor: IrxLaneDescriptor) async throws -> IrxLaneStream {
         let stream = try await connection.openBi()
-        let writer = IrxStreamWriter(stream.send())
-        let reader = IrxStreamReader(stream.recv())
+        let writer = IrxStreamWriter(stream.send)
+        let reader = IrxStreamReader(stream.recv)
         try await writer.writeControlFrame(descriptor)
         return IrxLaneStream(descriptor: descriptor, writer: writer, reader: reader)
     }
@@ -276,8 +284,8 @@ public actor IrxConnection {
         while !Task.isCancelled {
             do {
                 let stream = try await connection.acceptBi()
-                let reader = IrxStreamReader(stream.recv())
-                let writer = IrxStreamWriter(stream.send())
+                let reader = IrxStreamReader(stream.recv)
+                let writer = IrxStreamWriter(stream.send)
                 do {
                     if let descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self) {
                         return IrxLaneStream(descriptor: descriptor, writer: writer, reader: reader)
@@ -318,11 +326,7 @@ public actor IrxConnection {
 
     /// The selected QUIC path right now, for relay attribution evidence.
     public nonisolated func selectedPathDescription() -> String {
-        let paths = connection.paths()
-        guard let selected = paths.first(where: { $0.isSelected }) ?? paths.first else {
-            return "none"
-        }
-        return "\(selected.isRelay ? "relay" : "direct"):\(selected.remoteAddr)"
+        connection.selectedPath().description
     }
 
     /// Samples application round-trip latency on an optional lane.
@@ -520,7 +524,7 @@ public actor IrxConnection {
         keepaliveSettings = nil
         pathDiagnostics = nil
         cancelProbe()
-        try? connection.close(errorCode: 1, reason: code.reasonData)
+        connection.close(errorCode: 1, reason: code.reasonData)
         journal.record(
             "connection", "closed-locally",
             ["code": code.rawValue, "remote": String(remoteEndpointIDHex.prefix(12))]

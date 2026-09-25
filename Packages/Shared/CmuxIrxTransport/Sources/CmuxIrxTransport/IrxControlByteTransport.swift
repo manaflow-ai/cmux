@@ -204,18 +204,21 @@ extension IrxControlByteTransport: CmxByteTransportContinuityIdentifying {
     /// tell a surviving transport from a replacement.
     public func transportContinuityID() async -> UInt64? {
         guard let (connection, _) = pair else { return nil }
-        return connection.underlying.stableId()
+        return connection.carrier.stableID
     }
 }
 
 extension IrxControlByteTransport: CmxByteTransportConnectionInspecting {
     public func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
         guard !isClosed, let (connection, _) = pair else { return nil }
-        let selected = connection.underlying.paths().first(where: { $0.isSelected })
-        return CmxTransportConnectionObservation(
-            continuityID: connection.underlying.stableId(),
-            pathKind: selected.map { $0.isRelay ? .relay : .direct } ?? .unknown
-        )
+        let carrier = connection.carrier
+        let pathKind: DiagnosticPathKind
+        switch carrier.selectedPath().kind {
+        case .direct: pathKind = .direct
+        case .relay: pathKind = .relay
+        case .unknown: pathKind = .unknown
+        }
+        return CmxTransportConnectionObservation(continuityID: carrier.stableID, pathKind: pathKind)
     }
 }
 

@@ -256,7 +256,7 @@ struct IrxLiveQUICTests {
                 return await first.0.isConnectionClosed() ? replacement : first
             },
             onClose: { connection, code, retiresConnection in
-                #expect(connection.underlying.stableId() == first.0.underlying.stableId())
+                #expect(connection.carrier.stableID == first.0.carrier.stableID)
                 await releaseProbe.record(closeCode: code, retiresConnection: retiresConnection)
             }
         )
@@ -265,7 +265,7 @@ struct IrxLiveQUICTests {
         await serverPairs[0].0.close(code: .hostShutdown, origin: .local)
         // Synchronize with Iroh's native closure without receiving on the old
         // control lane, which would independently mark the transport closed.
-        _ = await first.0.underlying.closed()
+        _ = await first.0.carrier.closed()
         #expect(await transport.isTransportClosed())
 
         do {

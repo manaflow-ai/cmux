@@ -3409,11 +3409,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            // Tailscale Only excludes Iroh for every pairing. Automatic may
-            // use Iroh, while Direct has its own address allowlist.
+            // The identity route carries every method: Automatic dials it over
+            // Iroh, while Direct and Tailscale Only pin it to Direct QUIC at
+            // their allowlisted addresses (`connectStoredMacOutcome`).
+            let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
+            // An explicit Tailscale selection never falls back to a refreshed
+            // route set or another saved Mac when its pinned dial fails.
             let candidateUsesStrictTailscale = connectionMethod(for: mac) == .tailscale
-            let irohReconnectIsBlocked = candidateUsesStrictTailscale
-                || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
             }
@@ -10166,10 +10168,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // allowlist from their freshly loaded row and pass it in; ticket
         // dials resolve it here from the published pairing list, using the
         // caller's pairing identity so a sibling build sharing the device id
-        // cannot supply the wrong method. Tailscale never supplies Iroh dial
-        // candidates, because its selected route must remain Tailscale.
-        // Stored reconnect callers already resolved Direct and supplied its
-        // allowlist. Avoid rescanning every saved pairing in that hot path.
+        // cannot supply the wrong method. Direct and (with a known Mac device
+        // key) Tailscale Only supply Direct QUIC candidates.
+        // Stored reconnect callers already resolved the method and supplied
+        // its allowlist. Avoid rescanning every saved pairing in that hot path.
         let resolvedMethod = resolvedConnectionMethod
             ?? connectionMethod(
                 forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
@@ -10187,14 +10189,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 authorizations: userTailscalePairingAuthorizations
             ) != nil
         }
-        let directOnlyDialCandidates = directOnlyDialCandidates
-            ?? (resolvedMethod == .direct
-                && !hasFreshExplicitTailscaleAuthorization
-                ? irohMethodPinnedDialCandidates(
+        // A pairing code that also names the Mac's device key upgrades its
+        // Tailscale endpoints to Direct QUIC; a legacy code keeps raw TCP.
+        let freshTailscaleDirectQuicCandidates = hasFreshExplicitTailscaleAuthorization
+            && ticket.routes.contains(where: { $0.kind == .iroh })
+            ? Self.tailscaleDirectQuicCandidates(from: ticket.routes.filter { route in
+                Self.userTailscalePairingAuthorization(
+                    for: route, authorizations: userTailscalePairingAuthorizations) != nil
+            })
+            : nil
+        let methodPinnedDialCandidates: [CmxIrohDirectDialCandidate]?
+        if let freshTailscaleDirectQuicCandidates {
+            methodPinnedDialCandidates = freshTailscaleDirectQuicCandidates
+        } else if hasFreshExplicitTailscaleAuthorization {
+            methodPinnedDialCandidates = nil
+        } else {
+            switch resolvedMethod {
+            case .direct:
+                methodPinnedDialCandidates = irohMethodPinnedDialCandidates(
                     forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
                     instanceTag: instanceTagExpectation.expectedTag
                 ) ?? []
-                : nil)
+            case .tailscale:
+                methodPinnedDialCandidates = ticket.routes.contains(where: { $0.kind == .iroh })
+                    ? Self.tailscaleDirectQuicCandidates(from: legacyTailscaleRoutes)
+                    : nil
+            case .automatic:
+                methodPinnedDialCandidates = nil
+            }
+        }
+        let directOnlyDialCandidates = directOnlyDialCandidates ?? methodPinnedDialCandidates
         let supportedRoutes = supportedRoutes(
             for: ticket,
             supportedKinds: supportedKinds,

@@ -235,11 +235,11 @@ import Testing
         ])
         #expect(encodeLegacy(loopbackTailscale) == nil)
 
-        // A non-Tailscale fallback route the bare host:port grammar cannot
-        // express (an iroh peer) must NOT be silently dropped: the ticket
-        // keeps the lossless compact payload instead. Only loopback routes,
-        // which no phone may ever dial, are droppable.
-        let withIrohFallback = try pairingTicket(routes: [
+        // An Iroh route carrying path hints the grammar cannot express must
+        // NOT be silently dropped: the ticket keeps the lossless compact
+        // payload instead. Only loopback routes, which no phone may ever
+        // dial, are droppable.
+        let withIrohHints = try pairingTicket(routes: [
             tailscale,
             try CmxAttachRoute(
                 id: "iroh",
@@ -247,14 +247,45 @@ import Testing
                 endpoint: .peer(
                     id: String(repeating: "d", count: 64),
                     relayHint: nil,
-                    directAddrs: [],
+                    directAddrs: ["192.168.1.2:58466"],
                     relayURL: nil
                 ),
                 priority: 20
             ),
         ])
-        #expect(encodeLegacy(withIrohFallback) == nil)
-        #expect(!canEncodeLegacy(withIrohFallback))
+        #expect(encodeLegacy(withIrohHints) == nil)
+        #expect(!canEncodeLegacy(withIrohHints))
+    }
+
+    @Test func tailscaleCodeCarriesTheMacDeviceKeyForDirectQuic() throws {
+        let endpointID = String(repeating: "d", count: 64)
+        let ticket = try pairingTicket(routes: [
+            try CmxAttachRoute(
+                id: "tailscale",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "100.64.0.5", port: 58465),
+                priority: 10
+            ),
+            try CmxAttachRoute(
+                id: "iroh",
+                kind: .iroh,
+                endpoint: .peer(identity: try CmxIrohPeerIdentity(endpointID: endpointID), pathHints: []),
+                priority: 0
+            ),
+        ])
+        let encoded = try #require(encodeLegacy(ticket))
+        #expect(encoded.contains("r=100.64.0.5:58465"))
+        #expect(encoded.contains("i=\(endpointID)"))
+
+        let decoded = try CmxPairingQRCode().decode(try #require(URLComponents(string: encoded)))
+        #expect(decoded.macDeviceID == ticket.macDeviceID)
+        #expect(decoded.routes.contains { route in
+            guard route.kind == .iroh, case let .peer(identity, _) = route.endpoint else { return false }
+            return identity.endpointID == endpointID
+        })
+        #expect(decoded.routes.contains { route in
+            route.kind == .tailscale && route.endpoint == .hostPort(host: "100.64.0.5", port: 58465)
+        })
     }
 
     @Test(arguments: [

@@ -7,7 +7,6 @@ extension MobileIrxRuntimeComposition {
     private struct DetachedRuntime: Sendable {
         let control: V2ControlService?
         let endpointSupervisor: IrxEndpointSupervisor?
-        let directEndpointSupervisor: IrxEndpointSupervisor?
         let engines: [IrxPeerEngine]
     }
 
@@ -165,12 +164,10 @@ extension MobileIrxRuntimeComposition {
             guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             let engines = Array(enginesByPeer.values)
             let supervisor = endpointSupervisor
-            let directSupervisor = directEndpointSupervisor
             endpointWarmupTask?.cancel()
             endpointWarmupTask = nil
             for engine in engines { await engine.stop(code: .revoked) }
             await supervisor?.deactivate()
-            await directSupervisor?.deactivate()
             guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             journal.record("v2-lifecycle", "authority-revoked")
             return
@@ -270,9 +267,8 @@ extension MobileIrxRuntimeComposition {
         endpointWarmupTask?.cancel(); endpointWarmupTask = nil
         let oldControl = control
         let oldSupervisor = endpointSupervisor
-        let oldDirectSupervisor = directEndpointSupervisor
         let oldEngines = Array(enginesByPeer.values)
-        control = nil; endpointSupervisor = nil; directEndpointSupervisor = nil; identity = nil; cache = nil
+        control = nil; endpointSupervisor = nil; identity = nil; cache = nil
         lastLoggedControlState = nil
         lastFailure = nil
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
@@ -282,7 +278,6 @@ extension MobileIrxRuntimeComposition {
         return DetachedRuntime(
             control: oldControl,
             endpointSupervisor: oldSupervisor,
-            directEndpointSupervisor: oldDirectSupervisor,
             engines: oldEngines
         )
     }
@@ -294,7 +289,6 @@ extension MobileIrxRuntimeComposition {
                 await engine.stop()
             }
             await runtime.endpointSupervisor?.deactivate()
-            await runtime.directEndpointSupervisor?.deactivate()
         }
     }
 }
