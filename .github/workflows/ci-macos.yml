@@ -510,9 +510,10 @@ jobs:
       # CI_OWNED_PREFER_SEED set, adopt the seed instead when it compiles
       # less: first whether a local package source changed (that recompiles
       # the whole app), then how many inputs changed. `local` compares only
-      # with a seed this Mac keeps (no download); a number N also takes a
-      # downloaded seed at most N commits behind, or at any distance when it
-      # alone spares the app recompile. owned_build_state.py `prefer` has the
+      # with the seeds this Mac keeps (no download); a number N also takes a
+      # downloaded seed at most N commits behind when GitHub's compare says it
+      # changes enough fewer inputs to pay for the download, or at any
+      # distance when it alone spares the app recompile. owned_build_state.py `prefer` has the
       # rules; unset, nothing changes. If the seed then misses, the kept
       # DerivedData is adopted.
       - name: Prefer a near seed over this owned Mac's DerivedData
@@ -942,7 +943,19 @@ jobs:
           # COPYFILE_DISABLE: see the matching note in test-e2e.yml. gzip -1
           # takes about a third of the default level's time on this product
           # for an archive about 11% larger.
-          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products | gzip -1 > "$archive"
+          # Build/Products reaches each framework binary through Versions/Current
+          # symlinks, and product extractors accept no symlinks, so `tar -h` stored
+          # every framework binary three times: 1.9 GB on disk became 2.7 GB of
+          # tar and 830 MB gzipped. Stage the tree as hard links with the symlinks
+          # followed (the same tree `tar -h` wrote, beside the DerivedData so the
+          # links stay on one volume); tar then stores each file once and every
+          # other path as a hard link, which tar -x, aa and
+          # reuse_app_host_products.py all extract. Same files, 572 MB, packed
+          # faster.
+          stage="$(mktemp -d "${CMUX_COMPILE_ADMISSION_DERIVED_DATA%/*}/.product-pack.XXXXXX")"
+          trap 'rm -rf "$stage"' EXIT
+          (cd "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" && pax -rwlL Build/Products "$stage")
+          COPYFILE_DISABLE=1 tar -cf - -C "$stage" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload compiled app-host test product
@@ -2881,6 +2894,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWorkspaces
             CMUXAgentLaunch
             CmuxAgentJournal
             CmuxFilePreviewCore

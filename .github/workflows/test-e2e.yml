@@ -633,7 +633,19 @@ jobs:
           # (Build/._Products) for Xcode's xattrs. macOS tar folds them back
           # in on extract, so the test job never noticed, but cross-run reuse
           # extracts with Python and rejects them as unscoped paths.
-          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
+          # Build/Products reaches each framework binary through Versions/Current
+          # symlinks, and product extractors accept no symlinks, so `tar -h` stored
+          # every framework binary three times: 1.9 GB on disk became 2.7 GB of
+          # tar and 830 MB gzipped. Stage the tree as hard links with the symlinks
+          # followed (the same tree `tar -h` wrote, beside the DerivedData so the
+          # links stay on one volume); tar then stores each file once and every
+          # other path as a hard link, which tar -x, aa and
+          # reuse_app_host_products.py all extract. Same files, 572 MB, packed
+          # faster.
+          stage="$(mktemp -d "${CMUX_DERIVED_DATA_PATH%/*}/.product-pack.XXXXXX")"
+          trap 'rm -rf "$stage"' EXIT
+          (cd "$CMUX_DERIVED_DATA_PATH" && pax -rwlL Build/Products "$stage")
+          COPYFILE_DISABLE=1 tar -cf - -C "$stage" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "bytes=$(wc -c < "$archive" | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
