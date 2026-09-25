@@ -432,6 +432,10 @@ path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_owned_warm_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
@@ -834,6 +838,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_cli_version_memory_guard.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_version_memory_guard_harness.py"
+lane = "macos-shell"
 
 [[test]]
 path = "tests/test_cli_vm_create_name.py"

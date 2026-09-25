@@ -633,17 +633,20 @@ class OwnedMarkerRunTests(unittest.TestCase):
 
     def test_ci_pull_requests_and_e2e_dispatches_may_hold_an_owned_pool(self):
         self.assertTrue(janitor.may_hold_owned_pool(self.run_of(), []))
+        # Attempt 2 may take the light tier, only while CI_OWNED_LIGHT_RETRY is on.
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=2), [], light_retry=True))
+        self.assertFalse(janitor.may_hold_owned_pool(self.run_of(run_attempt=2), []))
         self.assertTrue(janitor.may_hold_owned_pool(
             self.run_of(event="workflow_dispatch", path=".github/workflows/test-e2e.yml"), []))
         for why, run in {
             "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
             "e2e as a pull request": self.run_of(path=".github/workflows/test-e2e.yml"),
-            "retry": self.run_of(run_attempt=2),
+            "third attempt": self.run_of(run_attempt=3),
             "fork": self.run_of(head_repository={"id": 2}),
             "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
         }.items():
             with self.subTest(why=why):
-                self.assertFalse(janitor.may_hold_owned_pool(run, []))
+                self.assertFalse(janitor.may_hold_owned_pool(run, [], light_retry=True))
 
 
 class WorkflowShapeTests(unittest.TestCase):

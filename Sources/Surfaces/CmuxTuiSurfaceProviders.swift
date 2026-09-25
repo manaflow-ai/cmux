@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxCloud
 import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
