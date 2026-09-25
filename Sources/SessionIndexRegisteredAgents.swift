@@ -425,6 +425,11 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) async -> [SessionEntry] {
+        if registration.id == CmuxVaultAgentRegistration.builtInKiro.id {
+            return loadKiroEntries(
+                registration: registration, needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit
+            )
+        }
         if registration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
             return loadAntigravityHistoryEntries(
                 registration: registration,
@@ -813,7 +818,7 @@ extension SessionIndexStore {
         return nil
     }
 
-    nonisolated private static func fileContains(_ url: URL, needle: String) -> Bool {
+    nonisolated static func fileContains(_ url: URL, needle: String) -> Bool {
         guard !needle.isEmpty,
               let handle = try? FileHandle(forReadingFrom: url) else {
             return false
