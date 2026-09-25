@@ -131,13 +131,14 @@ struct GhosttyTitleUpdateIngressTests {
             title: "pnpm run build"
         ))
         // A schedule already exists from the first phase, so awaiting it would
-        // not wait for this submission. Poll until the change is delivered.
+        // not wait for this submission. Poll, bounded by a deadline, until the
+        // change is delivered.
         var labelChange: GhosttyTitleChange?
-        for _ in 0..<200 {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while labelChange == nil, ContinuousClock.now < deadline {
             await Task.yield()
             await scheduler.fire()
             labelChange = observed.values.first { $0.title == "pnpm run build" }
-            if labelChange != nil { break }
         }
 
         // A frame-free title: `isSpinnerFrameOnly` is `title != stableTitle`, so a
