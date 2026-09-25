@@ -367,7 +367,7 @@ def print_status(state: State) -> None:
         print(f"{test:{width}}  " + " ".join(f"{c:>2}" for c in cells) + "  " + "; ".join(notes))
 
 
-def next_points(state: State, include_fixed: bool = False) -> list[str]:
+def next_points(state: State, include_fixed: bool = False, ways: int = 1) -> list[str]:
     """The unprobed commit nearest the middle of each open window.
 
     A probe inside the window that answered nothing for the test (an error,
@@ -379,8 +379,9 @@ def next_points(state: State, include_fixed: bool = False) -> list[str]:
         if any(sha in state.probes and state.probes[sha].status == "pending" for sha in window):
             continue  # its answer is on the way
         inside = [sha for sha in window if sha not in state.probes]
-        if inside:
-            picks.add(inside[len(inside) // 2])
+        count = min(ways, len(inside))
+        # `ways` probes cut the window into ways + 1 parts in one CI round.
+        picks.update(inside[(i + 1) * len(inside) // (count + 1)] for i in range(count))
     return sorted(picks, key=state.history.index)
 
 
@@ -454,7 +455,7 @@ def cmd_status(args) -> None:
 def cmd_next(args) -> None:
     state = State.load(args.bisect or args.package)
     refresh(state)
-    picks = next_points(state, args.fixed)
+    picks = next_points(state, args.fixed, args.ways)
     if not picks:
         print("no open windows: every break is pinned to one commit, flaky, or older than the oldest probe")
     for sha in picks:
@@ -502,6 +503,7 @@ def main(argv: list[str] | None = None) -> None:
     nxt = sub.add_parser("next")
     nxt.add_argument("--dispatch", action="store_true")
     nxt.add_argument("--fixed", action="store_true", help="also split windows where a test was fixed")
+    nxt.add_argument("--ways", type=int, default=1, help="probes per window per round (3 cuts 64 commits in 3 rounds)")
     sub.add_parser("cleanup")
     args = parser.parse_args(argv)
     {"start": cmd_start, "adopt": cmd_adopt, "status": cmd_status, "next": cmd_next, "cleanup": cmd_cleanup}[args.command](args)

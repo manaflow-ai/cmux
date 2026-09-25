@@ -130,6 +130,15 @@ class NextPointsSkipTests(unittest.TestCase):
         self.assertIn(picks[0], inside)
 
 
+class WaysTests(unittest.TestCase):
+    def test_ways_spreads_distinct_probes_across_the_window(self):
+        s, shas = state([set(), {"t"}])
+        inside = MODULE.between(s, shas[0], shas[1])
+        picks = MODULE.next_points(s, ways=3)
+        self.assertEqual(len(picks), 3)
+        self.assertTrue(set(picks) <= set(inside))
+
+
 class PendingWindowTests(unittest.TestCase):
     def test_window_with_a_pending_probe_waits(self):
         s, shas = state([set(), {"t"}])
