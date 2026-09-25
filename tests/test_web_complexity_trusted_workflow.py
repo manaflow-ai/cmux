@@ -13,6 +13,7 @@ form; an exact step cannot be weakened without this test changing with it.
 from __future__ import annotations
 
 import ast
+import os
 import shutil
 import subprocess
 import tempfile
@@ -558,7 +559,7 @@ def checker_fixture(candidate_baseline: str, base_baseline: str) -> tuple[Path, 
 
 
 
-def test_checker_protects_trusted_scoper() -> None:
+def test_checker_compares_strict_trusted_tree_entries() -> None:
     if shutil.which("node") is None:
         raise AssertionError("node is required for the checker policy regression")
 
@@ -568,9 +569,30 @@ def test_checker_protects_trusted_scoper() -> None:
         trusted = root / "trusted"
         candidate = root / "candidate"
         (trusted / "web/scripts").mkdir(parents=True)
-        (candidate / "web/scripts").mkdir(parents=True)
         shutil.copy2(CHECKER, trusted / "web/scripts/check-complexity.mjs")
-        shutil.copy2(CHECKER, candidate / "web/scripts/check-complexity.mjs")
+        policy_paths = (
+            "scripts/ci/scope-web-complexity.py",
+            "web/scripts/check-complexity.mjs",
+            ".github/workflows/web-complexity-trusted.yml",
+        )
+        write(trusted, policy_paths[0], "trusted\n")
+        write(trusted, policy_paths[2], "trusted\n")
+        write(trusted, "web/.oxlintrc.json", '{"rules":{"complexity":["error",{"max":20,"variant":"classic"}]}}\n')
+        write(trusted, "web/package.json", '{"devDependencies":{"oxlint":"1.0.0"}}\n')
+        write(trusted, "web/bun.lock", '"oxlint": "1.0.0"\n')
+        write(trusted, BASELINE, "")
+        git(trusted, "init", "-q")
+        git(trusted, "config", "user.email", "ci@example.com")
+        git(trusted, "config", "user.name", "CI")
+        git(trusted, "config", "commit.gpgsign", "false")
+        base = commit(trusted, "trusted policy")
+        # The workflow uses separate shallow checkouts. Only trusted needs the
+        # module stub: no source scan runs in this policy-only fixture.
+        run(["git", "clone", "-q", "--depth=1", trusted.as_uri(), str(candidate)])
+        git(candidate, "config", "user.email", "ci@example.com")
+        git(candidate, "config", "user.name", "CI")
+        git(candidate, "config", "commit.gpgsign", "false")
+        git(candidate, "config", "core.filemode", "true")
         (trusted / "web/node_modules/typescript").mkdir(parents=True)
         write(
             trusted,
@@ -578,24 +600,49 @@ def test_checker_protects_trusted_scoper() -> None:
             '{"type":"module","exports":"./index.js"}\n',
         )
         write(trusted, "web/node_modules/typescript/index.js", "export {};\n")
-        write(trusted, ".github/workflows/web-complexity-trusted.yml", "trusted\n")
-        write(candidate, ".github/workflows/web-complexity-trusted.yml", "trusted\n")
-        write(trusted, "scripts/ci/scope-web-complexity.py", "trusted\n")
-        write(candidate, "scripts/ci/scope-web-complexity.py", "candidate\n")
 
-        result = run(
-            [
-                "node",
-                str(trusted / "web/scripts/check-complexity.mjs"),
-                "--repo-root",
-                str(candidate),
-                "--tool-root",
-                str(trusted),
-            ],
-            check=False,
-        )
-        assert result.returncode == 2
-        assert b"scripts/ci/scope-web-complexity.py is a trusted policy file" in result.stderr
+        def check(head: str) -> subprocess.CompletedProcess[bytes]:
+            return run(
+                [
+                    "node",
+                    str(trusted / "web/scripts/check-complexity.mjs"),
+                    "--repo-root", str(candidate),
+                    "--tool-root", str(trusted),
+                    "--head", head,
+                    "--base-baseline", str(trusted / BASELINE),
+                ],
+                cwd=trusted / "web",
+                check=False,
+            )
+
+        unchanged = check(base)
+        assert unchanged.returncode == 0, unchanged.stderr
+        failures = []
+        for relative in policy_paths:
+            for change in ("symlink", "mode", "content", "deleted"):
+                git(candidate, "reset", "--hard", base)
+                git(candidate, "clean", "-fd")
+                policy = candidate / relative
+                if change == "symlink":
+                    copy = candidate / "web/evil/policy-copy"
+                    copy.parent.mkdir(parents=True, exist_ok=True)
+                    copy.write_bytes(policy.read_bytes())
+                    policy.unlink()
+                    policy.symlink_to(os.path.relpath(copy, policy.parent))
+                    assert policy.read_bytes() == (trusted / relative).read_bytes()
+                elif change == "mode":
+                    policy.chmod(policy.stat().st_mode ^ 0o111)
+                elif change == "content":
+                    policy.write_text("changed\n", encoding="utf-8")
+                else:
+                    policy.unlink()
+                head = commit(candidate, f"{change} {relative}")
+                result = check(head)
+                reason = "must remain present" if change == "deleted" else "is a trusted policy file"
+                expected = f"{relative} {reason}".encode()
+                if result.returncode != 2 or expected not in result.stderr:
+                    failures.append(f"{change} {relative}: exit {result.returncode}, stderr={result.stderr!r}")
+        assert not failures, "\n".join(failures)
     finally:
         temp.cleanup()
 
@@ -920,7 +967,7 @@ def main() -> int:
     test_candidate_baseline_symlink_fails_closed()
     test_policy_symlink_fails_closed()
     test_selected_symlink_fails_closed()
-    test_checker_protects_trusted_scoper()
+    test_checker_compares_strict_trusted_tree_entries()
     test_checker_judges_trusted_files_in_the_merge()
     test_merge_step_merges_only_when_rebase_merging_is_off()
     test_checker_baseline_ratchet()
