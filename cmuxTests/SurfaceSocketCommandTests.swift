@@ -317,7 +317,7 @@ struct SurfaceSocketCommandTests {
             // A machine filter narrows every section of the catalog.
             let one = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))
             #expect((one["machines"] as? [[String: Any]])?.count == 1)
-            #expect(Self.resourceIDs(one) == [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue])
+            #expect(Self.resourceIDs(one) == [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue, fixture.display.rawValue])
             #expect(one["workspaces"] == nil)
 
             let tree = try Self.ok(try await Self.call("vm.tree", [:]))
