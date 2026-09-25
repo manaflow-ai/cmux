@@ -63,6 +63,14 @@ export class StorageTestDO {
       if (path === "/schema") return Response.json(Array.from(this.team.storage.sql.exec("SELECT version FROM schema_history ORDER BY version")));
       if (path === "/revision") return Response.json({ revision: this.team.readRevision() });
       if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
+      // Models the first directory/relay request after an existing authority
+      // lease is renewed on a v6-compatible store. Both production operations
+      // pass through observeAuthority before reading private state.
+      if (path === "/authority/renewal") {
+        const revision = this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now);
+        const devices = this.team.listDirectoryDevices(body.requester, body.now);
+        return Response.json({ revision, devices: devices.length });
+      }
       if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));
       if (path === "/audit/fill") {
         const db = drizzle((this.team.storage));

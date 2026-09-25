@@ -147,6 +147,24 @@ test("authority lease accepts newer verification and ignores stale updates", asy
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6600, now: 6600 })).status).toBe(500);
 });
 
+test("existing v6 storage serves directory and relay renewal operations after activation", async () => {
+  const renewalStub = storageNamespace.getByName("authority-renewal-v6");
+  const renewalPost = (path: string, body: unknown = {}) => postTo(renewalStub, path, body);
+  expect((await renewalPost("/upgrade-schema", { version: 6 })).status).toBe(200);
+  const renewalIdentity = { ...identity, userId: "renewal-user", deviceId: "renewal-device" };
+  const renewalDescriptor = { ...descriptor, identity: renewalIdentity, endpointId: "1".repeat(64) };
+  const challenge = { challengeId: "renewal-challenge", nonceHash: "renewal-nonce", payloadHash: "renewal-payload", expiresAt: 10_000, issuedAt: 9_000 };
+  expect((await renewalPost("/issue", { identity: renewalIdentity, issue: challenge })).status).toBe(200);
+  const registration = await renewalPost("/register", { input: { descriptor: renewalDescriptor, ...challenge, requestId: "renewal-register", requestHash: "renewal-hash", now: 9_001 } });
+  expect(registration.status).toBe(200);
+  const first = await renewalPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 9_100, expiresAt: 12_700, now: 9_100, requester: registration.body.device });
+  expect(first.status).toBe(200);
+  expect(first.body.devices).toBe(1);
+  const second = await renewalPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 10_100, expiresAt: 13_700, now: 10_100, requester: registration.body.device });
+  expect(second.status).toBe(200);
+  expect(second.body.devices).toBe(1);
+});
+
 test.each([6, 7])("schema %i: audit retention keeps revocation available at the bounded history limit", async (version) => {
   // This test owns a fresh DO. It does not depend on the registration/revision
   // state built by the other cases in this file.
