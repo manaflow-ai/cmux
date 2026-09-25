@@ -154,17 +154,19 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
 
             window.makeFirstResponder(nil)
             panel.surface.setFocus(false)
-            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            try #require(surfaceView.bounds.width > 1 && surfaceView.bounds.height > 1)
             panel.hostedView.suppressReparentFocus()
             #expect(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
             #expect(window.makeFirstResponder(surfaceView))
-            await AppKitTestEventPump().drain()
-            _ = await AppKitTestEventPump().waitUntil {
+            try #require(
                 !panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting()
-            }
-            #expect(!panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
+            )
             #expect(!panel.surface.debugDesiredFocusState())
 
+            // Establish first responder at usable geometry so it cannot queue a
+            // separate hidden/tiny apply. Shrink and clear suppression in this
+            // same turn; draining here lets AppKit restore usable geometry.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             panel.hostedView.clearSuppressReparentFocus()
 
             #expect(
