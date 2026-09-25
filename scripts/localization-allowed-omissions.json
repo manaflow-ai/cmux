@@ -3390,5 +3390,11 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "fileExplorer.sort.key.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "\"Name\" is the standard German word for a file name column; a translated entry is still required."
+    }
   }
 }

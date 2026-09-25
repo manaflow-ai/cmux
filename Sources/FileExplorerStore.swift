@@ -168,6 +168,23 @@ struct FileExplorerEntry: Sendable {
     let name: String
     let path: String
     let isDirectory: Bool
+    let creationDate: Date?
+    let modificationDate: Date?
+
+    /// Creates an entry. Dates default to `nil` for providers that cannot report them; date sorts place those entries last.
+    init(
+        name: String,
+        path: String,
+        isDirectory: Bool,
+        creationDate: Date? = nil,
+        modificationDate: Date? = nil
+    ) {
+        self.name = name
+        self.path = path
+        self.isDirectory = isDirectory
+        self.creationDate = creationDate
+        self.modificationDate = modificationDate
+    }
 }
 
 final class FileExplorerNode: Identifiable {
@@ -175,26 +192,30 @@ final class FileExplorerNode: Identifiable {
     let name: String
     let path: String
     let isDirectory: Bool
+    let creationDate: Date?
+    let modificationDate: Date?
     var children: [FileExplorerNode]?
     var isLoading: Bool = false
     var error: String?
     var resourceContextID: UUID?
 
-    init(name: String, path: String, isDirectory: Bool) {
+    /// Creates a node for `path`, carrying the listing timestamps used by date sorts.
+    init(
+        name: String,
+        path: String,
+        isDirectory: Bool,
+        creationDate: Date? = nil,
+        modificationDate: Date? = nil
+    ) {
         self.id = path
         self.name = name
         self.path = path
         self.isDirectory = isDirectory
+        self.creationDate = creationDate
+        self.modificationDate = modificationDate
     }
 
     var isExpandable: Bool { isDirectory }
-
-    var sortedChildren: [FileExplorerNode]? {
-        children?.sorted { a, b in
-            if a.isDirectory != b.isDirectory { return a.isDirectory }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
-    }
 }
 
 // MARK: - Root Resolver
@@ -273,14 +294,35 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
     var isAvailable: Bool { true }
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+        try await Self.readDirectoryEntries(path: path, showHidden: showHidden)
+    }
+
+    /// Lists `path` with the creation and modification dates the sort options need. The directory read and per-entry `resourceValues` lookups run off the caller's actor so a large folder never blocks the main thread.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func readDirectoryEntries(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         let fm = FileManager.default
-        let contents = try fm.contentsOfDirectory(atPath: path)
-        return contents.compactMap { name in
+        let contents = try fm.contentsOfDirectory(
+            at: URL(fileURLWithPath: path, isDirectory: true),
+            includingPropertiesForKeys: [.isDirectoryKey, .creationDateKey, .contentModificationDateKey],
+            options: []
+        )
+        return contents.compactMap { url in
+            let name = url.lastPathComponent
             guard showHidden || !name.hasPrefix(".") else { return nil }
-            let fullPath = (path as NSString).appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: fullPath, isDirectory: &isDir) else { return nil }
-            return FileExplorerEntry(name: name, path: fullPath, isDirectory: isDir.boolValue)
+            let values = try? url.resourceValues(
+                forKeys: [.isDirectoryKey, .creationDateKey, .contentModificationDateKey]
+            )
+            return FileExplorerEntry(
+                name: name,
+                path: url.path,
+                isDirectory: values?.isDirectory ?? false,
+                creationDate: values?.creationDate,
+                modificationDate: values?.contentModificationDate
+            )
         }
     }
 }
@@ -619,8 +661,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func runSSHCommand(connection: SSHFileExplorerConnection, command: String) async throws -> String {
+        let result = try await runSSHCommandResult(connection: connection, command: command)
+        guard result.terminationStatus == 0 else {
+            throw FileExplorerError.sshCommandFailed(result.stderr)
+        }
+        return result.stdout
+    }
+
+    /// Runs `command` and returns its exit status with the captured output, so
+    /// callers can react to specific non-zero statuses. Only transport failures
+    /// (spawn errors, cancellation) throw.
+    private static func runSSHCommandResult(
+        connection: SSHFileExplorerConnection,
+        command: String
+    ) async throws -> SSHCommandResult {
         let commandProcess = SSHCommandProcess(connection: connection, command: command)
-        let result = try await withTaskCancellationHandler {
+        return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     continuation.resume(with: Result { try commandProcess.run() })
@@ -629,11 +685,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         } onCancel: {
             commandProcess.terminate()
         }
-
-        guard result.terminationStatus == 0 else {
-            throw FileExplorerError.sshCommandFailed(result.stderr)
-        }
-        return result.stdout
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
@@ -653,37 +704,179 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return args
     }
 
-    private static func runSSHListCommand(
+    /// Lists `path` on the remote host with timestamps, falling back to the undated `ls` listing when the host lacks the needed tools. Runs off the caller's actor so building the command, parsing large listings, and the fallback round trip never occupy the main thread.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private static func runSSHListCommand(
         path: String,
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
-        // Escape single quotes in path for shell safety
-        let escapedPath = shellSingleQuote(path)
-        let lsFlags = showHidden ? "-1paFA" : "-1paF"
+        let result = try await runSSHCommandResult(
+            connection: connection,
+            command: posixShellBootstrap(script: remoteListingScript(path: path, showHidden: showHidden))
+        )
+        if result.terminationStatus == 0 {
+            return parseRemoteListing(result.stdout, path: path, showHidden: showHidden)
+        }
+        // Only a missing tool (`base64`, `find`, a usable `stat`) falls back to
+        // the plain `ls` listing without dates. Access failures and dead
+        // connections keep their error so the explorer does not retry against
+        // an unreadable directory or an unreachable host.
+        guard result.terminationStatus == remoteListingUnsupportedToolsStatus else {
+            throw FileExplorerError.sshCommandFailed(result.stderr)
+        }
         let output = try await runSSHCommand(
             connection: connection,
-            command: "ls \(lsFlags) \(escapedPath) 2>/dev/null"
+            command: legacyListingCommand(path: path, showHidden: showHidden)
         )
+        return parseLegacyListing(output, path: path, showHidden: showHidden)
+    }
 
+    /// Exit status ``remoteListingScript(path:showHidden:)`` and
+    /// ``posixShellBootstrap(script:)`` use when the remote host lacks a tool
+    /// the dated listing needs. Distinct from `1` (unreadable or missing
+    /// directory) so ``runSSHListCommand`` can fall back without masking access
+    /// errors.
+    static let remoteListingUnsupportedToolsStatus: Int32 = 3
+
+    /// The pre-timestamp listing: POSIX `ls` with `-p`, which marks only
+    /// directories (a trailing `/`). `-F` would also suffix executables and
+    /// symlinks with `*`/`@`/`=`/`|`, and stripping those would corrupt names
+    /// that legitimately end in one of them. Used only when the dated script
+    /// reports ``remoteListingUnsupportedToolsStatus``.
+    static func legacyListingCommand(path: String, showHidden: Bool) -> String {
+        let lsFlags = showHidden ? "-1pa" : "-1p"
+        return "ls \(lsFlags) \(shellSingleQuote(path)) 2>/dev/null"
+    }
+
+    /// Parses ``legacyListingCommand(path:showHidden:)`` output. Entries carry
+    /// no dates, so date sorts place them in the "unknown" group.
+    static func parseLegacyListing(
+        _ output: String,
+        path: String,
+        showHidden: Bool
+    ) -> [FileExplorerEntry] {
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
         return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
             let entry = String(line)
-            // Skip . and .. entries
             guard entry != "./" && entry != "../" else { return nil }
             let isDir = entry.hasSuffix("/")
             let name = isDir ? String(entry.dropLast()) : entry
             guard showHidden || !name.hasPrefix(".") else { return nil }
-            // Strip type indicators from -F flag (*, @, =, |) for files
-            let cleanName: String
-            if !isDir, let last = name.last, "*@=|".contains(last) {
-                cleanName = String(name.dropLast())
-            } else {
-                cleanName = name
-            }
-            let fullPath = normalizedPath + cleanName
-            return FileExplorerEntry(name: cleanName, path: fullPath, isDirectory: isDir)
+            return FileExplorerEntry(name: name, path: normalizedPath + name, isDirectory: isDir)
         }
+    }
+
+    /// POSIX `sh` script that lists `path` for the file explorer.
+    ///
+    /// It detects GNU vs BSD `stat` once, then enumerates the directory with
+    /// `find ... -exec stat {} +`, which batches `stat` over the entries within
+    /// the argument-size limit. The previous implementation spawned two or more
+    /// `stat` processes per entry, which could make large remote directories
+    /// appear to hang; a single glob of every entry would instead overflow
+    /// `ARG_MAX` and truncate large listings. Timestamps are always collected
+    /// so changing the sort key re-sorts the cached listing without a re-fetch.
+    ///
+    /// Access failures stay distinguishable from empty directories: an
+    /// unreadable or missing directory (`cd` fails or `.` is not readable), a
+    /// host without a usable `stat`, or a listing command that fails (`find`
+    /// lacks `-mindepth`/`-maxdepth`, an unsupported `stat` format, or a
+    /// per-entry error) exits non-zero via `|| exit 1` so `runSSHCommand` raises
+    /// `sshCommandFailed` instead of masking the failure as an empty listing. A
+    /// readable but genuinely empty directory makes `find` exit zero with no
+    /// output and reaches the trailing `exit 0`, listing as empty.
+    static func remoteListingScript(path: String, showHidden: Bool) -> String {
+        let escapedPath = shellSingleQuote(path)
+        // Exclude dotfiles unless hidden entries are requested. `find` never
+        // yields `.`/`..` because it only descends from `.`.
+        let nameFilter = showHidden ? "" : "! -name '.*' "
+        // `stat` does NOT dereference symlinks (no `-L`): a following stat omits
+        // dangling symlinks entirely on GNU, hiding them from the explorer. With
+        // plain lstat every entry is listed, and symlinks report as their own
+        // type — matching the previous `ls -F` behavior.
+        //
+        // Literal tabs separate the fields; GNU `stat -c` does not expand `\t`.
+        return """
+        cd \(escapedPath) 2>/dev/null || exit 1
+        [ -r . ] || exit 1
+        command -v find >/dev/null 2>&1 || exit \(remoteListingUnsupportedToolsStatus)
+        if stat -c %Y / >/dev/null 2>&1; then
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%A\t%Y\t%W\t%n' {} + 2>/dev/null || exit 1
+        elif stat -f %m / >/dev/null 2>&1; then
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%Sp\t%m\t%B\t%N' {} + 2>/dev/null || exit 1
+        else
+          exit \(remoteListingUnsupportedToolsStatus)
+        fi
+        exit 0
+        """
+    }
+
+    /// Wraps a POSIX script so it runs under `/bin/sh`, independent of the
+    /// remote account's login shell.
+    ///
+    /// OpenSSH runs the remote command through the user's login shell, and
+    /// non-POSIX shells (fish, csh/tcsh) cannot parse `for`/`if`/`case` or
+    /// `$(...)`. The script is base64-encoded so only `/bin/sh -c` plus a
+    /// base64 payload — which contains no shell metacharacters — reaches the
+    /// login shell. `base64 -d` (GNU/coreutils) falls back to `-D` (BSD/macOS).
+    ///
+    /// If neither decode works (no/incompatible `base64`), the decoded script is
+    /// empty and the bootstrap exits with ``remoteListingUnsupportedToolsStatus``
+    /// rather than running `eval ""` and reporting a silently empty directory.
+    static func posixShellBootstrap(script: String) -> String {
+        let encoded = Data(script.utf8).base64EncodedString()
+        return "/bin/sh -c 'b=\(encoded); s=$(printf %s \"$b\" | base64 -d 2>/dev/null || printf %s \"$b\" | base64 -D 2>/dev/null); [ -n \"$s\" ] || exit \(remoteListingUnsupportedToolsStatus); eval \"$s\"'"
+    }
+
+    /// Parses the tab-separated output of ``remoteListingScript(path:showHidden:)``.
+    ///
+    /// Each line is `mode<TAB>mtime<TAB>btime<TAB>name`. The trailing `name`
+    /// field is split last so names containing spaces survive. The leading mode
+    /// string uses `stat`'s permission format (`d…`, `-…`, `l…`) so directory
+    /// detection does not depend on localized file-type prose. `find .` reports
+    /// each entry as `./name`, so only the final path component is kept.
+    static func parseRemoteListing(
+        _ output: String,
+        path: String,
+        showHidden: Bool
+    ) -> [FileExplorerEntry] {
+        let normalizedPath = path.hasSuffix("/") ? path : path + "/"
+        return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
+            guard parts.count == 4 else { return nil }
+            let rawName = parts[3]
+            let name = String(rawName.split(separator: "/").last ?? rawName)
+            guard !name.isEmpty, name != ".", name != ".." else { return nil }
+            guard showHidden || !name.hasPrefix(".") else { return nil }
+            let isDirectory = parts[0].first == "d"
+            return FileExplorerEntry(
+                name: name,
+                path: normalizedPath + name,
+                isDirectory: isDirectory,
+                creationDate: dateFromEpochString(String(parts[2]), minimumEpoch: birthTimeMinimumEpoch),
+                modificationDate: dateFromEpochString(String(parts[1]))
+            )
+        }
+    }
+
+    /// Birth times below this epoch (≈1973-03-03) are treated as unknown; some
+    /// filesystems report `0` or other small sentinels when birth time is
+    /// unavailable.
+    private static let birthTimeMinimumEpoch: TimeInterval = 100_000_000
+
+    /// Converts an epoch-seconds string from `stat` into a date, treating unparsable, non-positive, or below-`minimumEpoch` values as unknown.
+    private static func dateFromEpochString(
+        _ value: String,
+        minimumEpoch: TimeInterval = 0
+    ) -> Date? {
+        guard let seconds = TimeInterval(value), seconds > 0, seconds >= minimumEpoch else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: seconds)
     }
 
     private static func shellSingleQuote(_ value: String) -> String {
@@ -735,6 +928,8 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
+    private(set) var sortOptions: FileExplorerSortOptions
+    private(set) var sortRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
 
@@ -777,12 +972,33 @@ final class FileExplorerStore: ObservableObject {
     var remoteHomeResolutionKey: String?
     let cloudPreviewCache = CloudFilePreviewCache()
     private(set) var resourceContextID = UUID()
+    private let sortSettings: FileExplorerSortSettings
+    private let notificationCenter: NotificationCenter
+    private var sortSettingsObserver: NSObjectProtocol?
 
     private let gitStatusProvider: GitStatusProvider
     private var gitStatusGeneration: UInt64 = 0
 
-    init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
+    /// Creates the store. `sortDefaults` and `notificationCenter` are injectable so tests can isolate sort persistence.
+    init(
+        sortDefaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
+        gitStatusProvider: GitStatusProvider = GitStatusProvider()
+    ) {
+        self.notificationCenter = notificationCenter
         self.gitStatusProvider = gitStatusProvider
+        let sortSettings = FileExplorerSortSettings(defaults: sortDefaults, notificationCenter: notificationCenter)
+        self.sortSettings = sortSettings
+        self.sortOptions = sortSettings.resolvedOptions()
+        self.sortSettingsObserver = notificationCenter.addObserver(
+            forName: FileExplorerSortSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applySortOptionsFromDefaults()
+            }
+        }
     }
 
     var displayRootPath: String {
@@ -1033,6 +1249,24 @@ final class FileExplorerStore: ObservableObject {
         expandedPaths.contains(node.path)
     }
 
+    /// Selects `key`. Switching from name to a date key starts in descending order so the newest entries come first.
+    func setSortKey(_ key: FileExplorerSortKey) {
+        let nextOrder: FileExplorerSortOrder = sortOptions.key == .name && key != .name
+            ? .descending
+            : sortOptions.order
+        setSortOptions(FileExplorerSortOptions(key: key, order: nextOrder))
+    }
+
+    /// Changes the sort direction and keeps the current key.
+    func setSortOrder(_ order: FileExplorerSortOrder) {
+        setSortOptions(FileExplorerSortOptions(key: sortOptions.key, order: order))
+    }
+
+    /// Applies and persists `options`, re-sorting every loaded level.
+    func setSortOptions(_ options: FileExplorerSortOptions) {
+        applySortOptions(options, persist: true)
+    }
+
     func select(node: FileExplorerNode?) {
         let path = node?.path
         let paths = path.map { Set([$0]) } ?? []
@@ -1114,14 +1348,17 @@ final class FileExplorerStore: ObservableObject {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
             let children = entries.map { entry in
-                let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
+                let node = FileExplorerNode(
+                    name: entry.name,
+                    path: entry.path,
+                    isDirectory: entry.isDirectory,
+                    creationDate: entry.creationDate,
+                    modificationDate: entry.modificationDate
+                )
                 node.resourceContextID = resourceContextID
                 nodesByPath[entry.path] = node
                 return node
-            }.sorted { a, b in
-                if a.isDirectory != b.isDirectory { return a.isDirectory }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            }
+            }.sorted(using: sortOptions)
 
             if let parentNode {
                 parentNode.children = children
@@ -1187,6 +1424,37 @@ final class FileExplorerStore: ObservableObject {
         isRootLoading = false
     }
 
+    /// Adopts options written to `UserDefaults` elsewhere, such as a `cmux.json` reload or another explorer, without writing them back.
+    private func applySortOptionsFromDefaults() {
+        applySortOptions(sortSettings.resolvedOptions(), persist: false)
+    }
+
+    /// Re-sorts loaded nodes and bumps ``sortRevision`` so the outline reloads; persists only when the change came from this store.
+    private func applySortOptions(_ options: FileExplorerSortOptions, persist: Bool) {
+        guard sortOptions != options else { return }; objectWillChange.send()
+        sortOptions = options
+        resortLoadedNodes()
+        sortRevision &+= 1
+        if persist {
+            sortSettings.setOptions(options)
+        }
+    }
+
+    /// Reorders the root list and every cached child list in place. Nodes are reused, so selection, expansion, and `resourceContextID` are unaffected.
+    private func resortLoadedNodes() {
+        rootNodes = sortNodes(rootNodes)
+        for node in nodesByPath.values {
+            if let children = node.children {
+                node.children = sortNodes(children)
+            }
+        }
+    }
+
+    /// Sorts one sibling list with the current options.
+    private func sortNodes(_ nodes: [FileExplorerNode]) -> [FileExplorerNode] {
+        FileExplorerNodeSorter(options: sortOptions).sorted(nodes)
+    }
+
     private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {
         let cacheRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-remote-file-previews", isDirectory: true)
@@ -1207,7 +1475,17 @@ final class FileExplorerStore: ObservableObject {
     }
 
     deinit {
+        if let sortSettingsObserver {
+            notificationCenter.removeObserver(sortSettingsObserver)
+        }
         remoteHomeResolutionTask?.cancel()
         directoryWatchTask?.cancel()
+    }
+}
+
+private extension Array where Element == FileExplorerNode {
+    /// Returns the nodes in the order `options` defines.
+    func sorted(using options: FileExplorerSortOptions) -> [FileExplorerNode] {
+        FileExplorerNodeSorter(options: options).sorted(self)
     }
 }
