@@ -1,9 +1,9 @@
-import Foundation
-import WebKit
+public import Foundation
+public import WebKit
 
 /// Selects UTF-8 for bounded, regular local text files while preserving WebKit's original fallback.
 @MainActor
-final class BrowserLocalFileEncodingPolicy {
+public final class BrowserLocalFileEncodingPolicy {
     private static let defaultTextEncodingSelector = NSSelectorFromString("_setDefaultTextEncodingName:")
     private static let maximumInspectedFileSize = 16 * 1024 * 1024
     private static let maximumMetadataSize = 64 * 1024
@@ -12,13 +12,18 @@ final class BrowserLocalFileEncodingPolicy {
     private let fallbackEncodingName: String?
     private var preparationID: UInt64 = 0
 
-    init(preferences: WKPreferences) {
+    /// Creates a policy that captures the preferences' original fallback encoding.
+    ///
+    /// - Parameter preferences: The WebKit preferences owned by one browser view.
+    public init(preferences: WKPreferences) {
         self.preferences = preferences
         fallbackEncodingName = preferences.value(forKey: "_defaultTextEncodingName") as? String
     }
 
     /// Waits for the local-file probe, then applies either UTF-8 or the captured WebKit fallback.
-    func prepare(for url: URL) async {
+    ///
+    /// - Parameter url: The main-frame destination whose bytes should be classified.
+    public func prepare(for url: URL) async {
         preparationID &+= 1
         let currentPreparationID = preparationID
         let encodingName = await Self.preferredEncodingName(for: url)
@@ -27,7 +32,10 @@ final class BrowserLocalFileEncodingPolicy {
     }
 
     /// Returns UTF-8 only for a regular, bounded local file whose bytes are valid UTF-8.
-    static func preferredEncodingName(for url: URL) async -> String? {
+    ///
+    /// - Parameter url: The candidate local-file destination.
+    /// - Returns: `"UTF-8"` for an eligible file, otherwise `nil`.
+    public static func preferredEncodingName(for url: URL) async -> String? {
         guard url.isFileURL, url.scheme?.caseInsensitiveCompare("file") == .orderedSame else {
             return nil
         }
