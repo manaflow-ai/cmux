@@ -7,6 +7,45 @@ import Testing
 struct CustomSidebarValidationTests {
     private let validator = CustomSidebarValidator()
 
+    @Test("unknown modifiers warn without rejecting an otherwise renderable sidebar")
+    func reportsSkippedModifiersInChildrenAndOverlays() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try """
+        VStack(alignment: .trailing) {
+            Text("Hello").futureLayout().frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay { Text("Badge").futureBadge().futureLayout() }
+            Image(systemName: "star").resizable()
+            Circle().trim(from: 0, to: 0.5).stroke(.red)
+        }
+        """.write(to: directory.appendingPathComponent("warning.swift"), atomically: true, encoding: .utf8)
+        let report = validator.validate(directory: directory)
+        #expect(report.validCount == 1)
+        #expect(report.errorCount == 0)
+        #expect(report.validNames == ["warning"])
+        #expect(report.entries.first?.warnings.count == 1)
+        let warning = try #require(report.entries.first?.warnings.first)
+        #expect(warning.contains("futureBadge, futureLayout"))
+        for supported in ["frame", "resizable", "trim", "stroke"] {
+            #expect(!warning.contains(supported))
+        }
+    }
+
+    @Test("supported layout modifiers validate without warnings")
+    func acceptsSupportedLayoutModifiers() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try """
+        HStack(alignment: .top) {
+            Text("Hello").frame(height: 80, alignment: .top)
+            Text("World").frame(maxWidth: 100)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        """.write(to: directory.appendingPathComponent("layout.swift"), atomically: true, encoding: .utf8)
+        let entry = validator.validate(directory: directory).entries.first
+        #expect(entry?.isValid == true)
+        #expect(entry?.warnings.isEmpty == true)
+    }
+
     @Test("discovers one file per sidebar name and prefers Swift")
     func discoversSwiftBeforeJSON() throws {
         let directory = try temporaryDirectory()

@@ -203,7 +203,8 @@ extension TerminalController {
                     "path": entry.fileURL.path,
                     "kind": entry.kind.rawValue,
                     "ok": entry.isValid,
-                    "error": v2OrNull(entry.errorMessage)
+                    "error": v2OrNull(entry.errorMessage),
+                    "warnings": entry.warnings
                 ] as [String: Any]
             }
         ]

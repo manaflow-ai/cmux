@@ -107,14 +107,17 @@ public struct CustomSidebarContentView: View {
     /// host's edge-fade mask rather than clipping against it. This mirrors the
     /// default workspace sidebar's scroll treatment.
     private func scrollWrap(_ view: some View) -> some View {
-        ScrollView {
-            view
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                // Narrow gutter so rows run nearly edge to edge (the native
-                // sidebar look); authors add their own inner padding.
-                .padding(.horizontal, 6)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
+        GeometryReader { geometry in
+            ScrollView {
+                view
+                    // ScrollView proposes no vertical size. Supply the usable
+                    // viewport as a minimum so flexible frames and spacers can
+                    // fill it, while taller content can still scroll.
+                    .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 24), alignment: .topLeading)
+                    .padding(.horizontal, 6)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+            }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             Color.clear.frame(height: contentInsets.top).allowsHitTesting(false)

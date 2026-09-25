@@ -102,6 +102,8 @@ func dslVAlignment(_ token: String?) -> VerticalAlignment {
     switch token?.lowercased() {
     case "top": return .top
     case "bottom": return .bottom
+    case "firsttextbaseline": return .firstTextBaseline
+    case "lasttextbaseline": return .lastTextBaseline
     default: return .center
     }
 }

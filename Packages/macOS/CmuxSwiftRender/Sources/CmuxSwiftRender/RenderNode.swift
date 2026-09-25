@@ -79,6 +79,8 @@ public struct RenderNode: Codable, Sendable, Equatable {
     /// SF Symbol name for `.image` nodes (`Image(systemName:)`).
     public var systemName: String?
     public var spacing: Double?
+    /// Authored stack alignment token, or `nil` to keep the renderer's default.
+    public var alignment: String?
     /// Corner radius for `.roundedRectangle` (`RoundedRectangle(cornerRadius:)`).
     public var cornerRadius: Double?
     /// Determinate value (0...1 after normalization) for `.progressView` / `.gauge`.
@@ -99,6 +101,7 @@ public struct RenderNode: Codable, Sendable, Equatable {
         text: String? = nil,
         systemName: String? = nil,
         spacing: Double? = nil,
+        alignment: String? = nil,
         cornerRadius: Double? = nil,
         value: Double? = nil,
         colors: [String] = [],
@@ -112,6 +115,7 @@ public struct RenderNode: Codable, Sendable, Equatable {
         self.text = text
         self.systemName = systemName
         self.spacing = spacing
+        self.alignment = alignment
         self.cornerRadius = cornerRadius
         self.value = value
         self.colors = colors

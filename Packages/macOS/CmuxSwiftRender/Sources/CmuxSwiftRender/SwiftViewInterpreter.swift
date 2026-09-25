@@ -215,7 +215,12 @@ public struct SwiftViewInterpreter: Sendable {
             default: kind = .lazyHStack
             }
             let children = call.trailingClosure.map { evalItems($0.statements, env) } ?? []
-            return RenderNode(kind: kind, spacing: doubleArgument(named: "spacing", call.arguments, env), children: children)
+            return RenderNode(
+                kind: kind,
+                spacing: doubleArgument(named: "spacing", call.arguments, env),
+                alignment: modifierArgs(call.arguments, env).first { $0.label == "alignment" }?.value,
+                children: children
+            )
         case "LinearGradient":
             return RenderNode(kind: .linearGradient, colors: gradientColors(call, env),
                               points: [gradientUnitPoint("startPoint", call), gradientUnitPoint("endPoint", call)])

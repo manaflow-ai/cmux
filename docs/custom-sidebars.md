@@ -354,9 +354,22 @@ string `"#FF8800"` or a token (`primary`, `secondary`, `tertiary`, `accent`,
 `red`, `blue`, `mint`, `indigo`, `teal`, `cyan`, `brown`, …). `Color("#hex")` /
 `Color(red:green:blue:)` values too.
 
-Layout: `.padding(8)`, `.frame(width:height:maxWidth:.infinity, alignment:)`,
+Layout: `.padding(8)`, `.frame(width:height:alignment:)`,
+`.frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)`,
 `.fixedSize()`, `.layoutPriority(1)`, `.offset(x:y:)`, `.zIndex(1)`,
 `.aspectRatio(contentMode:.fit)`, `.scaledToFit()`/`.scaledToFill()`.
+
+Stacks honor their `alignment:` argument, including `.top`/`.bottom` and text
+baselines for horizontal stacks, `.leading`/`.trailing` for vertical stacks,
+and two-axis alignments such as `.topTrailing` for `ZStack`. Fixed and flexible
+frames also honor alignment. `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+fills the available sidebar viewport, so a `Spacer()` can push a footer down;
+taller content still scrolls.
+
+`maxWidth` and `maxHeight` constrain the size proposed by the parent, as in
+SwiftUI. For example, `.frame(maxWidth: 100)` can expand to 100 points when the
+parent offers more space, and becomes narrower when less space is available.
+Use `.fixedSize()` when you want the view's ideal content size instead.
 
 Decoration: `.background("#hex")` **or** `.background { <view> }`,
 `.overlay(alignment:.topTrailing) { <view> }`, `.mask { <view> }`,
@@ -453,6 +466,19 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
     }
 
 ## Not yet supported
+
+`cmux sidebar validate` checks whether a view can be produced; it is not a full
+SwiftUI type checker. Unknown modifier names in the evaluated tree are reported
+as `Skipped unsupported modifiers: …` without making the sidebar invalid.
+The JSON response includes a `warnings` array for each sidebar. Reload, select,
+and open return the same diagnostics. Untaken branches, unsupported view
+constructors, and unsupported arguments to known modifiers are not covered by
+this warning.
+
+Vertical `ScrollView` is currently a vertical stack inside the host's automatic
+scroll container, not an independently scrolling region. A fixed height does
+not clip its children automatically: add `.clipped()` when needed, and use
+`.frame(height: N, alignment: .top)` to position short content at the top.
 
 The interpreter is a growing subset. `.overlay`/`.background`/`.mask`/
 `.contextMenu` with arbitrary nested views, `Menu`, `List`/`Section`/grids,
