@@ -654,14 +654,24 @@ extension Workspace {
                     panelId: panelId,
                     currentProcessIdentity: currentAgentProcessIdentity
                 )
-                return (matchingObservation?.processLiveness ?? .unknown)
-                    .wasRunning(
+                guard let matchingObservation else { return false }
+                if let resumeBinding {
+                    return matchingObservation.wasRunningForSnapshot(
+                        effectiveRestorableAgent,
+                        binding: resumeBinding,
                         fallingBackTo: panelShellActivityStates[panelId],
-                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
                     )
+                }
+                return matchingObservation.processLiveness.wasRunning(
+                    fallingBackTo: panelShellActivityStates[panelId],
+                    recordedProcessIdentities: matchingObservation.agentProcessIdentities,
+                    confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                    currentProcessIdentity: currentAgentProcessIdentity,
+                    processPresence: agentProcessPresence
+                ) ?? false
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
