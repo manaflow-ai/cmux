@@ -1650,10 +1650,9 @@ class GhosttyApp {
     }
 
     static func configurationRefreshColorSchemePreference(
-        resolvedBackgroundColor _: NSColor,
-        cachedColorScheme: GhosttyConfig.ColorSchemePreference
+        resolvedBackgroundColor: NSColor
     ) -> GhosttyConfig.ColorSchemePreference {
-        cachedColorScheme
+        terminalRuntimeColorSchemePreference(forBackgroundColor: resolvedBackgroundColor)
     }
 
     static func runtimeColorSchemeForConfigLoad(
@@ -2730,8 +2729,7 @@ class GhosttyApp {
             baselineConfig: config
         ).backgroundColor
         let effectiveColorScheme = Self.configurationRefreshColorSchemePreference(
-            resolvedBackgroundColor: resolvedBackgroundColor,
-            cachedColorScheme: effectiveTerminalColorSchemePreference
+            resolvedBackgroundColor: resolvedBackgroundColor
         )
         effectiveTerminalColorSchemePreference = effectiveColorScheme
         return effectiveColorScheme
@@ -3505,10 +3503,11 @@ class GhosttyApp {
                 guard self.shouldProcessGhosttyReloadAction(source: source, soft: soft) else {
                     return true
                 }
-                let preferredColorScheme =
+                let requestedColorScheme =
+                    self.appearanceBackedColorSchemePreference()
+                let effectiveColorScheme =
                     self.refreshEffectiveTerminalColorSchemePreference(
-                        preferredColorScheme:
-                            self.appearanceBackedColorSchemePreference()
+                        preferredColorScheme: requestedColorScheme
                     )
                 GhosttySurfaceConfigurationRefresh.applyConfigurationReload(
                     to: target.target.surface,
@@ -3520,12 +3519,12 @@ class GhosttyApp {
                             surface,
                             soft: soft,
                             source: source,
-                            preferredColorScheme: preferredColorScheme
+                            preferredColorScheme: requestedColorScheme
                         )
                     },
                     applySurfaceColorScheme: {
                         surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                            preferredColorScheme: preferredColorScheme
+                            preferredColorScheme: effectiveColorScheme
                         )
                     },
                     refreshHostBackground: {

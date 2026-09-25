@@ -1094,8 +1094,7 @@ final class GhosttyConfigTests: XCTestCase {
     func testConfigurationRefreshUsesResolvedThemeBackgroundForRuntimeScheme() {
         XCTAssertEqual(
             GhosttyApp.configurationRefreshColorSchemePreference(
-                resolvedBackgroundColor: NSColor(hex: "#0D0D17")!,
-                cachedColorScheme: .light
+                resolvedBackgroundColor: NSColor(hex: "#0D0D17")!
             ),
             .dark
         )
