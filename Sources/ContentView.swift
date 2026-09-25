@@ -11336,6 +11336,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
+    @LiveSetting(\.betaFeatures.workspaceTodoControls) private var workspaceTodoControlsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 #if DEBUG
@@ -11614,6 +11615,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
         let showsAgentActivity: Bool
+        let todoControlsEnabled: Bool
         let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let numberedWorkspaceIndexById: [UUID: Int]
@@ -11801,6 +11803,10 @@ struct VerticalTabsSidebar: View, Equatable {
             tabItemSettings: tabItemSettings,
             showsAgentActivity: tabItemSettings.details.showAgentActivity
                 && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
+            todoControlsEnabled: WorkspaceTodoFeature.isEnabled(
+                localControlsOptIn: workspaceTodoControlsExperimentalEnabled,
+                remoteEnabled: featureFlags.isWorkspaceTodoControlsEnabled
+            ),
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             numberedWorkspaceIndexById: numberedWorkspaceIndexById,
@@ -11977,6 +11983,11 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
+        }
+        .onChange(of: renderContext.todoControlsEnabled) { _, _ in
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
@@ -12602,7 +12613,7 @@ struct VerticalTabsSidebar: View, Equatable {
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
             isChecklistPopoverPresented: input.isChecklistPopoverPresented,
             editingChecklistItemId: editingChecklistItemIds[tab.id],
-            todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
+            todoControlsEnabled: input.workspace.presentationKey.todoControlsEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
         )
@@ -13031,7 +13042,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func makeWorkspaceSnapshot(
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        todoControlsEnabled: Bool? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
         sidebarLazyContractProbe.workspaceSnapshotBuild?()
@@ -13040,7 +13052,10 @@ struct VerticalTabsSidebar: View, Equatable {
             workspace: workspace,
             settings: settings,
             showsAgentActivity: showsAgentActivity
-        ).makeSnapshot()
+        ).makeSnapshot(todoControlsEnabled: todoControlsEnabled ?? WorkspaceTodoFeature.isEnabled(
+            localControlsOptIn: workspaceTodoControlsExperimentalEnabled,
+            remoteEnabled: featureFlags.isWorkspaceTodoControlsEnabled
+        ))
     }
 
     private func clearExtensionSidebarObservationPublishers() {
@@ -14956,7 +14971,8 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = renderContext.tabItemSettings
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: settings,
-            showsAgentActivity: renderContext.showsAgentActivity
+            showsAgentActivity: renderContext.showsAgentActivity,
+            todoControlsEnabled: renderContext.todoControlsEnabled
         )
         let cachedWorkspaceSnapshot = featureFlags.isAppKitSidebarListEnabled
             ? appKitRowSnapshotCache.value(for: tab.id)
@@ -14969,7 +14985,8 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceSnapshot = makeWorkspaceSnapshot(
                 workspace: tab,
                 settings: settings,
-                showsAgentActivity: renderContext.showsAgentActivity
+                showsAgentActivity: renderContext.showsAgentActivity,
+                todoControlsEnabled: renderContext.todoControlsEnabled
             )
             if featureFlags.isAppKitSidebarListEnabled {
                 appKitRowSnapshotCache.store(workspaceSnapshot, for: tab.id)
@@ -16095,7 +16112,7 @@ struct TabItemView: View, Equatable {
             scaledFontSize(12.5),
             percent: globalFontMagnificationPercent
         ) * 0.6
-        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
+        let todoControlsEnabled = workspaceSnapshot.presentationKey.todoControlsEnabled
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,

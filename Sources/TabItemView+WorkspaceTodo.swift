@@ -12,7 +12,7 @@ import SwiftUI
 extension TabItemView {
     @ViewBuilder
     var workspaceTodoContextMenuSection: some View {
-        if WorkspaceTodoFeature.isEnabled {
+        if workspaceSnapshot.presentationKey.todoControlsEnabled {
             let isMulti = contextMenuWorkspaceIds.count > 1
             let markDoneLabel = isMulti
                 ? String(localized: "contextMenu.markWorkspacesDone", defaultValue: "Mark Workspaces as Done")

@@ -17,7 +17,8 @@ struct SidebarWorkspaceSnapshotFactory {
     let showsAgentActivity: Bool
 
     /// Creates the current immutable presentation snapshot for the workspace row.
-    func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+    func makeSnapshot(todoControlsEnabled: Bool? = nil) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let todoControlsEnabled = todoControlsEnabled ?? WorkspaceTodoFeature.isEnabled
         let detailVisibility = settings.visibleAuxiliaryDetails
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
         let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
@@ -53,7 +54,6 @@ struct SidebarWorkspaceSnapshotFactory {
             guard detailVisibility.showsPullRequests else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
-        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let workspaceStatusVisible = todoControlsEnabled && !workspace.todoState.statusHidden
         let inferredTaskStatus = workspaceStatusVisible ? taskStatusInput.inferred : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
@@ -73,7 +73,11 @@ struct SidebarWorkspaceSnapshotFactory {
         }
         let checklistProgress = workspace.checklistProgressSummary
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: presentationKey,
+            presentationKey: Self.presentationKey(
+                settings: settings,
+                showsAgentActivity: showsAgentActivity,
+                todoControlsEnabled: todoControlsEnabled
+            ),
             title: workspace.title,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
@@ -122,13 +126,10 @@ struct SidebarWorkspaceSnapshotFactory {
         )
     }
 
-    private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
-    }
-
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        todoControlsEnabled: Bool = false
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
@@ -136,6 +137,7 @@ struct SidebarWorkspaceSnapshotFactory {
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
+            todoControlsEnabled: todoControlsEnabled,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
     }
