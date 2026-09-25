@@ -52,8 +52,10 @@ holding the pool need at their peak, read from the marker each one uploads
 (`macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>`), so a run whose later
 jobs do not exist yet still counts them. No token beyond GITHUB_TOKEN is
 needed. A run takes an owned pool only when its own peak (run_jobs) is free
-at once. An owned pool is skipped when it has no slot count, or when the
-snapshot is older than OWNED_MAX_AGE_MINUTES. An offline machine still counts
+at once. An owned pool is skipped when it has no slot count, and like every
+pool when the snapshot is older than MAX_SNAPSHOT_MINUTES. With the org
+route App's token, the idle runners carrying its label are its capacity
+instead (live_owned_free). An offline machine still counts
 as a slot; what that gets wrong, ci-owned-pool-rescue.yml catches: a run whose
 job waits on an owned pool past its budget is re-run on Blacksmith. A re-run
 of failed jobs reuses this run's outputs, so a persistent choice also names
@@ -181,12 +183,15 @@ APP_HOST_SHARDS = 7
 SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
 REPLAYED_RUN_JOBS = SIDE_LANES + 1
-# A snapshot older than this is not trusted to place a run on an owned pool.
-# It was 20, but GitHub delays scheduled runs: the janitor's */10 cron fired
-# 55 minutes apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40
-# idle minis. ci-queue-janitor.yml now also sweeps when CI is requested, and
-# a mini that turns out busy is caught by the rescue within its budget.
-OWNED_MAX_AGE_MINUTES = 45
+# Owned pools once had a stricter snapshot age (20 minutes) than the rest,
+# but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
+# apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40 idle minis.
+# They now share MAX_SNAPSHOT_MINUTES; ci-queue-janitor.yml also sweeps when CI
+# is requested, and a mini that turns out busy is caught by the rescue.
+# With live owned capacity (live_owned_free), runs this recent are subtracted
+# from the idle runners: their owned jobs may not have reached a runner yet.
+# Older runs' owned jobs are already running, so the runners API shows them busy.
+LIVE_WINDOW_MINUTES = 3
 # Pools whose machines are discarded after each job; the only ones a fork run may use.
 EPHEMERAL_PREFIX = "blacksmith-"
 
@@ -562,6 +567,23 @@ def owned_free(counts: Mapping[str, int], added_runs: int, taken_since: int = 0)
     return counts.get("capacity", 0) - taken - taken_since - added_runs * REPLAYED_RUN_JOBS
 
 
+def iso(moment: dt.datetime) -> str:
+    return moment.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str]) -> dict[str, int]:
+    """Runners online, not busy and carrying each owned label: its free machines now."""
+    free = {label: 0 for label in labels}
+    for runner in runners:
+        if runner.get("status") != "online" or runner.get("busy"):
+            continue
+        names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+        for label in labels:
+            if label in names:
+                free[label] += 1
+    return free
+
+
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
          max_queued: int, jobs: int = MAX_RUN_JOBS,
          taken: Mapping[str, int] | None = None, split: bool = False) -> tuple[str, bool]:
@@ -650,21 +672,19 @@ def decide(
         return (xcode_pins.get(variable) or "").strip() or None
 
     def counted(label: str) -> bool:
-        """An owned pool places runs only with a slot count and a fresh snapshot."""
-        if not persistent(label):
-            return True
-        return age <= OWNED_MAX_AGE_MINUTES and load[label]["capacity"] > 0
+        """An owned pool places runs only with a machine free by its slot count or live."""
+        return not persistent(label) or load[label]["capacity"] > 0
 
     usable = [label for label in limits.order
               if load[label]["reserved_queued"] == 0 and xcode(label) is not None and counted(label)]
     if not usable:
         return Choice("", "", "every pool in the order is reserved, has no Xcode pin, or is an owned pool "
-                              "without slots or a fresh snapshot")
+                              "without slots")
     candidates = [label for label in usable if choose_from is None or label in choose_from]
     if not candidates:
         return Choice("", "", "every pool this run may take is reserved or has no Xcode pin")
     skipped = [label for label in limits.order if label not in usable]
-    note = f"; skipped {', '.join(skipped)} (reserved, no Xcode pin, or owned without slots or a fresh snapshot)" if skipped else ""
+    note = f"; skipped {', '.join(skipped)} (reserved, no Xcode pin, or owned without slots)" if skipped else ""
     added = {label: max(0, int((placed or {}).get(label) or 0)) for label in usable}
     taken = {label: max(0, int((owned_since or {}).get(label) or 0)) for label in usable if persistent(label)}
     ephemeral = [label for label in usable if not persistent(label)]
@@ -734,6 +754,7 @@ def choose(
     count_routed: Callable[[str], "int | Routed"] = lambda since: 0,
     now: dt.datetime,
     run_attempt: int = 1,
+    live_owned: Mapping[str, int] | None = None,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
     """The pool for this run and the snapshot it was read from (None when none was read)."""
     if event != "pull_request":
@@ -783,10 +804,31 @@ def choose(
         return Choice("", "", f"could not count runs since the snapshot ({error})"), snapshot
     if not isinstance(routed, Routed):
         routed = Routed(unknown=int(routed))
+    owned_capacity = {} if fork else slots(owned_slots, xcode_pins.get(PR_XCODE_VARIABLE))
+    live = live_owned is not None and not fork
+    if live:
+        # The idle runners replace the slot counts and the snapshot's owned
+        # counts. Only the runs of the last LIVE_WINDOW_MINUTES are charged to
+        # the owned pools; the rest of the snapshot window counts on Blacksmith.
+        try:
+            recent = count_routed(iso(now - dt.timedelta(minutes=LIVE_WINDOW_MINUTES)))
+        except Exception as error:  # noqa: BLE001 - every failure keeps the default
+            return Choice("", "", f"could not count recent runs ({error})"), snapshot
+        if not isinstance(recent, Routed):
+            recent = Routed(unknown=int(recent))
+        routed = Routed(unknown=recent.unknown, owned=recent.owned,
+                        ephemeral=routed.ephemeral + max(0, routed.unknown - recent.unknown))
+        owned_capacity = {label: max(0, int(count)) for label, count in (live_owned or {}).items()}
+        pools = dict(snapshot.get("pools") or {})
+        for label in owned_capacity:
+            pools[label] = {"queued": 0, "running": 0, "committed": 0}
+        snapshot = {**snapshot, "pools": pools}
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
-                    auto_xcode=fork, owned_slots={} if fork else slots(owned_slots, xcode_pins.get(PR_XCODE_VARIABLE)), jobs=jobs,
+                    auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
                     split=(split or "").strip() == "1")
+    if live and persistent(choice.runner):
+        choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
     if fork and choice.runner:
         choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
     if retry and choice.runner:
@@ -947,6 +989,16 @@ class GitHub:
                 return "ephemeral"
         return None
 
+    def runners(self) -> list[Mapping[str, Any]]:
+        """This repository's self-hosted runners (needs administration:read)."""
+        found: list[Mapping[str, Any]] = []
+        for page in range(1, 6):
+            batch = self.get(f"/actions/runners?per_page={PAGE_SIZE}&page={page}").get("runners") or []
+            found.extend(runner for runner in batch if isinstance(runner, Mapping))
+            if len(batch) < PAGE_SIZE:
+                break
+        return found
+
     def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:
         """CI pull request runs created at or after `since` and still in flight (one request).
 
@@ -1020,6 +1072,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # jobs at their peak.
     gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
     jobs = owned_peak(plan, gui)
+    # The org App's token (ci.yml mints it for same-repository pull requests
+    # only) reads which owned runners are idle now. Without it, or on any
+    # error, the slot counts and the snapshot decide as before.
+    live_owned = None
+    route_token = (env.get("ROUTE_TOKEN") or "").strip()
+    if route_token and repo and not args.snapshot and (env.get("POOL_OWNED") or "").strip() == "1":
+        try:
+            labels = owned_pools(env.get(PR_XCODE_VARIABLE))
+            live_owned = live_owned_free(GitHub(route_token, repo).runners(), labels) if labels else None
+        except Exception as error:  # noqa: BLE001 - the snapshot path still decides
+            print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
+            live_owned = None
     choice, snapshot = choose(
         event=env.get("EVENT_NAME") or "",
         repo=repo,
@@ -1038,6 +1102,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         count_routed=count_routed,
         now=now,
         run_attempt=int(attempt) if attempt.isdigit() else 1,
+        live_owned=live_owned,
     )
     pr_xcode_app = env.get(PR_XCODE_VARIABLE)
     # Only a same-repository pull request reads the slots; ci.yml blanks the pin

@@ -56,15 +56,15 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
            overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1, owned="",
-           owned_slots="", jobs=pool.MAX_RUN_JOBS, split=""):
+           owned_slots="", jobs=pool.MAX_RUN_JOBS, split="", live_owned=None):
     def count_routed(since):
         if isinstance(routed, Exception):
             raise routed
-        return routed
+        return routed(since) if callable(routed) else routed
     return pool.choose(
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins, owned=owned,
-        owned_slots=owned_slots, jobs=jobs, split=split,
+        owned_slots=owned_slots, jobs=jobs, split=split, live_owned=live_owned,
         fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt,
     )[0]
 
@@ -464,6 +464,87 @@ def owned_choice(snap, *, owned="1", machines=11, **kwargs):
 class OwnedPools(unittest.TestCase):
     """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
 
+    def test_idle_runners_are_the_live_owned_capacity(self):
+        def runner(labels, status="online", busy=False):
+            return {"status": status, "busy": busy, "labels": [{"name": name} for name in labels]}
+        runners = [runner(["self-hosted", MINI]), runner([MINI], busy=True), runner([MINI], status="offline"),
+                   runner([MINI, "glaeda-root-std-xcode-26.6"]), runner([LIGHT]), runner(["cmux15"])]
+        self.assertEqual(pool.live_owned_free(runners, (MINI, LIGHT)), {MINI: 2, LIGHT: 1})
+
+    def test_live_capacity_replaces_the_slot_count_and_snapshot_age(self):
+        # The snapshot saw every mini busy and the slot variable gives none;
+        # the runners say 3 are idle now.
+        busy = fleet(busy=11)
+        live = owned_choice(busy, owned_slots="", live_owned={MINI: 3, LIGHT: 0})
+        self.assertEqual(live.runner, MINI)
+        self.assertIn("read live from the runners API", live.reason)
+        # None idle: Blacksmith, whatever the snapshot or the slot variable say.
+        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 0, LIGHT: 0}).runner, LARGE)
+        # Too few idle for the run's owned peak.
+        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 2}, jobs=3).runner, LARGE)
+        # A fork never uses it.
+        fork = choose(fleet(busy=0), owned="1", jobs=3, live_owned={MINI: 9}, head="someone/cmux",
+                      default="", pins={})
+        self.assertFalse(fork.runner.startswith("glaeda-"))
+
+    def test_live_capacity_charges_only_recent_runs_to_the_owned_pool(self):
+        windows = []
+
+        def routed(since):
+            windows.append(since)
+            # The snapshot window saw 5 unknown runs; the last 3 minutes saw 1
+            # unknown run and one that took 2 minis.
+            return pool.Routed(unknown=5) if len(windows) == 1 else pool.Routed(unknown=1, owned={MINI: 2})
+
+        choice = owned_choice(fleet(busy=0), live_owned={MINI: 6}, jobs=1, routed=routed)
+        # 6 idle - 2 taken - 1 replayed run * REPLAYED_RUN_JOBS(4) = 0 < 1: Blacksmith.
+        self.assertEqual(choice.runner, LARGE)
+        self.assertEqual(windows[1], (NOW - dt.timedelta(minutes=pool.LIVE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        windows.clear()
+        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 7}, jobs=1, routed=routed).runner, MINI)
+
+    def test_main_reads_the_runners_only_with_the_route_token(self):
+        fresh = fleet(busy=11)
+        fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        idle = [{"status": "online", "busy": False, "labels": [{"name": MINI}]}] * 4
+        for token, expected, listed in (("app-token", MINI, 1), ("", LARGE, 0)):
+            with tempfile.TemporaryDirectory() as tmp, \
+                    unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
+                    unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
+                    unittest.mock.patch.object(pool.GitHub, "runners", return_value=idle) as runners, \
+                    unittest.mock.patch("sys.stdout", io.StringIO()):
+                out = Path(tmp, "out")
+                env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "t",
+                       "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
+                       "OWNED_SLOTS": json.dumps({MINI: 11}), "ROUTE_TOKEN": token,
+                       "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
+                       "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true"}
+                pool.main([], env)
+                values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            self.assertEqual((values["runner"], runners.call_count), (expected, listed), token)
+        # A failed listing falls back to the snapshot and never fails the step.
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
+                unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
+                unittest.mock.patch.object(pool.GitHub, "runners", side_effect=RuntimeError("403")), \
+                unittest.mock.patch("sys.stdout", io.StringIO()) as stdout:
+            out = Path(tmp, "out")
+            env.update(GITHUB_OUTPUT=str(out), ROUTE_TOKEN="app-token")
+            self.assertEqual(pool.main([], env), 0)
+            self.assertIn("using the snapshot", stdout.getvalue())
+
+    def test_the_route_token_is_minted_for_same_repository_pull_requests_only(self):
+        steps = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]["steps"]
+        ids = [step.get("id") for step in steps]
+        mint = steps[ids.index("route-token")]
+        self.assertLess(ids.index("route-token"), ids.index("macos-pool"))
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", mint["if"])
+        self.assertIs(mint["continue-on-error"], True)
+        self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+        self.assertEqual(mint["with"]["permission-administration"], "read")
+        self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
+        self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
+
     def test_label_follows_the_lane_xcode_pin(self):
         self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
         self.assertEqual(pool.owned_pools("/Applications/Xcode_27.0.1.app"),
@@ -630,7 +711,7 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(get.call_count, 2 * pool.ROUTE_LOOKUPS)
 
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
-        self.assertNotEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, MINI)
+        self.assertNotEqual(owned_choice(fleet(age=pool.MAX_SNAPSHOT_MINUTES + 1)).runner, MINI)
         self.assertEqual(owned_choice(fleet(age=40)).runner, MINI)
         self.assertEqual(owned_choice(fleet(), owned_slots="").runner, LARGE)
         self.assertEqual(owned_choice(fleet(), machines=0).runner, LARGE)
