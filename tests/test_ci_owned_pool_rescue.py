@@ -905,6 +905,11 @@ class IOSDispatch(unittest.TestCase):
                              (0, True, "runner", path))
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path, run_attempt=2),
                                                            "manaflow-ai/cmux"), str)
+        # test-ios.yml pull request runs are watched too, against their pull request.
+        target = rescue.target_from_event(event(path=".github/workflows/test-ios.yml"), "manaflow-ai/cmux")
+        self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
+        self.assertIsInstance(rescue.target_from_event(
+            event(path=".github/workflows/ios-screenshots.yml"), "manaflow-ai/cmux"), str)
         # Signing and streamed validation never take an owned Mac, so they are never watched.
         for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
@@ -925,6 +930,21 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
         self.assertIn("a dispatch of .github/workflows/test-ios.yml", summary)
         self.assertIn(f"queued on {MINI}", summary)
+
+    def test_a_pull_request_run_waiting_for_the_simulator_label_moves_to_blacksmith(self):
+        # The same wait on a pull request run: the head is checked before the re-run.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("ios-simulator-build", labels=[MINI, IOS_SIM], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=event(path=".github/workflows/test-ios.yml"))
+        self.assertEqual(code, 0)
+        self.assertIn("pull", api.calls)
+        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
+        self.assertIn("pull request #42's .github/workflows/test-ios.yml", summary)
 
 
 def main_event(**overrides):
