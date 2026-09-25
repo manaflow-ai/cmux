@@ -69,8 +69,9 @@ jobs:
       linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
       ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
-      # A consumer canary (choose_ci_suite.py) only rides on a compile this run
-      # pays for; when either reuse check finds one, it is dropped.
+      # A canary run (choose_ci_suite.py: the consumer canary, or suites only
+      # the reverse test impact selector reached) only rides on a compile this
+      # run pays for; when either reuse check finds one, it is dropped.
       unit_suite: ${{ steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true') && 'false' || steps.suite.outputs.unit_suite }}
       unit_selectors: ${{ !(steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true')) && steps.suite.outputs.unit_selectors || '' }}
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
@@ -190,6 +191,10 @@ jobs:
             # Absent reads as "every line of each changed file".
             git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests .github/workflows/ci-macos.yml \
               > /tmp/cmux-ci-tests.diff || rm -f /tmp/cmux-ci-tests.diff
+            # The changed lines of app code, so choose_ci_suite.py can add the
+            # suites whose tests mention what changed (reverse_test_impact.py).
+            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- Sources Packages/macOS Packages/Shared CLI \
+              > /tmp/cmux-ci-app.diff || rm -f /tmp/cmux-ci-app.diff
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
               echo "PR diff is empty; skipping product-area CI."
@@ -592,6 +597,9 @@ jobs:
           if [ -f /tmp/cmux-ci-tests.diff ]; then
             files_args+=(--diff-from /tmp/cmux-ci-tests.diff)
           fi
+          if [ -f /tmp/cmux-ci-app.diff ]; then
+            files_args+=(--app-diff-from /tmp/cmux-ci-app.diff)
+          fi
           python3 scripts/ci/choose_ci_suite.py \
             --event-name "$EVENT_NAME" \
             --pull-request-policy "$PULL_REQUEST_POLICY" \
@@ -897,11 +905,11 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
-  # Report only. A pull request that changes app code but no cmuxTests/ file
-  # runs no app-host behavior test today; reverse_test_impact.py names the
-  # suites that could observe the change and what they would cost. The answer
-  # goes to the step summary and a 14-day artifact so its recall can be
-  # measured against later failures on main. It is its own job so it never
+  # Report only. choose_ci_suite.py in `changes` already adds the suites
+  # reverse_test_impact.py names to the changed-suites run; this job records
+  # the full answer, what was considered and what it would cost, in the step
+  # summary and a 14-day artifact so its recall can be measured against later
+  # failures on main. It is its own job so it never
   # delays routing: nothing needs it, ci-status does not wait for it, it has
   # no outputs, and it cannot fail the run (continue-on-error at job level).
   #
