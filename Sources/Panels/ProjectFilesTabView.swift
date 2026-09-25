@@ -207,7 +207,7 @@ struct ProjectFilesTabView: View {
         if let path = panel.selectedFilePath,
            let file = findFile(byPath: path),
            let module = findModule(forFilePath: path) {
-            ProjectFilesDetailStrip(file: file, module: module)
+            ProjectFilesDetailStrip(file: file, module: module, panel: panel)
         } else {
             ProjectEmptyDetailView(
                 systemImage: "doc.text.magnifyingglass",
@@ -378,6 +378,7 @@ private struct ProjectFilesFileRow: View {
 private struct ProjectFilesDetailStrip: View {
     let file: ProjectFileNode
     let module: ProjectModule
+    let panel: ProjectPanel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
