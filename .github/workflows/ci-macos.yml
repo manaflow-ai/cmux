@@ -396,6 +396,8 @@ jobs:
                 glaeda-*) ;;
                 *) echo "::error::$root is only for an owned Mac's second compile slot"; exit 1 ;;
               esac
+              # Packages hold no build paths: every slot shares the Mac's.
+              echo "CMUX_OWNED_PACKAGE_STORE=$CMUX_OWNED_STATE_ROOT" >> "$GITHUB_ENV"
               echo "CMUX_OWNED_STATE_ROOT=$CMUX_OWNED_STATE_ROOT/${root##*/}" >> "$GITHUB_ENV"
               ;;
             *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
@@ -480,7 +482,7 @@ jobs:
           set -euo pipefail
           fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-          python3 scripts/ci/owned_build_state.py check "$CMUX_OWNED_STATE_ROOT" "$fingerprint" "$PWD"
+          python3 scripts/ci/owned_build_state.py check "$CMUX_OWNED_STATE_ROOT" "$fingerprint" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
       - name: Cache GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true'
@@ -591,6 +593,24 @@ jobs:
       # built. The restore spent 13-43 s pulling 932 MB for that.
       # tests/test_ci_test_compilation_cache_seed.sh pins its absence.
 
+      # Stop before compiling when a fast Linux job already failed. The gate
+      # usually finishes during this job's setup; one read, no wait, and a
+      # gate still running compiles as before. A declined compile measured 0
+      # of 12 reused (2026-09-25) while holding a macOS runner, and the Mac
+      # minis are the scarce ones. The consumer gate below still covers a gate
+      # that declines during the compile. canary/ branches compile anyway:
+      # the probe is the point.
+      - name: Stop before compiling after a declined fast Linux gate
+        id: compile-gate
+        if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && github.run_attempt == 1 && !startsWith(github.head_ref, 'canary/') }}
+        env:
+          API_URL: ${{ github.api_url }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          GATE_JOB: "macOS admission gate"
+        run: python3 scripts/ci/fast_linux_gate.py compile
+
       # The compilation cache cannot help the app target: Swift keys each job on
       # its whole module, and `cmux` is one module. Xcode's incremental build
       # tracks dependencies per file, but only against an existing DerivedData,
@@ -648,6 +668,10 @@ jobs:
       - name: Compile app-host test product
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true'
+        # A glaeda Mac compiles in 1 to 8 minutes, 19 on a contended one; one
+        # sat 63 minutes in this step until cancelled (job 107921038609). Stop
+        # it at 20. Other runners keep the job's own limit.
+        timeout-minutes: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && 20 || 100 }}
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -826,6 +850,11 @@ jobs:
       - name: Upload compiled app-host test product
         id: upload-products
         if: steps.publish-products.outputs.publish == 'true'
+        env:
+          # upload-artifact sends 8 MB blocks 5 at a time by default: the
+          # 830 MB product took 110 to 138 s from an owned Mac (about 7 MB/s).
+          # The action caps this at 16 per CPU.
+          ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "32"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
@@ -1076,7 +1105,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 scripts/ci/owned_build_state.py save "$CMUX_OWNED_STATE_ROOT" \
-            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD"
+            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
       - name: Prepare isolated DerivedData
         id: test-derived-data
@@ -1158,44 +1187,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           GATE_JOB: "macOS admission gate"
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.request
-
-          gate = os.environ["GATE_JOB"]
-          url = (
-              f"{os.environ['API_URL'].rstrip('/')}/repos/{os.environ['REPOSITORY']}"
-              f"/actions/runs/{os.environ['RUN_ID']}/jobs?filter=latest&per_page=100"
-          )
-          request = urllib.request.Request(url, headers={
-              "Accept": "application/vnd.github+json",
-              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-              "User-Agent": "cmux-ci-compile-admission",
-              "X-GitHub-Api-Version": "2022-11-28",
-          })
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  jobs = json.load(response).get("jobs", [])
-          except Exception as exc:  # An unreadable gate admits.
-              print(f"::warning::Could not read {gate} ({exc}); admitting macOS consumers.")
-              sys.exit(0)
-          found = [job for job in jobs if job.get("name") == gate]
-          if not found:
-              print(f"{gate} is not in this run; admitting macOS consumers.")
-              sys.exit(0)
-          status, conclusion = found[0].get("status"), found[0].get("conclusion")
-          if status == "completed" and conclusion == "failure":
-              print(
-                  f"::error title=Not admitting macOS consumers::{gate} declined: a fast Linux job "
-                  "failed. The product compiled and was uploaded; re-run failed jobs to collect "
-                  "macOS results anyway."
-              )
-              sys.exit(1)
-          print(f"{gate}: status={status} conclusion={conclusion}; admitting macOS consumers.")
-          PY
+        run: python3 scripts/ci/fast_linux_gate.py consumers
 
       - name: Report a changed-suites failure apart from the compile
         if: ${{ failure() && steps.run-changed-suites.outcome == 'failure' }}
