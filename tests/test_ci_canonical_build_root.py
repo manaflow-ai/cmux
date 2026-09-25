@@ -283,14 +283,23 @@ class CanonicalRecipeTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in calls.read_text().splitlines()]
-            # Derive the expected build calls from the recipe rather than
-            # pinning a total. The build now probes Xcode once more to choose
-            # the cache mode, and a hardcoded total would also break whenever
-            # a scheme is added (cmux-cli-tests did exactly that).
+            # Derive the expected builds from the recipe rather than pinning a
+            # count: version probes, one resolve, then one build per scheme.
+            # A hardcoded total silently breaks whenever a scheme is added --
+            # cmux-cli-tests did exactly that. The recipe now takes its scheme
+            # list from PRODUCT_PROFILES, so read the same source it does.
             sys.path.insert(0, str(ROOT / "scripts" / "ci"))
             import product_input_identity as identity
 
             expected_schemes = list(identity.profile_schemes("app-host"))
+            # Version probes are not pinned either: the build step reads the
+            # Xcode version too, to decide the compilation cache (#14359).
+            # Every other call is the one resolve or a scheme build.
+            probes = [args for _cwd, args in records if args == ["-version"]]
+            resolves = [args for _cwd, args in records if "-resolvePackageDependencies" in args]
+            self.assertGreaterEqual(len(probes), 1)
+            self.assertEqual(len(resolves), 1)
+            self.assertEqual(len(records), len(probes) + len(resolves) + len(expected_schemes))
             # resolve() also passes -scheme (cmux-unit) alongside
             # -resolvePackageDependencies; only the build invocations count.
             built = [
@@ -299,10 +308,6 @@ class CanonicalRecipeTests(unittest.TestCase):
                 if "-scheme" in args and "-resolvePackageDependencies" not in args
             ]
             self.assertEqual(built, expected_schemes)
-            self.assertEqual(
-                sum("-resolvePackageDependencies" in args for _cwd, args in records),
-                1,
-            )
             canonical_src = str((root / "src").resolve())
             for cwd, args in records:
                 self.assertEqual(cwd, canonical_src)

@@ -497,7 +497,32 @@ struct SurfaceSelectionTests {
         #expect(!programmaticClearSnapshot.hasSelection)
         #expect(programmaticClearSnapshot.text.isEmpty)
 
-        _ = try await panel.evaluateJavaScript("(() => { const nodes = Array.from({ length: 4100 }, () => document.createTextNode('x')); document.body.replaceChildren(...nodes); const range = document.createRange(); range.setStart(nodes[0], 0); range.setEnd(nodes[nodes.length - 1], 1); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); return true; })()")
+        // The reader serves the snapshot captured on `selectionchange`, which
+        // WebKit dispatches after the script that adds the range returns. Wait
+        // for that event, as the steps above do, before reading.
+        let oversizedSelectionObserved = try await panel.webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const nodes = Array.from({ length: 4100 }, () => document.createTextNode('x'));
+              document.body.replaceChildren(...nodes);
+              const range = document.createRange();
+              range.setStart(nodes[0], 0);
+              range.setEnd(nodes[nodes.length - 1], 1);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              document.addEventListener(
+                'selectionchange',
+                () => resolve(true),
+                { once: true, capture: true }
+              );
+              selection.addRange(range);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect(oversizedSelectionObserved as? Bool == true)
         #expect(await panel.readSurfaceSelection() == .unavailable)
     }
 
