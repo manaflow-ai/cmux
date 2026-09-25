@@ -1329,12 +1329,18 @@ jobs:
   # unconditional for CI events so a path router cannot hide an OS regression.
   macos-15-unit-tests:
     name: macOS 15 unit tests
+    # test-macos-suite's manual focused-dispatch branch needs actions: write;
+    # this caller never enters that branch, but reusable-workflow permissions
+    # are checked against the callee's complete contract.
+    permissions:
+      actions: write
+      contents: read
     uses: ./.github/workflows/test-macos-suite.yml
     with:
       ref: ${{ github.sha }}
       skip_unit_tests: false
       skip_ui_tests: true
-      runner: ${{ github.repository_owner == 'manaflow-ai' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
+      runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
 
   tests:
     name: tests
