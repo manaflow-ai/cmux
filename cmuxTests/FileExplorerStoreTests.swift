@@ -201,22 +201,38 @@ struct FileExplorerStoreTests {
         store.setRootPath("/home/user/project")
         try await waitFor("project root loaded") { store.rootPath == "/home/user/project" && !store.isRootLoading }
 
-        store.navigate(to: "src")
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(store: store, state: state, onOpenFilePreview: { _ in })
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        container.updateHeader(store: store)
+        func descendant(_ view: NSView, named identifier: String) -> NSView? {
+            if view.accessibilityIdentifier() == identifier { return view }
+            return view.subviews.lazy.compactMap { descendant($0, named: identifier) }.first
+        }
+        let field = try #require(descendant(container, named: "FileExplorerDirectoryField") as? NSTextField)
+        let back = try #require(descendant(container, named: "FileExplorerBackButton") as? NSButton)
+        let forward = try #require(descendant(container, named: "FileExplorerForwardButton") as? NSButton)
+        let parent = try #require(descendant(container, named: "FileExplorerParentButton") as? NSButton)
+        field.stringValue = "src"
+        #expect(field.delegate?.control?(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))) == true)
         try await waitFor("src loaded") { store.rootPath == "/home/user/project/src" && !store.isRootLoading }
-        #expect(store.canNavigateBack)
-        #expect(!store.canNavigateForward)
+        container.updateHeader(store: store)
+        #expect(store.rootNodes.map(\.name) == ["main.swift"])
+        #expect(back.isEnabled)
+        #expect(!forward.isEnabled)
 
-        store.navigateBack()
+        back.performClick(nil)
         try await waitFor("project root restored") { store.rootPath == "/home/user/project" && !store.isRootLoading }
-        #expect(!store.canNavigateBack)
-        #expect(store.canNavigateForward)
+        container.updateHeader(store: store)
+        #expect(!back.isEnabled)
+        #expect(forward.isEnabled)
 
-        store.navigateForward()
+        forward.performClick(nil)
         try await waitFor("src restored") { store.rootPath == "/home/user/project/src" && !store.isRootLoading }
-        #expect(store.rootPath == "/home/user/project/src")
-
-        store.navigateToParent()
+        container.updateHeader(store: store)
+        parent.performClick(nil)
         try await waitFor("parent directory restored") { store.rootPath == "/home/user/project" && !store.isRootLoading }
+
     }
 
     @Test
