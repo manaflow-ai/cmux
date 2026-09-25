@@ -1,7 +1,8 @@
 name: iOS simulator tests
 run-name: >-
   iOS tests · ${{ inputs.ref || github.ref_name }} · ${{ inputs.swift_package || 'simulator' }} ·
-  ${{ inputs.test_filter || 'full suite' }} · ${{ inputs.device_family || 'both' }} · iOS ${{ inputs.ios_version || 'default' }}
+  ${{ inputs.test_filter || 'full suite' }} · ${{ inputs.device_family || 'both' }} · iOS ${{ inputs.ios_version || 'default' }} ·
+  on ${{ inputs.runner || 'auto' }}
 
 on:
   # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
