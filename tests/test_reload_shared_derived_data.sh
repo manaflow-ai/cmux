@@ -105,6 +105,7 @@ out="$(env -u CMUX_SOCKET -u CMUX_SOCKET_PATH -u CMUX_BUNDLED_CLI_PATH HOME="$fa
 # The cleanup reminder must name what holds the tag's build, and never a directory other tags share.
 eval "$(awk '/^tag_build_cleanup_paths\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 eval "$(awk '/^print_tag_cleanup_commands\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+eval "$(awk '/^tagged_app_is_running\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 eval "$(awk '/^print_tag_cleanup_reminder\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 sandbox="$tmp/sandbox"
 mkdir -p "$sandbox"

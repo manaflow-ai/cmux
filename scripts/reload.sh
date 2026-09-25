@@ -1145,6 +1145,11 @@ print_tag_cleanup_commands() {
   printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
 }
 
+tagged_app_is_running() {
+  local tag="$1"
+  pgrep -f "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV" >/dev/null 2>&1
+}
+
 print_tag_cleanup_reminder() {
   local current_slug="$1"
   local current_derived="${2:-}"
@@ -1152,6 +1157,7 @@ print_tag_cleanup_reminder() {
   local tag=""
   local seen=" "
   local -a stale_tags=()
+  local -a running_tags=()
 
   while IFS= read -r -d '' path; do
     if [[ "$path" == /tmp/cmux-* ]]; then
@@ -1176,6 +1182,10 @@ print_tag_cleanup_reminder() {
       continue
     fi
     seen="${seen}${tag} "
+    if tagged_app_is_running "$tag"; then
+      running_tags+=("$tag")
+      continue
+    fi
     stale_tags+=("$tag")
   done < <(
     # The trailing slash makes find descend when /tmp is itself a symlink.
@@ -1186,6 +1196,11 @@ print_tag_cleanup_reminder() {
   echo
   echo "Tag cleanup status:"
   echo "  current tag: ${current_slug} (keep this running until you verify)"
+  if [[ "${#running_tags[@]}" -gt 0 ]]; then
+    for tag in "${running_tags[@]}"; do
+      echo "  still running, skipped: ${tag}"
+    done
+  fi
   if [[ "${#stale_tags[@]}" -eq 0 ]]; then
     echo "  stale tags: none"
     echo "  stale cleanup: not needed"
