@@ -292,7 +292,12 @@ private struct TerminalAgentFooterView: View {
                 ProgressView(value: Double(contextPercent), total: 100)
                     .progressViewStyle(.linear)
                     .frame(width: 72)
-                Text("\(contextPercent)%")
+                Text(
+                    String.localizedStringWithFormat(
+                        String(localized: "terminal.agentFooter.contextPercent", defaultValue: "%lld%%"),
+                        Int64(contextPercent)
+                    )
+                )
                     .monospacedDigit()
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .frame(minWidth: 32, alignment: .trailing)

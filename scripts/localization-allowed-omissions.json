@@ -1,4 +1,29 @@
 {
+  "terminal.agentFooter.contextPercent": {
+    "source": "%lld%%",
+    "identityLocales": {
+      "ar": {
+        "reason": "Percent notation is an invariant numeric status symbol in Arabic UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "ja": {
+        "reason": "Percent notation is an invariant numeric status symbol in Japanese UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "zh-Hans": {
+        "reason": "Percent notation is an invariant numeric status symbol in Simplified Chinese UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "zh-Hant": {
+        "reason": "Percent notation is an invariant numeric status symbol in Traditional Chinese UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      },
+      "ko": {
+        "reason": "Percent notation is an invariant numeric status symbol in Korean UI; the translated catalog entry remains explicit.",
+        "values": ["%lld%%"]
+      }
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
