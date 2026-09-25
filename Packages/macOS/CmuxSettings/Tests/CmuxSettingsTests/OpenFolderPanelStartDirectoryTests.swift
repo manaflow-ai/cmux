@@ -4,31 +4,27 @@ import Testing
 
 @Suite("Open Folder panel start directory")
 struct OpenFolderPanelStartDirectoryTests {
-    private let environment = ["CODE": "/Users/me/code"]
-    private let existingDirectories: Set<String> = ["/Users/me/workspace", "/Users/me/code/app"]
+    private let resolver = OpenFolderPanelStartDirectory(
+        homeDirectory: "/Users/me",
+        isDirectory: { ["/Users/me/workspace", "/Users/me", "/srv/code"].contains($0) }
+    )
 
     private func resolve(_ configuredPath: String, workspaceDirectory: String? = "/active") -> String? {
-        OpenFolderPanelStartDirectory.resolve(
-            configuredPath: configuredPath,
-            workspaceDirectory: workspaceDirectory,
-            environment: environment,
-            homeDirectory: "/Users/me",
-            isDirectory: { existingDirectories.contains($0) }
-        )?.path
+        resolver.resolve(configuredPath: configuredPath, workspaceDirectory: workspaceDirectory)?.path
     }
 
     @Test func configuredPathWinsWhenItIsAnExistingFolder() {
         #expect(resolve("~/workspace") == "/Users/me/workspace")
         #expect(resolve("  ~/workspace\n") == "/Users/me/workspace")
-        #expect(resolve("$CODE/app") == "/Users/me/code/app")
-        #expect(resolve("${CODE}/app") == "/Users/me/code/app")
+        #expect(resolve("~") == "/Users/me")
+        #expect(resolve("/srv/code") == "/srv/code")
     }
 
     @Test func fallsBackToTheActiveWorkspaceDirectory() {
         #expect(resolve("") == "/active")
         #expect(resolve("~/missing") == "/active")
-        #expect(resolve("$UNSET/app") == "/active")
         #expect(resolve("relative/path") == "/active")
+        #expect(resolve("~other/code") == "/active")
     }
 
     @Test func returnsNilWithNoUsableDirectory() {

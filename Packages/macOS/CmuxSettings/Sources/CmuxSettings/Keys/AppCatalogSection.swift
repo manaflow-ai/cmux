@@ -42,7 +42,7 @@ public struct AppCatalogSection: SettingCatalogSection {
     )
 
     /// Folder the Open Folder panel starts in. Empty keeps the active
-    /// workspace's directory. Supports `~` and `$VAR`.
+    /// workspace's directory. Supports a leading `~`.
     public let defaultWorkspacePath = DefaultsKey<String>(
         id: "app.defaultWorkspacePath",
         defaultValue: "",

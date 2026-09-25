@@ -536,7 +536,7 @@
         "defaultWorkspacePath": {
           "type": "string",
           "default": "",
-          "description": "Folder the Open Folder panel starts in, for example ~/code. Supports ~ and $VAR. Leave empty to start in the active workspace's directory."
+          "description": "Folder the Open Folder panel starts in, for example ~/code. Supports a leading ~. Leave empty to start in the active workspace's directory."
         },
         "openSupportedFilesInCmux": {
           "type": "boolean",
