@@ -10,13 +10,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-USES_R2_CACHE = re.compile(r"^\s*uses:\s*\./\.github/actions/cache-(restore|save)\s*$", re.M)
+USES_R2_CACHE = re.compile(
+    r"""^\s*(?:-\s+)?uses:\s*["']?\./\.github/actions/cache-(?:restore|save)/?["']?\s*(?:#.*)?$""", re.M
+)
 DECLARES_URL = re.compile(r"^\s*CI_CACHE_R2_PUBLIC_URL:\s*\S", re.M)
 
 
 class R2CachePublicUrlTests(unittest.TestCase):
     def test_every_r2_cache_workflow_declares_the_public_url(self):
-        users = [p for p in sorted(WORKFLOWS.glob("*.yml")) if USES_R2_CACHE.search(p.read_text())]
+        users = [p for p in sorted(WORKFLOWS.glob("*.y*ml")) if USES_R2_CACHE.search(p.read_text())]
         self.assertIn(WORKFLOWS / "ios-testflight.yml", users)
         missing = [p.name for p in users if not DECLARES_URL.search(p.read_text())]
         self.assertEqual(missing, [], "workflows using the R2 cache actions without CI_CACHE_R2_PUBLIC_URL")
