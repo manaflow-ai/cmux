@@ -20,6 +20,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var beforeMaterialization: (() async throws -> Void)?
     var materializeProjection: ((SurfaceResource, SurfaceRemoteView?, SurfaceDestination) throws -> SurfaceProjection)?
     var onProjectionEnd: ((SurfaceProjection, SurfaceProjectionEndReason) -> Void)?
+    /// Mirrors a browser pane binding its Cloud resource while the provider
+    /// configures it, before the catalog operation that created the pane ends.
+    var registerDuringMaterialization: (@MainActor (SurfaceProjection) -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
     /// The daemon cursor a projection reply carries. The real reply always has one.
@@ -34,13 +37,15 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
 
     func refresh() async { refreshCount += 1 }
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
-        SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        try await materialize(resource, remoteView: nil, at: destination, focus: focus)
     }
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await beforeMaterialization?()
         if let materializeProjection { return try materializeProjection(resource, remoteView, destination) }
-        return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
-                          remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+        let projection = SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
+                                           remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+        registerDuringMaterialization?(projection)
+        return projection
     }
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         throw SurfaceCatalogError.unsupported("createTerminal")

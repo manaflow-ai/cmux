@@ -113,15 +113,13 @@ extension CmuxTuiSurfaceProvider {
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
+            browser.prepareCloudBrowserStore(machineID: machineID)
+            browser.bindCloudBrowserNavigation()
             browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
+            model.connect()
         } else {
-            browser.webView.stopLoading()
-            browser.cloudAccess.configure(model: model, url: privateURL, resourceID: resourceID)
+            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
         }
-        browser.prepareCloudBrowserStore(machineID: machineID)
-        if !preserveCurrentNavigation { browser.showCloudAddress(privateURL) }
-        model.connect()
-        if !preserveCurrentNavigation { browser.cloudAccess.routeDidConfigure() }
         materializedPanels.insert(browser.id)
         return true
     }

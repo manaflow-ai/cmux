@@ -95,8 +95,10 @@ struct SidebarAccessibilityTreeTests {
         #expect(walk.maxDepth < 256, "Accessibility walk exceeded the safety depth: \(walk.maxDepth)")
         #expect(walk.visited.contains(ObjectIdentifier(textView)))
         #expect(walk.visited.contains(ObjectIdentifier(link)))
-        // NSHostingView can be ignored in the AX tree; verify its rendered content.
-        #expect(walk.textValues.contains { $0.contains("Context.swift") })
+        // The walk still descends into the project panel's NSHostingView, so the
+        // cycle and depth checks cover it. Its SwiftUI rows are not asserted:
+        // with no assistive client attached, SwiftUI does not vend them in the
+        // app host, and the walk only ever saw the sidebar row's text.
 
         let updated = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "Changed https://example.com/updated", workspaceId: model.workspaceId

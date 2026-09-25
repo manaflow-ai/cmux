@@ -1173,6 +1173,66 @@ class Wiring(unittest.TestCase):
                 shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
                 self.assertEqual(evaluate(shard, context), product_runner)
 
+    def test_main_full_suite_dispatch_takes_the_owned_pool_the_picker_names(self):
+        # pr_runner_pool.py may put main's full-suite dispatch on an owned
+        # pool; every job of it reads the same inputs a pull request's do.
+        macos = load("ci-macos.yml")["jobs"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"
+        owned_jobs = " admission shard-1 shard-2 lag cli-product "
+        for attempt, actor, runner in (("1", "github-actions[bot]", root),
+                                       ("2", "github-actions[bot]", root),
+                                       ("2", "someone", retry)):
+            context = github_context("workflow_dispatch")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                     sha="head")
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+                                     pr_root_runner=root, pr_owned_jobs=owned_jobs, source_parent1="parent")
+            with self.subTest(attempt=attempt, actor=actor):
+                admission = macos["macos-compile-admission"]
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-pr.app")
+                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
+                context["needs"] = {"macos-compile-admission": {"outputs": {"runner": runner}}}
+                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                self.assertEqual(evaluate(shard, context), runner)
+                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
+                # An owned Mac's kept build is reused on main too, starting at main's own commit.
+                context["env"] = {"CMUX_PRODUCT_RUNNER": runner}
+                context["steps"] = {"reuse-products": {"outputs": {"hit": "false"}},
+                                    "owned-state": {"outputs": {"warm": "true"}}}
+                _, state = named(steps("ci-macos.yml", "macos-compile-admission"), "Reuse this owned Mac's build state")
+                self.assertIs(evaluate(state["if"], context), runner.startswith("glaeda-"))
+                _, prefer = named(steps("ci-macos.yml", "macos-compile-admission"),
+                                  "Prefer a near seed over this owned Mac's DerivedData")
+                self.assertEqual(evaluate(prefer["env"]["MERGED_ONTO"], context), "head")
+        # A dispatch on another branch never reads the owned state.
+        topic = github_context("workflow_dispatch", ref="refs/heads/topic")
+        topic["env"] = {"CMUX_PRODUCT_RUNNER": mini}
+        topic["steps"] = {"reuse-products": {"outputs": {"hit": "false"}}}
+        _, state = named(steps("ci-macos.yml", "macos-compile-admission"), "Reuse this owned Mac's build state")
+        self.assertIs(evaluate(state["if"], topic), False)
+
+    def test_main_full_suite_dispatch_reads_the_route_token_and_the_lane_pin(self):
+        changes = load("ci.yml")["jobs"]["changes"]["steps"]
+        mint = next(step for step in changes if step.get("id") == "route-token")
+        picker = next(step for step in changes if step.get("id") == "macos-pool")
+        for event_name, ref, head, minted, pin in (
+            ("workflow_dispatch", "refs/heads/main", None, True, "/Applications/Xcode-pr.app"),
+            ("workflow_dispatch", "refs/heads/topic", None, False, ""),
+            ("merge_group", "refs/heads/gh-readonly-queue/main/x", None, False, ""),
+            ("pull_request", "refs/pull/1/merge", "manaflow-ai/cmux", True, "/Applications/Xcode-pr.app"),
+            ("pull_request", "refs/pull/1/merge", "someone/cmux", False, ""),
+        ):
+            context = github_context(event_name, ref=ref, CI_PR_POOL_OWNED="1", GLAEDA_ROUTE_APP_ID="42")
+            context["github"].update(repository="manaflow-ai/cmux",
+                                     event={"pull_request": {"head": {"repo": {"full_name": head}}}} if head else {})
+            with self.subTest(event_name=event_name, ref=ref, head=head):
+                self.assertIs(evaluate("${{ " + mint["if"] + " }}", context), minted)
+                self.assertEqual(evaluate(picker["env"]["CMUX_CI_XCODE_APP_PR"], context), pin)
+        off = github_context("workflow_dispatch", CI_PR_POOL_OWNED="", GLAEDA_ROUTE_APP_ID="42")
+        self.assertIs(evaluate("${{ " + mint["if"] + " }}", off), False)
+
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}
         # Short-circuited operands are never evaluated, and JSON is indexed.
