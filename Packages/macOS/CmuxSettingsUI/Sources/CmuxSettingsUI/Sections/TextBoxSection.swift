@@ -6,6 +6,7 @@ import SwiftUI
 /// **TextBox** section — beta controls for the rich terminal input.
 @MainActor
 public struct TextBoxSection: View {
+    @State private var composeMode: DefaultsValueModel<Bool>
     @State private var showOnNewTerminals: DefaultsValueModel<Bool>
     @State private var focusOnNewTerminals: DefaultsValueModel<Bool>
     @State private var maxLines: DefaultsValueModel<Int>
@@ -18,6 +19,7 @@ public struct TextBoxSection: View {
     ///   - defaultsStore: The store used to read and write TextBox settings.
     ///   - catalog: The catalog that provides the TextBox-related setting keys.
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+        _composeMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.composeMode))
         _showOnNewTerminals = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showTextBoxOnNewTerminals))
         _focusOnNewTerminals = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.focusTextBoxOnNewTerminals))
         _maxLines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines))
@@ -33,6 +35,8 @@ public struct TextBoxSection: View {
                     String(localized: "settings.textBox.betaWarning", defaultValue: "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.")
                 )
                 SettingsCardDivider()
+                composeModeRow
+                SettingsCardDivider()
                 showOnNewTerminalsRow
                 SettingsCardDivider()
                 focusOnNewTerminalsRow
@@ -47,6 +51,7 @@ public struct TextBoxSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
+            composeMode,
             showOnNewTerminals,
             focusOnNewTerminals,
             defaultSubmitAction,
@@ -54,6 +59,25 @@ public struct TextBoxSection: View {
             maxLines,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var composeModeRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            String(localized: "settings.textBox.composeMode", defaultValue: "Compose Mode"),
+            subtitle: composeMode.current
+                ? String(localized: "settings.textBox.composeMode.subtitleOn", defaultValue: "New terminals open with a native editor for selection, undo, and multiline input before you submit.")
+                : String(localized: "settings.textBox.composeMode.subtitleOff", defaultValue: "Shell input stays direct. Open TextBox when you want native selection and multiline editing.")
+        ) {
+            Toggle("", isOn: Binding(get: { composeMode.current }, set: { composeMode.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTextBoxComposeModeToggle")
+                .accessibilityLabel(
+                    String(localized: "settings.textBox.composeMode", defaultValue: "Compose Mode")
+                )
+        }
     }
 
     @ViewBuilder

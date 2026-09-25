@@ -110,10 +110,20 @@ enum TerminalScrollBarSettings {
 }
 
 enum TerminalTextBoxInputSettings {
+    /// Enables the native TextBox composer for newly created terminals.
+    static let composeModeKey = "terminal.composeMode"
+    static let defaultComposeMode = false
     static let showOnNewTerminalsKey = "terminal.showTextBoxOnNewTerminals"
     static let focusOnNewTerminalsKey = "terminal.focusTextBoxOnNewTerminals"
     static let defaultShowOnNewTerminals = false
     static let defaultFocusOnNewTerminals = false
+
+    static func composeMode(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: composeModeKey) == nil {
+            return defaultComposeMode
+        }
+        return defaults.bool(forKey: composeModeKey)
+    }
     static let maxLinesKey = "terminal.textBoxMaxLines"
     static let defaultMaxLines = 10
     static let minimumMaxLines = 1

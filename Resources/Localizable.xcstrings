@@ -556656,6 +556656,124 @@
                 }
             }
         }
+    },
+    "settings.textBox.composeMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compose Mode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompositionsmodus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode composition"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع التأليف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de composición"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編寫模式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编写模式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작성 모드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成モード"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.textBox.compose-mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode compose mode native editor selection undo multiline input prompt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode Kompositionsmodus nativer Editor Auswahl Rückgängig mehrzeilige Eingabe Prompt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode mode composition éditeur natif sélection annuler saisie multiligne invite"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode وضع التأليف محرر أصلي تحديد تراجع إدخال متعدد الأسطر مطالبة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode modo de composición editor nativo selección deshacer entrada multilínea prompt"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode 編寫模式 原生編輯器 選取 復原 多行輸入 提示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode 编写模式 原生编辑器 选择 撤销 多行输入 提示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode 작성 모드 네이티브 편집기 선택 실행 취소 여러 줄 입력 프롬프트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.composeMode 作成モード ネイティブエディタ 選択 取り消し 複数行入力 プロンプト"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
