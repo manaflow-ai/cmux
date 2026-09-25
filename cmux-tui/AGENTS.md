@@ -21,4 +21,5 @@ workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards live
 path: `./scripts/blacksmith-testbox-demo.sh`.
 
 Outside contributors cannot dispatch the hosted verification from a fork. Run focused `cargo test`
-inside `cmux-tui/` locally and say so in the PR; a maintainer runs the hosted verification on it.
+inside `cmux-tui/` locally (needs Zig 0.16.0 and `git submodule update --init`; see
+`cmux-tui/README.md`) and say so in the PR; a maintainer runs the hosted verification on it.
