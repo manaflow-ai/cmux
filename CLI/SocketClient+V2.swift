@@ -50,6 +50,21 @@ extension SocketClient {
             // before the JSON protocol starts. Surface these directly instead of letting
             // JSONSerialization throw a confusing parse error.
             if raw.hasPrefix("ERROR:") {
+                let localizedAccessDeniedResponse = "ERROR: " + String(
+                    localized: "socket.client.accessDenied",
+                    defaultValue: "Access denied - only processes started inside cmux can connect",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                )
+                if SocketStreamErrorKind.classify(
+                    line: raw,
+                    localizedAccessDeniedResponse: localizedAccessDeniedResponse
+                ) == .accessDenied {
+                    throw CLIError(message: String(
+                        localized: "cli.socket.error.connectionDenied",
+                        defaultValue: "cmux blocked this command before it ran. Run it from a cmux terminal, choose Automation mode in Settings > Automation > Socket Control Mode, or use an SSH link such as open ssh://host from an external terminal.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    ))
+                }
                 throw CLIError(message: raw)
             }
 
