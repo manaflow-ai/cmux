@@ -18,6 +18,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
     case grok
     /// Kimi Code.
     case kimi
+    /// Kiro CLI.
+    case kiro
 
     /// The canonical Vault `resumeCommand` template for this built-in agent.
     public var commandTemplate: String {
@@ -32,6 +34,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
             "{{executable}} -r {{sessionId}}"
         case .kimi:
             "{{executable}} --resume {{sessionId}}"
+        case .kiro:
+            "{{executable}} chat --resume-id {{sessionId}}"
         }
     }
 }

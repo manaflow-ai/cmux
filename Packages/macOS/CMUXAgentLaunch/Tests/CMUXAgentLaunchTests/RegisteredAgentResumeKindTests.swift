@@ -11,6 +11,7 @@ struct RegisteredAgentResumeKindTests {
         #expect(RegisteredAgentResumeKind.antigravity.commandTemplate == "{{executable}} --conversation {{sessionId}}")
         #expect(RegisteredAgentResumeKind.grok.commandTemplate == "{{executable}} -r {{sessionId}}")
         #expect(RegisteredAgentResumeKind.kimi.commandTemplate == "{{executable}} --resume {{sessionId}}")
+        #expect(RegisteredAgentResumeKind.kiro.commandTemplate == "{{executable}} chat --resume-id {{sessionId}}")
     }
 
     @Test("Pi registry resume preserves safe launch options and replaces stale selectors")
@@ -59,6 +60,15 @@ struct RegisteredAgentResumeKindTests {
     @Test("Each registered built-in kind uses its distinct resume selector")
     func remainingRegisteredKindsUseExpectedSelectors() {
         let resumeArgv = AgentResumeArgv()
+
+        #expect(
+            resumeArgv.registeredBuiltInKind(
+                kind: .kiro,
+                sessionId: "new-session",
+                executablePath: nil,
+                arguments: ["kiro-cli", "chat", "--resume-id", "old-session", "--agent", "cmux"]
+            ) == ["kiro-cli", "chat", "--resume-id", "new-session", "--agent", "cmux"]
+        )
 
         #expect(
             resumeArgv.registeredBuiltInKind(

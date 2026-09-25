@@ -1940,6 +1940,10 @@ enum SessionTranscriptLoader {
         usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
+        if agent.id == "kiro" {
+            guard let record = KiroTranscriptRecord(object: object) else { return nil }
+            return SessionTranscriptTurn(id: id, role: record.role, text: truncatedText(record.text, role: record.role))
+        }
         switch agent {
         case .claude:
             return parseClaudeLine(object, id: id)

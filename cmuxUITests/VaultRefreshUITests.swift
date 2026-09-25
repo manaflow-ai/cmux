@@ -15,6 +15,54 @@ final class VaultRefreshUITests: XCTestCase {
         try exerciseReload(presentation: "standard")
     }
 
+    func testKiroSessionsAppearAndPreview() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kiro-vault-ui-\(UUID().uuidString)", isDirectory: true)
+        let sessions = root.appendingPathComponent("sessions/cli", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionID = UUID().uuidString
+        let prompt = "Kiro4566 saved conversation"
+        let response = "Kiro4566 preview response"
+        try JSONSerialization.data(withJSONObject: ["session_id": sessionID, "cwd": root.path])
+            .write(to: sessions.appendingPathComponent("\(sessionID).json"))
+        var transcript = Data()
+        for (kind, text) in [("UserMessage", prompt), ("AssistantMessage", response)] {
+            transcript.append(try JSONSerialization.data(withJSONObject: [
+                "version": "v1", "kind": kind, "data": ["content": [["kind": "text", "data": text]]]
+            ]))
+            transcript.append(0x0A)
+        }
+        try transcript.write(to: sessions.appendingPathComponent("\(sessionID).jsonl"))
+
+        let app = XCUIApplication.cmuxTestApplication()
+        let setupURL = root.appendingPathComponent("setup.json")
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = setupURL.path
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        app.launchEnvironment["KIRO_HOME"] = root.path
+        app.launchArguments += [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-workspacePresentationMode", "standard", "-sessionIndex.grouping", "recency"
+        ]
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(waitUntil(timeout: 30) {
+            guard let data = try? Data(contentsOf: setupURL),
+                  let setup = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return false }
+            return setup["ready"] == "1"
+        })
+        let mode = app.buttons["RightSidebarModeButton.sessions"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 30))
+        mode.click()
+        let row = app.staticTexts[prompt]
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "Kiro sessions must appear without a cmux hook record")
+        row.doubleClick()
+        XCTAssertTrue(app.staticTexts[response].waitForExistence(timeout: 15), "Preview must decode Kiro's persisted messages")
+        attach(app, name: "kiro-saved-session-preview")
+    }
+
     private func exerciseReload(presentation: String) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vault-refresh-\(UUID().uuidString)", isDirectory: true)
