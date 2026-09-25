@@ -426,16 +426,38 @@ extension DockSplitStore {
             in: .whitespacesAndNewlines
         ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
         let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
+        let restoredLocalResumeStartupCommand: String? = if terminalSnapshot.isRemoteTerminal != true {
+            let input = (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+                ? (bindingLaunch?.initialInput ?? agentLaunch?.initialInput)
+                : nil
+            input.flatMap {
+                OneShotTerminalLauncherStore().writeStartupCommand(
+                    input: $0,
+                    workingDirectory: resumeSessionWorkingDirectory
+                )
+            }
+        } else {
+            nil
+        }
         let initialCommand = tmuxLauncher
-        let initialInput = bindingLaunch?.initialInput ??
+            ?? restoredLocalResumeStartupCommand
+        let startupTitleInput = bindingLaunch?.initialInput ??
             agentLaunch?.initialInput ??
             deferredAgentResumeStartupInput
+        let initialInput = restoredLocalResumeStartupCommand == nil
+            ? startupTitleInput
+            : nil
+        let willRunAgentCommand = restoredLocalResumeStartupCommand != nil &&
+            (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
         let willRunAgentInput =
-            agentLaunch?.initialInput != nil ||
-            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
+            (restoredLocalResumeStartupCommand == nil && agentLaunch?.initialInput != nil) ||
+            (restoredLocalResumeStartupCommand == nil &&
+                bindingLaunch?.initialInput != nil &&
+                resumeBinding?.isAgentHookBinding == true) ||
             deferredAgentResumeStartupInput != nil
         let startupHandlesWorkingDirectory =
-            tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil ||
+            tmuxLauncher != nil || restoredLocalResumeStartupCommand != nil ||
+            agentLaunch != nil || bindingLaunch != nil ||
             deferredAgentResumeStartupInput != nil
         let hostShellWorkingDirectory: String? = {
             guard startupHandlesWorkingDirectory else { return workingDirectory }
@@ -482,7 +504,7 @@ extension DockSplitStore {
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,
-                willRunStartupCommand: false,
+                willRunStartupCommand: willRunAgentCommand,
                 willRunStartupInput: willRunAgentInput,
                 awaitsDeferredAgentResume: deferredAgentResumeAdmission
             )
@@ -496,7 +518,7 @@ extension DockSplitStore {
         }
         armRestoredPanelTitleBoundary(
             panelId: terminal.id,
-            internallySeededInput: initialInput
+            internallySeededInput: startupTitleInput
         )
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
@@ -524,7 +546,7 @@ extension DockSplitStore {
             resumeBinding: resumeBinding,
             manualResumeAvailable: restorableAgent != nil ||
                 (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true,
-            willRunStartupCommand: false,
+            willRunStartupCommand: willRunAgentCommand,
             willRunStartupInput: willRunAgentInput,
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
             agentSessionAlreadyActive: liveSessionOwner != nil ||

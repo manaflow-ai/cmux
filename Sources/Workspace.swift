@@ -1934,6 +1934,19 @@ extension Workspace {
                 in: .whitespacesAndNewlines
             ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
             let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
+            let restoredLocalResumeStartupCommand: String? = if !restoresRemoteWorkspaceTerminalSnapshot {
+                let input = (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+                    ? (restoredBindingLaunch?.initialInput ?? restoredAgentResumeLaunch?.initialInput)
+                    : nil
+                input.flatMap {
+                    OneShotTerminalLauncherStore().writeStartupCommand(
+                        input: $0,
+                        workingDirectory: resumeSessionWorkingDirectory
+                    )
+                }
+            } else {
+                nil
+            }
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
@@ -1949,13 +1962,18 @@ extension Workspace {
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript
-            let restoredStartupInput = restoredRemotePTYAttachCommand == nil
+                ?? restoredLocalResumeStartupCommand
+            let restoredStartupTitleInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
                     deferredAgentResumeStartupInput)
                 : nil
+            let restoredStartupInput = restoredLocalResumeStartupCommand == nil
+                ? restoredStartupTitleInput
+                : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
+                restoredLocalResumeStartupCommand != nil ||
                 restoredAgentResumeLaunch != nil ||
                 restoredBindingLaunch != nil ||
                 deferredAgentResumeStartupInput != nil
@@ -1988,11 +2006,15 @@ extension Workspace {
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory
             let restoredAgentWillRunStartupCommand =
+                (restoredLocalResumeStartupCommand != nil &&
+                    (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)) ||
                 effectivePersistentSSHResumeCommand != nil &&
                 resumeBinding?.isAgentHookBinding == true
             let restoredAgentWillRunStartupInput =
-                restoredAgentResumeLaunch?.initialInput != nil ||
-                (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
+                (restoredLocalResumeStartupCommand == nil && restoredAgentResumeLaunch?.initialInput != nil) ||
+                (restoredLocalResumeStartupCommand == nil &&
+                    restoredBindingLaunch?.initialInput != nil &&
+                    resumeBinding?.isAgentHookBinding == true) ||
                 (deferredAgentResumeStartupInput != nil && deferredPersistentSSHResumeCommand == nil)
 #if DEBUG
             if let restorableAgent {
@@ -2223,7 +2245,7 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             armRestoredPanelTitleBoundary(
                 panelId: terminalPanel.id,
-                internallySeededInput: restoredStartupInput
+                internallySeededInput: restoredStartupTitleInput
             )
             if restoredAgentWillRunStartupInput,
                restoredRemotePTYAttachCommand == nil,

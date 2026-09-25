@@ -159,6 +159,21 @@ struct OneShotTerminalLauncherStore {
         return "/usr/bin/env /bin/zsh -f \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
     }
 
+    /// Returns a startup command for structured restore input that would
+    /// otherwise be typed into the interactive shell line editor.
+    ///
+    /// Local structured restores use a short, shell-independent `cmux restore`
+    /// selector. Running that selector from the one-shot login-shell launcher
+    /// keeps vi normal mode (and other line-editor modes) out of the path.
+    func writeStartupCommand(
+        input: String,
+        workingDirectory: String?
+    ) -> String? {
+        let command = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return nil }
+        return writeStartupCommand(command: command, workingDirectory: workingDirectory)
+    }
+
     private func pruneOldLaunchers(in directoryURL: URL) {
         let markerURL = directoryURL.appendingPathComponent(pruneMarkerName, isDirectory: false)
         if let attributes = try? fileManager.attributesOfItem(atPath: markerURL.path),
