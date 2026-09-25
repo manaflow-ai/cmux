@@ -120,7 +120,7 @@ final class TerminalPickerBarItem {
         perform: @escaping () -> Void
     ) -> UIAction {
         let action = UIAction(title: title, image: UIImage(systemName: image),
-                              identifier: UIAction.Identifier(id), attributes: attributes, state: state) { _ in
+                              attributes: attributes, state: state) { _ in
             perform()
         }
         action.accessibilityIdentifier = id
