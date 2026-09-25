@@ -1,5 +1,7 @@
 import CmuxAppKitSupportUI
+import CMUXMobileCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
 import CmuxRemoteDaemon
@@ -4598,13 +4600,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     // shared SSH control master that is still serving the moved terminal.
     private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
     var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
-
-#if DEBUG
-    func debugElapsedMs(since start: TimeInterval) -> String {
-        let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
-        return String(format: "%.2f", ms)
-    }
-#endif
 
     func markExplicitClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
@@ -12646,27 +12641,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
-    }
-
-    @discardableResult
-    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
-        guard let anchorTabId = surfaceIdFromPanelId(panelId),
-              let paneId = paneId(forPanelId: panelId),
-              let browser = browserPanel(for: panelId) else { return nil }
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newBrowserSurface(
-            inPane: paneId,
-            url: browser.currentURLForTabDuplication,
-            focus: focus,
-            preferredProfileID: browser.profileID,
-            chromeVisibility: browser.chromeVisibility,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
-            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
-        ) else { return nil }
-        newPanel.setMuted(browser.isMuted)
-        syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-        return newPanel
     }
 
     private func promptRenamePanel(tabId: TabID) {
