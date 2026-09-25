@@ -83,7 +83,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
         store.loadAll()
 
-        XCTAssertEqual(store.fileBrowserExcludePatterns, [".git", "node_modules", ".cache"])
+        let fileBrowserExcludePatterns = store.fileBrowserExcludePatterns
+        XCTAssertEqual(fileBrowserExcludePatterns, [".git", "node_modules", ".cache"])
     }
 
     func testDecodeSimpleCommandWithAllFields() throws {
