@@ -35090,8 +35090,9 @@ export default CMUXSessionRestore;
                     currentCwd: hookCwd,
                     mapped: mapped
                 ),
-                launchCommand: resumeLaunchCommand, isRestorable: mapped?.isRestorable,
+                launchCommand: resumeLaunchCommand,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                isRestorable: mapped?.isRestorable,
                 responseTimeout: cursorCriticalTimeout(),
                 deadline: cursorShellDeadline,
                 telemetry: telemetry
@@ -35353,8 +35354,9 @@ export default CMUXSessionRestore;
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        launchCommand: resumeLaunchCommand, isRestorable: mapped?.isRestorable,
+                        launchCommand: resumeLaunchCommand,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        isRestorable: mapped?.isRestorable,
                         telemetry: telemetry
                     )
                 }
@@ -35498,8 +35500,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: latest.cwd,
-                    launchCommand: latest.launchCommand, isRestorable: latest.isRestorable,
+                    launchCommand: latest.launchCommand,
                     transcriptPath: latest.transcriptPath,
+                    isRestorable: latest.isRestorable,
                     telemetry: telemetry
                 )
                 // A stale prompt-submit may have journaled a spurious
@@ -35689,8 +35692,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand, isRestorable: mapped?.isRestorable,
+                    launchCommand: resumeLaunchCommand,
                     transcriptPath: transcriptPathForStore,
+                    isRestorable: mapped?.isRestorable,
                     responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil,
                     deadline: cursorShellDeadline,
                     telemetry: telemetry
@@ -36207,8 +36211,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: resumeLaunchCommand, isRestorable: mapped?.isRestorable,
+                    launchCommand: resumeLaunchCommand,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    isRestorable: mapped?.isRestorable,
                     responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil,
                     deadline: cursorShellDeadline,
                     telemetry: telemetry
@@ -36486,8 +36491,9 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand, isRestorable: mapped?.isRestorable,
+                    launchCommand: resumeLaunchCommand,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    isRestorable: mapped?.isRestorable,
                     telemetry: telemetry
                 )
             }
