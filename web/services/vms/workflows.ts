@@ -95,10 +95,13 @@ import {
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
-import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { withVmProductAnalytics } from "./productAnalytics";
 import {
+  CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
+  PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   vmRepositoryLiveShape,
@@ -218,6 +221,12 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+const CREATE_CLEANUP_CONCURRENCY = 4;
+const CREATE_CLEANUP_PROVIDER_TIMEOUT = "15 seconds";
+const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
+const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
+const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
+const CREATE_CLEANUP_BATCH_LIMIT = 20;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
@@ -392,6 +401,11 @@ export function reconcileVmProviderStatuses(input: {
     yield* reconcileLegacyResourceReservations(repo, providers, {
       limit: LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
     });
+    yield* reconcilePendingCreateCleanups(repo, providers, {
+      // At four concurrent 15-second provider calls, twenty rows fit inside
+      // the five-minute cron budget while leaving time for status probes.
+      limit: Math.min(boundedVmStatusReconcileLimit(input.limit), CREATE_CLEANUP_BATCH_LIMIT),
+    });
     const getStatus = providers.getStatus;
     if (!getStatus) {
       return {
@@ -450,6 +464,84 @@ export function reconcileVmProviderStatuses(input: {
 }
 
 /**
+ * A provider allocation retained after a failed create is not a normal VM row:
+ * its public provider id is intentionally absent until deletion is confirmed.
+ * Reconcile those ids before ordinary status probing so a failed provider
+ * cleanup cannot remain reserved forever or block the next Base generation.
+ */
+function reconcilePendingCreateCleanups(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: { readonly limit: number },
+): Effect.Effect<void, never> {
+  const listCandidates = repo.pendingCreateCleanupCandidates;
+  const claimCleanup = repo.claimCreateCleanup;
+  const deferCleanup = repo.deferCreateCleanup;
+  const resolveCleanup = repo.resolveCreateCleanup;
+  if (!listCandidates || !claimCleanup || !deferCleanup || !resolveCleanup) return Effect.void;
+  return Effect.gen(function* () {
+    const candidates = yield* listCandidates({ limit: input.limit }).pipe(
+      Effect.catchAll(() => Effect.succeed([] as CloudVmRow[])),
+    );
+    yield* Effect.forEach(
+      candidates,
+      (vm) => {
+        // The row can outlive its provider driver. Never pass a retired
+        // provider or a coderouter/model-plane failure to the cleanup worker.
+        if (isRetiredProviderRow(vm) || vm.failureCode !== PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE) {
+          return Effect.void;
+        }
+        const rawProviderVmId = vm.providerMetadata?.[CREATE_CLEANUP_PROVIDER_VM_ID_KEY];
+        if (typeof rawProviderVmId !== "string" || rawProviderVmId.trim().length === 0) return Effect.void;
+        const providerVmId = rawProviderVmId.trim();
+        const leaseId = randomUUID();
+        const now = new Date();
+        const leaseExpiresAt = new Date(now.getTime() + CREATE_CLEANUP_LEASE_MS);
+        return claimCleanup({
+          id: vm.id,
+          providerVmId,
+          leaseId,
+          now,
+          leaseExpiresAt,
+        }).pipe(
+          Effect.flatMap((claim) => {
+            if (!claim) return Effect.void;
+            const destroy = providers.destroy(vm.provider, providerVmId).pipe(
+              Effect.timeoutFail({
+                duration: CREATE_CLEANUP_PROVIDER_TIMEOUT,
+                onTimeout: () => new Error("provider cleanup deadline"),
+              }),
+              Effect.catchAll((error) => isProviderDeletionConfirmed(error)
+                ? Effect.succeed("confirmed" as const)
+                : Effect.fail(error)),
+            );
+            return destroy.pipe(
+              Effect.flatMap(() => resolveCleanup({ id: vm.id, providerVmId, leaseId })),
+              Effect.asVoid,
+              Effect.catchAll(() => {
+                const backoff = Math.min(
+                  CREATE_CLEANUP_BACKOFF_MAX_MS,
+                  CREATE_CLEANUP_BACKOFF_BASE_MS * 2 ** Math.min(20, Math.max(0, claim.attempt - 1)),
+                );
+                return deferCleanup({
+                  id: vm.id,
+                  providerVmId,
+                  leaseId,
+                  nextAttemptAt: new Date(Date.now() + backoff),
+                  now: new Date(),
+                }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+              }),
+            );
+          }),
+          Effect.catchAll(() => Effect.void),
+        );
+      },
+      { concurrency: CREATE_CLEANUP_CONCURRENCY, discard: true },
+    );
+  });
+}
+
+/**
  * The home volume a destroyed machine owns exclusively, or null when there is
  * nothing safe to delete. Per-machine volumes are marked at create
  * (`providerMetadata.homeVolumePerMachine`); rows created before that marker
@@ -504,6 +596,10 @@ function rollbackProviderCreate(
       );
     }
   });
+}
+
+function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boolean {
+  return vm.status === "failed" || vm.failureCode === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE;
 }
 
 /** Check the copied or requested shape before provisioning side effects. */
@@ -653,7 +749,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
 
     if (!create.inserted) {
       const existing = create.vm;
-      if (existing.status === "failed") {
+      if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
@@ -741,12 +837,15 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
-            // providers.create fails only with VmProviderOperationError, and
-            // the caller is told it is retryable (vm_cloud_service_unavailable,
-            // retryAfterSeconds ~5), so store the code that lets a same-key
-            // retry reach the provider again immediately.
-            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
-            message: errorMessage(err.cause),
+            // An unconfirmed rollback remains owned by this failed row. Keep
+            // its provider id and make same-key retries wait for reconciliation
+            // instead of allocating a duplicate machine.
+            ...(isProviderCreateCleanupError(err.cause)
+              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
+              : { code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE }),
+            message: isProviderCreateCleanupError(err.cause)
+              ? `${errorMessage(err.cause.cause)}; cleanup: ${errorMessage(err.cause.cleanupCause)}`
+              : errorMessage(err.cause),
           }),
           repo.recordUsageEvent({
             userId: input.userId,
@@ -983,7 +1082,7 @@ function finishBaseCreate(
   return Effect.gen(function* () {
     if (create.kind === "existing") {
       const existing = create.vm;
-      if (existing.status === "failed") {
+      if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: existing.idempotencyKey ?? "",
@@ -1080,7 +1179,9 @@ function finishBaseCreate(
             generation: create.generation.generation,
             vmId: create.vm.id,
             userId: input.userId,
-            code: err.operation,
+            ...(isProviderCreateCleanupError(err.cause)
+              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
+              : { code: err.operation }),
             message: errorMessage(err.cause),
           }),
           repo.recordUsageEvent({

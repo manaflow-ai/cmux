@@ -6907,14 +6907,14 @@ extension Notification.Name {
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
-    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
+    static let browserDidBecomeFirstResponderWebView = CmuxWebView.didBecomeFirstResponderNotification
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
     static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
-    static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
+    static let webViewDidReceiveClick = CmuxWebView.didReceiveClickNotification
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
@@ -6931,5 +6931,5 @@ extension Notification.Name {
 }
 
 enum BrowserFirstResponderNotificationUserInfoKey {
-    static let pointerInitiated = "pointerInitiated"
+    static let pointerInitiated = CmuxWebView.firstResponderPointerInitiatedUserInfoKey
 }

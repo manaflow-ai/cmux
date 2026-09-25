@@ -4,7 +4,7 @@ We're a small team and the outside-PR queue is long, so a reply can take a while
 
 A few things that help:
 
-- The PR template has a "Review Trigger" block of review-bot mentions. Pasting it as a comment after your latest commit is the quickest way to get automated review.
+- The [PR template source](https://github.com/manaflow-ai/cmux/blob/main/.github/pull_request_template.md?plain=1) has a commented-out "Review Trigger" block of review-bot mentions; it does not show in the rendered description. Pasting it as a comment after your latest commit is the quickest way to get automated review.
 - If the CLA check asks, reply with the sentence it gives you.
 - The [verification ladder](https://github.com/manaflow-ai/cmux/blob/main/docs/contributor-verification.md) shows which checks fit your change. Say in the description which ones you ran.
 - If we end up fixing the same problem another way, we'll credit you with a `Co-authored-by` trailer and link the fix here.
