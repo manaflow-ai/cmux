@@ -12,6 +12,21 @@ enum L10nSSH {
     static var hostKeyRejected: String {
         L10n.string("mobile.ssh.error.hostKeyRejected", defaultValue: "Connection cancelled: server identity not trusted.")
     }
+    static var connectionRefused: String {
+        L10n.string(
+            "mobile.ssh.error.connectionRefused",
+            defaultValue: "This computer refused the connection. Check the port and that SSH is turned on."
+        )
+    }
+    static var connectTimedOut: String {
+        L10n.string("mobile.ssh.error.connectTimedOut", defaultValue: "This computer didn't respond. Check the address and your network.")
+    }
+    static var hostNotFound: String {
+        L10n.string("mobile.ssh.error.hostNotFound", defaultValue: "No computer was found at this address.")
+    }
+    static var unreachable: String {
+        L10n.string("mobile.ssh.error.unreachable", defaultValue: "Couldn't reach this computer. Check the address and your network.")
+    }
     static var noKey: String {
         L10n.string("mobile.ssh.error.noKey", defaultValue: "Choose a key for this computer first.")
     }

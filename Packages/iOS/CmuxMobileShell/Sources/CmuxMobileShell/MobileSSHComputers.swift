@@ -2,6 +2,7 @@ import CMUXMobileCore
 internal import CmuxMobileTerminalKit
 internal import CryptoKit
 internal import LocalAuthentication
+internal import Network
 internal import CmuxMobileSupport
 public import CmuxMobileSSH
 public import CmuxMobileShellModel
@@ -195,6 +196,13 @@ public final class MobileSSHComputers {
             hostKeyVerifier: verifier(for: host),
             via: jump
         )
+        // A connect that ran before the key existed left its refusal as the
+        // host's status; the key works now, so drop it and connect with it.
+        if case .failed = statusByHost[hostID] {
+            statusByHost[hostID] = .idle
+            publish(host: host)
+        }
+        autoConnect(hostID: hostID)
     }
 
     // MARK: Prompts
@@ -790,7 +798,27 @@ public final class MobileSSHComputers {
         case MobileSSHRuntimeError.cmuxTUIMissing: L10nSSH.cmuxTUIMissing
         case MobileSSHRuntimeError.cmuxTUISessionGone: L10nSSH.cmuxTUISessionGone
         case MobileSSHCmuxTUIInstaller.InstallError.unsupportedPlatform(let os, let arch): L10nSSH.cmuxTUIUnsupported(os: os, arch: arch)
+        case let network as NWError: describe(network)
+        case let posix as POSIXError: describe(posix.code)
         default: String(describing: error)
+        }
+    }
+
+    /// Plain wording for the network failures a connect can hit, instead of
+    /// raw codes like `POSIXErrorCode(rawValue: 61)`.
+    private static func describe(_ error: NWError) -> String {
+        switch error {
+        case .posix(let code): describe(code)
+        case .dns: L10nSSH.hostNotFound
+        default: L10nSSH.unreachable
+        }
+    }
+
+    private static func describe(_ code: POSIXErrorCode) -> String {
+        switch code {
+        case .ECONNREFUSED: L10nSSH.connectionRefused
+        case .ETIMEDOUT: L10nSSH.connectTimedOut
+        default: L10nSSH.unreachable
         }
     }
 
