@@ -410,6 +410,20 @@ def evaluate(expression, context):
             return token == "true"
         if token[0].isdigit():
             return float(token)
+        if token == "format" and peek() == "(":
+            take()
+            template, values = either(), []
+            while peek() == ",":
+                take()
+                value = either()
+                values.append(str(int(value)) if isinstance(value, float) and value.is_integer()
+                              else "" if value is None else str(value))
+            if take() != ")":
+                raise ValueError("unbalanced parentheses")
+            text = str(template)
+            for index, value in enumerate(values):
+                text = text.replace("{" + str(index) + "}", value)
+            return text
         if token in ("startsWith", "endsWith", "contains") and peek() == "(":
             take()
             haystack = either()
@@ -874,6 +888,23 @@ class Wiring(unittest.TestCase):
             with self.subTest(actor=actor):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+
+    def test_full_suite_shards_take_the_shard_runner_on_admissions_xcode(self):
+        shards = load("ci-macos.yml")["jobs"]["app-host-unit-tests"]
+        for retry, owned, shard, runner in (
+            ("", "", "blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),  # spread off 12vcpu
+            ("", "", "", "blacksmith-12vcpu-macos-26"),                          # stay with admission
+            # An owned run's shards not placed there take the retry runner.
+            ("blacksmith-12vcpu-macos-26", " admission ", "", "blacksmith-12vcpu-macos-26"),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt="1",
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_retry_runner=retry, pr_owned_jobs=owned, pr_shard_runner=shard)
+            context["matrix"] = {"shard": 3}
+            context["needs"] = {"macos-compile-admission": {"outputs": {"runner": "blacksmith-12vcpu-macos-26"}}}
+            with self.subTest(retry=retry, shard=shard):
+                self.assertEqual(evaluate(shards["runs-on"], context), runner)
 
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}

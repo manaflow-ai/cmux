@@ -95,6 +95,9 @@ jobs:
       # a re-run of failed jobs takes, since it reuses these outputs and must
       # not queue on the owned pool unwatched.
       macos_pr_retry_runner: ${{ steps.macos-pool.outputs.retry_runner }}
+      # Set only for a full suite on a Blacksmith pool: the pool on the same
+      # Xcode its app-host shards take when it has more room for them.
+      macos_pr_shard_runner: ${{ steps.macos-pool.outputs.shard_runner }}
       # Set only when the pool is persistent: the jobs of attempt 1 that take
       # it (" admission shard-1 ... "); every other job takes the retry runner.
       macos_pr_owned_jobs: ${{ steps.macos-pool.outputs.owned_jobs }}
@@ -1112,6 +1115,7 @@ jobs:
       release_archs: ${{ inputs.release_archs }}
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
+      pr_shard_runner: ${{ needs.changes.outputs.macos_pr_shard_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
