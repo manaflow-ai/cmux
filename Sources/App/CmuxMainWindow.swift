@@ -296,14 +296,6 @@ final class CmuxMainWindow: NSWindow {
         return frame
     }
 
-    /// Keeps automatic key-view walks disabled when SwiftUI mounts or replaces
-    /// hosting views. A one-time initializer assignment is insufficient because
-    /// hosting can turn the setting back on, reintroducing restore-time recursion.
-    override var autorecalculatesKeyViewLoop: Bool {
-        get { super.autorecalculatesKeyViewLoop }
-        set { super.autorecalculatesKeyViewLoop = false }
-    }
-
     /// Creates a main window with explicit fullscreen capability (#5933).
     /// Programmatic windows cannot inherit it from a nib, and AppKit's implicit
     /// grant is unreliable on macOS 26. Disallow Full Screen Tile so managed
@@ -320,7 +312,6 @@ final class CmuxMainWindow: NSWindow {
             backing: backing,
             defer: flag
         )
-        autorecalculatesKeyViewLoop = false
         collectionBehavior = Self.canonicalCollectionBehavior(collectionBehavior)
     }
 

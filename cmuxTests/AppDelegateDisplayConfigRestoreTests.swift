@@ -352,7 +352,7 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     @Test
-    func restoredMainWindowsKeepAppKitKeyViewLoopDisabledAfterTopologyAssembly() {
+    func restoredMainWindowsRestoreAppKitKeyViewLoopAfterTopologyAssembly() {
         let appDelegate = testAppDelegate()
         let windowId = appDelegate.createMainWindow(
             sessionWindowSnapshot: emptyWindowSnapshot(),
@@ -360,7 +360,7 @@ struct AppDelegateDisplayConfigRestoreTests {
         )
         defer { closeCreatedWindow(appDelegate, windowId: windowId) }
 
-        #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == false)
+        #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == true)
     }
 
     @Test
