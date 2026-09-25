@@ -15,6 +15,30 @@ struct WindowTitleTemplateTests {
     private let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
 
+    @Test func titlebarFocusedLocationAbbreviatesLocalDirectory() {
+        #expect(ContentView.titlebarFocusedLocation(
+            directory: "/Users/alice/code/cmux",
+            url: nil,
+            homeDirectory: "/Users/alice"
+        ) == "~/code/cmux")
+    }
+
+    @Test func titlebarFocusedLocationShowsBrowserHostAndPath() {
+        #expect(ContentView.titlebarFocusedLocation(
+            directory: nil,
+            url: URL(string: "https://example.com:8443/dashboard?tab=logs#latest"),
+            homeDirectory: "/Users/alice"
+        ) == "example.com:8443/dashboard?tab=logs#latest")
+    }
+
+    @Test func titlebarFocusedLocationHidesBlankBrowserPage() {
+        #expect(ContentView.titlebarFocusedLocation(
+            directory: nil,
+            url: URL(string: "about:blank"),
+            homeDirectory: "/Users/alice"
+        ) == nil)
+    }
+
     @Test func resolvesWindowPlaceholdersAndPreservesUnknownPlaceholders() throws {
         let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
         let template = WindowTitleTemplate(
