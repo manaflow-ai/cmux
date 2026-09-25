@@ -45,6 +45,14 @@ extension CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        if section.keys.contains("tabBarVisibility") {
+            if let raw = jsonString(section["tabBarVisibility"]),
+               let visibility = PaneTabBarVisibility(rawValue: raw) {
+                snapshot.managedUserDefaults[AppCatalogSection().tabBarVisibility.userDefaultsKey] = .string(visibility.rawValue)
+            } else {
+                logInvalid("app.tabBarVisibility", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonInt(section["globalFontMagnification"]) {
             let clamped = GlobalFontMagnification.clamp(value)
             guard clamped == value else {
