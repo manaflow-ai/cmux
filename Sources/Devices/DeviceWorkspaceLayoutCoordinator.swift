@@ -130,10 +130,15 @@ final class DeviceWorkspaceLayoutCoordinator {
     /// Only an explicit close in a synchronized whole-workspace mirror edits its owner.
     func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
         guard reason == .paneClosed, projection.resource.machine == machine,
-              !projection.isLocalWorkspaceView, workspace(projection.workspaceID) != nil,
+              !projection.isLocalWorkspaceView, let native = workspace(projection.workspaceID), let catalog,
               let remoteID = projection.remoteWorkspaceID,
               let delivery = deliveries[projection.workspaceID],
               delivery.panels.contains(projection.panelID), delivery.sourceIDs.contains(projection.resource.key) else { return }
+        // A once-synchronized workspace can acquire local or unrelated panes.
+        // Its old delivery must not turn closing a preview into a source deletion.
+        let remaining = catalog.projections.filter { $0.workspaceID == projection.workspaceID }
+        guard remaining.allSatisfy({ $0.resource.machine == machine && $0.remoteWorkspaceID == remoteID }),
+              Set(remaining.map(\.panelID)) == Set(native.panels.keys).subtracting([projection.panelID]) else { return }
         enqueueClose(surfaceID: projection.resource.key, remoteID: remoteID, workspaceID: projection.workspaceID) { [weak self] result in
             guard let self, case .failure(let error) = result, !(error is CancellationError) else { return }
             self.workspace(projection.workspaceID)?.presentDeviceLayoutFailure(error, machine: self.machine)
