@@ -38,7 +38,7 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         self.assertEqual(
             detect["outputs"]["device_families"], "${{ steps.families.outputs.json }}"
         )
-        self.assertEqual(jobs["ios-simulator"]["needs"], ["detect-ios-changes", "ios-simulator-build"])
+        self.assertEqual(jobs["ios-simulator"]["needs"], ["runner", "detect-ios-changes", "ios-simulator-build"])
         self.assertEqual(
             jobs["ios-simulator"]["strategy"]["matrix"]["family"],
             "${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}",
@@ -184,10 +184,10 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
 
     def admitted(self, job, *, lint="success", should_lint="true", should_run="true",
                  detect="success", producer="success", package="", test_filter="",
-                 cancelled=False, event_name="workflow_dispatch"):
+                 cancelled=False, event_name="workflow_dispatch", runner="success"):
         return job_admitted(
             self.jobs, job,
-            {"detect-ios-changes": detect, "package-conventions-lint": lint,
+            {"runner": runner, "detect-ios-changes": detect, "package-conventions-lint": lint,
              "ios-simulator-build": producer},
             {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run}},
             {"swift_package": package, "test_filter": test_filter, "event_name": event_name},
@@ -230,6 +230,13 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
                     self.assertEqual(actual, expected)
         self.assertTrue(self.admitted("mobile-core-package", event_name="pull_request",
                                       test_filter="ignored-on-pr"))
+
+    def test_no_native_work_without_a_picked_pool(self):
+        # runs-on reads the runner job's JSON; without it there is no pool.
+        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+            for runner in ("pending", "failure", "cancelled", "skipped"):
+                with self.subTest(job=job, runner=runner):
+                    self.assertFalse(self.admitted(job, runner=runner))
 
     def test_consumers_require_a_completed_successful_producer(self):
         for producer in ("pending", "in_progress", "failure", "cancelled", "skipped"):

@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {

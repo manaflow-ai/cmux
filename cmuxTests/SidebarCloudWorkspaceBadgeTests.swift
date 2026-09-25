@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCore
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Observation
 import Testing
 @testable import cmux_DEV

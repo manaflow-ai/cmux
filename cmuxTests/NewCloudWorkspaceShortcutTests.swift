@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxCloudMachines
 import CmuxSettings
@@ -228,8 +229,8 @@ final class NewCloudWorkspaceShortcutTests {
             #expect(leading == [.newWorkspace, .newCloudWorkspace, .newCloudMachine, .newTerminal, .newBrowser])
 
             let hints = Dictionary(uniqueKeysWithValues: rows.map { ($0.action, $0.item) })
-            #expect(hints[.newWorkspace]?.keyEquivalent == "n")
-            #expect(hints[.newWorkspace]?.keyEquivalentModifierMask == [.command])
+            #expect(hints[.newWorkspace]?.keyEquivalent == "")
+            #expect(hints[.newWorkspace]?.keyEquivalentModifierMask == [])
             #expect(hints[.newCloudWorkspace]?.keyEquivalent == "y")
             #expect(hints[.newCloudWorkspace]?.keyEquivalentModifierMask == [.command, .shift])
             #expect(hints[.newCloudMachine]?.keyEquivalent == "y")

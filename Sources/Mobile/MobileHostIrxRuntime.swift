@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -408,7 +409,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             deviceID: deviceID, environment: configuration.environment, projectID: configuration.projectID,
             teamID: scope.teamID, userID: scope.session.accountID)
         let key = try await installation.key(identity: tuple)
-        let store = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager())
+        let store = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager(), identityKey: key)
         let restored = try await store.load(identity: tuple)
         guard isCurrent(token), !Task.isCancelled else { throw V2ControlFailure.stopped }
         let device = V2DeviceDescriptor(endpointID: key.endpointID, identity: tuple,
