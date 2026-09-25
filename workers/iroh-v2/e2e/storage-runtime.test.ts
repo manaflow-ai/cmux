@@ -139,10 +139,14 @@ test("failed upgrade rolls back without version marker or partial table", async 
 test("authority lease accepts newer verification and ignores stale updates", async () => {
   const first = await post("/authority/observe", { userId: "authority-user", verifiedAt: 1000, expiresAt: 4600, now: 1000 });
   expect(first.status).toBe(200);
+  expect(first.body.revision).not.toBeNull();
   expect(first.body.revision).toBe(5);
-  expect((await post("/authority/get", { userId: "authority-user" })).body.expiresAt).toBe(4600);
+  expect((await post("/authority/get", { userId: "authority-user" })).body).toMatchObject({ verifiedAt: 1000, expiresAt: 4600 });
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 900, expiresAt: 4500, now: 1000 })).body.revision).toBeNull();
-  expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 2000, expiresAt: 5600, now: 2000 })).body.revision).toBe(6);
+  const renewed = await post("/authority/observe", { userId: "authority-user", verifiedAt: 2000, expiresAt: 5600, now: 2000 });
+  expect(renewed.body.revision).not.toBeNull();
+  expect(renewed.body.revision).toBeGreaterThan(first.body.revision);
+  expect((await post("/authority/get", { userId: "authority-user" })).body).toMatchObject({ verifiedAt: 2000, expiresAt: 5600 });
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6601, now: 3000 })).status).toBe(500);
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6600, now: 6600 })).status).toBe(500);
 });
@@ -162,7 +166,11 @@ test("existing v6 storage serves directory and relay renewal operations after ac
   expect(first.body.devices).toBe(1);
   const second = await renewalPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 10_100, expiresAt: 13_700, now: 10_100, requester: registration.body.device });
   expect(second.status).toBe(200);
+  expect(first.body.revision).not.toBeNull();
+  expect(second.body.revision).not.toBeNull();
+  expect(second.body.revision).toBeGreaterThan(first.body.revision);
   expect(second.body.devices).toBe(1);
+  expect((await renewalPost("/authority/get", { userId: renewalIdentity.userId })).body).toMatchObject({ verifiedAt: 10_100, expiresAt: 13_700 });
 });
 
 test.each([6, 7])("a full schema %i audit ring does not turn authority renewal into internal_error", async (version) => {
@@ -178,7 +186,9 @@ test.each([6, 7])("a full schema %i audit ring does not turn authority renewal i
   expect((await auditPost("/audit/fill")).status).toBe(200);
   const renewal = await auditPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 9_100, expiresAt: 12_700, now: 9_100, requester: registration.body.device });
   expect(renewal.status).toBe(200);
+  expect(renewal.body.revision).not.toBeNull();
   expect(renewal.body.devices).toBe(1);
+  expect((await auditPost("/authority/get", { userId: renewalIdentity.userId })).body).toMatchObject({ verifiedAt: 9_100, expiresAt: 12_700 });
   expect((await auditPost("/audit/count")).body.count).toBe(65_536);
 });
 
@@ -231,8 +241,8 @@ test("socket reservations aggregate across teams and survive retries", async () 
   expect((await output(user, "a2", 1, 2 * 1024 * 1024, 1024)).status).toBe(200);
   expect((await output(user, "b2", 1, 2 * 1024 * 1024, 1024)).status).toBe(200);
   expect((await reserve(user, "team-a", "a3", deviceKey("a"))).status).toBe(200);
-  expect((await output(user, "a3", 1, 1, 1)).status).toBe(500);
-  expect((await output(user, "a1", 3, 1, 1)).status).toBe(500);
+  expect(await output(user, "a3", 1, 1, 1)).toEqual({ status: 500, body: { code: "slow_consumer" } });
+  expect(await output(user, "a1", 3, 1, 1)).toEqual({ status: 500, body: { code: "revision_conflict" } });
   expect((await post("/socket/release", { userId: user, sessionId: "a1" })).status).toBe(200);
   expect((await post("/socket/release", { userId: user, sessionId: "a1" })).status).toBe(200);
   expect((await post("/socket/list", { userId: user })).body.length).toBe(4);
@@ -246,7 +256,7 @@ test("different users have independent socket output and connection limits", asy
   const fullUser = "socket-capacity";
   for (let index = 0; index < 500; index += 1) expect((await reserve(fullUser, "team-cap", `s-${index}`)).status).toBe(200);
   expect((await reserve(fullUser, "team-cap", "replacement", deviceKey("e"))).status).toBe(200);
-  expect((await reserve(fullUser, "team-cap", "overflow", deviceKey("f"))).status).toBe(500);
+  expect(await reserve(fullUser, "team-cap", "overflow", deviceKey("f"))).toEqual({ status: 500, body: { code: "rate_limited" } });
 });
 
 test("socket reservations survive a second workerd restart", async () => {

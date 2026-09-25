@@ -118,6 +118,8 @@ test("two nightly Macs on one account: the opted-in host admits the discovering 
 test("the iOS directory path never receives Mac-to-Mac inbound grants", async () => {
   const post = client("ios-isolation");
   expect((await post("/nightly-pair")).status).toBe(200);
+  const mac = (await post("/directory", { device: "nightly-host" })).body.directory;
+  expect(names(mac.inboundPeers.map((p: any) => p.device))).toContain("nightly-dialer");
   const ios = (await post("/directory", { device: "phone-alice" })).body.directory;
   expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-host");
   expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-dialer");

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
 import { issueDashboardTicket } from "../src/dashboard-auth";
+import { objectName } from "../src/routing";
 import { V2DashboardController } from "../../../web/app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
 
 let mf: Miniflare;
@@ -326,6 +327,43 @@ test("native socket setup delivers directory and relay responses", async () => {
   try {
     expect((await request("directory.request.v1", "socket-directory")).schemaId).toBe("directory.result.v1");
     expect((await request("relay.request.v1", "socket-relay")).schemaId).toBe("relay.result.v1");
+  } finally {
+    socket.close();
+  }
+});
+
+test("a socket reclaims reservations leaked by a Durable Object reset", async () => {
+  // A reset drops sockets without webSocketClose, leaving reservations whose
+  // unacknowledged output still counts against the user's aggregate budget.
+  const namespace = await mf.getDurableObjectNamespace("USER_USAGE");
+  const usage = namespace.getByName(objectName(environment, projectId, userId)) as any;
+  for (const index of [1, 2, 3, 4]) {
+    const sessionId = `leaked-${index}`;
+    expect((await usage.reserveSocket({ userId, teamId, sessionId, deviceKey: "f".repeat(64) })).ok).toBe(true);
+    expect((await usage.setOutput(userId, sessionId, 1, 2 * 1024 * 1024, 1000)).ok).toBe(true);
+  }
+  const setup = await setupFor("socket-leaked", undefined);
+  const socketURL = new URL("v2/control/socket", await mf.ready);
+  socketURL.protocol = "ws:";
+  const socket = new NodeWebSocket(socketURL.href, {
+    headers: { authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(setup) },
+  });
+  const messages: any[] = [];
+  socket.on("message", value => messages.push(JSON.parse(value.toString())));
+  await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+  const response = (requestId: string) => new Promise<any>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${requestId}`)), 2_000);
+    const poll = setInterval(() => {
+      const found = messages.find(message => message.requestId === requestId);
+      if (found) { clearTimeout(timeout); clearInterval(poll); resolve(found); }
+    }, 10);
+    socket.once("close", () => { clearTimeout(timeout); clearInterval(poll); reject(new Error(`Socket closed before ${requestId}`)); });
+  });
+  try {
+    socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "leaked-directory" }));
+    expect((await response("leaked-directory")).schemaId).toBe("directory.result.v1");
+    const remaining = (await usage.listSocketReservations(userId)).value.map((row: { sessionId: string }) => row.sessionId);
+    expect(remaining.filter((id: string) => id.startsWith("leaked-"))).toEqual([]);
   } finally {
     socket.close();
   }
