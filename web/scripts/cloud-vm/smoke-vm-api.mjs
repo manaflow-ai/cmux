@@ -217,6 +217,10 @@ try {
   const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
   const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
   const swept = sweepOlderThanMinutes === null ? null : await sweepLeftovers(app, emailPrefix, sweepOlderThanMinutes);
+  // A leftover that cannot be deleted is a leaked VM; fail so it is seen.
+  if (swept && swept.kept.length > 0) {
+    throw new Error(`sweep could not delete the VMs of ${swept.kept.length} earlier smoke user(s): ${swept.kept.join(", ")}`);
+  }
   const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
   user = await app.createUser({
     primaryEmail: `${emailPrefix}${suffix}@manaflow.dev`,
