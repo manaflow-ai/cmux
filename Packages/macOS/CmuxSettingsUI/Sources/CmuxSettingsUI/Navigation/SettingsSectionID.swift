@@ -12,7 +12,6 @@ import Foundation
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
-    case computers
     case app
     case terminal
     case textBox
@@ -20,6 +19,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case sleepyMode
     /// Mobile pairing and sync settings.
     case mobile
+    case computers
     /// Cloud Machines: persistent cloud VM plan and entry points.
     case cloudMachines
     /// Iroh relay policy, custom relays, and private-network routes.
