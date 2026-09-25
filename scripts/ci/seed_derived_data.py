@@ -47,8 +47,8 @@ which still beats a cold build.
 
 An owned Mac downloads a seed at about a third of Blacksmith's speed (about
 190 s against 64 s on 2026-09-25). With CMUX_SEED_LOCAL_CACHE set, `adopt`
-clones the seed it just restored into that directory, keeping the newest
-LOCAL_KEEP, and `start` and `adopt` clone an exact key from there instead of
+clones the seed it just restored into that directory, keeping as many as the
+disk holds (prune_local), and `start` and `adopt` clone an exact key from there instead of
 downloading it. A clone shares blocks on APFS, so it costs seconds.
 owned_build_state.py `prefer` reads the same cache. The cache is this Mac's
 own state, like its kept DerivedData: nothing in it is uploaded.
@@ -110,14 +110,19 @@ USER_AGENT = "cmux-ci-seed-derived-data"
 # share seeds: the keys carry the root). The disk is there to use: a kept seed
 # clones in 14 to 42 s where a download takes 180 to 280 s, and main moves 5 to
 # 8 commits per seed, so every seed within ANCESTOR_LIMIT commits of a job's
-# base can be its cheapest start. Keep up to LOCAL_KEEP, newest first, and
-# drop the oldest only while free space is under LOCAL_KEEP_MIN_FREE_BYTES,
-# which sits above both glaeda-disk's pressure line (25% of a 460 GB mini,
-# about 115 GiB) and the admission floor (25 + 25 GiB per slot, 125 GiB at 4
-# slots), never below the newest LOCAL_KEEP_LOW_DISK.
+# base can be its cheapest start. Keep up to LOCAL_KEEP per root, and drop the
+# oldest seeds on the whole Mac, whichever root holds them, while free space is
+# under LOCAL_KEEP_MIN_FREE_BYTES: the admission floor (25 + 25 GiB per slot,
+# 125 GiB at 4 slots) plus one cold compile (up to 36 GiB) and one seed
+# download (about 8 GB). That is also above glaeda-disk's pressure trigger
+# (15% of the disk, capped at 150 GiB). Each root keeps its newest
+# LOCAL_KEEP_LOW_DISK whatever the disk says.
 LOCAL_KEEP = 48
 LOCAL_KEEP_LOW_DISK = 2
-LOCAL_KEEP_MIN_FREE_BYTES = 130 * 1024**3
+LOCAL_KEEP_MIN_FREE_BYTES = 170 * 1024**3
+# Seeds are APFS clones of DerivedData that jobs also clone, so deleting one
+# may free little. Under pressure, stop once a delete frees less than this.
+PRUNE_MIN_FREED_BYTES = 1024**3
 # A seed touched this recently may be mid-clone by a job; the prune spares it.
 PRUNE_GRACE_SECONDS = 600
 # owned_build_state.py `check` records here which seeds this root adopts.
@@ -326,20 +331,47 @@ def free_bytes(cache: Path) -> int:
         return 0
 
 
-def prune_local(cache: Path, spare: Path | None = None) -> None:
-    """Drop the oldest kept seeds past LOCAL_KEEP, or while the disk is short.
+def seed_caches(cache: Path) -> list[Path]:
+    """Every root's seed cache on this Mac, CACHE first.
 
-    The newest LOCAL_KEEP_LOW_DISK always stay, and so does any seed touched in
-    the last PRUNE_GRACE_SECONDS (a job may be cloning it) and SPARE.
+    Root 1 keeps STATE/seeds and root N STATE/cmux-ci-N/seeds, and they share
+    one disk, so a short disk prunes the oldest seed of any root.
     """
-    entries = [entry for entry in cache.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
-    kept = sorted(entries, key=age)  # newest first
-    for index in range(len(kept) - 1, LOCAL_KEEP_LOW_DISK - 1, -1):
-        old = kept[index]
-        if index < LOCAL_KEEP and free_bytes(cache) >= LOCAL_KEEP_MIN_FREE_BYTES:
+    state = cache.parent.parent if cache.parent.name.startswith("cmux-ci-") else cache.parent
+    found = [cache]
+    for other in [state / "seeds", *sorted(state.glob("cmux-ci-*/seeds"))]:
+        if other.is_dir() and other.resolve() != cache.resolve():
+            found.append(other)
+    return found
+
+
+def prune_local(cache: Path, spare: Path | None = None) -> None:
+    """Drop each root's seeds past LOCAL_KEEP, then the Mac's oldest while the disk is short.
+
+    Every root keeps its newest LOCAL_KEEP_LOW_DISK. A seed touched in the last
+    PRUNE_GRACE_SECONDS (a job may be cloning it) and SPARE always stay.
+    """
+    candidates = []
+    for root in seed_caches(cache):
+        try:
+            entries = [entry for entry in root.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
+        except OSError:
+            continue
+        newest_first = sorted(entries, key=age)
+        for index, entry in enumerate(newest_first):
+            if index < LOCAL_KEEP_LOW_DISK or entry == spare or age(entry) <= PRUNE_GRACE_SECONDS:
+                continue
+            if index >= LOCAL_KEEP:
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                candidates.append(entry)
+    for entry in sorted(candidates, key=age, reverse=True):  # oldest first, across roots
+        before = free_bytes(cache)
+        if before >= LOCAL_KEEP_MIN_FREE_BYTES:
             break
-        if old != spare and age(old) > PRUNE_GRACE_SECONDS:
-            shutil.rmtree(old, ignore_errors=True)
+        shutil.rmtree(entry, ignore_errors=True)
+        if free_bytes(cache) - before < PRUNE_MIN_FREED_BYTES:
+            break
 
 
 def keep_local(cache: Path, incoming: Path, key: str) -> None:
@@ -392,6 +424,8 @@ def prefetch(store: Path, revision: str) -> dict[str, object]:
         return {"fetched": "false", "reason": "no seed of this width in REVISION's history"}
     key, distance = found
     if cached(key):
+        # Nothing new lands, but a job may have filled the disk since: prune.
+        prune_local(cache, spare=cache / key)
         return {"fetched": "false", "reason": "already kept", "key": key, "distance": distance}
     cache.mkdir(parents=True, exist_ok=True)
     incoming = cache / f".{key}.incoming-{os.getpid()}"
