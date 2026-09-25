@@ -26,9 +26,20 @@ EOF
 
 cat > "$bin/gh" <<'EOF'
 #!/usr/bin/env bash
-cat <<'JSON'
-[{"body":"Dogfood: http://127.0.0.1:17320/open-pr-body.","comments":[{"body":"Please check http://127.0.0.1:17320/open-pr-comment"}],"commits":[{"messageHeadline":"build http://127.0.0.1:17320/open-pr-commit","messageBody":""}]}]
-JSON
+case "$*" in
+    *'search/issues'*)
+        printf '%s\n' $'1\tDogfood: http://127.0.0.1:17320/open-pr-body.'
+        ;;
+    *'issues/1/comments'*)
+        printf '%s\n' 'Please check http://127.0.0.1:17320/open-pr-comment'
+        ;;
+    *'search/commits'*)
+        printf '%s\n' $'commit-sha\tbuild http://127.0.0.1:17320/open-pr-commit'
+        ;;
+    *'commits/commit-sha/pulls'*)
+        printf '%s\n' 'open'
+        ;;
+esac
 EOF
 chmod +x "$bin/gh"
 
@@ -43,12 +54,15 @@ output="$(
 )"
 
 for tag in open-pr-body open-pr-comment open-pr-commit pinned-tag; do
-    [[ "$output" == *"$tag"* ]] || fail "protected tag $tag was not reported"
-    [[ "$output" == *"$tag"*"("* ]] || fail "protected tag $tag has no skip reason"
+    printf '%s\n' "$output" | grep -Eq "^  ${tag}[[:space:]].*[(]" \
+        || fail "protected tag $tag was not reported under skipping"
 done
 
-[[ "$output" == *"disposable-tag"*"would delete"* || "$output" == *"would delete:"* && "$output" == *"disposable-tag"* ]] \
+[[ "$output" == *"would delete:"* && "$output" == *"disposable-tag"* ]] \
     || fail "unprotected tag was not planned for deletion"
+if printf '%s\n' "$output" | grep -Eq '^  disposable-tag[[:space:]].*[(]'; then
+    fail "unprotected tag was incorrectly listed with a skip reason"
+fi
 [[ "$output" != *"protection unavailable"* ]] || fail "healthy protection sources were reported unavailable"
 
 cat > "$bin/gh" <<'EOF'
