@@ -67,7 +67,46 @@ jobs:
         run: |
           set -o pipefail
           bun scripts/cloud-vm/smoke-vm-api.mjs production --create --provider default --paid \
-            --edge-check --skip-attach --zero-token --sweep-older-than-minutes 30 2>&1 | tee "$RUNNER_TEMP/canary.log"
+            --edge-check --skip-attach --zero-token --sweep-older-than-minutes 30 \
+            --result-file "$RUNNER_TEMP/canary-result.json" 2>&1 | tee "$RUNNER_TEMP/canary.log"
+
+      # One cmux.synthetic.check event per run, the contract the cmux admin
+      # /synthetics page graphs. The token can only ingest.
+      - name: Send the run to Axiom
+        if: ${{ always() && github.event_name == 'schedule' }}
+        working-directory: .
+        env:
+          AXIOM_INGEST_TOKEN: ${{ secrets.AXIOM_INGEST_TOKEN }}
+          AXIOM_DATASET: cmux-prod-otel-traces
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AXIOM_INGEST_TOKEN:-}" ]; then
+            echo "::warning::AXIOM_INGEST_TOKEN is not set; no metrics sent"
+            exit 0
+          fi
+          result="$RUNNER_TEMP/canary-result.json"
+          # No result file means the runner failed before the check ran.
+          [ -s "$result" ] || echo '{"ok":false,"stage":"runner","error":"the check did not start"}' > "$result"
+          jq -c --arg run_url "$RUN_URL" --arg revision "$REVISION" '[{
+              name: "cmux.synthetic.check",
+              synthetic_check: "cloud_vm_canary",
+              synthetic_target: (.target // "production"),
+              synthetic_outcome: (if .ok then "pass" else "fail" end),
+              synthetic_failure_stage: (if .ok then null else .stage end),
+              synthetic_error: (if .ok then null else .error end),
+              synthetic_duration_ms: .durationMs,
+              synthetic_sweep_ms: .sweepMs,
+              synthetic_create_ms: .createMs,
+              synthetic_edge_ms: .edgeMs,
+              synthetic_destroy_ms: .destroyMs,
+              synthetic_run_url: $run_url,
+              synthetic_revision: $revision,
+              synthetic_host: "github-actions"
+            } | with_entries(select(.value != null))]' "$result" |
+            curl -fsS -X POST -H "authorization: Bearer $AXIOM_INGEST_TOKEN" -H 'content-type: application/json' \
+              --data @- "https://api.axiom.co/v1/datasets/$AXIOM_DATASET/ingest" | jq -e '.failed == 0' >/dev/null
 
       - name: Tell Slack when the state changes
         if: ${{ always() && github.event_name == 'schedule' }}
