@@ -50,6 +50,9 @@ public enum ChromeExtensionPackage {
     static let maximumHeaderBytes = 256 * 1024
     static let maximumHeaderFields = 64
     static let maximumProofBytes = 16 * 1024
+    /// `unzip -Z1` prints one name per entry; this bounds the listing well
+    /// above `maximumEntryCount` typical names.
+    static let maximumListingBytes = 8 * 1024 * 1024
 
     /// Returns the 32-letter extension id in a bare id, a
     /// `chromewebstore.google.com/detail/...` URL, or a legacy
@@ -152,13 +155,17 @@ public enum ChromeExtensionPackage {
     /// against `id`.
     public static func verifiedZip(_ crx: Data, extensionID id: String) throws -> Data {
         guard isExtensionID(id) else { throw Failure.notAnExtensionID }
-        let bytes = [UInt8](crx)
-        guard bytes.count > 12, Array(bytes[0..<4]) == Array("Cr24".utf8) else { throw Failure.notCRX3 }
-        guard littleEndianUInt32(bytes, at: 4) == 3 else { throw Failure.notCRX3 }
-        let headerSize = Int(littleEndianUInt32(bytes, at: 8))
-        guard headerSize > 0, headerSize <= maximumHeaderBytes, 12 + headerSize < bytes.count else { throw Failure.notCRX3 }
-        let header = Array(bytes[12..<(12 + headerSize)])
-        let zip = Data(bytes[(12 + headerSize)...])
+        // Only the small fixed prefix and the bounded header are copied into
+        // arrays; the payload stays in `crx` until the signed message is built.
+        guard crx.count > 12 else { throw Failure.notCRX3 }
+        let prefix = [UInt8](crx.prefix(12))
+        guard Array(prefix[0..<4]) == Array("Cr24".utf8) else { throw Failure.notCRX3 }
+        guard littleEndianUInt32(prefix, at: 4) == 3 else { throw Failure.notCRX3 }
+        let headerSize = Int(littleEndianUInt32(prefix, at: 8))
+        guard headerSize > 0, headerSize <= maximumHeaderBytes, 12 + headerSize < crx.count else { throw Failure.notCRX3 }
+        let start = crx.startIndex
+        let header = [UInt8](crx[(start + 12)..<(start + 12 + headerSize)])
+        let zip = crx[(start + 12 + headerSize)...]
 
         // CrxFileHeader fields: 2 = sha256_with_rsa proofs,
         // 3 = sha256_with_ecdsa proofs, 10000 = signed_header_data
@@ -206,7 +213,7 @@ public enum ChromeExtensionPackage {
             return verifyP256(subjectPublicKeyInfo: Data(key), derSignature: Data(signature), message: message)
         }
         guard publisherSigned else { throw Failure.publisherSignatureMissing }
-        return zip
+        return Data(zip)
     }
 
     /// Unpacks `zip` into `destination`, replacing it.
@@ -228,12 +235,12 @@ public enum ChromeExtensionPackage {
         try zip.write(to: archive)
         let output = scratch.appendingPathComponent("out", isDirectory: true)
 
-        let listing = try runCapturingOutput("/usr/bin/unzip", ["-Z1", archive.path])
+        let listing = try runCapturingOutput("/usr/bin/unzip", ["-Z1", archive.path], maximumBytes: maximumListingBytes)
         try validateArchiveEntryNames(listing.split(whereSeparator: \.isNewline).map(String.init))
         // Refuse archives whose central directory declares more than the
         // expansion budget before writing anything. The tree is measured again
         // after extraction, since a hostile archive can understate sizes.
-        let totals = try runCapturingOutput("/usr/bin/unzip", ["-Zt", archive.path])
+        let totals = try runCapturingOutput("/usr/bin/unzip", ["-Zt", archive.path], maximumBytes: 4096)
         guard let declared = declaredUncompressedBytes(inZipInfoTotals: totals),
               declared <= Int64(maximumExpandedBytes) else {
             throw Failure.unpack("the extension is too large")
@@ -323,9 +330,10 @@ public enum ChromeExtensionPackage {
 
     /// Runs a tool and returns its standard output. Output is drained before
     /// waiting for exit, so a listing larger than the pipe buffer cannot
-    /// deadlock the child.
+    /// deadlock the child, and reading stops (and the child is terminated)
+    /// once `maximumBytes` is exceeded.
     @discardableResult
-    private static func runCapturingOutput(_ executable: String, _ arguments: [String]) throws -> String {
+    private static func runCapturingOutput(_ executable: String, _ arguments: [String], maximumBytes: Int = 1024 * 1024) throws -> String {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -333,7 +341,18 @@ public enum ChromeExtensionPackage {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        var data = Data()
+        let handle = pipe.fileHandleForReading
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty { break }
+            data.append(chunk)
+            if data.count > maximumBytes {
+                process.terminate()
+                process.waitUntilExit()
+                throw Failure.unpack("\(URL(fileURLWithPath: executable).lastPathComponent) output is too large")
+            }
+        }
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw Failure.unpack("\(URL(fileURLWithPath: executable).lastPathComponent) exited \(process.terminationStatus)")

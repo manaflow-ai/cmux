@@ -286,8 +286,13 @@ public enum ChromeExtensionsManagerPage {
             return b;
           }
 
+          // State is pulled through the origin-checked handler, never pushed.
+          // While an install or reload is running, ask again shortly.
+          var pollTimer = null;
           function render(state) {
             if (!state) return;
+            clearTimeout(pollTimer);
+            if (state.busy) pollTimer = setTimeout(function () { send({ action: 'snapshot' }); }, 800);
             showError(state.lastError);
             var busy = !!state.busy;
             $('install').disabled = busy || !state.supported;
@@ -334,7 +339,6 @@ public enum ChromeExtensionsManagerPage {
           $('install-text').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('install').click(); });
           $('load-unpacked').addEventListener('click', function () { send({ action: 'loadUnpacked' }); });
           $('open-store').addEventListener('click', function () { send({ action: 'openStore' }); });
-          window.__cmuxExtensionsPageRender = render;
           document.addEventListener('visibilitychange', function () { if (!document.hidden) send({ action: 'snapshot' }); });
           send({ action: 'snapshot' });
         })();

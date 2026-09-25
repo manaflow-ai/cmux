@@ -143,7 +143,6 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// Toolbar anchors, for action popups.
     private var anchors: [AnchorKey: WeakView] = [:]
     private var lastFocusedPanelID: UUID?
-    private let managerPages = NSHashTable<WKWebView>.weakObjects()
     private let storePages = NSHashTable<WKWebView>.weakObjects()
     private var question: Task<Bool, Never>?
     private var popover: NSPopover?
@@ -359,11 +358,18 @@ final class BrowserExtensions: NSObject, ObservableObject {
             defer { busyID = nil }
             let stage = stagingFolder(for: id)
             do {
+                // The store's current version, so an older signed package
+                // replayed on the download path is refused.
+                guard let checkURL = ChromeExtensionPackage.updateCheckURL(forExtensionID: id, version: "0.0.0.0"),
+                      let check = String(data: try await ChromeExtensionPackage.boundedData(from: checkURL, limit: 256 * 1024), encoding: .utf8),
+                      let current = ChromeExtensionPackage.offeredVersion(inUpdateCheckResponse: check) else {
+                    throw ChromeExtensionPackage.Failure.empty
+                }
                 let crx = try await ChromeExtensionPackage.download(extensionID: id)
                 let zip = try ChromeExtensionPackage.verifiedZip(crx, extensionID: id)
                 try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
                 try await Self.detached { try ChromeExtensionPackage.unpack(zip, into: stage) }
-                try await admit(stage: stage, id: id, profile: profile, fromStore: true, sourcePath: nil)
+                try await admit(stage: stage, id: id, profile: profile, fromStore: true, sourcePath: nil, expectedVersion: current)
             } catch {
                 try? fileManager.removeItem(at: stage)
                 lastError = Self.describe(error)
@@ -403,8 +409,12 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     /// Reads a staged extension, asks the user, and on consent moves it into
     /// place and loads it. On refusal nothing is left behind.
-    private func admit(stage: URL, id: String, profile: String, fromStore: Bool, sourcePath: String?) async throws {
+    private func admit(stage: URL, id: String, profile: String, fromStore: Bool, sourcePath: String?, expectedVersion: String? = nil) async throws {
         let found = try await WKWebExtension(resourceBaseURL: stage)
+        if let expectedVersion, found.version != expectedVersion {
+            try? fileManager.removeItem(at: stage)
+            throw ChromeExtensionPackage.Failure.signatureInvalid
+        }
         let name = found.displayName ?? id
         guard await ask(
             title: String(
@@ -626,7 +636,11 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 // Like Chrome, no extension may read or script the Web Store,
                 // whatever hosts it was granted.
                 Self.denyProtectedPatterns(in: context)
-                guard self.installation(id, in: profile)?.enabled == true, controller.contexts[id] == nil else { return }
+                // Re-check everything that could have changed while the
+                // package was being prepared, including the URL allowlist.
+                guard !Self.isBlockedByURLAllowlist,
+                      self.installation(id, in: profile)?.enabled == true,
+                      controller.contexts[id] == nil else { return }
                 try controller.controller.load(context)
                 controller.contexts[id] = context
                 observeErrors(of: context, in: controller)
@@ -856,7 +870,6 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     func handleManagerRequest(_ request: ChromeExtensionsManagerPage.Request, from webView: WKWebView) {
-        managerPages.add(webView)
         let profile = Self.profileKey(for: webView.configuration.websiteDataStore)
         switch request {
         case .snapshot:
@@ -890,34 +903,26 @@ final class BrowserExtensions: NSObject, ObservableObject {
         pushState(to: webView, isStorePage: true)
     }
 
+    /// Pushes install state to Web Store pages (isolated world, ids only).
+    /// `cmux://extensions` is never pushed to: it pulls its snapshot through
+    /// the origin-checked request/reply handler, so no page-world script can
+    /// receive extension data after the tab navigated elsewhere.
     private func pushStateToPages() {
-        for webView in managerPages.allObjects where webView.url.map(ChromeExtensionsManagerPage.isManagerPageURL) == true {
-            pushState(to: webView, isStorePage: false)
-        }
         for webView in storePages.allObjects where webView.url.map(ChromeWebStorePage.isStorePage) == true {
             pushState(to: webView, isStorePage: true)
         }
     }
 
     private func pushState(to webView: WKWebView, isStorePage: Bool) {
+        guard isStorePage else { return }
         let profile = Self.profileKey(for: webView.configuration.websiteDataStore)
-        if isStorePage {
-            let state = ChromeWebStorePage.State(installed: installations(inProfile: profile).map(\.extensionID), busy: busyID)
-            webView.evaluateJavaScript(
-                ChromeWebStorePage.stateUpdateScript(state),
-                in: nil,
-                in: BrowserExtensionPageBridge.storeWorld,
-                completionHandler: nil
-            )
-        } else if let data = try? JSONEncoder().encode(managerSnapshot(profile: profile)),
-                  let json = String(data: data, encoding: .utf8) {
-            webView.evaluateJavaScript(
-                "window.__cmuxExtensionsPageRender && window.__cmuxExtensionsPageRender(\(json));",
-                in: nil,
-                in: .page,
-                completionHandler: nil
-            )
-        }
+        let state = ChromeWebStorePage.State(installed: installations(inProfile: profile).map(\.extensionID), busy: busyID)
+        webView.evaluateJavaScript(
+            ChromeWebStorePage.stateUpdateScript(state),
+            in: nil,
+            in: BrowserExtensionPageBridge.storeWorld,
+            completionHandler: nil
+        )
     }
 
     // MARK: - Storage
@@ -1217,21 +1222,42 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         return ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier)
     }
 
-    func webView(for context: WKWebExtensionContext) -> WKWebView? {
-        showsPageAccessible(to: context) ? panel?.webView : nil
+    /// Whether this adapter still represents its panel in this controller.
+    /// After a profile switch the panel belongs to another controller, and
+    /// late calls through this adapter must not reach it.
+    private var livePanel: BrowserPanel? {
+        guard let panel, owner.adapters[panel.id] === self,
+              BrowserExtensions.profileKey(for: panel.websiteDataStore) == owner.profileKey else { return nil }
+        return panel
     }
-    func title(for context: WKWebExtensionContext) -> String? { panel?.pageTitle }
-    func url(for context: WKWebExtensionContext) -> URL? { panel?.webView.url ?? panel?.currentURL }
+
+    func webView(for context: WKWebExtensionContext) -> WKWebView? {
+        showsPageAccessible(to: context) ? livePanel?.webView : nil
+    }
+    /// Titles and URLs of protected pages are withheld, like their content.
+    func title(for context: WKWebExtensionContext) -> String? {
+        showsPageAccessible(to: context) ? livePanel?.pageTitle : nil
+    }
+    func url(for context: WKWebExtensionContext) -> URL? {
+        guard showsPageAccessible(to: context), let panel = livePanel else { return nil }
+        return panel.webView.url ?? panel.currentURL
+    }
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool { !(panel?.isLoading ?? false) }
     func isSelected(for context: WKWebExtensionContext) -> Bool { owner.activeTab === self }
     func isPinned(for context: WKWebExtensionContext) -> Bool { false }
     func isPlayingAudio(for context: WKWebExtensionContext) -> Bool { panel?.isPlayingAudio == true }
     func zoomFactor(for context: WKWebExtensionContext) -> Double { Double(panel?.webView.pageZoom ?? 1) }
     func size(for context: WKWebExtensionContext) -> CGSize { panel?.webView.bounds.size ?? .zero }
-    func shouldGrantPermissionsOnUserGesture(for context: WKWebExtensionContext) -> Bool { true }
+    /// activeTab on a click, except where no extension may go (the Web Store
+    /// and pages outside ``ChromeExtensionNavigationPolicy``).
+    func shouldGrantPermissionsOnUserGesture(for context: WKWebExtensionContext) -> Bool {
+        guard showsPageAccessible(to: context), let panel = livePanel else { return false }
+        let url = panel.webView.url ?? panel.currentURL
+        return url.map { !ChromeWebStorePage.isStorePage($0) } ?? true
+    }
 
     func setZoomFactor(_ zoomFactor: Double, for context: WKWebExtensionContext) async throws {
-        panel?.webView.pageZoom = CGFloat(zoomFactor)
+        livePanel?.webView.pageZoom = CGFloat(zoomFactor)
     }
 
     /// `tabs.update({url})`. Only web URLs and the extension's own pages are
@@ -1241,20 +1267,21 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         guard ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier) else {
             throw URLError(.unsupportedURL)
         }
-        panel?.extensionNavigationOrigin = context.uniqueIdentifier
-        panel?.navigateWithoutInsecureHTTPPrompt(
+        guard let panel = livePanel else { throw URLError(.cancelled) }
+        panel.extensionNavigationOrigin = context.uniqueIdentifier
+        panel.navigateWithoutInsecureHTTPPrompt(
             request: URLRequest(url: url),
             recordTypedNavigation: false,
             trustedInternalNavigation: false
         )
     }
 
-    func reload(fromOrigin: Bool, for context: WKWebExtensionContext) async throws { _ = panel?.reload() }
-    func goBack(for context: WKWebExtensionContext) async throws { panel?.goBack() }
-    func goForward(for context: WKWebExtensionContext) async throws { panel?.goForward() }
+    func reload(fromOrigin: Bool, for context: WKWebExtensionContext) async throws { _ = livePanel?.reload() }
+    func goBack(for context: WKWebExtensionContext) async throws { livePanel?.goBack() }
+    func goForward(for context: WKWebExtensionContext) async throws { livePanel?.goForward() }
 
     func activate(for context: WKWebExtensionContext) async throws {
-        guard let panel,
+        guard let panel = livePanel,
               let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panel.id, preferredWorkspaceId: panel.workspaceId)
         else { return }
         located.workspace.focusPanel(panel.id)
@@ -1262,14 +1289,14 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
 
     /// Closes this browser tab only, never the window around it.
     func close(for context: WKWebExtensionContext) async throws {
-        guard let panel,
+        guard let panel = livePanel,
               let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panel.id, preferredWorkspaceId: panel.workspaceId)
         else { return }
         _ = located.workspace.closePanel(panel.id)
     }
 
     func takeSnapshot(using configuration: WKSnapshotConfiguration, for context: WKWebExtensionContext) async throws -> NSImage? {
-        guard showsPageAccessible(to: context), let webView = panel?.webView else { return nil }
+        guard showsPageAccessible(to: context), let webView = livePanel?.webView else { return nil }
         return try await webView.takeSnapshot(configuration: configuration)
     }
 }
