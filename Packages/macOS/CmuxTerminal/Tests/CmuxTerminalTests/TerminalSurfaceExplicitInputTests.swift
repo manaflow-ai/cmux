@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyRuntimeTestStubs
 import GhosttyKit
 import Testing
 @testable import CmuxTerminal
@@ -295,6 +296,30 @@ struct TerminalSurfaceExplicitInputTests {
 
         #expect(events.first == "prepare")
         #expect(events.dropFirst().contains("attach"))
+    }
+
+    @Test func startupRestoreInputUsesPasteTextBeforeSubmitting() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(
+            initialInput: " cmux restore claude session-id\n",
+            runtimeSurface: runtimeSurface
+        )
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        cmux_test_ghostty_input_recording_reset()
+        fixture.surface.startupInputGate.stage(
+            fixture.surface.initialInput,
+            generation: fixture.surface.terminalLifecycleId
+        )
+
+        fixture.surface.shellDidBecomeReadyForStartupInput()
+
+        #expect(cmux_test_ghostty_input_text_call_count() == 1)
+        #expect(cmux_test_ghostty_input_text_input_call_count() == 0)
+        #expect(cmux_test_ghostty_input_key_call_count() == 1)
     }
 
     private func makeFixture(

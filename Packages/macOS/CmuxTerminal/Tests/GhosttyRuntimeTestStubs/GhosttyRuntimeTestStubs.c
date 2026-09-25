@@ -30,6 +30,9 @@ static bool cmux_test_renderer_realized_result = true;
 static bool cmux_test_renderer_occlusion_visible = true;
 static bool cmux_test_renderer_release_was_occluded = false;
 static void* cmux_test_last_updated_surface = NULL;
+static uint32_t cmux_test_input_text_call_count = 0;
+static uint32_t cmux_test_input_text_input_call_count = 0;
+static uint32_t cmux_test_input_key_call_count = 0;
 static void* cmux_test_font_surface = NULL;
 static float cmux_test_font_runtime_points = 0;
 static float cmux_test_font_configured_runtime_points = 0;
@@ -511,7 +514,7 @@ uint64_t ghostty_surface_foreground_pid(void *surface) {
     return cmux_test_foreground_pid;
 }
 void ghostty_surface_has_selection(void) {}
-void ghostty_surface_key(void) {}
+void ghostty_surface_key(void) { cmux_test_input_key_call_count++; }
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
 void ghostty_surface_mouse_scroll(void) {}
@@ -645,8 +648,26 @@ bool ghostty_surface_rebuild_renderer(void *surface) {
 }
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
-void ghostty_surface_text(void) {}
-void ghostty_surface_text_input(void) {}
+void ghostty_surface_text(void) { cmux_test_input_text_call_count++; }
+void ghostty_surface_text_input(void) { cmux_test_input_text_input_call_count++; }
+
+uint32_t cmux_test_ghostty_input_text_call_count(void) {
+    return cmux_test_input_text_call_count;
+}
+
+uint32_t cmux_test_ghostty_input_text_input_call_count(void) {
+    return cmux_test_input_text_input_call_count;
+}
+
+uint32_t cmux_test_ghostty_input_key_call_count(void) {
+    return cmux_test_input_key_call_count;
+}
+
+void cmux_test_ghostty_input_recording_reset(void) {
+    cmux_test_input_text_call_count = 0;
+    cmux_test_input_text_input_call_count = 0;
+    cmux_test_input_key_call_count = 0;
+}
 void ghostty_surface_update_config(void *surface, void *raw_config) {
     (void)raw_config;
     cmux_test_last_updated_surface = surface;

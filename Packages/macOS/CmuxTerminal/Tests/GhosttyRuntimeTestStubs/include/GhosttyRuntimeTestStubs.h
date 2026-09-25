@@ -111,6 +111,10 @@ void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
 void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
+uint32_t cmux_test_ghostty_input_text_call_count(void);
+uint32_t cmux_test_ghostty_input_text_input_call_count(void);
+uint32_t cmux_test_ghostty_input_key_call_count(void);
+void cmux_test_ghostty_input_recording_reset(void);
 void ghostty_surface_update_config(void *surface, void *config);
 ghostty_string_s ghostty_surface_tty_name(void *surface);
 
