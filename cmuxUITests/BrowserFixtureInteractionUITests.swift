@@ -425,11 +425,9 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 /// failure turns into a test failure, prompting an assertion upgrade.
 final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
 
-    /// browser.click delivers a click and browser.fill delivers the final
-    /// value, but fill is a single value assignment + one synthetic `input`
-    /// event: there are no per-character keydown/keyup events, so the
-    /// fixture's strict ordering check (3 inputs, each preceded by its
-    /// keydown) can never flip #status to PASS. Assert the log instead.
+    /// browser.click remains a DOM gesture while browser.fill uses native
+    /// WebKit key delivery for text controls. The fixture verifies that each
+    /// character reaches the page in trusted keydown/input order.
     func testEventTrustAndOrder() throws {
         try launchApp()
         let sid = try openFixture("event-trust-and-order")
@@ -456,23 +454,22 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
             ),
             "fill should dispatch an input event carrying the final value"
         )
-        // Synthetic events are not trusted (el.click() / dispatchEvent).
-        XCTAssertFalse(
-            try evalBool("window.__cmuxLog.some(e => e.isTrusted === true)", surfaceID: sid),
-            "socket-driven events should be untrusted synthetic events"
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.target === '#field').length > 0 && " +
+                    "window.__cmuxLog.filter(e => e.target === '#field').every(e => e.isTrusted === true)",
+                surfaceID: sid
+            ),
+            "native fill events should be trusted"
         )
-        // fill emits exactly one input and zero keydowns: per-key ordering is unachievable.
-        XCTAssertFalse(
-            try evalBool("window.__cmuxLog.some(e => e.type === 'keydown')", surfaceID: sid),
-            "fill should not synthesize keydown events (documents the gap below)"
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.type === 'keydown' && e.target === '#field').map(e => e.key).slice(-3).join('') === 'abc'",
+                surfaceID: sid
+            ),
+            "fill should deliver one native keydown per character"
         )
-        XCTExpectFailure(
-            "browser.fill sets the value once and dispatches a single untrusted input event " +
-            "with no per-character keydown/keyup, so the fixture's per-keystroke ordering check " +
-            "(3 inputs, each preceded by a matching keydown) cannot reach PASS"
-        ) {
-            XCTAssertEqual(try? statusText(surfaceID: sid), "PASS")
-        }
+        XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
     /// Selectors should resolve controls in an open shadow root just like

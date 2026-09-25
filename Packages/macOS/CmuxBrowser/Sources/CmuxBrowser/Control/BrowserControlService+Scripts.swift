@@ -15,6 +15,7 @@ extension BrowserControlService {
         let selectorLiteral = jsonLiteral(selector)
         return """
         (() => {
+          \(elementQueryPrelude)
           const __selector = \(selectorLiteral);
           const __normalize = (s) => String(s || '').replace(/\\s+/g, ' ').trim();
           const __isVisible = (el) => {
@@ -41,7 +42,7 @@ extension BrowserControlService {
             return out;
           };
           try {
-            const __nodes = Array.from(document.querySelectorAll(__selector));
+            const __nodes = __cmuxQueryAll(__selector);
             const __visible = __nodes.filter(__isVisible);
             const __sample = __nodes.slice(0, 6).map((el, idx) => ({
               index: idx,
@@ -85,29 +86,28 @@ extension BrowserControlService {
     public func findScript(finderBody: String) -> String {
         return """
         (() => {
+          \(elementQueryPrelude)
           const __cmuxCssPath = (el) => {
             if (!el || el.nodeType !== 1) return null;
-            if (el.id) return '#' + CSS.escape(el.id);
             const parts = [];
             let cur = el;
-            while (cur && cur.nodeType === 1) {
+            while (cur && cur.nodeType === 1 && parts.length < 12) {
               let part = String(cur.tagName || '').toLowerCase();
               if (!part) break;
               if (cur.id) {
-                part += '#' + CSS.escape(cur.id);
-                parts.unshift(part);
-                break;
-              }
-              const tag = part;
-              let siblings = cur.parentElement ? Array.from(cur.parentElement.children).filter((n) => String(n.tagName || '').toLowerCase() === tag) : [];
-              if (siblings.length > 1) {
-                const pos = siblings.indexOf(cur) + 1;
-                part += `:nth-of-type(${pos})`;
+                part = '#' + CSS.escape(cur.id);
+              } else {
+                const root = cur.parentElement || cur.getRootNode();
+                const siblings = root && root.children
+                  ? Array.from(root.children).filter((n) => String(n.tagName || '').toLowerCase() === part)
+                  : [];
+                if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
               }
               parts.unshift(part);
-              cur = cur.parentElement;
+              const root = cur.getRootNode && cur.getRootNode();
+              cur = root && root.host ? root.host : cur.parentElement;
             }
-            return parts.join(' > ');
+            return parts.join(' >>> ');
           };
 
           const __cmuxFound = (() => {
@@ -172,7 +172,7 @@ extension BrowserControlService {
                   }
                   return '';
                 };
-                const __nodes = Array.from(document.querySelectorAll('*'));
+                const __nodes = Array.from(__cmuxQueryAll('*'));
                 return __nodes.find((el) => {
                   const explicit = String(el.getAttribute('role') || '').toLowerCase();
                   const resolved = explicit || __implicitRole(el) || '';
@@ -193,7 +193,7 @@ extension BrowserControlService {
                 const __target = String(\(textLiteral));
                 const __exact = \(exactLiteral);
                 const __norm = (s) => String(s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                const __nodes = Array.from(document.querySelectorAll('body *'));
+                const __nodes = Array.from(__cmuxQueryAll('*'));
                 return __nodes.find((el) => {
                   const v = __norm(el.innerText || el.textContent || '');
                   if (!v) return false;
@@ -211,7 +211,7 @@ extension BrowserControlService {
                 const __target = String(\(labelLiteral));
                 const __exact = \(exactLiteral);
                 const __norm = (s) => String(s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                const __labels = Array.from(document.querySelectorAll('label'));
+                const __labels = Array.from(__cmuxQueryAll('label'));
                 const __label = __labels.find((el) => {
                   const v = __norm(el.innerText || el.textContent || '');
                   return __exact ? (v === __target) : v.includes(__target);
@@ -232,7 +232,7 @@ extension BrowserControlService {
         return """
                 const __target = String(\(placeholderLiteral));
                 const __exact = \(exactLiteral);
-                const __nodes = Array.from(document.querySelectorAll('[placeholder]'));
+                const __nodes = Array.from(__cmuxQueryAll('[placeholder]'));
                 return __nodes.find((el) => {
                   const p = String(el.getAttribute('placeholder') || '').trim().toLowerCase();
                   if (!p) return false;
@@ -248,7 +248,7 @@ extension BrowserControlService {
         return """
                 const __target = String(\(altLiteral));
                 const __exact = \(exactLiteral);
-                const __nodes = Array.from(document.querySelectorAll('[alt]'));
+                const __nodes = Array.from(__cmuxQueryAll('[alt]'));
                 return __nodes.find((el) => {
                   const a = String(el.getAttribute('alt') || '').trim().toLowerCase();
                   if (!a) return false;
@@ -264,7 +264,7 @@ extension BrowserControlService {
         return """
                 const __target = String(\(titleLiteral));
                 const __exact = \(exactLiteral);
-                const __nodes = Array.from(document.querySelectorAll('[title]'));
+                const __nodes = Array.from(__cmuxQueryAll('[title]'));
                 return __nodes.find((el) => {
                   const t = String(el.getAttribute('title') || '').trim().toLowerCase();
                   if (!t) return false;
@@ -280,7 +280,7 @@ extension BrowserControlService {
                 const __target = String(\(testIdLiteral));
                 const __selectors = ['[data-testid]', '[data-test-id]', '[data-test]'];
                 for (const sel of __selectors) {
-                  const nodes = Array.from(document.querySelectorAll(sel));
+                  const nodes = Array.from(__cmuxQueryAll(sel));
                   const found = nodes.find((el) => {
                     return String(el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-test') || '') === __target;
                   });
@@ -296,7 +296,8 @@ extension BrowserControlService {
         let selectorLiteral = jsonLiteral(selector)
         return """
         (() => {
-          const el = document.querySelector(\(selectorLiteral));
+          \(elementQueryPrelude)
+          const el = __cmuxQuery(\(selectorLiteral));
           if (!el) return { ok: false, error: 'not_found' };
           return { ok: true, selector: \(selectorLiteral), text: String(el.textContent || '').trim() };
         })()
@@ -309,7 +310,8 @@ extension BrowserControlService {
         let selectorLiteral = jsonLiteral(selector)
         return """
         (() => {
-          const list = document.querySelectorAll(\(selectorLiteral));
+          \(elementQueryPrelude)
+          const list = __cmuxQueryAll(\(selectorLiteral));
           if (!list || list.length === 0) return { ok: false, error: 'not_found' };
           const idx = list.length - 1;
           const el = list[idx];
@@ -325,7 +327,8 @@ extension BrowserControlService {
         let selectorLiteral = jsonLiteral(selector)
         return """
         (() => {
-          const list = Array.from(document.querySelectorAll(\(selectorLiteral)));
+          \(elementQueryPrelude)
+          const list = Array.from(__cmuxQueryAll(\(selectorLiteral)));
           if (!list.length) return { ok: false, error: 'not_found' };
           let idx = \(index);
           if (idx < 0) idx = list.length + idx;

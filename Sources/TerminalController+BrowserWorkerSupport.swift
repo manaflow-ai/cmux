@@ -1,6 +1,7 @@
 import CmuxBrowser
 import CmuxControlSocket
 import Foundation
+import WebKit
 
 extension TerminalController {
     /// Returns the native-replay action represented by a browser keyboard method.
@@ -323,4 +324,313 @@ extension TerminalController {
     ) -> T? {
         socketAwaitCallback(timeout: timeout, start: start)
     }
+}
+
+extension TerminalController {
+    /// Returns a native text-input response for `browser.type`/`browser.fill`,
+    /// or `nil` when the target is a control whose value must use the existing
+    /// DOM compatibility path (for example date and range inputs).
+    nonisolated func v2BrowserTextInputResponse(
+        request: ControlRequest,
+        replaceSelection: Bool
+    ) async -> String? {
+        let params = request.params.mapValues(\.foundationObject)
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: request.method,
+            isV2: true,
+            params: params
+        )
+        let encodedResponse = await CmuxAutomationInvocationContext.$focusAllowed.withValue(allowsFocusMutation) {
+            let task: Task<String?, Never> = Task { @MainActor [weak self] in
+                guard let self else { return nil }
+                return await self.v2BrowserTextInputResult(
+                    request: request,
+                    replaceSelection: replaceSelection
+                )
+            }
+            return await task.value
+        }
+        guard let encodedResponse else { return nil }
+        return await v2BrowserTextInputResponseWithWorkerSnapshot(
+            encodedResponse: encodedResponse,
+            request: request
+        )
+    }
+
+    private nonisolated func v2BrowserTextInputResponseWithWorkerSnapshot(
+        encodedResponse: String,
+        request: ControlRequest
+    ) async -> String {
+        guard v2Bool(request.params.mapValues(\.foundationObject), "snapshot_after") == true,
+              let result = Self.controlCallResult(fromEncodedResponse: encodedResponse),
+              case .ok(let payload) = result,
+              let payloadObject = payload.foundationObject as? [String: Any],
+              let rawSurfaceID = payloadObject["surface_id"] as? String,
+              let surfaceID = UUID(uuidString: rawSurfaceID) else {
+            return encodedResponse
+        }
+        let params = request.params.mapValues(\.foundationObject)
+        let snapshotPayload = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var mutablePayload = payloadObject
+                self.v2BrowserAppendPostSnapshot(
+                    params: params,
+                    surfaceId: surfaceID,
+                    payload: &mutablePayload
+                )
+                continuation.resume(returning: mutablePayload)
+            }
+        }
+        guard let jsonPayload = JSONValue(foundationObject: snapshotPayload) else {
+            return encodedResponse
+        }
+        return Self.v2Encoder.response(id: request.id, .ok(jsonPayload))
+    }
+
+    /// Performs one text action after focusing the target through the page's
+    /// open shadow-root-aware DOM. Each character then travels through the
+    /// same AppKit/WebKit native seam as `browser.press`, so framework code
+    /// observes trusted key and input events instead of a DOM mutation.
+    @MainActor
+    private func v2BrowserTextInputResult(
+        request: ControlRequest,
+        replaceSelection: Bool
+    ) async -> String? {
+        v2RefreshKnownRefs()
+        let params = request.params.mapValues(\.foundationObject)
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "unavailable",
+                    message: String(
+                        localized: "cli.browser.error.tabManagerUnavailable",
+                        defaultValue: "Browser controls are unavailable"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let resolved = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+        if let error = resolved.error {
+            return Self.v2Encoder.response(id: request.id, error)
+        }
+        guard let context = resolved.context else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "cli.browser.error.noFocusedSurface",
+                        defaultValue: "No focused browser surface"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let rawSelector = (params["selector"] as? String)
+            ?? (params["sel"] as? String)
+            ?? (params["element_ref"] as? String)
+            ?? (params["ref"] as? String)
+        let selector = rawSelector.flatMap {
+            v2BrowserResolveSelector($0, surfaceId: context.surfaceId)
+        }
+        if rawSelector != nil, selector == nil {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "cli.browser.error.elementReferenceNotFound",
+                        defaultValue: "Element reference not found"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        guard let text = params["text"] as? String
+                ?? params["value"] as? String else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "cli.browser.error.missingTextValue",
+                        defaultValue: "Missing text/value"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let browserControl = BrowserControlService()
+        let selectorLiteral = selector.map(browserControl.jsonLiteral) ?? "null"
+        let focusScript = """
+            (() => {
+              \(browserControl.elementQueryPrelude)
+              const el = \(selectorLiteral) === null
+                ? __cmuxDeepActiveElement()
+                : __cmuxQuery(\(selectorLiteral));
+              if (!el) return { ok: false, error: 'not_found' };
+              if (\(selectorLiteral) !== null && typeof el.focus === 'function') {
+                try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_) {} }
+              }
+              const tag = String(el.tagName || '').toLowerCase();
+              const type = String(el.type || 'text').toLowerCase();
+              const editable = !!el.isContentEditable
+                || tag === 'textarea'
+                || (tag === 'input' && !['button','checkbox','color','date','datetime-local','file','hidden','image','month','number','radio','range','reset','submit','time','week'].includes(type));
+              return { ok: true, editable, value: ('value' in el) ? String(el.value || '') : String(el.textContent || '') };
+            })()
+            """
+        let focusResult = await evaluateBrowserTextInputScript(
+            focusScript,
+            in: context.webView,
+            panel: context.browserPanel
+        )
+        guard case .success(let rawFocus) = focusResult,
+              let focus = rawFocus as? [String: Any],
+              focus["ok"] as? Bool == true else {
+            if selector != nil { return nil }
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "cli.browser.error.noFocusedSurface",
+                        defaultValue: "No focused browser surface"
+                    ),
+                    data: nil
+                )
+            )
+        }
+        guard focus["editable"] as? Bool == true else {
+            // Native key replay is intentionally limited to text-capable
+            // controls. Existing JS value handling remains correct for date,
+            // range, and other specialized form controls.
+            return selector == nil
+                ? Self.v2Encoder.response(
+                    id: request.id,
+                    .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "cli.browser.error.focusedElementNotEditable",
+                            defaultValue: "Focused browser element is not editable"
+                        ),
+                        data: nil
+                    )
+                )
+                : nil
+        }
+
+        let nativeCharacters = text.map(String.init)
+        guard nativeCharacters.allSatisfy({ BrowserKeyboardEvent(rawKey: $0)?.nativeKey != nil }) else {
+            return nil
+        }
+
+        if replaceSelection {
+            guard replayTextInputKey("Meta", in: context.webView, action: .keyDown),
+                  replayTextInputKey("a", in: context.webView, action: .press),
+                  replayTextInputKey("Meta", in: context.webView, action: .keyUp) else {
+                return Self.v2Encoder.response(
+                    id: request.id,
+                    .err(
+                        code: "internal_error",
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        ),
+                        data: nil
+                    )
+                )
+            }
+            if nativeCharacters.isEmpty {
+                guard replayTextInputKey("Backspace", in: context.webView, action: .press) else {
+                    return Self.v2Encoder.response(
+                        id: request.id,
+                        .err(
+                            code: "internal_error",
+                            message: String(
+                                localized: "cli.browser.error.operationFailed",
+                                defaultValue: "Browser operation failed"
+                            ),
+                            data: nil
+                        )
+                    )
+                }
+            }
+        }
+
+        for character in nativeCharacters {
+            guard replayTextInputKey(character, in: context.webView, action: .press) else {
+                return Self.v2Encoder.response(
+                    id: request.id,
+                    .err(
+                        code: "internal_error",
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        ),
+                        data: nil
+                    )
+                )
+            }
+        }
+
+        let surfaceID = context.surfaceId
+        var payload: [String: Any] = [
+            "workspace_id": context.workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: context.workspaceId),
+            "surface_id": surfaceID.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceID),
+            "action": replaceSelection ? "fill" : "type"
+        ]
+        guard let jsonPayload = JSONValue(foundationObject: payload) else { return nil }
+        return Self.v2Encoder.response(id: request.id, .ok(jsonPayload))
+    }
+
+    @MainActor
+    private func evaluateBrowserTextInputScript(
+        _ script: String,
+        in webView: WKWebView,
+        panel: BrowserPanel
+    ) async -> Result<Any, Error> {
+        let expectedWebViewIdentifier = ObjectIdentifier(webView)
+        guard await panel.ensureAutomationDocumentReady(
+            expectedWebViewIdentifier: expectedWebViewIdentifier,
+            reason: "automation-text-input"
+        ) == .committed else {
+            return .failure(BrowserTextInputError.documentNotReady)
+        }
+        return await withCheckedContinuation { continuation in
+            webView.callAsyncJavaScript(
+                "return \(script)",
+                arguments: [:],
+                in: nil,
+                in: .page
+            ) { result in
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    @MainActor
+    private func replayTextInputKey(
+        _ rawKey: String,
+        in webView: WKWebView,
+        action: BrowserKeyboardAction
+    ) -> Bool {
+        guard let event = BrowserKeyboardEvent(rawKey: rawKey) else { return false }
+        switch webView.replayBrowserKeyboardEvent(event, action: action) {
+        case .delivered: return true
+        case .unsupported, .eventCreationFailed: return false
+        }
+    }
+}
+
+private enum BrowserTextInputError: Error {
+    case documentNotReady
 }
