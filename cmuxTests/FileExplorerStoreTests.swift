@@ -179,6 +179,25 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func configuredExcludePatternsFilterLoadedEntries() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/tmp/project"] = .success([
+            FileExplorerEntry(name: ".git", path: "/tmp/project/.git", isDirectory: true),
+            FileExplorerEntry(name: "Sources", path: "/tmp/project/Sources", isDirectory: true),
+            FileExplorerEntry(name: "README.md", path: "/tmp/project/README.md", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setExcludePatterns([".git"])
+        store.setRootPath("/tmp/project")
+
+        try await waitFor("filtered root nodes loaded") { store.rootNodes.count == 2 }
+
+        #expect(store.rootNodes.map(\.name) == ["Sources", "README.md"])
+    }
+
+    @Test
     func testLoadRootPopulatesNodes() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([

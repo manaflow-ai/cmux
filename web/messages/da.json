@@ -1365,6 +1365,10 @@
           "indentGuides": "Tegn lodrette indrykningsguider i den indbyggede fileditor.",
           "currentLineHighlight": "Fremhæv indsætningspunktets linje, når intet er markeret.",
           "tabWidth": "Bredden på et tabulatorstop i kolonner til indrykning og indrykningsguider."
+        },
+        "fileBrowser": {
+          "description": "Indstillinger for fileksploreren til at skjule støjende filer og mapper. Globale mønstre og projektmønstre flettes.",
+          "exclude": "Glob-mønstre, der matches mod stier relative til arbejdsområdets rod. Et mønster uden skråstreg matcher filer eller mapper på alle niveauer. Understøtter *, ? og **."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1376,7 +1380,8 @@
       "shortcutsWhenBooleanKeys": "boolske nøgler. En ukendt eller manglende nøgle læses som false; litteralerne true og false accepteres også.",
       "shortcutsWhenTypedKeys": "typede nøgler til sammenligninger: den højre sidebjælkes aktive tilstand (streng) samt antal paneler og workspaces (heltal).",
       "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-match og listemedlemskab. Sammenligninger binder tættere end && og ||.",
-      "shortcutsWhenExample": "Dette får for eksempel Ctrl+1–9 til at vælge workspaces overalt, undtagen når højre sidebjælke har fokus (så Ctrl+1–5 er fri til sidebjælkens tilstandsskifter), og begrænser overfladevalg til Find-sidebjælken, når workspacet har flere paneler:"
+      "shortcutsWhenExample": "Dette får for eksempel Ctrl+1–9 til at vælge workspaces overalt, undtagen når højre sidebjælke har fokus (så Ctrl+1–5 er fri til sidebjælkens tilstandsskifter), og begrænser overfladevalg til Find-sidebjælken, når workspacet har flere paneler:",
+      "exampleFileBrowserExclude": "Skjul støjende fileksplorer-elementer (f.eks. .git og node_modules)."
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",

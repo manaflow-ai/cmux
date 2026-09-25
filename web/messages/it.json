@@ -1365,6 +1365,10 @@
           "indentGuides": "Disegna guide verticali di indentazione nell’editor di file integrato.",
           "currentLineHighlight": "Evidenzia la riga del cursore quando non c’è una selezione.",
           "tabWidth": "Larghezza di una tabulazione, in colonne, per l'indentazione e le guide di indentazione."
+        },
+        "fileBrowser": {
+          "description": "Impostazioni dell’esplora file per nascondere file e cartelle indesiderati. I pattern globali e del progetto vengono uniti.",
+          "exclude": "Pattern glob applicati ai percorsi relativi alla radice dell’area di lavoro. Un pattern senza barra corrisponde a file o cartelle a qualsiasi profondità. Supporta *, ? e **."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1376,7 +1380,8 @@
       "shortcutsWhenBooleanKeys": "chiavi booleane. Una chiave sconosciuta o assente vale false; sono accettati anche i letterali true e false.",
       "shortcutsWhenTypedKeys": "chiavi tipizzate per i confronti: la modalità attiva della barra laterale destra (stringa) e i conteggi di riquadri e spazi di lavoro (interi).",
       "shortcutsWhenOperators": "operatori booleani, confronti tipizzati, corrispondenza regex e appartenenza a liste. I confronti legano più strettamente di && e ||.",
-      "shortcutsWhenExample": "Ad esempio, questo fa sì che Ctrl+1–9 selezioni gli spazi di lavoro ovunque tranne quando la barra laterale destra ha il focus (lasciando Ctrl+1–5 al selettore di modalità della barra laterale), e limita la selezione della superficie alla barra laterale Trova quando lo spazio di lavoro ha più riquadri:"
+      "shortcutsWhenExample": "Ad esempio, questo fa sì che Ctrl+1–9 selezioni gli spazi di lavoro ovunque tranne quando la barra laterale destra ha il focus (lasciando Ctrl+1–5 al selettore di modalità della barra laterale), e limita la selezione della superficie alla barra laterale Trova quando lo spazio di lavoro ha più riquadri:",
+      "exampleFileBrowserExclude": "Nascondi gli elementi indesiderati dell’esplora file (ad esempio .git e node_modules)."
     },
     "customCommands": {
       "title": "Comandi personalizzati",
