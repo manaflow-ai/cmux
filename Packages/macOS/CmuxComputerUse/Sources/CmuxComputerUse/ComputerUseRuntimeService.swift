@@ -6,9 +6,6 @@ import Darwin
 import Foundation
 import Security
 import CmuxFoundation
-import os
-
-nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app", category: "ComputerUseRuntime")
 
 /// The computer use direct screen capture verification exposed to the host application.
 public enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
@@ -25,7 +22,6 @@ public enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
 @MainActor
 public final class ComputerUseRuntimeService {
     static let helperAppName = "cmux Computer Use"
-    nonisolated private static let helperExecutableName = "cmux-cua"
 
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
@@ -43,6 +39,13 @@ public final class ComputerUseRuntimeService {
     private var helperLifecycleGeneration = 0
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
+    private var helperStagingStartupReaperTask: Task<Void, Never>?
+    private lazy var helperMaintenanceTimer = MainActorCoalescingDeadlineTimer(owner: self) {
+        $0.scheduleHelperMaintenance()
+    }
+    private var helperInstallRetry = ComputerUseHelperRetryPolicy()
+    private var helperLaunchRetry = ComputerUseHelperRetryPolicy()
+    private let uptime: @MainActor () -> TimeInterval
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
@@ -65,6 +68,7 @@ public final class ComputerUseRuntimeService {
         bundle: Bundle = .main,
         paths: ComputerUseRuntimePaths = ComputerUseRuntimePaths(),
         transport: SocketTransport = SocketTransport(),
+        uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         isDisabledByPolicy: @escaping () -> Bool = {
             ManagedDevicePolicy().isEnforced(.disableComputerUse)
         }
@@ -72,6 +76,7 @@ public final class ComputerUseRuntimeService {
         self.isDisabledByPolicy = isDisabledByPolicy
         self.paths = paths
         self.transport = transport
+        self.uptime = uptime
         stateAuthenticationKey = Self.makeStateAuthenticationKey()
         let nestedURL = bundle.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
@@ -82,6 +87,7 @@ public final class ComputerUseRuntimeService {
             bundledHelperAppURL = nil
         }
         startObservingHelperTermination()
+        scheduleHelperMaintenance()
     }
 
     deinit {
@@ -91,6 +97,7 @@ public final class ComputerUseRuntimeService {
         helperLifecycleTask?.cancel()
         helperTerminationObservationTask?.cancel()
         helperHealthTask?.cancel()
+        helperStagingStartupReaperTask?.cancel()
         recoveryTask?.cancel()
         readinessPublicationTask?.cancel()
     }
@@ -224,6 +231,10 @@ public final class ComputerUseRuntimeService {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         permissionRefreshGeneration &+= 1
         permissionPhase = permissionPhase.applying(.setEnabled(newValue))
+        if newValue != desiredEnabled {
+            helperInstallRetry.reset()
+            helperLaunchRetry.reset()
+        }
         desiredEnabled = newValue
         if newValue {
             await startIfNeeded()
@@ -316,6 +327,7 @@ public final class ComputerUseRuntimeService {
             return await refreshHelperStatus()
         }
         missedHelperHealthChecks = 0
+        helperLaunchRetry.reset()
         let recovery = scheduleHelperRecovery()
         await recovery?.value
         guard
@@ -924,15 +936,25 @@ public final class ComputerUseRuntimeService {
     public var helperBuildReplacedHandler: (@MainActor () -> Void)?
 
     private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
-        guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
-        guard let bundledHelperAppURL else { return nil }
+        guard acceptsNewLaunches, !Task.isCancelled,
+              helperInstallRetry.allowsAttempt(at: uptime()),
+              let bundledHelperAppURL else { return nil }
+        var installed = false
+        defer {
+            if !Task.isCancelled, acceptsNewLaunches {
+                if installed { helperInstallRetry.reset() }
+                else { helperInstallRetry.recordFailure(at: uptime()) }
+            }
+        }
+        guard prepareRuntimeForLaunch() else { return nil }
         let destination = paths.installedHelperAppURL
         let currentCheckTask = Task.detached(priority: .userInitiated) {
-            let isCurrent = Self.helperIsCurrent(nested: bundledHelperAppURL, destination: destination)
+            let staging = ComputerUseHelperStaging()
+            let isCurrent = staging.isCurrent(nested: bundledHelperAppURL, destination: destination)
             if isCurrent {
                 // A copy staged by an earlier build can still carry the empty
                 // record #13602 wrote; release it in place instead of restaging.
-                _ = try? Self.releaseCopiedHelperFromQuarantine(at: destination)
+                _ = try? staging.releaseCopiedHelperFromQuarantine(at: destination)
             }
             return isCurrent
         }
@@ -943,6 +965,7 @@ public final class ComputerUseRuntimeService {
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         if isCurrent {
+            installed = true
             installedHelperURL = destination
             Self.registerHelperBundle(at: destination)
             NSWorkspace.shared.noteFileSystemChanged(destination.path)
@@ -955,7 +978,7 @@ public final class ComputerUseRuntimeService {
         )
         let directory = paths.installedHelperDirectoryURL
         let installationTask = Task.detached(priority: .userInitiated) {
-            Self.installHelper(
+            ComputerUseHelperStaging().install(
                 nested: bundledHelperAppURL,
                 destination: destination,
                 directory: directory
@@ -968,6 +991,7 @@ public final class ComputerUseRuntimeService {
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         installedHelperURL = result
+        installed = result != nil
         if let result {
             Self.registerHelperBundle(at: result)
             NSWorkspace.shared.noteFileSystemChanged(result.path)
@@ -982,7 +1006,15 @@ public final class ComputerUseRuntimeService {
 
     private func startIfNeededWithinLifecycle() async {
         guard !isDisabledByPolicy() else { return }
-        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        guard acceptsNewLaunches, !Task.isCancelled,
+              helperLaunchRetry.allowsAttempt(at: uptime()) else { return }
+        var ready = false
+        defer {
+            if !Task.isCancelled, acceptsNewLaunches {
+                if ready { helperLaunchRetry.reset() }
+                else { helperLaunchRetry.recordFailure(at: uptime()) }
+            }
+        }
         guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         let nativeListening = await Self.isDaemonListening(
@@ -1009,7 +1041,10 @@ public final class ComputerUseRuntimeService {
         } else {
             codexReady = false
         }
-        if nativeReady, codexReady { return }
+        if nativeReady, codexReady {
+            ready = true
+            return
+        }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         // A failed probe does not prove that an older helper exited. Stop and
         // verify the exact installed helper before launching a replacement, or a
@@ -1041,6 +1076,7 @@ public final class ComputerUseRuntimeService {
                 return
             }
         }
+        ready = true
     }
 
     private func stopDaemon() async -> Bool {
@@ -1340,12 +1376,20 @@ public final class ComputerUseRuntimeService {
             paths.runtimeDirectoryURL.deletingLastPathComponent(),
             paths.runtimeDirectoryURL,
             paths.computerUseDirectoryURL,
+            paths.installedHelperDirectoryURL.deletingLastPathComponent(),
+            paths.installedHelperDirectoryURL,
             paths.stateDirectoryURL.deletingLastPathComponent().deletingLastPathComponent(),
             paths.stateDirectoryURL.deletingLastPathComponent(),
             paths.stateDirectoryURL,
         ]
         guard privateDirectories.allSatisfy(Self.ensurePrivateDirectory) else { return false }
-        return Self.writeAuthenticationToken(paths.authenticationToken, to: paths.authenticationTokenFileURL)
+        guard Self.writeAuthenticationToken(
+            paths.authenticationToken,
+            to: paths.authenticationTokenFileURL
+        ) else {
+            return false
+        }
+        return true
     }
 
     /// Synchronously prevents relaunch and stops the out-of-process helper.
@@ -1365,6 +1409,9 @@ public final class ComputerUseRuntimeService {
         helperTerminationObservationTask = nil
         helperHealthTask?.cancel()
         helperHealthTask = nil
+        helperStagingStartupReaperTask?.cancel()
+        helperStagingStartupReaperTask = nil
+        helperMaintenanceTimer.cancel()
         missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
@@ -1631,6 +1678,46 @@ public final class ComputerUseRuntimeService {
         scheduleHelperRecovery()
     }
 
+    /// Starts one pass immediately, then schedules maintenance after it finishes.
+    /// The shared cancellable scheduler implements the required periodic reaper;
+    /// directory notifications cannot turn a large cleanup into repeated scans.
+    private func scheduleHelperMaintenance() {
+        guard acceptsNewLaunches, helperStagingStartupReaperTask == nil else { return }
+        helperStagingStartupReaperTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reapOrphanedHelperStaging()
+            self.helperStagingStartupReaperTask = nil
+            if self.acceptsNewLaunches, !Task.isCancelled {
+                self.helperMaintenanceTimer.schedule(after: .seconds(60))
+            }
+        }
+    }
+
+    /// Serializes private-directory validation and reaping with install operations.
+    func reapOrphanedHelperStaging() async {
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+            guard let self, self.acceptsNewLaunches, !Task.isCancelled else { return }
+            let paths = self.paths
+            let task = Task.detached(priority: .utility) {
+                // Validate every cmux-owned ancestor before startup mutates any
+                // candidate. Do not create credentials or launch a disabled helper.
+                let directories = [
+                    paths.computerUseDirectoryURL,
+                    paths.installedHelperDirectoryURL.deletingLastPathComponent(),
+                    paths.installedHelperDirectoryURL
+                ]
+                guard directories.allSatisfy(Self.ensurePrivateDirectory) else { return }
+                ComputerUseHelperStaging().reapOrphanedBundles(in: paths.installedHelperDirectoryURL)
+            }
+            await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        }
+    }
+
     @discardableResult
     private func scheduleHelperRecovery() -> Task<Void, Never>? {
         guard desiredEnabled, acceptsNewLaunches else { return nil }
@@ -1783,119 +1870,6 @@ public final class ComputerUseRuntimeService {
         { application, error in
             continuation.resume(returning: application != nil && error == nil)
         }
-    }
-
-    nonisolated private static func helperIsCurrent(nested: URL, destination: URL) -> Bool {
-        guard !Task.isCancelled else { return false }
-        let fileManager = FileManager.default
-        let nestedBinary = nested
-            .appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
-        let destinationBinary = destination
-            .appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
-        guard fileManager.isExecutableFile(atPath: destinationBinary.path) else { return false }
-        guard
-            let nestedFiles = helperBundleRelativeFilePaths(at: nested),
-            let destinationFiles = helperBundleRelativeFilePaths(at: destination),
-            nestedFiles == destinationFiles
-        else {
-            return false
-        }
-        for relativePath in nestedFiles {
-            guard !Task.isCancelled else { return false }
-            let nestedFile = nested.appendingPathComponent(relativePath, isDirectory: false)
-            let destinationFile = destination.appendingPathComponent(relativePath, isDirectory: false)
-            guard fileManager.contentsEqual(
-                atPath: nestedFile.path,
-                andPath: destinationFile.path
-            ) else {
-                return false
-            }
-        }
-        return fileManager.contentsEqual(
-            atPath: nestedBinary.path,
-            andPath: destinationBinary.path
-        )
-    }
-
-    nonisolated private static func helperBundleRelativeFilePaths(
-        at root: URL
-    ) -> Set<String>? {
-        let fileManager = FileManager.default
-        guard
-            let enumerator = fileManager.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )
-        else {
-            return nil
-        }
-        var paths: Set<String> = []
-        for case let fileURL as URL in enumerator {
-            guard !Task.isCancelled else { return nil }
-            guard
-                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
-                values.isRegularFile == true
-            else {
-                continue
-            }
-            let relativePath = String(fileURL.path.dropFirst(root.path.count + 1))
-            paths.insert(relativePath)
-        }
-        return paths
-    }
-
-    nonisolated static func installHelper(
-        nested: URL,
-        destination: URL,
-        directory: URL
-    ) -> URL? {
-        let fileManager = FileManager.default
-        do {
-            guard !Task.isCancelled else { return nil }
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            let temporary = directory.appendingPathComponent(
-                ".cmux Computer Use.\(UUID().uuidString).app",
-                isDirectory: true
-            )
-            try? fileManager.removeItem(at: temporary)
-            defer { try? fileManager.removeItem(at: temporary) }
-            try fileManager.copyItem(at: nested, to: temporary)
-            // Homebrew casks quarantine the whole app tree. This nested helper
-            // is copied out and launched as its own application, so carrying
-            // that quarantine onto the standalone copy makes Gatekeeper ask
-            // for approval again after every cmux update. Release only the
-            // copied helper; release builds independently notarize and staple it.
-            try releaseCopiedHelperFromQuarantine(
-                at: temporary,
-                fileManager: fileManager
-            )
-            guard !Task.isCancelled else { return nil }
-            try? fileManager.removeItem(at: destination)
-            try fileManager.moveItem(at: temporary, to: destination)
-            return destination
-        } catch {
-            return nil
-        }
-    }
-
-    /// Strips `com.apple.quarantine` from a helper copy so LaunchServices
-    /// launches it without the first-open dialog (#13430, #13803). An entry
-    /// that cannot be released is logged and kept: a quarantined helper still
-    /// launches once approved, while a missing helper disables Computer Use.
-    @discardableResult
-    nonisolated static func releaseCopiedHelperFromQuarantine(
-        at url: URL,
-        fileManager: FileManager = .default
-    ) throws -> ComputerUseHelperQuarantineRelease.Report {
-        let report = try ComputerUseHelperQuarantineRelease(fileManager: fileManager)
-            .release(treeAt: url)
-        for failure in report.failures {
-            logger.error(
-                "Computer Use helper quarantine release failed for \(failure.url.lastPathComponent, privacy: .public) (errno \(failure.code))"
-            )
-        }
-        return report
     }
 
     nonisolated private static func makeStateAuthenticationKey() -> Data {

@@ -51,7 +51,10 @@ the choice exactly as they do for pull requests: only when
 (vars.CMUX_CI_XCODE_APP_PR), ahead of Blacksmith, and only while
 vars.CI_OWNED_POOL_SLOTS leaves a machine free on a snapshot younger than
 pr_runner_pool.MAX_SNAPSHOT_MINUTES. An E2E run holds one machine at a time
-(build, then test), so it needs one free machine. An owned pool is never the
+(build, then test), so it needs one free machine. glaeda gives both jobs the
+mini's canonical-root token, so when CI_OWNED_POOL_SLOTS gives the pool a root
+count (pr_runner_pool.root_label()) the run takes the root label and needs a
+free root runner as well. An owned pool is never the
 fewest-queued fallback: with no free machine the run takes Blacksmith. A job
 that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
 ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner(). That
@@ -195,14 +198,22 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
 
 
 def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.datetime,
-           owned_slots: Mapping[str, int] | None = None) -> pr_runner_pool.Choice:
-    """The pull request rule over the macOS 26 and owned pools. An empty runner keeps the default."""
+           owned_slots: Mapping[str, int] | None = None, jobs: int = E2E_JOBS) -> pr_runner_pool.Choice:
+    """The pull request rule over the macOS 26 and owned pools. An empty runner keeps the default.
+
+    `jobs` is the most machines one run holds at once (E2E_JOBS for an E2E
+    run); ios_runner_pool.py passes its own lane's peak.
+    """
     if load is None:
         return pr_runner_pool.Choice("", "", "no readable pool snapshot")
     pools = [label for label in limits.order if e2e_pool(label)]
     if not pools:
         return pr_runner_pool.Choice("", "", f"{ORDER_VARIABLE} names no macOS 26 pool")
-    placed, routed = dict(load.e2e_since), load.pull_requests_since
+    placed: dict[str, int] = {}
+    for label, count in load.e2e_since.items():
+        # A run on an owned pool's root runners holds one of its machines.
+        placed[pr_runner_pool.pool_label(label)] = placed.get(pr_runner_pool.pool_label(label), 0) + count
+    routed = load.pull_requests_since
     lane = pr_routing_off(load.snapshot)
     if lane is not None:
         # Pull request runs are not being routed, so each stays on its lane.
@@ -212,7 +223,7 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
         load.snapshot, limits, now=now, xcode_pins={},
         routed_since=routed, auto_xcode=True,
         placed=placed, choose_from=pools,
-        owned_slots=owned_slots or {}, jobs=E2E_JOBS,
+        owned_slots=owned_slots or {}, jobs=jobs, root_jobs=jobs,
     )
 
 
@@ -271,8 +282,11 @@ def auto_runner(
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {SMALL_RUNNER}")
         return default
-    log(f"{choice.reason} -> {choice.runner} (janitor saw {queue})")
-    return choice.runner
+    # glaeda gives an E2E job, which it does not know, the mini's root token,
+    # so a pool with a root count sends it to its root runners.
+    runner = choice.root_runner or choice.runner
+    log(f"{choice.reason} -> {runner} (janitor saw {queue})")
+    return runner
 
 
 def resolve(

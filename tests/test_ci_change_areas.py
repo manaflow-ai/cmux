@@ -3405,14 +3405,19 @@ def test_macos_admission_gate_needs_every_fast_linux_only_job() -> None:
     entry = {"changes", "static-preflight"}
     # The gate is derived, not hand-picked: every job that starts right after
     # the entry jobs and runs only on Linux. A job with any Mac runner is
-    # already billed and slow, so waiting on it would save nothing.
+    # already billed and slow, so waiting on it would save nothing. A job
+    # that cannot fail (continue-on-error at job level, like the report-only
+    # reverse-test-impact) can never decline macOS, so the gate skips it too.
     expected = entry | {
         key
         for key in jobs
         if key not in entry | {"macos-admission-gate"}
         and set(_job_needs(jobs, key)) <= entry
         and _job_runs_only_on_linux(jobs[key])
+        and jobs[key].get("continue-on-error") is not True
     }
+    assert "reverse-test-impact" in jobs
+    assert "reverse-test-impact" not in expected
     assert set(_job_needs(jobs, "macos-admission-gate")) == expected
     assert {"guards", "web", "suite-coverage"} <= expected
     assert not {"claude-wrapper", "remote-daemon", "cli", "linux-preflight"} & expected
@@ -3475,6 +3480,8 @@ def test_macos_admission_gate_uses_job_results_not_polling() -> None:
 
 
 CONSUMER_GATE_STEP = "Hold consumers behind the fast Linux gate"
+COMPILE_GATE_STEP = "Stop before compiling after a declined fast Linux gate"
+FAST_LINUX_GATE = ROOT / "scripts" / "ci" / "fast_linux_gate.py"
 
 
 def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> None:
@@ -3483,7 +3490,8 @@ def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> Non
     # It reads the job the caller names, once: no loop and no sleep.
     assert 'GATE_JOB: "macOS admission gate"' in step
     assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
-    script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+    assert "python3 scripts/ci/fast_linux_gate.py consumers" in step
+    script = FAST_LINUX_GATE.read_text(encoding="utf-8")
     for polling in ("sleep", "while ", "for attempt", "range("):
         assert polling not in script
     # The gate only judges a pull request's first attempt; a re-run is asking
@@ -3511,6 +3519,34 @@ def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> Non
         assert "needs.macos-compile-admission.result == 'success'" in jobs[key]["if"], key
 
 
+def test_compile_admission_stops_before_compiling_after_a_declined_gate() -> None:
+    admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
+    step = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", COMPILE_GATE_STEP)
+    assert 'GATE_JOB: "macOS admission gate"' in step
+    assert "python3 scripts/ci/fast_linux_gate.py compile" in step
+    # First attempt of a pull request only, never after a product reuse hit,
+    # and canary probes compile regardless.
+    for term in (
+        "github.event_name == 'pull_request' && github.run_attempt == 1",
+        "steps.reuse-products.outputs.hit != 'true'",
+        "!startsWith(github.head_ref, 'canary/')",
+    ):
+        assert term in step, term
+    assert "always()" not in step and "failure()" not in step
+    # Before anything touches DerivedData or the owned Mac's recorded state,
+    # so a stop leaves nothing for the keep steps to save.
+    order = [line.removeprefix("      - name: ") for line in admission.splitlines() if line.startswith("      - name: ")]
+    gate_at = order.index(COMPILE_GATE_STEP)
+    assert order.index("Resolve Swift packages") < gate_at
+    for later in (
+        "Adopt the nightly DerivedData seed",
+        "Adopt this owned Mac's DerivedData",
+        "Record this owned Mac's build inputs",
+        "Compile app-host test product",
+    ):
+        assert gate_at < order.index(later), later
+
+
 def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -> str:
     lines = workflow_job_block(job_name, workflow_path).splitlines()
     start = lines.index(f"      - name: {step_name}")
@@ -3522,7 +3558,7 @@ def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -
     return "\n".join(body)
 
 
-def run_consumer_gate(jobs: object, *, status: int = 200) -> subprocess.CompletedProcess:
+def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSUMER_GATE_STEP) -> subprocess.CompletedProcess:
     import http.server
     import threading
 
@@ -3544,9 +3580,11 @@ def run_consumer_gate(jobs: object, *, status: int = 200) -> subprocess.Complete
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+        steps = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos-compile-admission"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name") == step_name)
         result = subprocess.run(
             ["bash", "-c", script],
+            cwd=ROOT,
             env={
                 **os.environ,
                 "API_URL": f"http://127.0.0.1:{server.server_port}",
@@ -3591,6 +3629,26 @@ def test_consumer_gate_admits_whenever_it_cannot_prove_a_decline() -> None:
         result = run_consumer_gate(jobs, status=status)
         assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
         assert "Not admitting" not in result.stdout, label
+
+
+def test_compile_gate_stops_the_compile_when_the_gate_declined() -> None:
+    result = run_consumer_gate(_gate_job("completed", "failure"), step_name=COMPILE_GATE_STEP)
+    assert result.returncode == 1
+    assert "Not compiling" in result.stdout
+
+
+def test_compile_gate_compiles_whenever_it_cannot_prove_a_decline() -> None:
+    for label, jobs, status in (
+        ("passed", _gate_job("completed", "success"), 200),
+        ("skipped", _gate_job("completed", "skipped"), 200),
+        # The usual case when setup is quick: the consumer gate decides later.
+        ("in progress", _gate_job("in_progress", None), 200),
+        ("absent", {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]}, 200),
+        ("unreadable", {"message": "Server Error"}, 500),
+    ):
+        result = run_consumer_gate(jobs, status=status, step_name=COMPILE_GATE_STEP)
+        assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
+        assert "Not compiling" not in result.stdout, label
 
 
 def run_macos_admission_gate(needs: dict, *, attempt: str = "1") -> subprocess.CompletedProcess:
@@ -4454,7 +4512,7 @@ def product_runner_output(key: str) -> str:
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
-            "&& inputs.pr_refused_retry_runner "
+            "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
 
@@ -4594,6 +4652,151 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
         # An explicit request for every suite is honored.
         assert selectors("unit-ci\n") == "unit_selectors="
         assert selectors("full-ci\n") == "unit_selectors="
+
+
+def test_a_changed_gated_test_runs_the_step_that_sets_its_gate() -> None:
+    """Editing a test that only a dedicated step can run selects that step.
+
+    The five-tab renderer memory test skips itself unless its step sets
+    CMUX_RENDERER_MEMORY_REGRESSION=1. A changed-suites run of its suite used
+    to run only the shared batch, where the edited test reported "skipped"
+    and the run went green without executing it.
+    """
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import changed_unit_selectors, strict_steps
+    from test_impact import affected_suites
+
+    step_name = "Run five-tab renderer memory regression"
+    suite = "cmuxTests/GhosttySurfaceOverlayTests"
+    text = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    assert strict_steps(text, [suite]) == [step_name]
+    step = next(
+        step for step in yaml.safe_load(text)["jobs"]["app-host-unit-tests"]["steps"]
+        if step.get("name") == step_name
+    )
+    assert f"contains(inputs.unit_strict_steps, '|{step_name}|')" in step["if"], step["if"]
+    assert "CMUX_RENDERER_MEMORY_REGRESSION=1" in step["run"]
+    assert f"-only-testing:{suite}/" in step["run"]
+
+    # The PR diff that edits the gated test routes to the worker with the step.
+    source = ROOT / "cmuxTests/TerminalAndGhosttyTests.swift"
+    gate = next(
+        number for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1)
+        if 'environment["CMUX_RENDERER_MEMORY_REGRESSION"]' in line
+    )
+    path = "cmuxTests/TerminalAndGhosttyTests.swift"
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        changed.write_text(f"{path}\n")
+        diff = Path(directory) / "tests.diff"
+        diff.write_text(f"--- a/{path}\n+++ b/{path}\n@@ -{gate},1 +{gate},1 @@\n")
+        labels = Path(directory) / "labels.txt"
+        labels.write_text("")
+        run = subprocess.run(
+            [sys.executable, str(script), "--event-name", "pull_request",
+             "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+             "--files-from", str(changed), "--diff-from", str(diff), "--root", str(ROOT)],
+            capture_output=True, text=True, check=True,
+        )
+        outputs = dict(line.split("=", 1) for line in run.stdout.splitlines())
+    assert outputs["unit_suite"] == "true", outputs
+    assert outputs["unit_selectors"] == suite, outputs
+    assert outputs["unit_strict_steps"] == f"|{step_name}|", outputs
+    # Compile admission runs only the shared batch, so the worker takes it.
+    assert outputs["unit_in_admission"] == "false", outputs
+
+    # A step that has to run but cannot be selected fails closed: every shard
+    # runs, and the step runs on its own shard.
+    unselectable = text.replace(
+        f" || contains(inputs.unit_strict_steps, '|{step_name}|')", "", 1
+    )
+    assert unselectable != text
+    assert strict_steps(unselectable, [suite]) is None
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "cmuxTests").mkdir()
+        (root / ".github/workflows").mkdir(parents=True)
+        (root / ".github/workflows/ci-macos.yml").write_text(unselectable, encoding="utf-8")
+        (root / "cmuxTests/Overlay.swift").write_text(
+            "import XCTest\n"
+            "final class GhosttySurfaceOverlayTests: XCTestCase {\n"
+            "    func testFiveTab() {}\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        # The fixture does select the suite, so the empty answer below comes
+        # from the unselectable step and not from an untraced edit.
+        assert affected_suites(root, ["cmuxTests/Overlay.swift"], None) == [suite]
+        assert changed_unit_selectors(root, ["cmuxTests/Overlay.swift"]) == []
+
+    # A step that loops over `-only-testing:"cmuxTests/$suite"` names no suite
+    # this module can read from the selector, so its suites have to be ones
+    # strict_steps() finds by name: FOCUSED_GATE_SELECTORS.
+    from cmux_unit_test_shard import FOCUSED_GATE_SELECTORS
+
+    looped = 0
+    for step in yaml.safe_load(text)["jobs"]["app-host-unit-tests"]["steps"]:
+        run = step.get("run", "")
+        if '-only-testing:"cmuxTests/$' not in run or "_SHARD)" not in str(step.get("if", "")):
+            continue
+        looped += 1
+        for listing in re.findall(r"for suite in(.*?)\n\s*do\b", run, re.S):
+            for name in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", listing):
+                assert f"cmuxTests/{name}" in FOCUSED_GATE_SELECTORS, (step["name"], name)
+    assert looped, "no looped -only-testing step found; update this check"
+
+
+def test_a_test_only_diff_runs_every_suite_it_edits() -> None:
+    """#14366 edited three cmuxTests/ files and nothing else.
+
+    Each edited suite has to be selected, XCTest and Swift Testing alike, and a
+    test-file edit that traces to no suite runs every suite rather than none.
+    """
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        labels = Path(directory) / "labels.txt"
+        labels.write_text("")
+        diff = Path(directory) / "tests.diff"
+
+        def outputs(paths: list[str], hunks: str | None = None) -> dict[str, str]:
+            changed.write_text("".join(f"{path}\n" for path in paths))
+            extra = []
+            if hunks is not None:
+                diff.write_text(hunks)
+                extra = ["--diff-from", str(diff)]
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+                 "--files-from", str(changed), "--root", str(ROOT), *extra],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines())
+
+        swift_testing = ["cmuxTests/SurfacePaneFactoryFocusTests.swift", "cmuxTests/SurfaceSelectionTests.swift"]
+        result = outputs(swift_testing)
+        assert result["unit_suite"] == "true", result
+        assert result["coverage_gap"] == "false", result
+        assert result["unit_selectors"].split() == [
+            "cmuxTests/SurfacePaneFactoryFocusTests", "cmuxTests/SurfaceSelectionTests"
+        ], result
+
+        source = ROOT / "cmuxTests/WorkspaceUnitTests.swift"
+        declaration = next(
+            number for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1)
+            if line.startswith("final class KeyboardShortcutSettingsFileStoreTests:")
+        )
+        path = "cmuxTests/WorkspaceUnitTests.swift"
+        result = outputs([path], f"--- a/{path}\n+++ b/{path}\n@@ -{declaration + 1},0 +{declaration + 1},1 @@\n")
+        assert result["unit_selectors"] == "cmuxTests/KeyboardShortcutSettingsFileStoreTests", result
+
+        # An edit that traces to no single suite, such as an import, which
+        # changes the whole file, runs every suite rather than none.
+        result = outputs([path], f"--- a/{path}\n+++ b/{path}\n@@ -1,0 +1,1 @@\n")
+        assert result["unit_suite"] == "true", result
+        assert result["unit_selectors"] == "", result
+        assert result["unit_in_admission"] == "false", result
 
 
 def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
