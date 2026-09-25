@@ -1,109 +1,116 @@
-import Darwin
 import Foundation
 import Testing
 
 @Suite("CLI localization")
 struct CLILocalizationTests {
-    @Test("uses the enclosing app catalog")
-    func usesEnclosingAppCatalog() throws {
+    @Test("the built CLI exposes the actual catalog", arguments: ["en", "ja"])
+    func builtCatalog(language: String) throws {
         let cliURL = try BundledCLITestSupport.bundledCLIURL(for: BundleToken.self)
-        let fixture = try LocalizationAppFixture(cliURL: cliURL)
-        defer { fixture.cleanUp() }
-
-        let result = try runCLI(
-            at: fixture.appCLIURL,
-            environment: ["AppleLanguages": "(ja)"]
-        )
-
-        #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(result.output.contains("開始と再開"), Comment(rawValue: result.output))
-        #expect(!result.output.contains("Start & Resume"), Comment(rawValue: result.output))
+        let result = Self.runCLI(at: cliURL, language: language)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains(language == "ja" ? "開始と再開" : "Start & Resume"))
     }
 
-    @Test("keeps default values when no catalog is available")
-    func keepsDefaultValuesWithoutCatalog() throws {
-        let cliURL = try BundledCLITestSupport.bundledCLIURL(for: BundleToken.self)
-        let result = try runCLI(
-            at: cliURL,
-            environment: ["AppleLanguages": "(ja)"]
-        )
+    @Test("an app-contained CLI and its symlink use the app catalog", arguments: [false, true])
+    func appCatalog(throughSymlink: Bool) throws {
+        let fixture = try Self.makeFixture(app: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let executable: URL
+        if throughSymlink {
+            executable = fixture.root.appendingPathComponent("linked-cmux")
+            try FileManager.default.createSymbolicLink(at: executable, withDestinationURL: fixture.cli)
+        } else {
+            executable = fixture.cli
+        }
+        let result = Self.runCLI(at: executable, language: "ja")
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("開始と再開"))
+        #expect(!result.stdout.contains("Start & Resume"))
+    }
 
-        #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(result.output.contains("Start & Resume"), Comment(rawValue: result.output))
-        #expect(!result.output.contains("開始と再開"), Comment(rawValue: result.output))
+    @Test("a detached executable retains English defaults")
+    func missingCatalog() throws {
+        let fixture = try Self.makeFixture(app: false)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let result = Self.runCLI(at: fixture.cli, language: "ja")
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("Start & Resume"))
+    }
+
+    @Test("a missing catalog key retains its default")
+    func missingKey() throws {
+        let fixture = try Self.makeFixture(app: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let result = Self.runCLI(at: fixture.cli, language: "ja", arguments: ["help", "--help"])
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("Usage: cmux help [topic]"))
     }
 
     private final class BundleToken {}
 
-    private struct ProcessResult {
-        let status: Int32
-        let output: String
-    }
-
-    private static func runCLI(at url: URL, environment overrides: [String: String]) throws -> ProcessResult {
-        let process = Process()
-        let outputPipe = Pipe()
-        process.executableURL = url
-        process.arguments = ["help", "start"]
-        var environment = ProcessInfo.processInfo.environment
-        environment.removeValue(forKey: "CMUX_SOCKET")
-        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
-        environment.removeValue(forKey: "CMUX_BUNDLE_ID")
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        for (key, value) in overrides {
-            environment[key] = value
+    private static func runCLI(
+        at url: URL,
+        language: String,
+        arguments: [String] = ["help", "start"]
+    ) -> CLIHookProcessRunner.Result {
+        var environment = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("CMUX_") && $0.key != "AppleLanguages"
         }
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        try process.run()
-        process.waitUntilExit()
-        return ProcessResult(
-            status: process.terminationStatus,
-            output: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        environment["AppleLanguages"] = "(\(language))"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        return CLIHookProcessRunner.run(
+            executablePath: url.path,
+            arguments: arguments,
+            environment: environment,
+            timeout: 10
         )
     }
 
-    private final class LocalizationAppFixture {
-        let root: URL
-        let appCLIURL: URL
-
-        init(cliURL: URL) throws {
-            root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-cli-localization-\(UUID().uuidString)", isDirectory: true)
-            let appURL = root.appendingPathComponent("cmux DEV.app", isDirectory: true)
-            let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
-            let resourcesURL = contentsURL.appendingPathComponent("Resources", isDirectory: true)
-            let binURL = resourcesURL.appendingPathComponent("bin", isDirectory: true)
-            try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(
-                at: resourcesURL.appendingPathComponent("ja.lproj", isDirectory: true),
-                withIntermediateDirectories: true
-            )
-            try Data("""
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0"><dict>
-              <key>CFBundleIdentifier</key><string>com.cmuxterm.app.debug.fixture</string>
-              <key>CFBundlePackageType</key><string>APPL</string>
-              <key>CFBundleExecutable</key><string>cmux</string>
-            </dict></plist>
-            """.utf8).write(to: contentsURL.appendingPathComponent("Info.plist", isDirectory: false))
-            try Data("\"cli.help.topic.start\" = \"開始と再開\";\n".utf8)
-                .write(to: resourcesURL.appendingPathComponent("ja.lproj/Localizable.strings", isDirectory: false))
-
-            let frameworksURL = contentsURL.appendingPathComponent("Frameworks", isDirectory: true)
-            let resourceFrameworksURL = resourcesURL.appendingPathComponent("Frameworks", isDirectory: true)
-            try FileManager.default.createSymbolicLink(at: frameworksURL, withDestinationURL: cliURL.deletingLastPathComponent().appendingPathComponent("Frameworks", isDirectory: true))
-            try FileManager.default.createSymbolicLink(at: resourceFrameworksURL, withDestinationURL: frameworksURL)
-
-            appCLIURL = binURL.appendingPathComponent("cmux", isDirectory: false)
-            try FileManager.default.linkItem(at: cliURL, to: appCLIURL)
-        }
-
-        func cleanUp() {
-            try? FileManager.default.removeItem(at: root)
+    private static func makeFixture(app: Bool) throws -> (root: URL, cli: URL) {
+        let fileManager = FileManager.default
+        let source = try BundledCLITestSupport.bundledCLIURL(for: BundleToken.self).resolvingSymlinksInPath()
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cli-localization-\(UUID().uuidString)")
+        let contents = root.appendingPathComponent("Fixture.app/Contents")
+        let resources = contents.appendingPathComponent("Resources")
+        let bin = app ? resources.appendingPathComponent("bin") : root
+        do {
+            try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+            if app {
+                let info: [String: String] = [
+                    "CFBundleIdentifier": "com.cmuxterm.cli-localization.fixture",
+                    "CFBundlePackageType": "APPL",
+                    "CFBundleDevelopmentRegion": "en"
+                ]
+                try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+                    .write(to: contents.appendingPathComponent("Info.plist"))
+                let japanese = resources.appendingPathComponent("ja.lproj")
+                try fileManager.createDirectory(at: japanese, withIntermediateDirectories: true)
+                try Data("\"cli.help.topic.start\" = \"開始と再開\";\n".utf8)
+                    .write(to: japanese.appendingPathComponent("Localizable.strings"))
+            }
+            let cli = bin.appendingPathComponent("cmux")
+            try fileManager.copyItem(at: source, to: cli)
+            // Preserve the CLI's framework dependencies after moving the executable.
+            // These are the three @executable_path locations in the CLI target.
+            let sourceDirectory = source.deletingLastPathComponent()
+            for relative in [".", "../Frameworks", "../../Frameworks"] {
+                let directory = sourceDirectory.appendingPathComponent(relative).standardizedFileURL
+                for framework in (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+                    where framework.pathExtension == "framework" {
+                    let destination = bin.appendingPathComponent(framework.lastPathComponent)
+                    if !fileManager.fileExists(atPath: destination.path) {
+                        try fileManager.createSymbolicLink(at: destination, withDestinationURL: framework)
+                    }
+                }
+            }
+            return (root, cli)
+        } catch {
+            try? fileManager.removeItem(at: root)
+            throw error
         }
     }
 }
