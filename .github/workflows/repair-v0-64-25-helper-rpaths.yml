@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 90
     env:
       TARGET_TAG: v0.64.25
-      REPAIR_ROOT: ${{ runner.temp }}/cmux-v0.64.25-repair
-      APP_PATH: ${{ runner.temp }}/cmux-v0.64.25-repair/cmux.app
+      REPAIR_ROOT: ${{ github.workspace }}/.cmux-v0.64.25-repair
+      APP_PATH: ${{ github.workspace }}/.cmux-v0.64.25-repair/cmux.app
       DMG_PATH: ${{ github.workspace }}/cmux-macos.dmg
       APPCAST_PATH: ${{ github.workspace }}/appcast.xml
     steps:
