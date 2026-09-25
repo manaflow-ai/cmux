@@ -6632,13 +6632,27 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
 @MainActor
 final class TerminalWakeRefreshTests: XCTestCase {
+    private final class RefreshProbe: TerminalWakeRefreshable {
+        let isRendererEffectivelyVisible: Bool
+        private(set) var refreshReasons: [String] = []
+
+        init(isRendererEffectivelyVisible: Bool) {
+            self.isRendererEffectivelyVisible = isRendererEffectivelyVisible
+        }
+
+        func forceRefresh(reason: String) {
+            refreshReasons.append(reason)
+        }
+    }
+
     func testScreenWakeNotifiesTerminalWakePath() {
         let notificationCenter = NotificationCenter()
         var screenWakeCount = 0
         let observers = RemoteSessionPowerObserver().install(
             in: notificationCenter,
             onWillSleep: {},
-            onDidWake: { screenWakeCount += 1 }
+            onDidWake: {},
+            onScreensDidWake: { screenWakeCount += 1 }
         )
         defer {
             for observer in observers {
@@ -6653,6 +6667,26 @@ final class TerminalWakeRefreshTests: XCTestCase {
             1,
             "A display wake must reach the terminal refresh path even without a system wake notification"
         )
+    }
+
+    func testWakeRefreshCoalescesAndSkipsHiddenSurfaces() {
+        let visible = RefreshProbe(isRendererEffectivelyVisible: true)
+        let hidden = RefreshProbe(isRendererEffectivelyVisible: false)
+        let scheduler = TerminalWakeRefreshScheduler()
+
+        scheduler.schedule(
+            surfaces: { [visible, hidden] },
+            reason: "workspace.didWake"
+        )
+        scheduler.schedule(
+            surfaces: { [visible, hidden] },
+            reason: "workspace.screensDidWake"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(visible.refreshReasons, ["workspace.screensDidWake"])
+        XCTAssertTrue(hidden.refreshReasons.isEmpty)
     }
 }
 
