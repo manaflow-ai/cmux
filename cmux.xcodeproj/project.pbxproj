@@ -2067,6 +2067,7 @@
 		C13049000000000000000502 /* HostSettingsActions+ComputerUse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000501 /* HostSettingsActions+ComputerUse.swift */; };
 		B7F100010000000000000001 /* HostSettingsActions+NotificationSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */; };
 		CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */; };
+		F79000000000000000000001 /* HostSettingsActionsLocalTmuxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79000000000000000000002 /* HostSettingsActionsLocalTmuxTests.swift */; };
 		809100000000000000000001 /* HostSettingsShortcutNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
 		7A0CE1000000000000000048 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000022 /* InfoPlist.xcstrings */; };
@@ -6091,6 +6092,7 @@
 		C13049000000000000000501 /* HostSettingsActions+ComputerUse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostSettingsActions+ComputerUse.swift"; sourceTree = "<group>"; };
 		B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostSettingsActions+NotificationSounds.swift"; sourceTree = "<group>"; };
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
+		F79000000000000000000002 /* HostSettingsActionsLocalTmuxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSettingsActionsLocalTmuxTests.swift; sourceTree = "<group>"; };
 		809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSettingsShortcutNotificationTests.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000021 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -11642,6 +11644,7 @@
 				809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */,
 				1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */,
 				C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */,
+				F79000000000000000000002 /* HostSettingsActionsLocalTmuxTests.swift */,
 				C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */,
 				C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */,
 				C85390050000000000000002 /* CMUXOpenCommandLocationTests.swift */,
@@ -16390,6 +16393,7 @@
 				4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */,
 				A10348030000000000000001 /* HistoryMenuCoordinatorTests.swift in Sources */,
 				B1F0C0040000000000000001 /* HostedInspectorDockControlScriptTests.swift in Sources */,
+				F79000000000000000000001 /* HostSettingsActionsLocalTmuxTests.swift in Sources */,
 				809100000000000000000001 /* HostSettingsShortcutNotificationTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				C0DE71450000000000000003 /* InMemoryWorkspaceCreateIdempotencyStore.swift in Sources */,
@@ -17117,6 +17121,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_ENABLE_BATCH_MODE = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
