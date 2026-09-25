@@ -80,8 +80,15 @@ extension TerminalWindowPortalLifecycleTests {
     func killShellProcesses(of surface: TerminalSurface) {
         // Ghostty opens the PTY on its IO thread, so right after spawn the
         // device may not be known yet. Only a live runtime has a process.
+        // Poll without running the main run loop: dispatching AppKit events
+        // here leaves NSApp.currentEvent pointing at this test's window, and
+        // the next test's Dock drag scopes its resize to that window.
         guard surface.surface != nil else { return }
-        _ = waitUntil(timeout: 1) { surface.controllingTTYDeviceIdentifier != nil }
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while surface.controllingTTYDeviceIdentifier == nil,
+              ProcessInfo.processInfo.systemUptime < deadline {
+            usleep(10_000)
+        }
         guard let device = surface.controllingTTYDeviceIdentifier else { return }
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_TTY, Int32(truncatingIfNeeded: device)]
         var size = 0
