@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { guestPromptInstallCommand, vmPromptIdentity } from "../services/vms/guestPrompt";
@@ -257,7 +257,7 @@ print("named", ready.wait(2.0))
     // prompt sync starts. An unanswered list must not fall through to a
     // create: the CLI then waits for the daemon and adds a second workspace.
     const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
-    const run = (listings: string, runDir = "") => spawnSync("python3", ["-c", String.raw`
+    const run = (listings: string, runDir = path.join(fixture(), "run")) => spawnSync("python3", ["-c", String.raw`
 import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
 sys.dont_write_bytecode = True
 loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
@@ -337,28 +337,32 @@ print(json.dumps(calls))
     expect(output).toBe("sess_clone term_clone shiny-cobalt-lizard consumed named");
   });
 
-  test("without a binding the template shell gives up after the clone starts and drops the builder's ids", () => {
+  test("without a binding the template shell gives up, drops the builder's ids, and imports a late binding", () => {
     const directory = fixture();
-    install(directory, "cmux", 100);
+    install(directory, "brave-blue-otter", 100);
     const run = path.join(directory, "run");
     mkdirSync(run);
     writeFileSync(path.join(run, "template-arm"), "");
     writeFileSync(path.join(run, "clone-started"), "");
+    // A zero clone deadline gives up at once. The binding then arrives after
+    // the first prompt; the next prompt must pick it up.
     const output = bash(directory, `
-      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_TUI_SESSION_ID=sess_builder CMUX_TUI_TERMINAL_ID=term_builder
+      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_PROMPT_TEMPLATE_WAIT_US=0 CMUX_TUI_SESSION_ID=sess_builder CMUX_TUI_TERMINAL_ID=term_builder
       . '${directory}/prompt.bash'
       __cmux_prompt_name >/dev/null
       printf '[%s][%s]' "\${CMUX_TUI_SESSION_ID-unset}" "\${CMUX_TUI_TERMINAL_ID-unset}"
+      printf 'CMUX_TUI_SESSION_ID=sess_late\\nCMUX_TUI_TERMINAL_ID=term_late\\n' > '${run}/bound'
+      __cmux_prompt_name >/dev/null
+      printf '[%s][%s]' "\${CMUX_TUI_SESSION_ID-unset}" "\${CMUX_TUI_TERMINAL_ID-unset}"
     `);
-    expect(output).toBe("[unset][unset]");
-  }, 15_000);
+    expect(output).toBe("[unset][unset][sess_late][term_late]");
+  });
 
   test("a shell that finds no arm file never waits", () => {
     const directory = fixture();
     install(directory, "brave-blue-otter", 100);
     const run = path.join(directory, "run");
     mkdirSync(run);
-    const started = Date.now();
     const output = bash(directory, `
       export CMUX_PROMPT_RUN_DIR='${run}' CMUX_TUI_SESSION_ID=sess_live
       . '${directory}/prompt.bash'
@@ -366,7 +370,9 @@ print(json.dumps(calls))
       printf '%s' "$CMUX_TUI_SESSION_ID"
     `);
     expect(output).toBe("sess_live");
-    expect(Date.now() - started).toBeLessThan(1_000);
+    // The gate writes template-shell-ready as its first step, so its absence
+    // proves this shell never entered the wait.
+    expect(existsSync(path.join(run, "template-shell-ready"))).toBe(false);
   });
 });
 

@@ -4496,8 +4496,20 @@ fn walk_files(root: &Path) -> Vec<PathBuf> {
 /// must adopt that warm host into a brand-new registry: same PTY and screen,
 /// fresh machine id, pepper, session id, and registry.
 #[test]
-fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
-    let mut harness = RecoveryHarness::start("template-adopt");
+/// What a parked template host looked like before its daemon was wiped.
+struct ParkedTemplate {
+    terminal_id: String,
+    incarnation: String,
+    marker: String,
+    host_pid: u32,
+    identity: (Vec<u8>, Vec<u8>, String),
+    registry_id: serde_json::Value,
+}
+
+/// Start a terminal, then park its daemon the way the Cloud bake does: a
+/// fenced shutdown leaves the host alive, and everything under the state
+/// root except the host records is wiped.
+fn park_template_host(harness: &mut RecoveryHarness) -> ParkedTemplate {
     let marker = format!("template-shell-{}", std::process::id());
     let created = request(
         &harness.socket,
@@ -4533,7 +4545,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         }),
     );
     let mut daemon = harness.child.take().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
     while daemon.try_wait().unwrap().is_none() {
         assert!(Instant::now() < deadline, "daemon did not exit after fenced shutdown");
         std::thread::sleep(Duration::from_millis(10));
@@ -4552,6 +4564,26 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     }
     let _ = fs::remove_file(&harness.socket);
 
+    ParkedTemplate {
+        terminal_id,
+        incarnation,
+        marker,
+        host_pid,
+        identity: before,
+        registry_id: registry_before,
+    }
+}
+
+fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
+    let mut harness = RecoveryHarness::start("template-adopt");
+    let ParkedTemplate {
+        terminal_id,
+        incarnation,
+        marker,
+        host_pid,
+        identity: before,
+        registry_id: registry_before,
+    } = park_template_host(&mut harness);
     harness.adopt_template_terminal = true;
     harness.restart();
     // The binding is written before the daemon listens, and the public
@@ -4581,7 +4613,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         .filter_map(|terminal| terminal["id"].as_str())
         .collect::<Vec<_>>();
     assert_eq!(listed_ids, vec![bound_terminal.as_str()], "{listed}");
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
     let adopted_surface = loop {
         let resolved = request_response(
             &harness.socket,
@@ -4631,7 +4663,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         Some("template-child-env"),
     );
     assert!(run["value"]["terminal_id"].is_string(), "{run}");
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     while !env_file.exists() {
         assert!(Instant::now() < deadline, "child never wrote its environment");
         std::thread::sleep(Duration::from_millis(20));
@@ -4672,4 +4704,48 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         serde_json::json!({"id": 9, "cmd": "close-terminal", "terminal_id": terminal_id, "terminal_incarnation": incarnation}),
     );
     wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn template_binding_is_published_when_adoption_succeeds_on_retry() {
+    let mut harness = RecoveryHarness::start("template-adopt-retry");
+    let parked = park_template_host(&mut harness);
+    // The first topology insert fails, so the host is adopted by the
+    // asynchronous retry instead of the startup pass. That path must still
+    // commit the placement and tell the template shell its new identity.
+    harness.adoption_insert_failures = Some(1);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    let bound_path = harness.dir.join("bound");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !bound_path.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the retried template adoption never published its binding"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let bound = fs::read_to_string(&bound_path).unwrap();
+    let bound_terminal = bound
+        .lines()
+        .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
+        .unwrap()
+        .to_string();
+    let listed = resource_request(
+        &harness.socket,
+        "template-retry-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let listed_ids = listed
+        .as_array()
+        .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
+        .iter()
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(listed_ids, vec![bound_terminal.as_str()], "{listed}");
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, parked.host_pid);
+    let spec = registry_launch_spec(&harness.state, &parked.terminal_id);
+    assert_eq!(spec, serde_json::json!({"template_terminal": true}), "{spec}");
 }
