@@ -87,6 +87,13 @@ PATH_OWNERS = {
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
     "scripts/ci/main_full_suite.py": frozenset(("ci",)),
+    # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
+    # these by path; the receipt test also reads its workflow and fixtures.
+    "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
+    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
+    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
