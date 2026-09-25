@@ -268,6 +268,11 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         ))
 
         XCTAssertEqual(respawnedPanel.id, originalPanelId)
+        XCTAssertEqual(respawnedPanel.stableSurfaceId, placeholderPanel.stableSurfaceId)
+        XCTAssertEqual(
+            respawnedPanel.surface.startupEnvironmentValue("CMUX_STABLE_SURFACE_ID"),
+            placeholderPanel.stableSurfaceId.uuidString
+        )
         XCTAssertTrue(workspace.terminalPanel(for: originalPanelId) === respawnedPanel)
         let currentPane = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId))
         XCTAssertEqual(currentPane.id, originalPaneId)

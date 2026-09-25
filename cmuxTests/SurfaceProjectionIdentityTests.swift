@@ -95,7 +95,8 @@ struct SurfaceProjectionIdentityTests {
             // The persisted runtime id is reused whenever no live surface still holds it
             // (aff0e32e93): the panel id is the ghostty surface id, so agent bindings survive
             // relaunch. Only a collision mints a fresh id; either way the pane must be live.
-            #expect(restored.panels[newPanelID] != nil)
+            let restoredPanel = try #require(restored.panels[newPanelID] as? TerminalPanel)
+            #expect(restoredPanel.surface.startupEnvironmentValue("CMUX_STABLE_SURFACE_ID") == stableID.uuidString)
             let catalog = await localCatalog([restored])
             let export = await read(catalog, workspaces: [restored])
             let row = try projectionRow(export, panelID: newPanelID)
@@ -119,6 +120,8 @@ struct SurfaceProjectionIdentityTests {
             let newPanelID = try #require(remapped[original.id])
             let newPanel = try #require(restored.panels[newPanelID])
             #expect(newPanel.stableSurfaceId != original.stableSurfaceId)
+            let restoredTerminal = try #require(newPanel as? TerminalPanel)
+            #expect(restoredTerminal.surface.startupEnvironmentValue("CMUX_STABLE_SURFACE_ID") == newPanel.stableSurfaceId.uuidString)
             #expect(restored.stableId != source.stableId)
             let catalog = await localCatalog(workspaces)
             let export = await read(catalog, workspaces: workspaces)
