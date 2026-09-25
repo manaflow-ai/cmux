@@ -12227,6 +12227,10 @@ final class GhosttySurfaceScrollView: NSView {
     func debugApplyFirstResponderNowForTesting() {
         applyFirstResponderIfNeeded()
     }
+
+    func debugHasPendingSuppressedFirstResponderFocusReapplyForTesting() -> Bool {
+        pendingSuppressedFirstResponderFocusReapply
+    }
 #endif
 
     private func currentTerminalSurfaceOwnsFirstResponder() -> Bool {

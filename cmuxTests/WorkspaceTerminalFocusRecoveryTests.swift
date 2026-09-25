@@ -334,6 +334,10 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             panel.hostedView.debugApplyFirstResponderNowForTesting()
             #expect(
+                panel.hostedView.debugHasPendingSuppressedFirstResponderFocusReapplyForTesting(),
+                "The apply should leave a hidden/tiny deferral pending for geometry recovery"
+            )
+            #expect(
                 panel.hostedView.isSurfaceViewFirstResponder(),
                 "First responder after the reveal: \(String(describing: window.firstResponder))"
             )
@@ -459,6 +463,10 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             // macOS 26 CI), and the apply then correctly focuses a usable surface.
             surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             panel.hostedView.debugApplyFirstResponderNowForTesting()
+            #expect(
+                panel.hostedView.debugHasPendingSuppressedFirstResponderFocusReapplyForTesting(),
+                "The apply should leave a hidden/tiny deferral pending for geometry recovery"
+            )
             #expect(
                 panel.hostedView.isSurfaceViewFirstResponder(),
                 "First responder after the reveal: \(String(describing: window.firstResponder))"
