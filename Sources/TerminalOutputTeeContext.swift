@@ -35,14 +35,13 @@ struct TerminalAgentFooterUpdate: Sendable {
         stateStore.snapshot(for: surfaceID)
     }
 
+    @MainActor
     static func clear(surfaceID: UUID) {
-        Task { @MainActor in
-            guard stateStore.retire(surfaceID: surfaceID) else { return }
-            NotificationCenter.default.post(
-                name: .terminalAgentFooterDidUpdate,
-                object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
-            )
-        }
+        guard stateStore.retire(surfaceID: surfaceID) else { return }
+        NotificationCenter.default.post(
+            name: .terminalAgentFooterDidUpdate,
+            object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: nil)
+        )
     }
 
     @MainActor
