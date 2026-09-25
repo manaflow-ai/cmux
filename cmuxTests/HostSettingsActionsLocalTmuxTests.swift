@@ -81,8 +81,10 @@ struct HostSettingsActionsLocalTmuxTests {
             _ = try await task.value
             Issue.record("Cancelled running CLI succeeded")
         } catch is CancellationError {
-            #expect(kill(pid, 0) == -1)
-            #expect(errno == ESRCH)
+            let killResult = kill(pid, 0)
+            let killErrno = errno
+            #expect(killResult == -1)
+            #expect(killErrno == ESRCH)
         }
         await watcher.stop()
     }
