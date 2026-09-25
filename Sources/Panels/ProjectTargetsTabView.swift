@@ -55,7 +55,7 @@ struct ProjectTargetsTabView: View {
                         Text(target.displayName)
                             .cmuxFont(size: 12, weight: .semibold)
                         Spacer()
-                        Text(target.productType.rawValue)
+                        Text(ProjectPanelLocalization.productTypeLabel(target.productType))
                             .cmuxFont(size: 10)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -67,15 +67,27 @@ struct ProjectTargetsTabView: View {
                     }
                     HStack(spacing: 8) {
                         if let deploy = target.deploymentTarget {
-                            metadata("min", deploy)
+                            metadata(
+                                String(localized: "projectTargets.metadata.minimum", defaultValue: "min"),
+                                deploy
+                            )
                         }
                         if !target.platforms.isEmpty {
-                            metadata("platforms", target.platforms.joined(separator: ","))
+                            metadata(
+                                String(localized: "projectTargets.metadata.platforms", defaultValue: "platforms"),
+                                target.platforms.joined(separator: ",")
+                            )
                         }
                         if let bundle = target.bundleIdentifier {
-                            metadata("bundle", bundle)
+                            metadata(
+                                String(localized: "projectTargets.metadata.bundle", defaultValue: "bundle"),
+                                bundle
+                            )
                         }
-                        Text("deps: \(target.dependencies.count)")
+                        Text(String.localizedStringWithFormat(
+                            String(localized: "projectTargets.metadata.dependencies", defaultValue: "deps: %d"),
+                            target.dependencies.count
+                        ))
                             .cmuxFont(size: 10)
                             .foregroundStyle(.secondary)
                     }
@@ -91,7 +103,11 @@ struct ProjectTargetsTabView: View {
 
     @ViewBuilder
     private func metadata(_ label: String, _ value: String) -> some View {
-        Text("\(label): \(value)")
+        Text(String.localizedStringWithFormat(
+            String(localized: "projectTargets.metadata.format", defaultValue: "%@: %@"),
+            label,
+            value
+        ))
             .cmuxFont(size: 10)
             .foregroundStyle(.secondary)
     }
@@ -108,7 +124,7 @@ struct ProjectTargetsTabView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(selected.target.displayName)
                                 .cmuxFont(size: 14, weight: .semibold)
-                            Text(selected.target.productType.rawValue)
+                            Text(ProjectPanelLocalization.productTypeLabel(selected.target.productType))
                                 .cmuxFont(size: 10)
                                 .foregroundStyle(.secondary)
                         }
@@ -125,8 +141,8 @@ struct ProjectTargetsTabView: View {
         } else {
             ProjectEmptyDetailView(
                 systemImage: "shippingbox",
-                title: "Select a target",
-                hint: "Pick a target on the left to see its product type, dependencies, and configurations."
+                title: String(localized: "projectTargets.empty.title", defaultValue: "Select a target"),
+                hint: String(localized: "projectTargets.empty.hint", defaultValue: "Pick a target on the left to see its product type, dependencies, and configurations.")
             )
         }
     }
@@ -144,20 +160,23 @@ struct ProjectTargetsTabView: View {
     @ViewBuilder
     private func detailGrid(for target: TargetSummary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            row(label: "Product", value: target.productType.rawValue)
             row(
-                label: "Platforms",
+                label: String(localized: "projectTargets.detail.product", defaultValue: "Product"),
+                value: ProjectPanelLocalization.productTypeLabel(target.productType)
+            )
+            row(
+                label: String(localized: "projectTargets.detail.platforms", defaultValue: "Platforms"),
                 value: target.platforms.isEmpty ? "—" : target.platforms.joined(separator: ", ")
             )
-            row(label: "Deploy min", value: target.deploymentTarget ?? "—")
-            row(label: "Bundle ID", value: target.bundleIdentifier ?? "—")
+            row(label: String(localized: "projectTargets.detail.deployMinimum", defaultValue: "Deploy min"), value: target.deploymentTarget ?? "—")
+            row(label: String(localized: "projectTargets.detail.bundleID", defaultValue: "Bundle ID"), value: target.bundleIdentifier ?? "—")
         }
     }
 
     @ViewBuilder
     private func dependencySection(for selected: (module: ProjectModule, target: TargetSummary), module: ProjectModule) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Dependencies")
+            Text(String(localized: "projectTargets.detail.dependencies", defaultValue: "Dependencies"))
                 .cmuxFont(size: 12, weight: .semibold)
                 .foregroundStyle(.secondary)
             ForEach(selected.target.dependencies, id: \.rawValue) { depID in
@@ -188,13 +207,19 @@ struct ProjectTargetsTabView: View {
         }
         if configCount > 0 || totalKeys > 0 {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Build")
+                Text(String(localized: "projectTargets.detail.build", defaultValue: "Build"))
                     .cmuxFont(size: 12, weight: .semibold)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
-                    Label("\(configCount) configurations", systemImage: "slider.horizontal.3")
+                    Label(String.localizedStringWithFormat(
+                        String(localized: "projectTargets.detail.configurations", defaultValue: "%d configurations"),
+                        configCount
+                    ), systemImage: "slider.horizontal.3")
                         .cmuxFont(size: 11)
-                    Label("\(totalKeys) target overrides", systemImage: "wrench.and.screwdriver")
+                    Label(String.localizedStringWithFormat(
+                        String(localized: "projectTargets.detail.targetOverrides", defaultValue: "%d target overrides"),
+                        totalKeys
+                    ), systemImage: "wrench.and.screwdriver")
                         .cmuxFont(size: 11)
                 }
                 .foregroundStyle(.secondary)
@@ -202,7 +227,10 @@ struct ProjectTargetsTabView: View {
                     panel.selectedTargetID = selected.target.id
                     panel.activeTab = .buildSettings
                 } label: {
-                    Label("Open in Build Settings", systemImage: "arrow.right.circle")
+                    Label(
+                        String(localized: "projectTargets.detail.openBuildSettings", defaultValue: "Open in Build Settings"),
+                        systemImage: "arrow.right.circle"
+                    )
                         .cmuxFont(size: 11, weight: .medium)
                 }
                 .buttonStyle(.plain)

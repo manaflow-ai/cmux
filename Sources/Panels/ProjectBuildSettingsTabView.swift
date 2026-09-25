@@ -28,20 +28,29 @@ struct ProjectBuildSettingsTabView: View {
     private func controlsRow(rowCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text("Target")
+                Text(String(localized: "projectBuildSettings.target", defaultValue: "Target"))
                     .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                 targetPicker
                 Spacer(minLength: 4)
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Filter settings", text: $panel.settingsSearchText)
+                TextField(
+                    String(localized: "projectBuildSettings.filter.placeholder", defaultValue: "Filter settings"),
+                    text: $panel.settingsSearchText
+                )
                     .textFieldStyle(.plain)
                     .cmuxFont(size: 12)
-                Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
+                Toggle(
+                    String(localized: "projectBuildSettings.customizedOnly", defaultValue: "Customized only"),
+                    isOn: $panel.settingsCustomizedOnly
+                )
                     .toggleStyle(.checkbox)
                     .cmuxFont(size: 11)
-                Text("\(rowCount) settings")
+                Text(String.localizedStringWithFormat(
+                    String(localized: "projectBuildSettings.settingsCount", defaultValue: "%d settings"),
+                    rowCount
+                ))
                     .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
             }
@@ -55,7 +64,7 @@ struct ProjectBuildSettingsTabView: View {
     private var targetPicker: some View {
         if let module = selectedModule ?? model.modules.first {
             Picker(
-                "Target",
+                String(localized: "projectBuildSettings.target", defaultValue: "Target"),
                 selection: Binding(
                     get: { panel.selectedTargetID ?? module.targets.first?.id ?? TargetID(rawValue: "") },
                     set: { panel.selectedTargetID = $0 }
@@ -80,10 +89,10 @@ struct ProjectBuildSettingsTabView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     Spacer().frame(width: 3)
-                    columnHeader("Setting", weight: Self.settingColumnWidth, alignment: .leading)
-                    columnHeader("Effective", weight: Self.valueColumnWidth, alignment: .leading)
-                    columnHeader("Target", weight: Self.valueColumnWidth, alignment: .leading)
-                    columnHeader("Project", weight: Self.valueColumnWidth, alignment: .leading)
+                    columnHeader(String(localized: "projectBuildSettings.column.setting", defaultValue: "Setting"), weight: Self.settingColumnWidth, alignment: .leading)
+                    columnHeader(String(localized: "projectBuildSettings.column.effective", defaultValue: "Effective"), weight: Self.valueColumnWidth, alignment: .leading)
+                    columnHeader(String(localized: "projectBuildSettings.column.target", defaultValue: "Target"), weight: Self.valueColumnWidth, alignment: .leading)
+                    columnHeader(String(localized: "projectBuildSettings.column.project", defaultValue: "Project"), weight: Self.valueColumnWidth, alignment: .leading)
                 }
                 .padding(.vertical, 6)
                 .padding(.horizontal, 14)
