@@ -101,5 +101,10 @@ struct BrowserControlServiceTests {
         let nth = service.findNthScript(selector: ".row", index: -1)
         #expect(nth.contains("let idx = -1;"))
         #expect(nth.contains("__cmuxQueryAll(\".row\")"))
+
+        let queryPrelude = service.elementQueryPrelude
+        #expect(queryPrelude.contains("const __cmuxSelectorParts"))
+        #expect(queryPrelude.contains("escapedOutsideQuote"))
+        #expect(queryPrelude.contains("const __cmuxCollectMatches"))
     }
 }
