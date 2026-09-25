@@ -4368,54 +4368,5 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         )
     }
 
-    func testZoomedBorderUsesContainerInsteadOfStaleSplitSnapshot() {
-        let splitRect = CGRect(x: 10, y: 20, width: 300, height: 200)
-        let zoomedRect = CGRect(x: 10, y: 20, width: 620, height: 360)
-        let containerRect = CGRect(x: 10, y: 20, width: 640, height: 360)
-        XCTAssertEqual(
-            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
-                exactRect: zoomedRect, paneRect: splitRect, isSplitZoomed: true,
-                zoomedContainerRect: containerRect
-            ),
-            containerRect
-        )
-        XCTAssertEqual(
-            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
-                exactRect: zoomedRect, paneRect: splitRect
-            ),
-            splitRect
-        )
-        XCTAssertEqual(
-            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
-                exactRect: nil, paneRect: splitRect, isSplitZoomed: true,
-                zoomedContainerRect: containerRect
-            ),
-            containerRect
-        )
-        XCTAssertNil(
-            ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
-                exactRect: zoomedRect, paneRect: splitRect, isSplitZoomed: true
-            )
-        )
-    }
-
-    func testZoomedContainerFallbackIgnoresStalePaneGeometry() {
-        let stalePane = PaneGeometry(
-            paneId: UUID().uuidString,
-            frame: PixelRect(x: 50, y: 90, width: 300, height: 200),
-            selectedTabId: nil,
-            tabIds: []
-        )
-        let snapshot = LayoutSnapshot(
-            containerFrame: PixelRect(x: 50, y: 90, width: 640, height: 400),
-            panes: [stalePane],
-            focusedPaneId: stalePane.paneId,
-            timestamp: 0
-        )
-        XCTAssertEqual(
-            WorkspaceContentView.tmuxWorkspaceZoomedPaneWindowOverlayRect(layoutSnapshot: snapshot),
-            CGRect(x: 50, y: 28, width: 640, height: 372)
-        )
-    }
 }
 #endif

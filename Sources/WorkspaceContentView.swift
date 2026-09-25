@@ -478,7 +478,7 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
+    static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
         topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
     )
 
@@ -546,15 +546,6 @@ struct WorkspaceContentView: View {
         tmuxPaneOverlayGeometry.windowOverlayRect(
             layoutSnapshot: layoutSnapshot,
             paneId: paneId
-        )
-    }
-
-    /// Returns the zoomed split area's window-content rect, excluding tab chrome.
-    static func tmuxWorkspaceZoomedPaneWindowOverlayRect(layoutSnapshot: LayoutSnapshot?) -> CGRect? {
-        guard let frame = layoutSnapshot?.containerFrame.cgRect,
-              frame.width > 1, frame.height > 1 else { return nil }
-        return tmuxPaneOverlayGeometry.contentRect(
-            CGRect(x: frame.minX, y: 0, width: frame.width, height: frame.height)
         )
     }
 
