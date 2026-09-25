@@ -224,6 +224,29 @@ class DecideTests(Case):
         self.origin.merge_main_into_pr(keep_ours=("web/w.txt",))
         self.assertIn("1 files the pull request changes were not in its diff", self.skip_reason({h1: "success"}))
 
+    def test_pull_request_that_changes_ci_policy_keeps_its_whole_diff(self) -> None:
+        # At H1 the pull request edited the router. The delta would no longer
+        # contain it, and the pull request's own router would judge the delta.
+        for policy in ("scripts/ci/detect_ci_change_areas.py", ".github/workflows/ci.yml",
+                       "tests/test_ci_change_areas.py", "scripts/ci/subprocess.py"):
+            with self.subTest(policy):
+                self.setUp()
+                h1 = self.origin.commit("pr", {"app/a.txt": "a-pr\n", policy: "edited\n"})
+                self.origin.commit("main", {"web/w.txt": "w1\n"})
+                self.origin.merge_main_into_pr()
+                self.assertIn("changes CI policy", self.skip_reason({h1: "success"}))
+                self.assertEqual(self.queried, [], "no API call once the diff rules it out")
+
+    def test_main_changing_ci_policy_still_takes_the_delta(self) -> None:
+        h1 = self.pr_head()
+        self.origin.commit("main", {"scripts/ci/detect_ci_change_areas.py": "main edit\n"})
+        self.origin.merge_main_into_pr()
+        decision = self.decide({h1: "success"})
+        self.assertEqual(decision.base, h1)
+        # The delta carries main's router edit, so ci.yml still classifies it.
+        self.assertEqual(git(self.work, "diff", "--name-only", h1, "HEAD"),
+                         "scripts/ci/detect_ci_change_areas.py")
+
     def test_head_that_is_not_the_tested_merge_parent_does_not_apply(self) -> None:
         self.pr_head()
         merge, _ = self.origin.tested_merge()
@@ -234,34 +257,81 @@ class DecideTests(Case):
 
 class VerdictTests(unittest.TestCase):
     @staticmethod
-    def suite(conclusion: str | None, started: str, event: str = "pull_request", workflow: str = "CI") -> dict:
-        return {"workflowRun": {"event": event, "workflow": {"name": workflow}},
+    def suite(conclusion: str | None, started: str, run_id: int = 1, event: str = "pull_request",
+              path: str = ".github/workflows/ci.yml") -> dict:
+        return {"workflowRun": {"databaseId": run_id, "event": event, "file": {"path": path}},
                 "checkRuns": {"nodes": [{"conclusion": conclusion, "startedAt": started}]}}
 
-    def test_latest_conclusive_run_wins(self) -> None:
-        self.assertEqual(delta.verdict_from_suites([
-            self.suite("SUCCESS", "2026-09-25T01:00:00Z"),
-            self.suite("FAILURE", "2026-09-25T02:00:00Z"),
-        ]), "failure")
-        self.assertEqual(delta.verdict_from_suites([
+    @staticmethod
+    def pr_run(run_id: int, number: int = 7, base_ref: str = "main") -> dict:
+        return {"id": run_id, "pull_requests": [{"number": number, "base": {"ref": base_ref}}]}
+
+    def test_a_rerun_of_the_same_run_clears_a_flake(self) -> None:
+        conclusions = delta.ci_status_runs([
             self.suite("FAILURE", "2026-09-25T01:00:00Z"),
             self.suite("SUCCESS", "2026-09-25T02:00:00Z"),
-        ]), "success")
+        ])
+        self.assertEqual(conclusions, {1: "success"})
+
+    def test_a_red_run_makes_the_commit_red_even_when_a_later_run_passed(self) -> None:
+        conclusions = delta.ci_status_runs([
+            self.suite("FAILURE", "2026-09-25T01:00:00Z", run_id=1),
+            self.suite("SUCCESS", "2026-09-25T02:00:00Z", run_id=2),
+        ])
+        self.assertEqual(delta.verdict(conclusions, {1, 2}), "failure")
+        self.assertEqual(delta.verdict(conclusions, {2}), "success")
 
     def test_cancelled_and_in_progress_runs_say_nothing(self) -> None:
-        self.assertEqual(delta.verdict_from_suites([
-            self.suite("SUCCESS", "2026-09-25T01:00:00Z"),
-            self.suite("CANCELLED", "2026-09-25T02:00:00Z"),
-            self.suite(None, "2026-09-25T03:00:00Z"),
-        ]), "success")
-        self.assertIsNone(delta.verdict_from_suites([self.suite("CANCELLED", "2026-09-25T02:00:00Z")]))
+        conclusions = delta.ci_status_runs([
+            self.suite("SUCCESS", "2026-09-25T01:00:00Z", run_id=1),
+            self.suite("CANCELLED", "2026-09-25T02:00:00Z", run_id=2),
+            self.suite(None, "2026-09-25T03:00:00Z", run_id=3),
+        ])
+        self.assertEqual(conclusions, {1: "success"})
 
-    def test_only_pull_request_runs_of_the_ci_workflow_count(self) -> None:
-        self.assertIsNone(delta.verdict_from_suites([
+    def test_only_pull_request_runs_of_ci_yml_count_matched_by_file(self) -> None:
+        self.assertEqual(delta.ci_status_runs([
             self.suite("SUCCESS", "2026-09-25T01:00:00Z", event="workflow_dispatch"),
-            self.suite("SUCCESS", "2026-09-25T01:00:00Z", workflow="CI status fallback"),
+            self.suite("SUCCESS", "2026-09-25T01:00:00Z", path=".github/workflows/ci-status-fallback.yml"),
             {"workflowRun": None, "checkRuns": {"nodes": [{"conclusion": "SUCCESS", "startedAt": "x"}]}},
-        ]))
+        ]), {})
+
+    def test_runs_of_another_pull_request_or_base_say_nothing(self) -> None:
+        # A stacked pull request on another base ran CI on the same commit.
+        runs = [self.pr_run(1), self.pr_run(2, number=8), self.pr_run(3, base_ref="feature"),
+                {"id": 4, "pull_requests": []}]
+        bound = delta.runs_for_pull_request(runs, 7, "main")
+        self.assertEqual(bound, {1})
+        self.assertIsNone(delta.verdict({2: "success", 3: "success", 4: "success"}, bound))
+        self.assertEqual(delta.verdict({1: "success", 2: "failure"}, bound), "success")
+
+    def test_lookup_binds_the_nearest_judged_commit_to_this_pull_request(self) -> None:
+        oid = "a" * 40
+        graphql = {"data": {"repository": {"c0": {"checkSuites": {"nodes": [
+            self.suite("SUCCESS", "2026-09-25T01:00:00Z", run_id=11)]}}}}}
+        cases = {
+            "this pull request": ([self.pr_run(11)], "success"),
+            "another base": ([self.pr_run(11, base_ref="feature")], None),
+            "a fork run": ([{"id": 11, "pull_requests": []}], None),
+        }
+        for label, (runs, expected) in cases.items():
+            with self.subTest(label):
+                calls = []
+
+                def fake_urlopen(request, timeout=0, runs=runs):
+                    calls.append(request.full_url)
+                    body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
+                    import io, json
+                    return io.BytesIO(json.dumps(body).encode())
+
+                original = delta.urllib.request.urlopen
+                delta.urllib.request.urlopen = fake_urlopen
+                try:
+                    lookup = delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
+                    self.assertEqual(lookup([oid]), {oid: expected})
+                finally:
+                    delta.urllib.request.urlopen = original
+                self.assertIn(f"head_sha={oid}", calls[1])
 
 
 class MainTests(unittest.TestCase):
@@ -272,12 +342,40 @@ class MainTests(unittest.TestCase):
             env = {key: value for key, value in os.environ.items() if key not in {"GH_TOKEN", "GITHUB_TOKEN"}}
             result = subprocess.run(
                 [sys.executable, str(HELPER), "--repository", "o/r", "--merge-sha", "1" * 40,
-                 "--head-sha", "2" * 40, "--github-output", str(output), "--summary", str(summary)],
+                 "--head-sha", "2" * 40, "--pull-request", "7", "--base-ref", "main",
+                 "--github-output", str(output), "--summary", str(summary)],
                 cwd=directory, env=env, capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output.read_text(), "base_sha=\n")
             self.assertIn("pull request diff:", summary.read_text())
+
+
+def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
+    """Evaluate a GitHub Actions `if:` made of ==, !=, && and || over string contexts.
+
+    Anything else in the expression is an error rather than a guess.
+    """
+    import re
+    body = expression.strip()
+    if body.startswith("${{") and body.endswith("}}"):
+        body = body[3:-2]
+    tokens = re.findall(r"'[^']*'|[A-Za-z_][A-Za-z0-9_.-]*|==|!=|&&|\|\||\(|\)|\S", body)
+    python = []
+    for token in tokens:
+        if token.startswith("'"):
+            python.append(repr(token[1:-1]))
+        elif token in ("==", "!=", "(", ")"):
+            python.append(token)
+        elif token == "&&":
+            python.append("and")
+        elif token == "||":
+            python.append("or")
+        elif re.fullmatch(r"(github|vars)\.[A-Za-z0-9_.-]+", token):
+            python.append(repr(context.get(token, "")))
+        else:
+            raise AssertionError(f"unsupported token {token!r} in {expression!r}")
+    return bool(eval(" ".join(python), {"__builtins__": {}}))
 
 
 class WorkflowTests(unittest.TestCase):
@@ -288,11 +386,32 @@ class WorkflowTests(unittest.TestCase):
     def test_changes_job_can_read_check_runs(self) -> None:
         self.assertEqual(self.job["permissions"].get("checks"), "read")
 
-    def test_delta_step_is_pull_request_only_fail_open_and_switchable(self) -> None:
+    def test_delta_step_runs_only_for_same_repository_pull_requests_with_the_switch_on(self) -> None:
         step = self.steps["delta"]
-        self.assertIn("github.event_name == 'pull_request'", step["if"])
-        self.assertIn("vars.CI_DELTA_SINCE_GREEN != '0'", step["if"])
+        same, fork = "manaflow-ai/cmux", "someone/cmux"
+        cases = [
+            # event, head repository, CI_DELTA_SINCE_GREEN (None: unset), runs
+            ("pull_request", same, None, True),
+            ("pull_request", same, "1", True),
+            ("pull_request", same, "0", False),
+            # Forks get no repository variables, so the switch cannot reach them.
+            ("pull_request", fork, None, False),
+            ("merge_group", same, None, False),
+            ("workflow_dispatch", same, None, False),
+        ]
+        for event, head_repo, switch, expected in cases:
+            context = {
+                "github.event_name": event,
+                "github.repository": same,
+                "github.event.pull_request.head.repo.full_name": head_repo if event == "pull_request" else "",
+                "vars.CI_DELTA_SINCE_GREEN": switch or "",
+            }
+            with self.subTest(event=event, head_repo=head_repo, switch=switch):
+                self.assertIs(evaluate_condition(step["if"], context), expected)
         self.assertIs(step["continue-on-error"], True)
+        self.assertIn('--pull-request "$PR_NUMBER" --base-ref "$BASE_REF"', step["run"])
+        self.assertEqual(step["env"]["PR_NUMBER"], "${{ github.event.pull_request.number }}")
+        self.assertEqual(step["env"]["BASE_REF"], "${{ github.event.pull_request.base.ref }}")
         # The base revision's copy, like the trusted router.
         self.assertIn("git show HEAD^1:scripts/ci/delta_since_green.py", step["run"])
         names = [step.get("id") for step in self.job["steps"]]

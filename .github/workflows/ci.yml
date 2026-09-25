@@ -154,17 +154,22 @@ jobs:
       # shape, a red or missing verdict, shallow history, an API error) leaves
       # base_sha empty and the detector routes the usual pull request diff.
       # The base revision's copy runs, like the trusted router below, so a
-      # pull request cannot change how its own diff is chosen. Set the
-      # repository variable CI_DELTA_SINCE_GREEN to 0 to turn it off.
+      # pull request cannot change how its own diff is chosen. Same-repository
+      # pull requests only: fork runs get no repository variables, so the
+      # switch could not turn them off, and GitHub ties no pull request to a
+      # fork run, which the verdict needs. Set the repository variable
+      # CI_DELTA_SINCE_GREEN to 0 to turn it off.
       - name: Diff from the last green head when this push only merged main
         id: delta
-        if: ${{ github.event_name == 'pull_request' && vars.CI_DELTA_SINCE_GREEN != '0' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_DELTA_SINCE_GREEN != '0' }}
         continue-on-error: true
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -uo pipefail
           selector="$RUNNER_TEMP/delta_since_green.py"
@@ -174,6 +179,7 @@ jobs:
           fi
           python3 -I "$selector" --repository "$GITHUB_REPOSITORY" \
             --merge-sha "$MERGE_SHA" --head-sha "$HEAD_SHA" \
+            --pull-request "$PR_NUMBER" --base-ref "$BASE_REF" \
             --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Detect CI change areas

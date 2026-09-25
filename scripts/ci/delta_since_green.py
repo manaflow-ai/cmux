@@ -8,12 +8,14 @@ change a test's outcome is what differs between H1 and the tree this run
 tests, so ci.yml routes diff(H1, merge) instead of diff(main, merge).
 
 H1 is the nearest commit on H2's first-parent chain with a conclusive
-`ci-status` check run from a pull_request run of the CI workflow. Every commit
+`ci-status` check run from a pull_request run of ci.yml that GitHub ties to
+this pull request and base branch; every such run must have passed. Every commit
 between them must be a merge whose second parent is on main, except H2 itself,
 which may be one ordinary commit on top of such a merge.
 
 Fail open. Anything unexpected (another shape, a red or missing verdict, a
-force push, history too shallow, an API error) prints why and leaves
+force push, history too shallow, a pull request that edits CI policy, an
+API error) prints why and leaves
 `base_sha` empty, and ci.yml routes the usual pull request diff. The result
 also never drops a file the pull request's own diff needs: every file the
 pull request changes against main must either differ since H1 or have been
@@ -42,7 +44,14 @@ MAX_CHAIN = 8
 # that each merge brought in main. About two weeks of main (#14631).
 HISTORY_DEPTH = 3000
 CI_STATUS = "ci-status"
-CI_WORKFLOW_NAME = "CI"
+CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+# CI policy: the router, its guards and the workflows. ci.yml classifies these
+# (the trusted base router, the stdlib-shadow guard, guard-test self-selection)
+# by whether they are in the diff. A pull request that changes any of them
+# keeps its whole diff, so the delta can never hide them from that check.
+CI_POLICY_PREFIXES = (".github/", "scripts/ci/")
+CI_POLICY_TEST_PREFIXES = ("tests/test_ci_",)
+CI_POLICY_FILES = frozenset({"tests/test-execution.toml"})
 # The GitHub Actions app, which owns every workflow check suite.
 ACTIONS_APP_ID = 15368
 CONCLUSIVE = frozenset({"success", "failure", "timed_out", "action_required", "startup_failure"})
@@ -165,6 +174,14 @@ def find_green_head(chain: list[Commit], verdicts: Verdicts) -> tuple[Commit, li
     raise Skip(f"no green head within {len(candidates)} commits of the head")
 
 
+def ci_policy_paths(paths: Iterable[str]) -> list[str]:
+    return sorted(
+        path for path in paths
+        if path.startswith(CI_POLICY_PREFIXES) or path.startswith(CI_POLICY_TEST_PREFIXES)
+        or path in CI_POLICY_FILES
+    )
+
+
 def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decision:
     for name, value in (("merge", merge_sha), ("head", head_sha)):
         if not SHA.fullmatch(value):
@@ -173,6 +190,11 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
     if not tested or len(tested[0].parents) != 2 or tested[0].parents[1] != head_sha:
         raise Skip("the tested commit is not main merged with the pull request head")
     onto = tested[0].parents[0]
+    own_now = git.changed(onto, merge_sha)
+    policy = ci_policy_paths(own_now)
+    if policy:
+        listed = ", ".join(policy[:3]) + (", ..." if len(policy) > 3 else "")
+        raise Skip(f"the pull request changes CI policy ({listed}), which routes from its whole diff")
 
     # Commits only, no trees: enough to read the chain's shape.
     git.fetch("--filter=tree:0", f"--depth={MAX_CHAIN + 2}", git.remote, head_sha)
@@ -193,7 +215,6 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
     git.fetch("--filter=blob:none", git.remote, git.tree(green.oid), git.tree(base))
     delta = git.changed(green.oid, merge_sha)
     own_then = git.changed(base, green.oid)
-    own_now = git.changed(onto, merge_sha)
     # A file the pull request changes now that neither differs since H1 nor
     # was changed at H1 was never tested with this content: a merge that kept
     # the pull request's side of a file only main had edited.
@@ -209,23 +230,65 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
     )
 
 
-def verdict_from_suites(suites: Iterable[dict]) -> Optional[str]:
-    """The latest conclusive ci-status conclusion from pull_request CI runs, lowercased."""
-    latest: Optional[tuple[str, str]] = None
+def ci_status_runs(suites: Iterable[dict]) -> dict[int, str]:
+    """Run id -> that run's latest conclusive ci-status conclusion, lowercased.
+
+    Only pull_request runs of .github/workflows/ci.yml count, matched by file,
+    not by name. Within one run the latest attempt wins, so a rerun can clear
+    a flake. Cancelled, skipped, neutral, stale and in-progress runs say nothing.
+    """
+    latest: dict[int, tuple[str, str]] = {}
     for suite in suites:
         run = suite.get("workflowRun") or {}
-        if run.get("event") != "pull_request" or ((run.get("workflow") or {}).get("name")) != CI_WORKFLOW_NAME:
+        run_id = run.get("databaseId")
+        if (run.get("event") != "pull_request" or not isinstance(run_id, int)
+                or (run.get("file") or {}).get("path") != CI_WORKFLOW_PATH):
             continue
         for check in ((suite.get("checkRuns") or {}).get("nodes") or []):
             conclusion = (check.get("conclusion") or "").lower()
             started = check.get("startedAt") or ""
-            # Cancelled, skipped, neutral, stale and in-progress runs say nothing.
-            if conclusion in CONCLUSIVE and (latest is None or started > latest[0]):
-                latest = (started, conclusion)
-    return latest[1] if latest else None
+            if conclusion in CONCLUSIVE and (run_id not in latest or started > latest[run_id][0]):
+                latest[run_id] = (started, conclusion)
+    return {run_id: conclusion for run_id, (_, conclusion) in latest.items()}
 
 
-def github_verdicts(repository: str, token: str, api_url: str) -> Verdicts:
+def runs_for_pull_request(runs: Iterable[dict], number: int, base_ref: str) -> set[int]:
+    """Ids of the Actions runs GitHub ties to this pull request and base branch."""
+    bound = set()
+    for run in runs:
+        for pull in run.get("pull_requests") or []:
+            if pull.get("number") == number and ((pull.get("base") or {}).get("ref")) == base_ref:
+                bound.add(run.get("id"))
+    return bound
+
+
+def verdict(conclusions: dict[int, str], bound: set[int]) -> Optional[str]:
+    """Green only when every run of this pull request that judged the commit passed.
+
+    Runs another pull request made on the same commit (a stacked pull request
+    on another base) say nothing, nor do runs GitHub does not tie to a pull
+    request (fork runs). A red run anywhere among ours makes the commit red.
+    """
+    ours = [conclusion for run_id, conclusion in conclusions.items() if run_id in bound]
+    if not ours:
+        return None
+    red = sorted({conclusion for conclusion in ours if conclusion != "success"})
+    return red[0] if red else "success"
+
+
+def github_verdicts(repository: str, token: str, api_url: str, number: int, base_ref: str) -> Verdicts:
+    rest_url = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
+
+    def call(url: str, body: Optional[dict] = None) -> dict:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"Authorization": f"bearer {token}", "Content-Type": "application/json",
+                     "Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+
     def lookup(oids: list[str]) -> dict[str, Optional[str]]:
         owner, _, name = repository.partition("/")
         for oid in oids:
@@ -237,24 +300,28 @@ def github_verdicts(repository: str, token: str, api_url: str) -> Verdicts:
             + fields + " } } "
             "fragment Verdict on Commit { "
             f"checkSuites(first: 100, filterBy: {{appId: {ACTIONS_APP_ID}}}) {{ nodes {{ "
-            "workflowRun { event workflow { name } } "
+            "workflowRun { databaseId event file { path } } "
             f'checkRuns(first: 20, filterBy: {{checkName: "{CI_STATUS}", checkType: ALL}}) '
             "{ nodes { conclusion startedAt } } } } }"
         )
-        request = urllib.request.Request(
-            api_url,
-            data=json.dumps({"query": query, "variables": {"owner": owner, "name": name}}).encode(),
-            headers={"Authorization": f"bearer {token}", "Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.load(response)
+        payload = call(api_url, {"query": query, "variables": {"owner": owner, "name": name}})
         if payload.get("errors"):
             raise RuntimeError(f"GraphQL errors: {payload['errors']}")
         repo = payload["data"]["repository"]
-        return {
-            oid: verdict_from_suites(((repo.get(f"c{index}") or {}).get("checkSuites") or {}).get("nodes") or [])
-            for index, oid in enumerate(oids)
-        }
+        results: dict[str, Optional[str]] = {oid: None for oid in oids}
+        for index, oid in enumerate(oids):
+            suites = ((repo.get(f"c{index}") or {}).get("checkSuites") or {}).get("nodes") or []
+            conclusions = ci_status_runs(suites)
+            if not conclusions:
+                continue
+            # GraphQL does not say which pull request a run served; the runs
+            # API does. One call, for the nearest commit CI judged.
+            runs = call(f"{rest_url}/repos/{repository}/actions/runs?head_sha={oid}"
+                        "&event=pull_request&per_page=100").get("workflow_runs") or []
+            results[oid] = verdict(conclusions, runs_for_pull_request(runs, number, base_ref))
+            if results[oid] is not None:
+                break
+        return results
 
     return lookup
 
@@ -264,6 +331,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--merge-sha", required=True, help="the commit this run tests (main merged with the head)")
     parser.add_argument("--head-sha", required=True, help="the pull request head")
+    parser.add_argument("--pull-request", type=int, required=True, help="the pull request number")
+    parser.add_argument("--base-ref", required=True, help="the pull request's base branch")
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
     parser.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
     args = parser.parse_args(argv)
@@ -274,7 +343,7 @@ def main(argv: list[str]) -> int:
         if not token or "/" not in args.repository:
             raise Skip("no token or repository to read CI verdicts with")
         decision = decide(Git(Path.cwd()), args.merge_sha, args.head_sha,
-                          github_verdicts(args.repository, token, api_url))
+                          github_verdicts(args.repository, token, api_url, args.pull_request, args.base_ref))
     except Skip as skip:
         decision = Decision(None, f"pull request diff: {skip}")
     except Exception as error:  # noqa: BLE001 - any failure routes the usual diff
