@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useReducer, useRef, useState } from "react";
-import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/browser";
+import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/raw";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
@@ -89,8 +89,8 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
           onCancel={() => dispatchRename({ type: "cancel" })}
         />
       ) : (
-        <button className={pane.active_tab === index ? "active" : ""} onClick={onSelect} type="button">
-          <span className="tab-rail" aria-hidden="true">{pane.active_tab === index ? "▎" : " "}</span>
+        <button className={pane.active_tab === BigInt(index) ? "active" : ""} onClick={onSelect} type="button">
+          <span className="tab-rail" aria-hidden="true">{pane.active_tab === BigInt(index) ? "▎" : " "}</span>
           <span className="tab-label">{label}</span>
         </button>
       )}
@@ -143,7 +143,7 @@ function PaneLeaf({
   onUseAllClientSizing,
   onDetachClient,
 }: PaneLeafProps) {
-  const tab = pane?.tabs[pane.active_tab] ?? null;
+  const tab = pane?.tabs[Number(pane.active_tab)] ?? null;
   const surface = tab?.kind === "pty" && !tab.dead ? tab.surface : null;
   const [menu, dispatchMenu] = useReducer(paneMenuReducer, { open: false });
   const [clientMenu, dispatchClientMenu] = useReducer(paneMenuReducer, { open: false });
@@ -190,7 +190,7 @@ function PaneLeaf({
 
   return (
     <section
-      aria-label={t("pane", { number: paneId })}
+      aria-label={t("pane", { number: String(paneId) })}
       className={`terminal-panel${active ? " active-pane" : ""}`}
       {...contextTrigger}
       onPointerDown={(event) => {
@@ -340,7 +340,7 @@ const StackPaneHeader = memo(function StackPaneHeader({
   return (
     <div className="pane-leaf collapsed">
       <button
-        aria-label={t("pane", { number: pane })}
+        aria-label={t("pane", { number: String(pane) })}
         className="stack-pane-header"
         onClick={() => onSelect(pane)}
         type="button"
@@ -372,8 +372,8 @@ function LayoutStackNode({
   }, [onSelectPane]);
   const renderHeader = (pane: Id) => {
     const livePane = paneById.get(pane) ?? null;
-    const activeTab = livePane?.tabs[livePane.active_tab] ?? null;
-    const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: pane });
+    const activeTab = livePane?.tabs[Number(livePane.active_tab)] ?? null;
+    const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: String(pane) });
     return <StackPaneHeader key={pane} label={label} pane={pane} onSelect={selectHeader} />;
   };
   return (

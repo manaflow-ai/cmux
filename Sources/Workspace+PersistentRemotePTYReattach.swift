@@ -58,14 +58,17 @@ extension Workspace {
             let usesPersistentSSHPTY = configuration.transport == .ssh &&
                 !configuration.skipDaemonBootstrap && configuration.persistentDaemonSlot != nil
             if usesPersistentSSHPTY {
-                let remoteResumeCommand = approvedPersistentSSHResumeCommand(
-                    for: resumeBinding,
-                    panelID: panelId,
-                    persistentPTYSessionID: sessionID
-                )
+                let restartedShellCommand = sessionEnded
+                    ? configuration.relayPort.map {
+                        SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
+                            relayPort: $0,
+                            configuredRemoteCommand: configuration.configuredRemoteCommand
+                        )
+                    }
+                    : nil
                 command = remotePTYAttachStartupCommand(
                     sessionID: sessionID,
-                    remoteCommand: remoteResumeCommand,
+                    remoteCommand: restartedShellCommand,
                     requireExisting: !sessionEnded
                 )
             } else {
@@ -86,7 +89,9 @@ extension Workspace {
             remotePTYSessionIDsByPanelId[panelId] = sessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: sessionID, restoredPanelId: panelId)
             if let resumeBinding {
-                surfaceResumeBindingsByPanelId[panelId] = resumeBinding
+                if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: panelId) {
+                    surfaceResumeBindingsByPanelId[panelId] = resumeBinding
+                }
             }
             remoteDisconnectPlaceholderPanelIds.remove(panelId)
             pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)

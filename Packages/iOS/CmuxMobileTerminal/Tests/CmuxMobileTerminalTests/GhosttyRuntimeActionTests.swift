@@ -25,17 +25,20 @@ struct GhosttyRuntimeActionTests {
         }
 
         let surface = try #require(view.surface)
-        view.needsDraw = false
+        // Count wakeup draws: the view's own layout also sets `needsDraw`, so
+        // that flag would pass without the render action being delivered.
+        var wakeupDraws = 0
+        view.onDrawForWakeupForTesting = { wakeupDraws += 1 }
         #expect(
             GhosttyRuntime.simulateSurfaceActionForTesting(
                 surface: surface,
                 tag: GHOSTTY_ACTION_RENDER
             )
         )
-        for _ in 0..<10 where !view.needsDraw {
+        for _ in 0..<10 where wakeupDraws == 0 {
             await Task.yield()
         }
-        #expect(view.needsDraw)
+        #expect(wakeupDraws > 0)
     }
 
     @MainActor
@@ -61,8 +64,15 @@ struct GhosttyRuntimeActionTests {
         let bridge = try #require(
             GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(sourceSurface))
         )
-        replacementView.stopDisplayLink()
-        replacementView.needsDraw = false
+        // `needsDraw` alone cannot prove the stale continuation missed: the
+        // replacement's own first layout and its off-main geometry result also
+        // set it on later main-actor turns. Count wakeup draws instead, and
+        // detach the replacement's own bridge so only a continuation that
+        // resolves the view by surface address could reach it.
+        let replacementSurface = try #require(replacementView.surface)
+        GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(replacementSurface))?.detach()
+        var replacementWakeupDraws = 0
+        replacementView.onDrawForWakeupForTesting = { replacementWakeupDraws += 1 }
 
         #expect(
             GhosttyRuntime.simulateSurfaceActionForTesting(
@@ -76,10 +86,10 @@ struct GhosttyRuntimeActionTests {
         bridge.detach()
         GhosttySurfaceView.register(surface: sourceSurface, for: replacementView)
 
-        for _ in 0..<10 where !replacementView.needsDraw {
+        for _ in 0..<10 where replacementWakeupDraws == 0 {
             await Task.yield()
         }
-        #expect(!replacementView.needsDraw)
+        #expect(replacementWakeupDraws == 0)
     }
 }
 

@@ -32,6 +32,7 @@ extension TabManager {
         insertionIndexOverride: Int? = nil,
         focusIntent: PanelFocusIntent? = nil
     ) -> Workspace? {
+        guard !isFinalizedForWindowClose else { return nil }
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         let capturedSelectedTabId = sourceWorkspace?.id
@@ -80,11 +81,11 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            applyWorkspaceDirectoryCustomization(
+            applyCreationWorkspaceCustomization(
                 to: newWorkspace,
-                rootDirectory: workingDirectory,
                 explicitTitle: title,
-                explicitTitleSource: titleSource
+                explicitTitleSource: titleSource,
+                repairInitialTabTitle: false
             )
             wireClosedBrowserTracking(for: newWorkspace)
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Testing
 import WebKit
 
@@ -36,7 +37,7 @@ struct BrowserInspectorFocusHandoffTests {
         let anchor = NSView(frame: NSRect(x: 80, y: 60, width: 480, height: 260))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         window.makeKeyAndOrderFront(nil)
         contentView.layoutSubtreeIfNeeded()
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true, zPriority: 1)

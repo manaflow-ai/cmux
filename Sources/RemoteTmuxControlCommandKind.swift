@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 enum RemoteTmuxControlCommandKind: Equatable {
@@ -12,9 +13,13 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneState(Int, UUID)
     case panePath(Int)
     case paneReflow(Int)
+    case paneColorReport(Int, RemoteTmuxPaneColors)
     case paneAltScreen(Int, UUID)
     case activityQuery(UUID)
     case newWindow(UUID)
+    /// A focused `split-window -P -F '#{pane_id}'` whose stable created-pane
+    /// identity is delivered to the owner of the pending focus handoff.
+    case newPane(UUID)
     /// A per-window `refresh-client -C '@id:WxH'` — an %error reply means
     /// the server predates the form and sizing falls back session-wide.
     case perWindowSize(Int)

@@ -27,9 +27,9 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         workingDirectory: String?,
         inheritWorkingDirectory: Bool,
         select: Bool
-    ) -> Tab
+    ) -> Tab?
     /// Creates a member workspace for `createWorkspaceInGroup`, preserving the
-    /// initial-surface options and sticky-customization eligibility.
+    /// initial-surface options and creation-title ownership policy.
     func createWorkspaceForGroup(
         title: String?,
         workingDirectory: String?,
@@ -39,8 +39,8 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
-        shouldApplyWorkspaceDirectoryCustomization: Bool
-    ) -> Tab
+        applyCreationTitleAsCustomTitle: Bool
+    ) -> Tab?
     /// Closes a member workspace during group deletion (legacy
     /// `closeWorkspace(_:recordHistory:)`, including its teardown chain).
     func closeWorkspaceForGroupDeletion(_ tab: Tab, recordHistory: Bool)
@@ -81,4 +81,14 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
     /// A group was renamed: refresh window chrome and post the legacy
     /// `workspaceGroupNameDidChange` notification.
     func workspaceGroupNameDidChange()
+
+    /// A generated group anchor owns the group's initial workspace title. Keep
+    /// that app-side title in sync when the group is renamed so persisted and
+    /// projected workspace identities cannot resurrect the old name.
+    func workspaceGroupGeneratedAnchorNameDidChange(_ anchor: Tab, name: String)
+}
+
+public extension WorkspaceGroupHosting {
+    /// Hosts that do not persist workspace titles can leave this hook as a no-op.
+    func workspaceGroupGeneratedAnchorNameDidChange(_ anchor: Tab, name: String) {}
 }

@@ -249,9 +249,9 @@ extension GhosttySurfaceScrollView {
         pendingRequest: (Int) -> NotificationScrollRequestPhase
     ) -> Bool {
         let currentLastTopRow = Int(clamping: scrollbar.total - min(scrollbar.total, scrollbar.len))
-        let previousUserScrolledAwayFromBottom = userScrolledAwayFromBottom
-        allowExplicitScrollbarSync = true
-        userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
+        let previousScrollIntent = prepareExplicitViewportRestore(
+            isAtBottom: targetTopRow >= currentLastTopRow
+        )
         let restoredGeometry = perform()
         var didRestore = restoredGeometry != nil
         if requiresLiveBottom, let restoredGeometry {
@@ -268,8 +268,7 @@ extension GhosttySurfaceScrollView {
         if didRestore {
             clearPendingNotificationScrollRestore()
         } else {
-            allowExplicitScrollbarSync = false
-            userScrolledAwayFromBottom = previousUserScrolledAwayFromBottom
+            rollbackExplicitViewportRestore(to: previousScrollIntent)
             let remainingAfterAttempt = attemptsRemaining - 1
             if remainingAfterAttempt == 0 {
                 clearPendingNotificationScrollRestore()

@@ -53,6 +53,24 @@ struct ShellIntegrationSendTransportTests {
         )
     }
 
+    @Test("local zsh shell state carries terminal lifecycle identity")
+    func localZshShellStateCarriesTerminalLifecycleIdentity() throws {
+        try assertLocalShellStateCarriesTerminalLifecycleIdentity(
+            shell: "/bin/zsh",
+            integrationName: "cmux-zsh-integration.zsh",
+            shellArguments: ["-f", "-c"]
+        )
+    }
+
+    @Test("local bash shell state carries terminal lifecycle identity")
+    func localBashShellStateCarriesTerminalLifecycleIdentity() throws {
+        try assertLocalShellStateCarriesTerminalLifecycleIdentity(
+            shell: "/bin/bash",
+            integrationName: "cmux-bash-integration.bash",
+            shellArguments: ["--noprofile", "--norc", "-c"]
+        )
+    }
+
     @Test(
         "fish publishes remote workspace relay metadata before tmux attach",
         .enabled(if: shellIntegrationFishExecutablePath != nil)
@@ -134,6 +152,73 @@ struct ShellIntegrationSendTransportTests {
         )
     }
 
+    private func assertLocalShellStateCarriesTerminalLifecycleIdentity(
+        shell: String,
+        integrationName: String,
+        shellArguments: [String]
+    ) throws {
+        let integration = try #require(
+            RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: integrationName
+            )
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-local-shell-state-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let integrationFile = directory.appendingPathComponent(integrationName)
+        try integration.write(to: integrationFile, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = shellArguments + [
+            """
+            source '\(integrationFile.path)'
+            _cmux_socket_is_unix() { return 0; }
+            _cmux_send_bg() { printf '%s\\n' "$1"; }
+            _CMUX_SHELL_ACTIVITY_LAST=""
+            _cmux_report_shell_activity_state prompt
+            """,
+        ]
+        process.environment = [
+            "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-shell-state-test.sock",
+            "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+            "HOME": directory.path,
+            "PATH": "/usr/bin:/bin",
+            "TERM": "xterm-256color",
+        ]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+        let output = String(
+            decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        let error = String(
+            decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+
+        #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(output.contains(
+            "report_shell_state prompt "
+                + "--tab=11111111-1111-1111-1111-111111111111 "
+                + "--panel=22222222-2222-2222-2222-222222222222 "
+                + "--terminal-lifecycle-id=33333333-3333-3333-3333-333333333333"
+        ), Comment(rawValue: output))
+    }
+
     private func assertTmuxShellAdoptsSessionWorkspaceBinding(
         shell: String,
         integrationName: String
@@ -161,6 +246,8 @@ struct ShellIntegrationSendTransportTests {
             "CMUX_SOCKET_PATH": "127.0.0.1:63135",
             "CMUX_SURFACE_ID": "stale-surface",
             "CMUX_TAB_ID": "stale-workspace",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "stale-lifecycle",
+            "CMUX_SSH_ATTEMPT_ID": "stale-attempt",
             "CMUX_WORKSPACE_ID": "stale-workspace",
             "HOME": directory.path,
             "PATH": "/usr/bin:/bin",
@@ -177,6 +264,8 @@ struct ShellIntegrationSendTransportTests {
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
         #expect(output.contains("workspace=current-workspace"), Comment(rawValue: output))
         #expect(output.contains("socket=127.0.0.1:55272"), Comment(rawValue: output))
+        #expect(output.contains("lifecycle=current-lifecycle"), Comment(rawValue: output))
+        #expect(output.contains("attempt=current-attempt"), Comment(rawValue: output))
         #expect(output.contains("surface=<unset>"), Comment(rawValue: output))
         #expect(output.contains("panel=<unset>"), Comment(rawValue: output))
     }
@@ -361,15 +450,16 @@ struct ShellIntegrationSendTransportTests {
         tmux() {
           if [ "$1" = show-environment ]; then
             if [ "${2:-}" = -g ]; then
-              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:63135' 'CMUX_TAB_ID=stale-workspace' 'CMUX_WORKSPACE_ID=stale-workspace'
+              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:63135' 'CMUX_SSH_ATTEMPT_ID=stale-attempt' 'CMUX_TAB_ID=stale-workspace' 'CMUX_TERMINAL_LIFECYCLE_ID=stale-lifecycle' 'CMUX_WORKSPACE_ID=stale-workspace'
             else
-              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:55272' 'CMUX_TAB_ID=current-workspace' 'CMUX_WORKSPACE_ID=current-workspace'
+              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:55272' 'CMUX_SSH_ATTEMPT_ID=current-attempt' 'CMUX_TAB_ID=current-workspace' 'CMUX_TERMINAL_LIFECYCLE_ID=current-lifecycle' 'CMUX_WORKSPACE_ID=current-workspace'
             fi
           fi
         }
         _cmux_tmux_sync_cmux_environment
-        printf 'workspace=%s\\nsocket=%s\\nsurface=%s\\npanel=%s\\n' \
+        printf 'workspace=%s\\nsocket=%s\\nlifecycle=%s\\nattempt=%s\\nsurface=%s\\npanel=%s\\n' \
           "${CMUX_WORKSPACE_ID:-<unset>}" "${CMUX_SOCKET_PATH:-<unset>}" \
+          "${CMUX_TERMINAL_LIFECYCLE_ID:-<unset>}" "${CMUX_SSH_ATTEMPT_ID:-<unset>}" \
           "${CMUX_SURFACE_ID:-<unset>}" "${CMUX_PANEL_ID:-<unset>}"
         """
     }

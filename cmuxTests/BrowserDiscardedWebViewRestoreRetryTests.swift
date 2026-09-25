@@ -1,11 +1,125 @@
+import AppKit
+import Darwin
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+/// Reserves an unused loopback port without listening, so WebKit receives a
+/// connection refusal instead of rejecting a restricted port such as port 1.
+private final class BrowserDiscardRestoreRefusedEndpoint {
+    let url: URL
+    private let descriptor: Int32
+
+    init(path: String) throws {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        try #require(descriptor >= 0)
+        var initialized = false
+        defer { if !initialized { Darwin.close(descriptor) } }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        try #require(bindResult == 0)
+
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(descriptor, $0, &length)
+            }
+        }
+        try #require(nameResult == 0)
+        let port = UInt16(bigEndian: address.sin_port)
+        url = try #require(URL(string: "http://127.0.0.1:\(port)/\(path)"))
+        self.descriptor = descriptor
+        initialized = true
+    }
+
+    deinit { Darwin.close(descriptor) }
+}
+
+/// WebKit builds a `WKNavigation`'s embedded C++ `API::Navigation` itself, so an
+/// instance made with a bare `WKNavigation()` carries unconstructed storage.
+/// Allocating one is harmless; releasing it is not — `-[WKNavigation dealloc]`
+/// traps and takes the whole xctest host down. The discard-restore bookkeeping
+/// only ever compares these by identity, so minting them here and holding them
+/// for the run is behaviour-preserving. Same rationale, and same shape, as
+/// `BrowserDiscardRestoreHealPredicateTests`.
+@MainActor
+private enum BrowserDiscardRestoreNavigationStub {
+    private static var retained: [WKNavigation] = []
+
+    static func make() -> WKNavigation {
+        let navigation = WKNavigation()
+        retained.append(navigation)
+        return navigation
+    }
+}
+
+/// Records WebKit's navigation commands without starting a network load, and
+/// reports a navigation object for a main-frame load so the panel's
+/// discard-restore bookkeeping tracks the attempt exactly as it does for a real
+/// one. Sibling of `BrowserReloadRecordingWebView`, which returns nil instead —
+/// that would make the panel treat every restore as "navigation_not_started"
+/// and would not exercise the refused-connection path this case is about.
+@MainActor
+private final class BrowserDiscardRestoreFakeWebView: WKWebView {
+    private(set) var requests: [URLRequest] = []
+    private(set) var errorPageLoadCount = 0
+
+    override func load(_ request: URLRequest) -> WKNavigation? {
+        requests.append(request)
+        return BrowserDiscardRestoreNavigationStub.make()
+    }
+
+    override func loadHTMLString(_: String, baseURL _: URL?) -> WKNavigation? {
+        errorPageLoadCount += 1
+        return nil
+    }
+}
+
+/// Swaps the panel's live web view for a fake navigation source. `webViewInstanceID`
+/// is deliberately left alone, so the navigation-delegate callbacks the panel
+/// installed stay bound to whatever `panel.webView` is now.
+@MainActor
+@discardableResult
+private func installFakeNavigationSource(in panel: BrowserPanel) -> BrowserDiscardRestoreFakeWebView {
+    panel.detachWebViewObservers()
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = panel.websiteDataStore
+    let webView = BrowserDiscardRestoreFakeWebView(frame: .zero, configuration: configuration)
+    panel.webView = webView
+    return webView
+}
+
+/// Reports a refused connection for `url` through the panel's real navigation
+/// delegate, the way `BrowserFailedNavigationReloadTests` does. Every state
+/// transition it drives — failure bookkeeping, error page, retry policy — is
+/// synchronous, so no caller has to wait for anything.
+@MainActor
+private func refuseConnection(to url: URL, in panel: BrowserPanel) {
+    panel.navigationDelegate?.webView(
+        panel.webView,
+        didFailProvisionalNavigation: nil,
+        withError: NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorCannotConnectToHost,
+            userInfo: [NSURLErrorFailingURLStringErrorKey: url.absoluteString]
+        )
+    )
+}
 
 @MainActor
 private func withBrowserDiscardRestoreRetryPolicyEnabled(_ body: (UserDefaults) -> Void) {
@@ -40,41 +154,11 @@ private func makeDiscardRestoreRetryBlockerSnapshot() -> BrowserHiddenWebViewDis
         isElementFullscreenActive: false,
         isReactGrabActive: false,
         isVisualAutomationCaptureActive: false,
+        isMobileBrowserStreamActive: false,
         hasPopups: false,
         isCapturingMedia: false,
         isPlayingMedia: false
     )
-}
-
-@MainActor
-@discardableResult
-private func waitForDiscardRestoreRetryWebViewToSettle(
-    _ panel: BrowserPanel,
-    timeout: TimeInterval = 30.0
-) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    while panel.webView.isLoading || panel.isLoading,
-          Date() < deadline {
-        _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
-    }
-    return !panel.webView.isLoading && !panel.isLoading
-}
-
-@MainActor
-@discardableResult
-private func waitForDiscardRestoreRetryWebViewToBecomeRetryable(
-    _ panel: BrowserPanel,
-    timeout: TimeInterval = 20.0
-) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        let restorePending = panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool ?? false
-        if !restorePending, !panel.webView.isLoading, !panel.isLoading {
-            return true
-        }
-        _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
-    }
-    return false
 }
 
 @MainActor
@@ -103,27 +187,93 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
 
     @Test func browserPanelRetriesDiscardedRestoreAfterConnectionRefused() throws {
         // RED(#7504): connection-refused restore must leave the pane retryable on the next restore touch.
-        let url = try #require(URL(string: "http://127.0.0.1:1/cmux-issue-7504"))
+        let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-issue-7504")
+        defer { withExtendedLifetime(endpoint) {} }
+        let url = endpoint.url
         let discardedAt = Date(timeIntervalSince1970: 200)
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: url,
+            renderInitialNavigation: false,
             isRemoteWorkspace: false
         )
         defer { panel.close() }
 
-        #expect(waitForDiscardRestoreRetryWebViewToSettle(panel))
+        // `WKWebView.isLoading` is not a completion signal: on the app-host
+        // runners the provisional load to the reserved loopback port neither
+        // fails nor commits, and `isLoading` stays true even after
+        // `stopLoading()`. The retry bookkeeping under test needs no real load
+        // at all, so drive the panel from a fake navigation source and report
+        // the refusal through the navigation delegate, the terminal callback
+        // that actually owns this transition. The restore bookkeeping, the error
+        // page, and the retry policy all run unchanged, and every transition is
+        // synchronous — nothing here waits on WebKit.
+        let originalSource = installFakeNavigationSource(in: panel)
+        try #require(panel.navigate(to: url) != nil)
+        #expect(originalSource.requests.last?.url == url)
+
+        refuseConnection(to: url, in: panel)
+        #expect(panel.navigationDelegate?.activeErrorPageDisplayURL == url)
+        #expect(originalSource.errorPageLoadCount == 1)
+        #expect(!panel.webView.isLoading)
+        #expect(!panel.isLoading)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
         #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         #expect(panel.webView !== originalWebView)
+        let restoreSource = installFakeNavigationSource(in: panel)
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore1"))
-        #expect(waitForDiscardRestoreRetryWebViewToBecomeRetryable(panel))
+        #expect(restoreSource.requests.last?.url == url)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == true)
+
+        refuseConnection(to: url, in: panel)
+        #expect(panel.navigationDelegate?.activeErrorPageDisplayURL == url)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
+        #expect(!panel.webView.isLoading)
+        #expect(!panel.isLoading)
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
+    }
+
+    @Test func mobileStreamStartRestoresDiscardedWebView() throws {
+        // RED: streaming a discarded background tab (a restored session's
+        // never-revealed pane) mirrors a blank web shell, so the phone shows
+        // white until a manual reload. Starting a mobile stream must kick the
+        // discard-restore navigation exactly like revealing the tab does.
+        let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-mobile-stream-discard")
+        defer { withExtendedLifetime(endpoint) {} }
+        let url = endpoint.url
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        // Session restore is the never-revealed discarded state the stream
+        // must recover; no prior network failure is part of this lifecycle.
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        #expect(panel.webViewLifecycleTopPayload()["state"] as? String == "discarded")
+
+        let handlerID = UUID()
+        panel.addMobileBrowserStreamSignalHandler(id: handlerID) { _ in }
+        defer { panel.removeMobileBrowserStreamSignalHandler(id: handlerID) }
+
+        #expect(
+            panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == true,
+            "Mobile stream start must begin the discard-restore navigation"
+        )
     }
 
     @Test func remoteSessionRestoreQueuedForProxyEndpointDoesNotMarkNavigationPending() throws {
@@ -440,24 +590,32 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
     }
 
     @Test func mainFrameDownloadCompletesRestoreAndSuppressesBlankShellHeal() throws {
-        let url = try #require(URL(string: "http://127.0.0.1:1/cmux-issue-7504-download"))
-        let discardedAt = Date(timeIntervalSince1970: 700)
+        let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-issue-7504-download")
+        defer { withExtendedLifetime(endpoint) {} }
+        let url = endpoint.url
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: url,
+            renderInitialNavigation: false,
             isRemoteWorkspace: false
         )
         defer { panel.close() }
 
-        #expect(waitForDiscardRestoreRetryWebViewToSettle(panel))
-
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        #expect(panel.webViewLifecycleTopPayload()["state"] as? String == "discarded")
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
 
         // Simulate WebKit converting the pending restore navigation into a
         // main-frame download before any document commits.
-        panel.navigationDelegate?.didBecomeDownload?(panel.webView, true, panel.currentDiscardRestoreAttemptID)
+        let restoreAttemptID = try #require(panel.currentDiscardRestoreAttemptID)
+        panel.navigationDelegate?.didBecomeDownload?(panel.webView, true, restoreAttemptID)
 
         let payload = panel.webViewLifecycleTopPayload()
         #expect(payload["restore_pending"] as? Bool == false)
@@ -469,7 +627,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         #expect(!panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
     }
 
-    @Test func aboutBlankDiscardedPaneReactivatesWithoutRestoreNavigation() throws {
+    @Test func aboutBlankDiscardedPaneReactivatesWithoutRestoreNavigation() async throws {
         let url = try #require(URL(string: "about:blank"))
         let discardedAt = Date(timeIntervalSince1970: 800)
         let panel = BrowserPanel(
@@ -479,7 +637,9 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
         )
         defer { panel.close() }
 
-        #expect(waitForDiscardRestoreRetryWebViewToSettle(panel))
+        try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
+            !panel.webView.isLoading && !panel.isLoading
+        })
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))

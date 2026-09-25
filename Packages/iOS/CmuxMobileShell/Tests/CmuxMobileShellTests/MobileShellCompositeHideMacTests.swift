@@ -69,6 +69,157 @@ import Testing
         #expect(store.workspaceListConnectionStatus == .connected)
     }
 
+    @Test func laterUnhideWinsWhenEarlierHidePersistenceFinishesLast() async throws {
+        let hiddenStore = DelayedFirstHidePairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        await store.loadPairedMacs()
+        let computer = try #require(store.pairedMacs.first)
+        let scope = try #require(await store.currentScopeSnapshot())
+        let scopeKey = store.pairedMacScopeKey(scope)
+
+        let hideTask = Task { @MainActor in
+            await store.hideStoredPairedMacEntries(
+                representativeID: computer.id,
+                aliasIDs: [computer.id]
+            )
+        }
+        await hiddenStore.waitForDelayedHideSave()
+
+        store.requestUnhideMacDeviceID(
+            computer.macDeviceID,
+            instanceTag: computer.instanceTag
+        )
+        await hiddenStore.releaseDelayedHideSave()
+        await hiddenStore.waitForEmptySave()
+        await hideTask.value
+
+        #expect(
+            await hiddenStore.load(scope: scopeKey).isEmpty,
+            "The later show request must remain durable after relaunch."
+        )
+    }
+
+    @Test func signOutCancelsInFlightComputerVisibilityMutation() async throws {
+        let hiddenStore = DelayedFirstHidePairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        await store.loadPairedMacs()
+        let computer = try #require(store.pairedMacs.first)
+        let scope = try #require(await store.currentScopeSnapshot())
+        let scopeKey = store.pairedMacScopeKey(scope)
+
+        store.requestHideStoredPairedMacEntries(
+            representativeID: computer.id,
+            aliasIDs: [computer.id]
+        )
+        await hiddenStore.waitForDelayedHideSave()
+        let task = try #require(store.computerVisibilityMutationTasksByID[computer.id])
+
+        store.signOut()
+
+        #expect(task.isCancelled)
+        #expect(store.computerVisibilityMutationIDs.isEmpty)
+        #expect(store.computerVisibilityMutationTasksByID[computer.id] != nil)
+        #expect(store.computerVisibilityMutationOperationIDsByID[computer.id] != nil)
+        await hiddenStore.releaseDelayedHideSave()
+        await task.value
+        #expect(store.computerVisibilityMutationTasksByID.isEmpty)
+        #expect(store.computerVisibilityMutationOperationIDsByID.isEmpty)
+        #expect(store.hiddenComputers.isEmpty)
+        #expect(await hiddenStore.load(scope: scopeKey).isEmpty)
+    }
+
+    @Test func teamChangeCancelsInFlightComputerVisibilityMutation() async throws {
+        let hiddenStore = DelayedFirstHidePairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let selectedTeam = MutableTeamID("team-a")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await selectedTeam.value },
+            hiddenMacStore: hiddenStore
+        )
+        await store.loadPairedMacs()
+        let computer = try #require(store.pairedMacs.first)
+        let scope = try #require(await store.currentScopeSnapshot())
+        let scopeKey = store.pairedMacScopeKey(scope)
+
+        store.requestHideStoredPairedMacEntries(
+            representativeID: computer.id,
+            aliasIDs: [computer.id]
+        )
+        await hiddenStore.waitForDelayedHideSave()
+        let task = try #require(store.computerVisibilityMutationTasksByID[computer.id])
+
+        await selectedTeam.set("team-b")
+        store.currentTeamDidChange()
+
+        #expect(task.isCancelled)
+        #expect(store.computerVisibilityMutationIDs.isEmpty)
+        #expect(store.computerVisibilityMutationTasksByID[computer.id] != nil)
+        #expect(store.computerVisibilityMutationOperationIDsByID[computer.id] != nil)
+        await hiddenStore.releaseDelayedHideSave()
+        await task.value
+        #expect(store.computerVisibilityMutationTasksByID.isEmpty)
+        #expect(store.computerVisibilityMutationOperationIDsByID.isEmpty)
+        #expect(store.hiddenComputers.isEmpty)
+        #expect(await hiddenStore.load(scope: scopeKey).isEmpty)
+    }
+
     @Test func rawDeviceIDMarkerMatchingExistingRowSurvivesMigration() async throws {
         let defaultsSuiteName = "hidden-marker-hint-migration-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
@@ -83,8 +234,7 @@ import Testing
                         displayName: "Desk Mac",
                         host: "100.82.214.112",
                         lastSeenAt: Date(timeIntervalSince1970: 10),
-                        isActive: true,
-                        instanceTag: "nightly"
+                        isActive: true
                     ),
                 ],
             ],
@@ -106,10 +256,47 @@ import Testing
 
         #expect(store.pairedMacs.isEmpty)
         #expect(store.hasHiddenComputers)
-        #expect(store.hiddenComputers.map(\.instanceTag) == ["nightly"])
+        #expect(store.hiddenComputers.map(\.instanceTag) == [nil])
         #expect(store.hasKnownPairedMac)
         #expect(defaults.bool(forKey: "cmux.mobile.hasKnownPairedMac"))
         #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)) == ["mac-a"])
+    }
+
+    /// A bare device marker names only the legacy untagged pairing (#10179).
+    /// A Stable/Nightly row on that device does not back it, so the marker is
+    /// cleared as rowless and the tagged row stays visible.
+    @Test func rawDeviceIDMarkerDoesNotHideTaggedRowOfSameDevice() async throws {
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        await store.rememberHiddenMacDeviceID("mac-a", scope: scope)
+
+        await store.loadPairedMacs()
+
+        #expect(store.pairedMacs.map(\.instanceTag) == ["nightly"])
+        #expect(!store.hasHiddenComputers)
+        #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)).isEmpty)
     }
 
     @Test func pairingIDMarkerMatchingExistingRowSurvivesMigration() async throws {

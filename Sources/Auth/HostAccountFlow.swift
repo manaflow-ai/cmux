@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CMUXAuthCore
 import CmuxAuthRuntime
@@ -16,14 +17,19 @@ import Observation
 /// change after Settings is already open.
 @MainActor
 @Observable
-final class HostAccountFlow: AccountFlow {
-    private let coordinator: AuthCoordinator
+final class HostAccountFlow: AccountFlow, AccountSignInFlow {
+    let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
+    var teamObservationRevision: UInt64 = 0
+    /// Pending selection is shared by Settings, the menu and socket actions.
+    /// Cloud requests keep using the confirmed coordinator scope until success.
+    var pendingTeamSelection: (requestID: UUID, teamID: String?)?
+    var isSelectingTeam: Bool { pendingTeamSelection != nil }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -38,6 +44,7 @@ final class HostAccountFlow: AccountFlow {
                 self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
             }
         }
+        startCoordinatorObservation()
     }
 
     deinit {
@@ -47,39 +54,133 @@ final class HostAccountFlow: AccountFlow {
     }
 
     var currentIdentity: AccountIdentity? {
-        Self.identity(from: coordinator.currentUser)
+        _ = teamObservationRevision
+        return Self.identity(from: coordinator.currentUser)
     }
 
     var availableTeams: [AccountTeamSummary] {
-        coordinator.availableTeams.map { team in
+        _ = teamObservationRevision
+        return coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
     }
 
     var selectedTeamID: String? {
-        get { coordinator.selectedTeamID }
-        set { coordinator.selectedTeamID = newValue }
+        get {
+            if let pendingTeamSelection { return pendingTeamSelection.teamID }
+            return confirmedTeamID
+        }
+    }
+
+    /// Cloud scope and persisted machine preferences follow confirmed authority.
+    var confirmedTeamID: String? {
+        _ = teamObservationRevision
+        return coordinator.resolvedTeamID
     }
 
     var isWorkingOnAuth: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+    }
+
+    var isAuthenticated: Bool {
+        _ = teamObservationRevision
+        return coordinator.isAuthenticated
+    }
+
+    var isPresentingSignIn: Bool {
+        browserSignIn.isPresentingSignIn
     }
 
     var signInIsSlow: Bool {
         browserSignIn.signInIsSlow
     }
 
+    var isCompletingSignIn: Bool {
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession
+    }
+
+    var lastSignInFailure: AccountSignInModel.Failure? {
+        guard let failure = browserSignIn.lastFailure else { return nil }
+        switch failure {
+        case .offline:
+            return .offline
+        case .networkError:
+            return .network
+        case .timedOut:
+            return .timedOut
+        case .serverError:
+            return .server
+        case .invalidCode, .invalidCallback:
+            return .invalidLink
+        case .browserSignInFailed:
+            return .browserUnavailable
+        case .unauthorized:
+            return .unauthorized
+        case .authFailure:
+            return .rejected
+        case .cancelled:
+            return .cancelled
+        }
+    }
+
     func startSignIn() {
         browserSignIn.beginSignIn()
     }
 
+    func startSignInForPane() -> URL? {
+        browserSignIn.beginSignIn()
+        return browserSignIn.activeAttemptSignInURL
+    }
+
+    var activeSignInURL: URL? {
+        browserSignIn.activeAttemptSignInURL
+    }
+
+    /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
+    /// allowing socket callers to await a bounded result.
+    func signIn(timeout: TimeInterval) async -> Bool {
+        await browserSignIn.signIn(timeout: timeout)
+    }
+
+    /// Issues the manual hosted Stack sign-in URL through the same callback
+    /// state owner as interactive sign-in.
+    var manualSignInURL: URL {
+        browserSignIn.manualSignInURL
+    }
+
+    /// Completes an external hosted Stack callback through the shared attempt.
+    func handleCallbackURL(_ url: URL) async -> Bool {
+        await browserSignIn.handleCallbackURL(url)
+    }
+
     func openSignInInDefaultBrowser() {
         guard let url = browserSignIn.activeAttemptSignInURL else { return }
+        _ = openSignInURLInDefaultBrowser(url)
+    }
+
+    func openSignInURLInDefaultBrowser(_ url: URL) -> Bool {
         NSWorkspace.shared.open(url)
+    }
+
+    func copySignInURL(_ url: URL) -> Bool {
+        GhosttyApp.terminalPasteboard.writeString(
+            url.absoluteString,
+            to: .general
+        )
     }
 
     func signOut() async {
         await browserSignIn.signOut()
+        isProActive = false
+        canManageBilling = false
+    }
+
+    /// Socket variant of sign-out. The underlying sign-out continues if the
+    /// caller's deadline expires, matching the browser flow contract.
+    func signOut(timeout: TimeInterval) async {
+        await browserSignIn.signOut(timeout: timeout)
         isProActive = false
         canManageBilling = false
     }
@@ -122,12 +223,22 @@ final class HostAccountFlow: AccountFlow {
         }
     }
 
+    // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
+    // parameterless calls come from the Settings account card.
     func openProUpgrade() {
-        ProUpgradePresenter.present()
+        openProUpgrade(source: .settingsAccountCard)
     }
 
     func prefetchProUpgrade() {
-        ProUpgradePresenter.prefetch()
+        prefetchProUpgrade(source: .settingsAccountCard)
+    }
+
+    func openProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.present(source: source)
+    }
+
+    func prefetchProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.prefetch(source: source)
     }
 
     func openBillingPortal() {
@@ -140,7 +251,7 @@ final class HostAccountFlow: AccountFlow {
             id: user.id,
             displayName: user.displayName ?? "",
             email: user.primaryEmail ?? "",
-            avatarURL: nil
+            avatarURL: user.profileImageURL.flatMap(URL.init(string:))
         )
     }
 }

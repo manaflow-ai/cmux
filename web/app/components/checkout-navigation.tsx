@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
-import { pricingActionClassName, type PricingActionSize } from "./pricing-shared";
+import { posthog } from "../lib/posthog-client";
+import {
+  pricingActionClassName,
+  type PricingActionSize,
+} from "./pricing-shared";
 
 const CHECKOUT_PATH = "/api/billing/checkout";
 
@@ -42,7 +52,9 @@ export function useCheckoutRedirect() {
         .then((response) => response.json())
         .then((data: unknown) => {
           const url =
-            data && typeof data === "object" && typeof (data as { url?: unknown }).url === "string"
+            data &&
+            typeof data === "object" &&
+            typeof (data as { url?: unknown }).url === "string"
               ? (data as { url: string }).url
               : href;
           window.location.assign(url);
@@ -70,8 +82,20 @@ export function CheckoutSpinner() {
       aria-hidden="true"
       style={{ display: "inline-block", verticalAlign: "-2px" }}
     >
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
-      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeOpacity="0.3"
+        strokeWidth="3"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -105,14 +129,21 @@ const PRIMARY_LINK_STYLE: CSSProperties = {
 // spinner and redirects straight to Stripe.
 export function CheckoutButton({
   href,
+  resolveHref,
   children,
   size = "default",
   onClick,
+  analytics,
 }: {
   href: string;
+  resolveHref?: () => string;
   children: ReactNode;
   size?: PricingActionSize;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  analytics?: {
+    event: string;
+    properties: Record<string, string | number | boolean>;
+  };
 }) {
   const { pending, start } = useCheckoutRedirect();
   return (
@@ -120,13 +151,23 @@ export function CheckoutButton({
       href={href}
       onClick={(event) => {
         onClick?.(event);
-        start(href, event);
+        const destination = resolveHref?.() ?? href;
+        event.currentTarget.href = destination;
+        if (!event.defaultPrevented && analytics) {
+          posthog.capture(analytics.event, analytics.properties);
+        }
+        start(destination, event);
       }}
       aria-busy={pending}
       className={`${pricingActionClassName("primary", size)} relative`}
-      style={{ ...PRIMARY_LINK_STYLE, pointerEvents: pending ? "none" : undefined }}
+      style={{
+        ...PRIMARY_LINK_STYLE,
+        pointerEvents: pending ? "none" : undefined,
+      }}
     >
-      <CheckoutPendingContent pending={pending}>{children}</CheckoutPendingContent>
+      <CheckoutPendingContent pending={pending}>
+        {children}
+      </CheckoutPendingContent>
     </a>
   );
 }

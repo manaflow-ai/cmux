@@ -165,6 +165,7 @@ import Testing
         for error in [
             MobileShellConnectionError.connectionClosed,
             MobileShellConnectionError.requestTimedOut,
+            MobileShellConnectionError.connectAttemptGated,
             MobileShellConnectionError.invalidResponse,
         ] {
             #expect(

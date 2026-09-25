@@ -10,8 +10,8 @@ import Observation
 /// split layout side by side — with the native cmux pane chrome (each pane is a
 /// real ``TerminalPanel`` rendered via ``TerminalPanelView``).
 ///
-/// Created lazily by ``RemoteTmuxSessionMirror`` the first time a window has more
-/// than one pane; once created it owns every pane's panel for that window. The
+/// Created by ``RemoteTmuxSessionMirror`` from a window's first published layout;
+/// it owns every pane's panel as that window later splits or rejoins. The
 /// remote tmux control stream is the source of truth: pane output is fed into
 /// the matching surface, typed input is forwarded to that pane via `send-keys`,
 /// and a user split is propagated to `split-window`.
@@ -29,8 +29,6 @@ import Observation
 @MainActor
 @Observable
 final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
-    typealias AdoptedPane = (tmuxPaneId: Int, panel: TerminalPanel)
-
     /// tmux window id (the `@N` without the sigil).
     let windowId: Int
     /// The bonsplit tab's panel id this window renders into.
@@ -44,19 +42,18 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
     @ObservationIgnored var onClosePaneRequest: ((Int) -> Void)?
-    /// Establishes keyboard (first-responder) focus for a pane the mirror just
-    /// created and made active. A freshly split pane is born active and visible
-    /// inside an already-visible tab, so neither the surface's active nor its
-    /// visibility false→true edge fires — the pane shows the selection highlight
-    /// but owns no key focus until clicked. This drives the same first-responder
-    /// establishment a click does, on the creation event edge. `nil` in headless
-    /// and direct-construction callers. Set after construction so it can capture
-    /// the mirror weakly (see ``RemoteTmuxSessionMirror``).
-    @ObservationIgnored var onEstablishPaneKeyFocus: ((_ tmuxPaneId: Int, _ panel: TerminalPanel) -> Void)?
     /// Session-owned control identity lookup. Render nodes are replaceable.
     @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
     @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
     @ObservationIgnored private let onPaneSurfaceProgress: ((Int) -> Void)?
+    @ObservationIgnored var onTerminalPanelAdded:
+        ((TerminalPanel) -> Void)?
+    @ObservationIgnored var onTerminalPanelRemoved:
+        ((TerminalPanel) -> Void)?
+    // Mutated on the main actor; deinit removes tokens after all actor use ends.
+    @ObservationIgnored nonisolated(unsafe) var paneColorObserverTokens: [NSObjectProtocol] = []
+    @ObservationIgnored var pendingPaneColorRefreshes: Set<Int> = []
+    @ObservationIgnored let paneColorsSource: ((TerminalPanel) -> RemoteTmuxPaneColors?)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -78,8 +75,10 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
-    /// Display title for this mirrored tmux window; every inner surface/tab title
-    /// derives from this tmux window name, never from pane-border labels.
+    @ObservationIgnored var pendingControlPaneFocusRequest: PendingControlPaneFocusRequest?
+    @ObservationIgnored var pendingCreatedPaneFocusRequests: [PendingCreatedPaneFocusRequest] = []
+    /// Display title for this mirrored tmux window; inner surfaces use it unless
+    /// tmux reports a pane title that differs from both host defaults.
     private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
@@ -124,11 +123,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var paneIdByTabId: [TabID: Int] = [:]
     @ObservationIgnored var paneIndexByPaneId: [Int: Int] = [:]
     @ObservationIgnored var cwdByPaneId: [Int: String] = [:]
-    /// Panes whose panel this mirror just created and which have not yet had
-    /// key focus established. A member is consumed the first time it becomes the
-    /// active pane, so exactly one creation drives key focus — never a later
-    /// active-pane echo or a co-attached client's pane switch.
-    @ObservationIgnored private var panesAwaitingCreationFocus: Set<Int> = []
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
     @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
@@ -232,6 +226,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// connection on every reconcile so the view reads stored state, never
     /// the connection. Rendered on the strip above each pane.
     private(set) var paneHeaderLabels: [Int: String] = [:]
+    /// Raw pane-title metadata copied from the connection on every reconcile.
+    /// Only titles that differ from tmux's host defaults are projected onto tabs.
+    @ObservationIgnored var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] = [:]
 
     /// The render constants the view actually uses, updated ONLY on event
     /// paths (applied-resize reports, client-size pushes) and read by the
@@ -280,9 +277,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// of the output-parity check in `rearmIfOutputMissedPlan()` and of the
     /// chrome-parity probe in ``handleSizingSample``.
     @ObservationIgnored var lastPlannedOuterSizes: [Int: CGSize] = [:]
-    /// Output-parity re-arm state: how many bounded recovery passes this
-    /// input fixed point has spent, and which fixed point they belong to
-    /// (the counter resets when the completed inputs change). Tracked apart
+    /// Output-parity re-arm state: how many bounded recovery passes the current
+    /// mismatch has spent, and which input fixed point they belong to. The
+    /// counter resets when output parity returns or completed inputs change. Tracked apart
     /// from `lastCompletedSizingInputs` because a re-arm nils that field —
     /// folding the two together would reset the counter on every re-arm and
     /// unbound the loop.
@@ -308,7 +305,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
         onPaneSurfaceProgress: ((Int) -> Void)? = nil,
-        adoptedPanes: [AdoptedPane] = [],
+        paneColorsSource: ((TerminalPanel) -> RemoteTmuxPaneColors?)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -321,18 +318,19 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         self.controlPaneID = controlPaneID
         self.onControlSurfaceChanged = onControlSurfaceChanged
         self.onPaneSurfaceProgress = onPaneSurfaceProgress
+        self.paneColorsSource = paneColorsSource
         self.layout = layout
         let initialConfiguration = workspaceBonsplitController?.configuration
             ?? BonsplitConfiguration(appearance: appearance)
         self.bonsplitController = Self.makeController(configuration: initialConfiguration)
         configureBonsplitController()
         observeWorkspaceBonsplitConfiguration()
-        for pane in adoptedPanes where layout.paneIDsInOrder.contains(pane.tmuxPaneId) {
-            panelsByPaneId[pane.tmuxPaneId] = pane.panel
-            onControlSurfaceChanged?(pane.tmuxPaneId, pane.panel.id)
-            configurePanePanel(pane.panel, paneId: pane.tmuxPaneId, needsSeed: false)
-        }
+        observePaneColors()
         reconcile(layout: layout)
+    }
+
+    deinit {
+        paneColorObserverTokens.forEach(NotificationCenter.default.removeObserver)
     }
 
     /// All tmux pane ids currently in the window, depth-first left→right.
@@ -382,9 +380,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         for paneId in livePaneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
-            panesAwaitingCreationFocus.insert(paneId)
             onControlSurfaceChanged?(paneId, panel.id)
             configurePanePanel(panel, paneId: paneId, needsSeed: true)
+            onTerminalPanelAdded?(panel)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
             // Use the full panel close (detaches the portal from the registry
@@ -392,14 +390,19 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             // dereferenced by a later Core Animation commit.
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            removePaneColorsIfOwned(paneId: paneId)
             onControlSurfaceChanged?(paneId, nil)
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
             panelsByPaneId[paneId] = nil
+            onTerminalPanelRemoved?(panel)
             cwdByPaneId[paneId] = nil
-            panesAwaitingCreationFocus.remove(paneId)
+            cancelPendingCreatedPaneFocus(candidatePaneID: paneId)
+            if pendingControlPaneFocusRequest?.paneID == paneId {
+                cancelPendingControlPaneFocus()
+            }
             if activePaneId == paneId { activePaneId = nil }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
@@ -413,11 +416,26 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if layout != newLayout { layout = newLayout }
         let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
+        var paneTitleMetadata: [Int: RemoteTmuxPaneTitleMetadata] = [:]
+        paneTitleMetadata.reserveCapacity(livePaneIDsInOrder.count)
+        for paneId in livePaneIDsInOrder {
+            if let metadata = connection?.paneTitleMetadataByPane[paneId] {
+                paneTitleMetadata[paneId] = metadata
+            }
+        }
+        if paneTitleMetadata != paneTitleMetadataByPane {
+            paneTitleMetadataByPane = paneTitleMetadata
+        }
         let titleRowPlacement = connection?.windowTitleRowPlacements[windowId]
         if tmuxTitleRowPlacement != titleRowPlacement {
             tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        // The pane set just changed, and one pane versus several is what decides whether the
+        // per-pane tab bars say anything. Derived here rather than at split/close call sites
+        // because tmux can change the pane count without either — a pane exiting on its own,
+        // or a `kill-pane` from another client — and every one of those arrives as a layout.
+        updatePaneTabBarVisibilityForPaneCount()
         // Pin every pane's grid to the fresh assignment HERE, not only in
         // the sizing pass: the pass is visibility-gated, so a hidden
         // window's pins would otherwise freeze at its last-visible
@@ -440,13 +458,15 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         // first attach the rects reply emits the active-pane event BEFORE the
         // topology publish creates this mirror, so the event-driven path
         // (noteRemoteActivePane) can't have delivered it.
+        let remoteActive = connection?.activePaneByWindow[windowId]
         if activePaneId == nil,
-           let remoteActive = connection?.activePaneByWindow[windowId],
+           let remoteActive,
            livePaneIds.contains(remoteActive) {
             setActivePane(remoteActive, fromTmux: true)
         } else {
             seedActivePaneIfNeeded()
         }
+        reconcilePendingCreatedPaneFocus(authoritativePaneID: remoteActive)
         refreshPaneTitles()
         // Drive the ONE-TIME claim from topology publishes too, not just view
         // geometry and surface reports. Without this a hidden window can
@@ -467,17 +487,21 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         surface.onManualSizeApplied = { [weak self] in
             self?.handleSizingSample($0, paneId: paneId)
             self?.onPaneSurfaceProgress?(paneId)
+            self?.handlePaneSurfaceProgress()
         }
         surface.onRuntimeReady = { [weak self, weak surface] in
+            self?.reportPaneColors(paneId: paneId)
             if let sample = surface?.rawSizingSample() {
                 self?.handleSizingSample(sample, paneId: paneId)
             }
             self?.onPaneSurfaceProgress?(paneId)
+            self?.handlePaneSurfaceProgress()
         }
         surface.flushPendingManualSizeReportIfAttached()
         if let sample = surface.rawSizingSample() {
             handleSizingSample(sample, paneId: paneId)
         }
+        reportPaneColors(paneId: paneId)
         if needsSeed { connection?.seedPane(paneId: paneId) }
     }
 
@@ -490,35 +514,32 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// tmux truth, not local focus alone. Tolerates unknown panes: the
     /// matching layout may still be pending its rects publication.
     func noteRemoteActivePane(_ paneId: Int) {
+        projectActivePane(paneId)
+        resolvePendingControlPaneFocus(authoritativePaneID: paneId)
+        reconcilePendingCreatedPaneFocus(authoritativePaneID: paneId)
+    }
+
+    func projectActivePane(_ paneId: Int) {
         if activePaneId != paneId { activePaneId = paneId }
         focusBonsplitPane(forTmuxPane: paneId)
-        establishCreationKeyFocusIfPending(forPane: paneId)
     }
 
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
-        if activePaneId != paneId { activePaneId = paneId }
-        focusBonsplitPane(forTmuxPane: paneId)
         if !fromTmux {
+            if pendingControlPaneFocusRequest?.paneID == paneId {
+                projectActivePane(paneId)
+                return
+            }
+            cancelPendingControlPaneFocus(competingPaneID: paneId)
+            cancelPendingCreatedPaneFocus(competingPaneID: paneId)
+        }
+        projectActivePane(paneId)
+        if fromTmux {
+            resolvePendingControlPaneFocus(authoritativePaneID: paneId)
+        } else {
             connection?.send("select-pane -t @\(windowId).%\(paneId)")
         }
-        establishCreationKeyFocusIfPending(forPane: paneId)
-    }
-
-    /// Drives keyboard (first-responder) focus onto a pane the moment it first
-    /// becomes active after this mirror created it. A freshly split pane is born
-    /// active and visible inside an already-visible tab, so the surface's own
-    /// active/visibility false→true edges never fire the first-responder apply,
-    /// and — because a mirror pane panel is not a workspace Bonsplit tab — the
-    /// workspace focus path cannot resolve it either. The result is the reported
-    /// bug: the new pane is highlighted but takes no keys until clicked. Consume
-    /// the creation marker so this runs once per created pane, never on a later
-    /// active-pane echo or a co-attached client's pane switch.
-    private func establishCreationKeyFocusIfPending(forPane paneId: Int) {
-        guard panesAwaitingCreationFocus.contains(paneId),
-              let panel = panelsByPaneId[paneId] else { return }
-        panesAwaitingCreationFocus.remove(paneId)
-        onEstablishPaneKeyFocus?(paneId, panel)
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
@@ -561,6 +582,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func teardown() {
         guard !isTornDown else { return }
         isTornDown = true
+        for token in paneColorObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        paneColorObserverTokens.removeAll()
+        pendingPaneColorRefreshes.removeAll()
         isVisibleForSizing = false
         sizingPassScheduled = false
         lastCompletedSizingInputs = nil
@@ -569,6 +595,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         pendingContainerScale = nil
         pendingOversizedReading = nil
         dividerResizeInFlight = nil
+        cancelPendingControlPaneFocus()
+        pendingCreatedPaneFocusRequests.removeAll()
         let activeConnection = connection
         activeConnection?.removeWindowSizeClaim(windowId: windowId)
         workspaceBonsplitController = nil
@@ -576,66 +604,30 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         // which unsubscribes per removed pane. Without this, a control connection that
         // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
         for paneId in panelsByPaneId.keys {
+            removePaneColorsIfOwned(paneId: paneId)
             activeConnection?.unsubscribePanePath(paneId: paneId)
             activeConnection?.unsubscribePaneReflow(paneId: paneId)
             activeConnection?.unsubscribePaneHeader(paneId: paneId)
         }
-        for (paneId, panel) in panelsByPaneId {
+        let removedPanels = Array(panelsByPaneId)
+        for (paneId, panel) in removedPanels {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
             onControlSurfaceChanged?(paneId, nil)
             panel.close()
         }
         panelsByPaneId.removeAll()
+        for (_, panel) in removedPanels {
+            onTerminalPanelRemoved?(panel)
+        }
         tabIdByPaneId.removeAll()
         paneIdByPaneId.removeAll()
         paneIdByBonsplitPane.removeAll()
         paneIdByTabId.removeAll()
         cwdByPaneId.removeAll()
-        panesAwaitingCreationFocus.removeAll()
+        paneTitleMetadataByPane.removeAll()
         lastRenderedGrids.removeAll()
         activePaneId = nil
         connection = nil
-    }
-
-    /// Establishes key focus on a freshly created pane the way a click does —
-    /// `moveFocus()` makes the pane surface the window's first responder directly,
-    /// since a mirror pane surface is not a workspace Bonsplit tab and so cannot
-    /// travel the guarded `applyFirstResponderIfNeeded` path. Retries briefly
-    /// because the seam fires from the control-stream event that makes the pane
-    /// active, which can land before SwiftUI has mounted the pane's hosted view.
-    ///
-    /// Every attempt re-checks the mirror is still on screen and this pane is
-    /// still its active pane, so a pane switch (a click elsewhere, a co-attached
-    /// client, or a tab change) that lands within the retry window cancels the
-    /// pending focus rather than stealing it back. A mirror whose panes are not
-    /// hosted in a key window — a background tab, or any headless caller — never
-    /// moves the first responder at all.
-    static func establishPaneKeyFocusWhenMounted(
-        paneId: Int,
-        panel: TerminalPanel,
-        mirror: RemoteTmuxWindowMirror?,
-        attemptsRemaining: Int = 6
-    ) {
-        guard attemptsRemaining > 0,
-              let mirror,
-              !mirror.isTornDown,
-              mirror.activePaneId == paneId,
-              mirror.isEffectivelyVisibleForSizing else { return }
-        let hostedView = panel.hostedView
-        if hostedView.isVisibleInUI,
-           let window = hostedView.uiWindow,
-           window.isKeyWindow {
-            hostedView.moveFocus()
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak mirror] in
-            establishPaneKeyFocusWhenMounted(
-                paneId: paneId,
-                panel: panel,
-                mirror: mirror,
-                attemptsRemaining: attemptsRemaining - 1
-            )
-        }
     }
 }

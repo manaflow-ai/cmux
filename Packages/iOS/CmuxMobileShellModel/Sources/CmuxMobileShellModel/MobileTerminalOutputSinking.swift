@@ -22,29 +22,50 @@ public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
 }
 
 public struct MobileTerminalOutputChunk: Sendable {
+    public let receivedAtNanos: UInt64
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
     /// Source grid whose VT replay bytes are carried by this chunk.
     public let sourceRenderGridFrame: MobileTerminalRenderGridFrame?
+    /// Terminal byte high-water mark represented by this chunk, when known.
+    public let endSequence: UInt64?
     /// Whether nonempty output must pass render-grid verification before display.
     public let requiresVerifiedReplay: Bool
+    /// Whether this delivery represents terminal output for latency metrics.
+    public let latencyMetricsEligible: Bool
     /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
     public let terminalConfigTheme: TerminalTheme?
 
+    /// Creates one backpressured terminal-output chunk.
+    ///
+    /// - Parameters:
+    ///   - data: VT or PTY bytes to apply.
+    ///   - streamToken: Identity of the mounted output stream.
+    ///   - viewportPolicy: Optional viewport policy to apply with the bytes.
+    ///   - sourceRenderGridFrame: Source grid represented by the bytes.
+    ///   - endSequence: Terminal byte high-water mark represented by the chunk.
+    ///   - requiresVerifiedReplay: Whether the verified replay path is required.
+    ///   - terminalConfigTheme: Raw Ghostty defaults paired with the bytes.
     public init(
         data: Data,
         streamToken: UUID,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
         sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
+        endSequence: UInt64? = nil,
         requiresVerifiedReplay: Bool = false,
-        terminalConfigTheme: TerminalTheme? = nil
+        latencyMetricsEligible: Bool = true,
+        terminalConfigTheme: TerminalTheme? = nil,
+        receivedAtNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
+        self.receivedAtNanos = receivedAtNanos
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
         self.sourceRenderGridFrame = sourceRenderGridFrame
+        self.endSequence = endSequence
         self.requiresVerifiedReplay = requiresVerifiedReplay
+        self.latencyMetricsEligible = latencyMetricsEligible
         self.terminalConfigTheme = terminalConfigTheme
     }
 }
@@ -63,6 +84,9 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// - Parameter streamToken: The token carried by the yielded chunk.
     @MainActor func terminalOutputDidProcess(surfaceID: String, streamToken: UUID)
 
+    /// Records a confirmed GPU presentation for the current stream.
+    @MainActor func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64, latencyMetricsEligible: Bool)
+
     /// Abandon the current yielded chunk after the local renderer was reset.
     ///
     /// The sink must drop stale pending output, invalidate the old stream token,
@@ -74,4 +98,17 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// Request an authoritative replay without an abandoned in-flight chunk.
     /// - Parameter surfaceID: The terminal surface identifier.
     @MainActor func terminalOutputNeedsReplay(surfaceID: String)
+}
+
+extension MobileTerminalOutputSinking {
+    @MainActor public func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64) {
+        terminalOutputDidPresent(
+            surfaceID: surfaceID,
+            streamToken: streamToken,
+            inputSequence: inputSequence,
+            receivedAtNanos: receivedAtNanos,
+            latencyMetricsEligible: true
+        )
+    }
+    @MainActor public func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64, latencyMetricsEligible: Bool) {}
 }

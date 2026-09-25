@@ -11,7 +11,9 @@ import SwiftUI
 /// these values only (snapshot-boundary discipline in AppKit form).
 struct SidebarWorkspaceRowModel: Equatable {
     let workspaceId: UUID
-    let index: Int
+    // `var` only so `hasHeightEquivalentContent` can compare
+    // position-neutralized copies; the stored value stays authoritative.
+    var index: Int
     let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     let settings: SidebarTabItemSettingsSnapshot
     // `var` (not `let`) so the optimistic press/deselect paint can apply a
@@ -19,17 +21,23 @@ struct SidebarWorkspaceRowModel: Equatable {
     // authoritative and reconciles on the next configure.
     var isActive: Bool
     var isMultiSelected: Bool
+    /// Whether the workspace already has a user-owned custom title; baseline
+    /// input for the inline-rename commit policy (committing an unchanged
+    /// automatic title must not convert it into a user title, which would
+    /// freeze auto-naming).
+    let hasUserCustomTitle: Bool
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
-    let unreadCount: Int
-    let latestNotificationText: String?
+    var unreadCount: Int
+    var latestNotificationText: String?
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
     let isGrouped: Bool
-    let isFirstRow: Bool
+    // `var` only for `hasHeightEquivalentContent` (see `index`).
+    var isFirstRow: Bool
     /// Resolved modifier-hold hint text (nil hides the pill).
     let shortcutHintText: String?
     let showsShortcutHints: Bool
@@ -63,6 +71,24 @@ struct SidebarWorkspaceRowModel: Equatable {
     func scaled(_ base: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(base * fontScale, percent: globalFontMagnificationPercent)
     }
+
+    /// Equality over every field that can influence the measured row height.
+    /// `index` feeds only the accessibility label and `isFirstRow` only the
+    /// drop-indicator frame in the apply pass (`layoutContent(apply: true)`),
+    /// so neither changes what `layoutContent(apply: false)` returns. Closing
+    /// a workspace shifts both for every row below it; height caching keyed on
+    /// full equality would re-measure that whole tail and lose its entries
+    /// exactly when a stale-width fallback needs them.
+    func hasHeightEquivalentContent(to other: Self) -> Bool {
+        if self == other { return true }
+        var normalizedSelf = self
+        var normalizedOther = other
+        normalizedSelf.index = 0
+        normalizedOther.index = 0
+        normalizedSelf.isFirstRow = false
+        normalizedOther.isFirstRow = false
+        return normalizedSelf == normalizedOther
+    }
 }
 
 /// Behavior bundle for the row view; excluded from model equality.
@@ -70,6 +96,7 @@ struct SidebarWorkspaceRowModel: Equatable {
 struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
     let onOpenStatusURL: (URL) -> Void
+    let onOpenWorkspaceDescriptionURL: (URL) -> Void
     let onOpenPullRequest: (URL) -> Void
     let onOpenPort: (Int) -> Void
     let onToggleChecklistExpansion: () -> Void
@@ -103,33 +130,4 @@ struct SidebarAppKitRowActions {
     /// Opts this row's workspace out of the status feature (None).
     let hideTodoStatus: () -> Void
     let commitRename: (String) -> Void
-}
-
-
-/// Per-sidebar memo of workspace snapshots so container re-renders (divider
-/// drags re-render every frame) reuse cached snapshots; only pump events and
-/// settings changes recompute. Plain box, never observed.
-@MainActor
-final class SidebarRowSnapshotCache {
-    private var snapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
-    private var settingsFingerprint: SidebarTabItemSettingsSnapshot?
-
-    func resetIfSettingsChanged(_ settings: SidebarTabItemSettingsSnapshot) {
-        guard settingsFingerprint != settings else { return }
-        settingsFingerprint = settings
-        snapshotsById.removeAll(keepingCapacity: true)
-    }
-
-    func value(for id: UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot? {
-        snapshotsById[id]
-    }
-
-    func store(_ snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot, for id: UUID) {
-        snapshotsById[id] = snapshot
-    }
-
-    func prune(keeping ids: Set<UUID>) {
-        guard snapshotsById.count > ids.count else { return }
-        snapshotsById = snapshotsById.filter { ids.contains($0.key) }
-    }
 }

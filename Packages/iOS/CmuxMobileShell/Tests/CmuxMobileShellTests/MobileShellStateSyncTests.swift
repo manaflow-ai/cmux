@@ -18,7 +18,8 @@ private func workspaceRecord(
     customDescription: String? = nil,
     customDescriptionIsTruncated: Bool = false,
     customColorHex: String? = nil,
-    sortIndex: Int
+    sortIndex: Int,
+    surfaces: [WorkspaceSyncRecord.Surface]? = nil
 ) -> WorkspaceSyncRecord {
     WorkspaceSyncRecord(
         id: id,
@@ -36,7 +37,8 @@ private func workspaceRecord(
         lastActivityAt: 1.0,
         hasUnread: false,
         sortIndex: sortIndex,
-        terminals: []
+        terminals: [],
+        surfaces: surfaces
     )
 }
 
@@ -124,7 +126,13 @@ struct MobileShellStateSyncTests {
                         customDescription: "Release validation",
                         customDescriptionIsTruncated: true,
                         customColorHex: "#1565C0",
-                        sortIndex: 0
+                        sortIndex: 0,
+                        surfaces: [.init(
+                            surfaceID: "surface-alpha",
+                            kind: "future.canvas",
+                            title: "Canvas",
+                            filePath: "/tmp/canvas"
+                        )]
                     ),
                     workspaceRecord(id: UUID().uuidString, title: "synced-beta", sortIndex: 1),
                 ]
@@ -150,10 +158,15 @@ struct MobileShellStateSyncTests {
         #expect(customizedWorkspace.actionCapabilities.supportsWorkspaceMetadata)
         #expect(customizedWorkspace.actionCapabilities.supportsReadStateActions)
         #expect(customizedWorkspace.actionCapabilities.supportsCloseActions)
+        let projectedSurface = try #require(customizedWorkspace.surfaces.first)
+        #expect(projectedSurface.kind == .other("future.canvas"))
+        #expect(projectedSurface.filePath == "/tmp/canvas")
 
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.
         let listCallsBefore = await router.count(of: "mobile.workspace.list")
+        let legacyEventGenerationBefore =
+            store.workspaceListEventGeneration
         let transport = try #require(box.get())
         await transport.deliver(try workspaceUpdatedEventFrame())
         // Deliver a delta behind it; its application proves the updated event
@@ -191,6 +204,11 @@ struct MobileShellStateSyncTests {
         #expect(
             listCallsAfter == listCallsBefore,
             "workspace.updated must not schedule a full-list refetch while state sync is active"
+        )
+        #expect(
+            store.workspaceListEventGeneration
+                == legacyEventGenerationBefore,
+            "state-sync events must not impersonate pending legacy refresh work"
         )
     }
 
