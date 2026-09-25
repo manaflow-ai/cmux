@@ -507,7 +507,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
     func testPressAndHoldSettingPreservesOptionModifiedRepeats() throws {
         let view = GhosttyNSView(frame: .zero)
-        let event = try XCTUnwrap(NSEvent.keyEvent(
+        let originalEvent = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.option],
@@ -515,6 +515,18 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             windowNumber: 0,
             context: nil,
             characters: "é",
+            charactersIgnoringModifiers: "e",
+            isARepeat: true,
+            keyCode: 14
+        ))
+        let translatedEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: originalEvent.timestamp,
+            windowNumber: 0,
+            context: nil,
+            characters: "e",
             charactersIgnoringModifiers: "e",
             isARepeat: true,
             keyCode: 14
@@ -527,9 +539,9 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 markedTextAfter: "",
                 markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
                 accumulatedText: [],
-                event: event,
+                event: translatedEvent,
                 suppressPressAndHoldKeyRepeat: true,
-                pressAndHoldEvent: event
+                pressAndHoldEvent: originalEvent
             )
         )
     }
