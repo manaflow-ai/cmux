@@ -47,6 +47,44 @@ struct FoundationRemoteReverseRelayProcessTests {
         #expect(process.terminationStatus == 255)
     }
 
+    @Test("Termination preserves the raw SSH stderr tail for diagnostics")
+    func terminationPreservesRawStderrTail() async throws {
+        let process = Process()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            """
+            printf 'ssh: connect to host example.test port 22: Operation timed out\\n' >&2
+            printf 'mux_client_request_session: read from master failed: Broken pipe\\n' >&2
+            printf 'Error: ssh-pty-attach: remote PTY operation failed\\n' >&2
+            exit 255
+            """,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+        let relayProcess = FoundationRemoteReverseRelayProcess(
+            process: process,
+            stderrPipe: stderrPipe
+        )
+        let (details, continuation) = AsyncStream<String>.makeStream()
+
+        try process.run()
+        relayProcess.captureTermination { detail in
+            if let detail {
+                continuation.yield(detail)
+            }
+            continuation.finish()
+        }
+
+        var iterator = details.makeAsyncIterator()
+        let detail = try #require(await iterator.next())
+        #expect(detail.contains("ssh: connect to host example.test"))
+        #expect(detail.contains("mux_client_request_session"))
+        #expect(detail.contains("Error: ssh-pty-attach: remote PTY operation failed"))
+    }
+
     @Test("Termination bounds draining inherited stderr writers")
     func terminationBoundsInheritedStderr() async throws {
         let process = Process()
