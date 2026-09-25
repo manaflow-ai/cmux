@@ -2469,6 +2469,7 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
+    template_completion_failures: AtomicU64,
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
@@ -2867,6 +2868,12 @@ impl Mux {
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
+            template_completion_failures: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES")
                     .ok()
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
@@ -3484,6 +3491,10 @@ impl Mux {
         if !is_template {
             return Ok(());
         }
+        anyhow::ensure!(
+            !self.consume_template_completion_failure(),
+            "injected template completion failure"
+        );
         self.commit_ordinary_full_resource_projection(
             "terminal.adopt-template",
             serde_json::json!({}),
@@ -3763,6 +3774,13 @@ impl Mux {
         state.insert_pane(pane);
         state.rebuild_resource_indexes();
         Ok(())
+    }
+
+    #[cfg(unix)]
+    fn consume_template_completion_failure(&self) -> bool {
+        self.template_completion_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .is_ok()
     }
 
     #[cfg(unix)]

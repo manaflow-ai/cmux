@@ -48,6 +48,7 @@ struct RecoveryHarness {
     host_ready_delay_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
     adoption_insert_failures: Option<u64>,
+    template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
 }
 
@@ -65,6 +66,7 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            template_completion_failures: None,
             adopt_template_terminal: false,
             dir,
         };
@@ -124,6 +126,7 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            template_completion_failures: None,
             adopt_template_terminal: false,
             dir,
         }
@@ -154,6 +157,9 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.adoption_insert_failures {
             command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
+        }
+        if let Some(failures) = self.template_completion_failures {
+            command.env("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES", failures.to_string());
         }
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
@@ -4706,23 +4712,13 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     wait_for_no_host_records(&harness.host_root());
 }
 
-#[test]
-fn template_binding_is_published_when_adoption_succeeds_on_retry() {
-    let mut harness = RecoveryHarness::start("template-adopt-retry");
-    let parked = park_template_host(&mut harness);
-    // The first topology insert fails, so the host is adopted by the
-    // asynchronous retry instead of the startup pass. That path must still
-    // commit the placement and tell the template shell its new identity.
-    harness.adoption_insert_failures = Some(1);
-    harness.adopt_template_terminal = true;
-    harness.restart();
+/// Wait for the template binding, then check that it names the one listed
+/// terminal and that the warm host was adopted, not replaced.
+fn assert_template_bound_and_listed(harness: &RecoveryHarness, parked: &ParkedTemplate) {
     let bound_path = harness.dir.join("bound");
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     while !bound_path.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "the retried template adoption never published its binding"
-        );
+        assert!(Instant::now() < deadline, "the template adoption never published its binding");
         std::thread::sleep(Duration::from_millis(20));
     }
     let bound = fs::read_to_string(&bound_path).unwrap();
@@ -4733,7 +4729,7 @@ fn template_binding_is_published_when_adoption_succeeds_on_retry() {
         .to_string();
     let listed = resource_request(
         &harness.socket,
-        "template-retry-list",
+        "template-bound-list",
         "terminal.list",
         serde_json::json!({"machine":"current","session":"current"}),
         None,
@@ -4748,4 +4744,41 @@ fn template_binding_is_published_when_adoption_succeeds_on_retry() {
     assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, parked.host_pid);
     let spec = registry_launch_spec(&harness.state, &parked.terminal_id);
     assert_eq!(spec, serde_json::json!({"template_terminal": true}), "{spec}");
+}
+
+#[test]
+fn template_binding_is_published_when_adoption_succeeds_on_retry() {
+    let mut harness = RecoveryHarness::start("template-adopt-retry");
+    let parked = park_template_host(&mut harness);
+    // The first topology insert fails, so the host is adopted by the
+    // asynchronous retry instead of the startup pass. That path must still
+    // commit the placement and tell the template shell its new identity.
+    harness.adoption_insert_failures = Some(1);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+}
+
+#[test]
+fn template_completion_failure_at_startup_is_retried_without_aborting_the_daemon() {
+    let mut harness = RecoveryHarness::start("template-complete-startup");
+    let parked = park_template_host(&mut harness);
+    // Publishing the adopted template fails twice on the startup pass. The
+    // daemon must still start, and the completion must be retried until the
+    // placement is committed and the binding written.
+    harness.template_completion_failures = Some(2);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+}
+
+#[test]
+fn template_completion_failure_after_adoption_retry_is_retried() {
+    let mut harness = RecoveryHarness::start("template-complete-retry");
+    let parked = park_template_host(&mut harness);
+    harness.adoption_insert_failures = Some(1);
+    harness.template_completion_failures = Some(2);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
 }
