@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Settings"
+  short_description: "Inspect, edit, validate, and reload cmux.json settings."
+  default_prompt: "Use this skill to change cmux settings safely: map user-facing preferences to cmux.json paths, edit with the bundled helper, validate recognized keys, and rely on cmux's live config reload."

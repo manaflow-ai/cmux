@@ -1,10 +1,11 @@
 import Darwin
+import CmuxFoundation
+import CmuxTerminal
 import Foundation
-
+import CmuxSettings
 enum WorkspaceTitlebarSettings {
     static let showTitlebarKey = "workspaceTitlebarVisible"
     static let defaultShowTitlebar = true
-
     static func isVisible(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showTitlebarKey) == nil {
             return defaultShowTitlebar
@@ -14,7 +15,6 @@ enum WorkspaceTitlebarSettings {
 }
 enum WorkspacePresentationModeSettings {
     static let modeKey = "workspacePresentationMode"
-
     enum Mode: String {
         case standard
         case minimal
@@ -109,6 +109,113 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalTextBoxInputSettings {
+    static let showOnNewTerminalsKey = "terminal.showTextBoxOnNewTerminals"
+    static let focusOnNewTerminalsKey = "terminal.focusTextBoxOnNewTerminals"
+    static let defaultShowOnNewTerminals = false
+    static let defaultFocusOnNewTerminals = false
+    static let maxLinesKey = "terminal.textBoxMaxLines"
+    static let defaultMaxLines = 10
+    static let minimumMaxLines = 1
+    static let maximumMaxLines = 20
+    static let submitActionsKey = "terminal.textBoxSubmitActions"
+    static let defaultSubmitActionKey = "terminal.textBoxDefaultSubmitAction"
+    static let lastSelectedSubmitActionKey = "terminal.textBoxLastSelectedSubmitAction"
+    static let lastSelectedSubmitActionDefaultKey = "terminal.textBoxLastSelectedSubmitActionDefault"
+    static let defaultSubmitActionID = TextBoxSubmitAction.textEntryAction.id
+
+    static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showOnNewTerminalsKey) == nil {
+            return defaultShowOnNewTerminals
+        }
+        return defaults.bool(forKey: showOnNewTerminalsKey)
+    }
+
+    static func focusOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: focusOnNewTerminalsKey) == nil {
+            return defaultFocusOnNewTerminals
+        }
+        return defaults.bool(forKey: focusOnNewTerminalsKey)
+    }
+
+    static func resolvedMaxLines(_ value: Int) -> Int {
+        min(max(value, minimumMaxLines), maximumMaxLines)
+    }
+
+    static func maxLines(defaults: UserDefaults = .standard) -> Int {
+        guard let value = defaults.object(forKey: maxLinesKey) as? Int else {
+            return defaultMaxLines
+        }
+        return resolvedMaxLines(value)
+    }
+
+}
+
+enum TerminalCopyOnSelectSettings {
+    static let copyOnSelectKey = "terminal.copyOnSelect"
+    static let defaultCopyOnSelect = false
+    static let didChangeNotification = Notification.Name("cmux.terminalCopyOnSelectSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        storedValue(defaults: defaults) ?? defaultCopyOnSelect
+    }
+
+    static func storedValue(defaults: UserDefaults = .standard) -> Bool? {
+        defaults.object(forKey: copyOnSelectKey) as? Bool
+    }
+    /// Returns the Ghostty `copy-on-select` value; `emitsFalse: false` lets Ghostty config/defaults remain authoritative.
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
+        guard let enabled = storedValue(defaults: defaults) else { return nil }
+        return enabled ? "clipboard" : (emitsFalse ? "false" : nil)
+    }
+
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
+        guard let value = ghosttyCopyOnSelectValue(defaults: defaults, emitsFalse: emitsFalse) else { return nil }
+        return "copy-on-select = \(value)"
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: copyOnSelectKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: copyOnSelectKey)
+        let didChange = wasEnabled != isEnabled(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum TerminalManagedGhosttySettings {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
+        let lines = [
+            "term = \(TerminalSurface.managedTerminalType)",
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse),
+        ].compactMap { $0 }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true
@@ -152,12 +259,234 @@ enum AgentSessionAutoResumeSettings {
     }
 }
 
+enum AgentHibernationSettings {
+    struct Values: Equatable, Sendable {
+        var enabled: Bool
+        var idleSeconds: TimeInterval
+        var maxLiveTerminals: Int
+        var confirmationSeconds: TimeInterval
+    }
+
+    static let enabledKey = "terminal.agentHibernation.enabled"
+    static let idleSecondsKey = "terminal.agentHibernation.idleSeconds"
+    static let maxLiveTerminalsKey = "terminal.agentHibernation.maxLiveTerminals"
+    static let confirmationSecondsKey = "terminal.agentHibernation.confirmationSeconds"
+
+    static let defaultEnabled = false
+    // Routine hibernation is opt-in. Once enabled, reclaim idle background agents quickly:
+    // the maxLiveTerminals cap and the confirmationSeconds settle window keep this safe.
+    static let defaultIdleSeconds: TimeInterval = 5
+    static let defaultMaxLiveTerminals = 12
+    static let defaultConfirmationSeconds: TimeInterval = 60
+    static let didChangeNotification = Notification.Name("cmux.agentHibernationSettingsDidChange")
+
+    static func values(defaults: UserDefaults = .standard) -> Values {
+        Values(
+            enabled: isEnabled(defaults: defaults),
+            idleSeconds: idleSeconds(defaults: defaults),
+            maxLiveTerminals: maxLiveTerminals(defaults: defaults),
+            confirmationSeconds: confirmationSeconds(defaults: defaults)
+        )
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func idleSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: idleSecondsKey) != nil else { return defaultIdleSeconds }
+        return sanitizedIdleSeconds(defaults.double(forKey: idleSecondsKey))
+    }
+
+    static func maxLiveTerminals(defaults: UserDefaults = .standard) -> Int {
+        guard defaults.object(forKey: maxLiveTerminalsKey) != nil else { return defaultMaxLiveTerminals }
+        return sanitizedMaxLiveTerminals(defaults.integer(forKey: maxLiveTerminalsKey))
+    }
+
+    static func confirmationSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: confirmationSecondsKey) != nil else { return defaultConfirmationSeconds }
+        return sanitizedConfirmationSeconds(defaults.double(forKey: confirmationSecondsKey))
+    }
+
+    static func sanitizedIdleSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultIdleSeconds }
+        return min(max(value.rounded(), 5), 7 * 24 * 60 * 60)
+    }
+
+    static func sanitizedMaxLiveTerminals(_ value: Int) -> Int {
+        min(max(value, 1), 256)
+    }
+
+    static func sanitizedConfirmationSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultConfirmationSeconds }
+        return min(max(value.rounded(), 5), 60 * 60)
+    }
+
+    static func setValues(
+        enabled: Bool? = nil,
+        idleSeconds: TimeInterval? = nil,
+        maxLiveTerminals: Int? = nil,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let oldValues = values(defaults: defaults)
+        if let enabled {
+            defaults.set(enabled, forKey: enabledKey)
+        }
+        if let idleSeconds {
+            defaults.set(sanitizedIdleSeconds(idleSeconds), forKey: idleSecondsKey)
+        }
+        if let maxLiveTerminals {
+            defaults.set(sanitizedMaxLiveTerminals(maxLiveTerminals), forKey: maxLiveTerminalsKey)
+        }
+        if oldValues != values(defaults: defaults) {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let oldValues = values(defaults: defaults)
+        defaults.removeObject(forKey: enabledKey)
+        defaults.removeObject(forKey: idleSecondsKey)
+        defaults.removeObject(forKey: maxLiveTerminalsKey)
+        defaults.removeObject(forKey: confirmationSecondsKey)
+        let didChange = oldValues != values(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+/// Settings for non-destructive offscreen renderer reclamation. Unlike
+/// routine `AgentHibernationSettings` (which kills a resumable agent's PTY and is
+/// opt-in), this only releases an offscreen terminal's GPU renderer (Metal swap chain /
+/// IOSurface) while keeping its PTY and terminal state alive, rebuilding it on
+/// re-show. It is therefore safe to default ON. The cap keeps recently-used tabs
+/// warm so switching stays instant; the idle window avoids reclaiming a tab the
+/// user just left.
+enum RendererRealizationSettings {
+    struct Values: Equatable, Sendable {
+        var enabled: Bool
+        var idleSeconds: TimeInterval
+        var maxWarmRenderers: Int
+    }
+
+    static let enabledKey = "terminal.rendererRealization.enabled"
+    static let idleSecondsKey = "terminal.rendererRealization.idleSeconds"
+    static let maxWarmRenderersKey = "terminal.rendererRealization.maxWarmRenderers"
+
+    private static let catalog = SettingCatalog().terminal
+    static let defaultEnabled = catalog.rendererRealizationEnabled.defaultValue
+    static let defaultIdleSeconds = catalog.rendererRealizationIdleSeconds.defaultValue
+    static let defaultMaxWarmRenderers = catalog.rendererRealizationMaxWarmRenderers.defaultValue
+    static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
+
+    static func values(defaults: UserDefaults = .standard) -> Values {
+        Values(
+            enabled: isEnabled(defaults: defaults),
+            idleSeconds: idleSeconds(defaults: defaults),
+            maxWarmRenderers: maxWarmRenderers(defaults: defaults)
+        )
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func idleSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: idleSecondsKey) != nil else { return defaultIdleSeconds }
+        return sanitizedIdleSeconds(defaults.double(forKey: idleSecondsKey))
+    }
+
+    static func maxWarmRenderers(defaults: UserDefaults = .standard) -> Int {
+        guard defaults.object(forKey: maxWarmRenderersKey) != nil else { return defaultMaxWarmRenderers }
+        return sanitizedMaxWarmRenderers(defaults.integer(forKey: maxWarmRenderersKey))
+    }
+
+    static func sanitizedIdleSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultIdleSeconds }
+        return min(max(value.rounded(), 5), 7 * 24 * 60 * 60)
+    }
+
+    static func sanitizedMaxWarmRenderers(_ value: Int) -> Int {
+        min(max(value, 1), 256)
+    }
+
+    static func setValues(
+        enabled: Bool? = nil,
+        idleSeconds: TimeInterval? = nil,
+        maxWarmRenderers: Int? = nil,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let oldValues = values(defaults: defaults)
+        if let enabled {
+            defaults.set(enabled, forKey: enabledKey)
+        }
+        if let idleSeconds {
+            defaults.set(sanitizedIdleSeconds(idleSeconds), forKey: idleSecondsKey)
+        }
+        if let maxWarmRenderers {
+            defaults.set(sanitizedMaxWarmRenderers(maxWarmRenderers), forKey: maxWarmRenderersKey)
+        }
+        if oldValues != values(defaults: defaults) {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let oldValues = values(defaults: defaults)
+        defaults.removeObject(forKey: enabledKey)
+        defaults.removeObject(forKey: idleSecondsKey)
+        defaults.removeObject(forKey: maxWarmRenderersKey)
+        let didChange = oldValues != values(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum AgentHibernationTrackingGate {
+    private static let gate = AtomicBooleanGate(false)
+
+    static func isEnabled() -> Bool {
+        gate.loadRelaxed()
+    }
+
+    static func setEnabled(_ nextEnabled: Bool) {
+        gate.storeRelease(nextEnabled)
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
+    static let cloudMachinesEnabledKey = "cloud.beta.machines.enabled"
 
     static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
+    static let defaultCloudMachinesEnabled = BetaFeaturesCatalogSection().cloudMachines.defaultValue
+    static let didChangeNotification = Notification.Name("rightSidebarBetaFeatureDidChange")
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
@@ -167,6 +496,11 @@ enum RightSidebarBetaFeatureSettings {
     nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }
         return defaults.bool(forKey: dockEnabledKey)
+    }
+
+    nonisolated static func isCloudMachinesEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: cloudMachinesEnabledKey) != nil else { return defaultCloudMachinesEnabled }
+        return defaults.bool(forKey: cloudMachinesEnabledKey)
     }
 }
 

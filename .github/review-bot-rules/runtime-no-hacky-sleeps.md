@@ -1,6 +1,8 @@
 # Runtime No Hacky Sleeps
 
-Scope: TypeScript, JavaScript, shell, and non-Swift runtime scripts. Swift timing and blocking primitives are covered by `swift-blocking-runtime.md`.
+Scope: TypeScript, JavaScript, shell, and non-Swift build/runtime scripts. Swift timing and blocking primitives are covered by `swift-blocking-runtime.md`.
+
+GitHub Actions workflow and action YAML is intentionally out of scope. Fixed waits there are CI orchestration unless the PR also changes a covered runtime script that uses the wait as product synchronization.
 
 Flag fixed delays used as synchronization in production application or runtime code.
 
@@ -13,6 +15,7 @@ Report a failure when the diff introduces or materially expands any of these in 
 Allowed cases:
 
 - Deterministic sleeps in tests or explicit test-only scaffolding.
+- GitHub Actions workflow or action YAML sleeps used only for CI orchestration.
 - User-visible animation or progress timing where the timer is purely presentation and not coordination.
 - Production retry or timeout logic implemented through a dedicated cancellation-aware abstraction with bounded deadlines and tests, where the delay is part of the product behavior rather than a race repair.
 - Existing delay code that the PR does not introduce or worsen.

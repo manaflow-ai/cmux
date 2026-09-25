@@ -1,5 +1,6 @@
 import Darwin
-import XCTest
+import Testing
+import Foundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,8 +8,9 @@ import XCTest
 @testable import cmux
 #endif
 
-final class CmuxTopProcessCPUTests: XCTestCase {
-    func testOverflowSentinelReportsZeroCPUPercent() {
+@Suite(.serialized)
+struct CmuxTopProcessCPUTests {
+    @Test func testOverflowSentinelReportsZeroCPUPercent() {
         let previous = CmuxTopProcessCPUSample(
             totalTimeTicks: 100,
             sampledAtNanoseconds: 1_000
@@ -18,10 +20,149 @@ final class CmuxTopProcessCPUTests: XCTestCase {
             sampledAtNanoseconds: 2_000
         )
 
-        XCTAssertEqual(CmuxTopProcessSnapshot.cpuPercent(current: current, previous: previous), 0)
+        #expect((CmuxTopProcessSnapshot.cpuPercent(current: current, previous: previous)) == (0))
     }
 
-    func testBusyChildProcessReportsNonZeroCPUPercent() throws {
+    @Test func testCPUPercentagesHoldPreviousValueUntilFixedWindowElapses() {
+        let key = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_001,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let activeKeys: Set<CmuxTopProcessScopeCacheKey> = [key]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000,
+                    sampledAtNanoseconds: 1_000_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 1_000_000_000
+        )
+
+        let rapidPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000_001_000,
+                    sampledAtNanoseconds: 1_100_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 1_100_000_000
+        )
+
+        #expect((rapidPercentages[key]) == (0))
+
+        let fixedWindowPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000_002_000,
+                    sampledAtNanoseconds: 2_000_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 2_000_000_000
+        )
+
+        #expect((fixedWindowPercentages[key] ?? 0) > (0))
+    }
+
+    @Test func testExitedChildCPUPercentCarriesIntoActiveParentForOneSample() {
+        let parentKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_100,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let childKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_101,
+            startSeconds: 1_000,
+            startMicroseconds: 1
+        )
+        let activeParentAndChild: Set<CmuxTopProcessScopeCacheKey> = [parentKey, childKey]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 10_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 10_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 10_000_000_000
+        )
+        let activePercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 11_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000_001_000, sampledAtNanoseconds: 11_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 11_000_000_000
+        )
+
+        #expect((activePercentages[childKey] ?? 0) > (0))
+
+        let parentOnlyPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 12_000_000_000),
+            ],
+            activeKeys: [parentKey],
+            sampledAtNanoseconds: 12_000_000_000
+        )
+
+        #expect((parentOnlyPercentages[parentKey] ?? 0) > (0))
+        #expect((parentOnlyPercentages[childKey]) == nil)
+    }
+
+    @Test func testExitedChildCPUPercentDoesNotInflateHeldParentSample() {
+        let parentKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_200,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let childKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_201,
+            startSeconds: 1_000,
+            startMicroseconds: 1
+        )
+        let activeParentAndChild: Set<CmuxTopProcessScopeCacheKey> = [parentKey, childKey]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 20_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 20_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 20_000_000_000
+        )
+        let activePercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 21_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000_001_000, sampledAtNanoseconds: 21_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 21_000_000_000
+        )
+
+        #expect((activePercentages[parentKey]) == (0))
+        #expect((activePercentages[childKey] ?? 0) > (0))
+
+        let heldParentOnlyPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 21_100_000_000),
+            ],
+            activeKeys: [parentKey],
+            sampledAtNanoseconds: 21_100_000_000
+        )
+
+        #expect((heldParentOnlyPercentages[parentKey]) == (0))
+        #expect((heldParentOnlyPercentages[childKey]) == nil)
+    }
+
+    @Test func testBusyChildProcessReportsNonZeroCPUPercent() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "while :; do :; done"]
@@ -33,19 +174,19 @@ final class CmuxTopProcessCPUTests: XCTestCase {
         defer { terminate(process) }
 
         let pid = Int(process.processIdentifier)
-        _ = CmuxTopProcessSnapshot.capture(includeProcessDetails: false).summary(for: [pid])
+        _ = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false).summary(for: [pid])
 
-        let observedCPU = waitForCPUPercent(pid: pid, timeout: 5)
+        let observedCPU = await waitForCPUPercent(pid: pid, timeout: 5)
 
-        XCTAssertGreaterThan(observedCPU, 0.1)
+        #expect((observedCPU) > (0.1))
     }
 
-    private func waitForCPUPercent(pid: Int, timeout: TimeInterval) -> Double {
+    private func waitForCPUPercent(pid: Int, timeout: TimeInterval) async -> Double {
         let deadline = Date.now.addingTimeInterval(timeout)
         var maxCPU = 0.0
 
         while Date.now < deadline {
-            let cpu = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+            let cpu = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
                 .summary(for: [pid])
                 .cpuPercent
             maxCPU = max(maxCPU, cpu)
@@ -53,7 +194,8 @@ final class CmuxTopProcessCPUTests: XCTestCase {
                 return cpu
             }
 
-            _ = RunLoop.current.run(mode: .default, before: Date.now.addingTimeInterval(0.2))
+            // A real sampling interval is required for a measurable CPU delta.
+            try? await ContinuousClock().sleep(for: .milliseconds(200))
         }
 
         return maxCPU

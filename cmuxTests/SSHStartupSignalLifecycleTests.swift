@@ -1,4 +1,5 @@
 import XCTest
+import CmuxFoundation
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
@@ -19,17 +20,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         try writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
-            "kill -\"${CMUX_TEST_SIGNAL:?}\" \"$PPID\"",
+            "kill -\"${CMUX_TEST_SIGNAL:?}\" \"${CMUX_SSH_STARTUP_PID:-$PPID}\"",
             "sleep 0.1",
             "exit 0",
         ])
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
-        let startupCommand = try generatedSSHStartupCommand()
-        let expectedStatuses: [String: Int32] = ["HUP": 129, "INT": 130, "TERM": 143]
+        let expectedStatuses: [String: Int32] = [
+            "HUP": 129,
+            "INT": 130,
+            "TERM": 143,
+        ]
         for signal in ["HUP", "INT", "TERM"] {
             try? fileManager.removeItem(at: logFile)
+            let startupCommand = try generatedVMSSHInitialStartupCommand(
+                replacingSystemSSHWith: fakeSSH
+            )
 
             var environment = ProcessInfo.processInfo.environment
             environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -49,11 +56,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             XCTAssertFalse(result.timedOut, result.stderr)
             let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
-            XCTAssertEqual(
-                result.status,
-                expectedStatus,
-                "Pane-close \(signal) should exit through cmux_ssh_signal_exit with the signal-derived status; stderr: \(result.stderr)"
-            )
+            XCTAssertEqual(result.status, expectedStatus, result.stderr)
             let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
             let sessionEndCalls = recordedCalls
                 .split(separator: "\n")
@@ -65,7 +68,1280 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
-    private func generatedSSHStartupCommand() throws -> String {
+    func testSSHPaneCloseSignalDoesNotTerminateWrappedSSHChild() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-pane-close-child-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let childSignalLog = root.appendingPathComponent("ssh-child-signal.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "trap 'printf \"%s\\n\" child-hup >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"; exit 0' HUP",
+            "trap 'printf \"%s\\n\" child-int >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"; exit 0' INT",
+            "trap 'printf \"%s\\n\" child-term >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"; exit 0' TERM",
+            "printf '%s\\n' child-started >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"",
+            "kill -\"${CMUX_TEST_SIGNAL:?}\" \"${CMUX_SSH_STARTUP_PID:-$PPID}\"",
+            "sleep 0.2",
+            "printf '%s\\n' child-completed >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let expectedStatuses: [String: Int32] = [
+            "HUP": 129,
+            "INT": 130,
+            "TERM": 143,
+        ]
+        for signal in ["HUP", "INT", "TERM"] {
+            try? fileManager.removeItem(at: logFile)
+            try? fileManager.removeItem(at: childSignalLog)
+
+            let startupCommand = try generatedVMSSHInitialStartupCommand(
+                replacingSystemSSHWith: fakeSSH
+            )
+            var environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+            environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+            environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+            environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+            environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+            environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+            environment["CMUX_TEST_CHILD_SIGNAL_LOG"] = childSignalLog.path
+            environment["CMUX_TEST_SIGNAL"] = signal
+
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", startupCommand],
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
+            XCTAssertEqual(result.status, expectedStatus, result.stderr)
+            XCTAssertTrue(
+                waitForSSHSignalLifecycleLog(childSignalLog) { contents in
+                    contents.contains("child-completed") ||
+                    contents.contains("child-hup") ||
+                    contents.contains("child-int") ||
+                    contents.contains("child-term")
+                },
+                "Timed out waiting for fake SSH child to record completion or signal for \(signal)"
+            )
+            let childSignalLogContents = (try? String(contentsOf: childSignalLog, encoding: .utf8)) ?? ""
+            XCTAssertTrue(childSignalLogContents.contains("child-started"), childSignalLogContents)
+            XCTAssertFalse(
+                childSignalLogContents.contains("child-hup") ||
+                childSignalLogContents.contains("child-int") ||
+                childSignalLogContents.contains("child-term"),
+                "Pane-close \(signal) should let the terminal/PTY teardown own the child process; explicitly signaling the SSH child can kill the shared control-master path and sibling panes. Log: \(childSignalLogContents)"
+            )
+            let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+            let sessionEndCalls = recordedCalls
+                .split(separator: "\n")
+                .filter { $0.contains("ssh-session-end") }
+            XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
+        }
+    }
+
+    func testSSHStartupRetriesTransientSSHExitBeforeReportingSessionEnd() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-reconnect-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "if [ \"$count\" -eq 1 ]; then exit 255; fi",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\""])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(executablePath: "/bin/sh", arguments: ["-c", startupCommand], environment: environment, timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        // The regular `cmux ssh` bootstrap path runs one SSH command to install
+        // the remote bootstrap and another to open the session. A transient
+        // install-channel failure therefore yields three raw SSH invocations:
+        // failed install, retried install, successful session.
+        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n")
+        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        let sessionEndCalls = recordedCalls.split(separator: "\n").filter { $0.contains("ssh-session-end") }
+        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        let launchingCalls = recordedCalls
+            .split(separator: "\n")
+            .filter { $0.contains("rpc workspace.remote.terminal_session_launching") }
+        XCTAssertEqual(
+            launchingCalls.count,
+            2,
+            "Each wrapper attempt must synchronously publish a distinct launching generation before it can report connected; recorded: \(recordedCalls)"
+        )
+        let attemptIDs = launchingCalls.compactMap { call -> String? in
+            guard let marker = call.range(of: "\"attempt_id\":\"") else { return nil }
+            let suffix = call[marker.upperBound...]
+            return suffix.split(separator: "\"", maxSplits: 1).first.map(String.init)
+        }
+        XCTAssertEqual(Set(attemptIDs).count, 2, recordedCalls)
+    }
+
+    func testSSHStartupDoesNotLaunchWhenAttemptRegistrationNeverSucceeds() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-attempt-registration-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let cliLog = root.appendingPathComponent("cmux.log")
+        let sshLog = root.appendingPathComponent("ssh.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_CLI_LOG}\"",
+            "case \"$*\" in",
+            "  *'rpc workspace.remote.terminal_session_launching '*) exit 1 ;;",
+            "  *) exit 0 ;;",
+            "esac",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SSH_LOG}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_CLI_LOG"] = cliLog.path
+        environment["CMUX_TEST_SSH_LOG"] = sshLog.path
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        let cliCalls = (try? String(contentsOf: cliLog, encoding: .utf8)) ?? ""
+        XCTAssertGreaterThan(
+            cliCalls
+                .split(separator: "\n")
+                .filter {
+                    $0.contains("rpc workspace.remote.terminal_session_launching")
+                }
+                .count,
+            1,
+            "Attempt registration should be retried before the wrapper gives up: \(cliCalls)"
+        )
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: sshLog.path),
+            "SSH must not start with an attempt ID that the app never registered"
+        )
+    }
+
+    func testSSHStartupDoesNotLaunchWhenSignaledDuringAttemptRegistration() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-registration-signal-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let cliLog = root.appendingPathComponent("cmux.log")
+        let sshLog = root.appendingPathComponent("ssh.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_CLI_LOG}\"",
+            "case \"$*\" in",
+            "  *'rpc workspace.remote.terminal_session_launching '*)",
+            "    kill -TERM \"$PPID\"",
+            "    exit 0",
+            "    ;;",
+            "esac",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' ssh-started >> \"${CMUX_TEST_SSH_LOG}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_CLI_LOG"] = cliLog.path
+        environment["CMUX_TEST_SSH_LOG"] = sshLog.path
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 143, result.stderr)
+        XCTAssertFalse(
+            waitForSSHSignalLifecycleLog(sshLog) {
+                $0.contains("ssh-started")
+            },
+            "A pane-close signal accepted during registration must stop before SSH starts"
+        )
+    }
+
+    func testSSHBootstrapWithoutTTYStillReportsTerminalReadiness() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-no-tty-readiness-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let remoteBin = home.appendingPathComponent(
+            ".cmux/bin",
+            isDirectory: true
+        )
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let remoteCLI = remoteBin.appendingPathComponent("cmux")
+        let localCLILog = root.appendingPathComponent("local-cmux.log")
+        let remoteCLILog = root.appendingPathComponent("remote-cmux.log")
+        let readinessAttemptLog = root.appendingPathComponent(
+            "remote-readiness-attempts.log"
+        )
+
+        try fileManager.createDirectory(at: remoteBin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_LOCAL_CLI_LOG}\"",
+            "exit 0",
+        ])
+        try writeShellFile(at: remoteCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_REMOTE_CLI_LOG}\"",
+            "case \"$*\" in",
+            "  *'rpc workspace.remote.terminal_session_connected '*)",
+            "    cmux_test_attempt=0",
+            "    if [ -r \"${CMUX_TEST_READINESS_ATTEMPT_LOG}\" ]; then",
+            "      cmux_test_attempt=$(cat \"${CMUX_TEST_READINESS_ATTEMPT_LOG}\")",
+            "    fi",
+            "    cmux_test_attempt=$((cmux_test_attempt + 1))",
+            "    printf '%s\\n' \"$cmux_test_attempt\" > \"${CMUX_TEST_READINESS_ATTEMPT_LOG}\"",
+            "    if [ \"$cmux_test_attempt\" -eq 1 ]; then exit 1; fi",
+            "    ;;",
+            "esac",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cmux_test_remote_command=",
+            "while [ \"$#\" -gt 0 ]; do",
+            "  case \"$1\" in",
+            "    -G)",
+            "      printf '%s\\n' 'controlpath none'",
+            "      exit 0",
+            "      ;;",
+            "    -o)",
+            "      case \"$2\" in",
+            "        RemoteCommand=none|remotecommand=none) cmux_test_remote_command=none ;;",
+            "        RemoteCommand=*|remotecommand=*) cmux_test_remote_command=\"${2#*=}\" ;;",
+            "      esac",
+            "      shift 2",
+            "      ;;",
+            "    -oRemoteCommand=*|-oremotecommand=*)",
+            "      cmux_test_remote_command=\"${1#*=}\"",
+            "      shift",
+            "      ;;",
+            "    -p|-i|-l|-F|-E|-e|-b|-c|-D|-I|-J|-L|-m|-Q|-R|-S|-W|-w|-B)",
+            "      shift 2",
+            "      ;;",
+            "    -*) shift ;;",
+            "    *) shift; break ;;",
+            "  esac",
+            "done",
+            "if [ \"$cmux_test_remote_command\" = none ]; then",
+            "  cat >/dev/null 2>&1 || true",
+            "elif [ -n \"$cmux_test_remote_command\" ]; then",
+            "  /bin/sh -c \"$cmux_test_remote_command\" >/dev/null 2>&1 || true",
+            "fi",
+            "exit 0",
+        ])
+        for executable in [fakeCLI, fakeSSH, remoteCLI] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH,
+            sshOptions: [
+                "ControlMaster no",
+                "ControlPath /tmp/cmux-ssh-%C",
+                "RequestTTY no",
+            ]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["HOME"] = home.path
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_LOCAL_CLI_LOG"] = localCLILog.path
+        environment["CMUX_TEST_REMOTE_CLI_LOG"] = remoteCLILog.path
+        environment["CMUX_TEST_READINESS_ATTEMPT_LOG"] =
+            readinessAttemptLog.path
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let remoteCalls =
+            (try? String(contentsOf: remoteCLILog, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            remoteCalls.contains(
+                "rpc workspace.remote.terminal_session_connected"
+            ),
+            "Readiness must not depend on tty(1) succeeding: \(remoteCalls)"
+        )
+        XCTAssertEqual(
+            remoteCalls
+                .split(separator: "\n")
+                .filter {
+                    $0.contains(
+                        "rpc workspace.remote.terminal_session_connected"
+                    )
+                }
+                .count,
+            2,
+            "A transient readiness failure must be retried before the remote command continues: \(remoteCalls)"
+        )
+    }
+
+    func testSSHRawRemoteCommandRunsWithoutRemoteReadinessCLI() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-raw-command-no-remote-cli-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let commandLog = root.appendingPathComponent("raw-command.log")
+
+        try fileManager.createDirectory(at: remoteHome, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cmux_test_remote_command=",
+            "for cmux_test_arg in \"$@\"; do",
+            "  if [ \"$cmux_test_arg\" = '-G' ]; then",
+            "    printf '%s\\n' 'controlpath none'",
+            "    exit 0",
+            "  fi",
+            "  cmux_test_remote_command=\"$cmux_test_arg\"",
+            "done",
+            "PATH=/usr/bin:/bin HOME=\"${CMUX_TEST_REMOTE_HOME}\" /bin/sh -c \"$cmux_test_remote_command\"",
+        ])
+        for executable in [fakeCLI, fakeSSH] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH,
+            remoteCommandArguments: [
+                "touch",
+                "\"$CMUX_TEST_RAW_COMMAND_LOG\"",
+            ]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
+        environment["CMUX_TEST_RAW_COMMAND_LOG"] = commandLog.path
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: commandLog.path),
+            "A missing remote cmux CLI must not prevent the caller's raw SSH command from running"
+        )
+    }
+
+    func testSSHRawRemoteCommandReportsReadinessWithoutGatingUserCommand() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-raw-command-delayed-remote-cli-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
+        let remoteBin = remoteHome.appendingPathComponent(".cmux/bin", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let stagedRemoteCLI = root.appendingPathComponent("staged-remote-cmux")
+        let remoteCLI = remoteBin.appendingPathComponent("cmux")
+        let eventLog = root.appendingPathComponent("raw-command-events.log")
+
+        try fileManager.createDirectory(at: remoteBin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        try writeShellFile(at: stagedRemoteCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' readiness >> \"${CMUX_TEST_RAW_EVENT_LOG}\"",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cmux_test_remote_command=",
+            "for cmux_test_arg in \"$@\"; do",
+            "  if [ \"$cmux_test_arg\" = '-G' ]; then",
+            "    printf '%s\\n' 'controlpath none'",
+            "    exit 0",
+            "  fi",
+            "  cmux_test_remote_command=\"$cmux_test_arg\"",
+            "done",
+            "(",
+            "  /bin/sleep 0.2",
+            "  /bin/cp \"${CMUX_TEST_STAGED_REMOTE_CLI}\" \"${CMUX_TEST_REMOTE_CLI}\"",
+            "  /bin/chmod 700 \"${CMUX_TEST_REMOTE_CLI}\"",
+            ") </dev/null >/dev/null 2>&1 &",
+            "PATH=/usr/bin:/bin HOME=\"${CMUX_TEST_REMOTE_HOME}\" /bin/sh -c \"$cmux_test_remote_command\"",
+        ])
+        for executable in [fakeCLI, fakeSSH, stagedRemoteCLI] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let rawCommand = """
+        echo user-start >> "$CMUX_TEST_RAW_EVENT_LOG"
+        /bin/sleep 1
+        echo user-end >> "$CMUX_TEST_RAW_EVENT_LOG"
+        """
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH,
+            remoteCommandArguments: [
+                "/bin/sh",
+                "-c",
+                "'\(rawCommand)'",
+            ]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
+        environment["CMUX_TEST_STAGED_REMOTE_CLI"] = stagedRemoteCLI.path
+        environment["CMUX_TEST_REMOTE_CLI"] = remoteCLI.path
+        environment["CMUX_TEST_RAW_EVENT_LOG"] = eventLog.path
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let events = try String(contentsOf: eventLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(events.first, "user-start", events.joined(separator: "\n"))
+        XCTAssertTrue(events.contains("readiness"), events.joined(separator: "\n"))
+        XCTAssertEqual(events.last, "user-end", events.joined(separator: "\n"))
+    }
+
+    func testMoshDoesNotClaimConnectedBeforeTransportStarts() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-mosh-terminal-liveness-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeMosh = root.appendingPathComponent("mosh")
+        let cliLog = root.appendingPathComponent("cmux.log")
+        let moshLog = root.appendingPathComponent("mosh.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_CLI_LOG}\"",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cat >/dev/null 2>&1 || true",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeMosh, lines: [
+            "#!/bin/sh",
+            "if [ \"${1:-}\" = '--help' ]; then",
+            "  printf '%s\\n' '  --experimental-remote-ip=(local|remote|proxy)'",
+            "  exit 0",
+            "fi",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_MOSH_LOG}\"",
+            "exit 71",
+        ])
+        for executable in [fakeCLI, fakeSSH, fakeMosh] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH,
+            requestTTYOption: nil,
+            additionalArguments: ["--transport", "mosh"]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_CLI_LOG"] = cliLog.path
+        environment["CMUX_TEST_MOSH_LOG"] = moshLog.path
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 71, result.stderr)
+        XCTAssertTrue(fileManager.fileExists(atPath: moshLog.path))
+        let cliCalls = (try? String(contentsOf: cliLog, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            cliCalls.contains(
+                "rpc workspace.remote.terminal_session_launching"
+            ),
+            "Mosh must register an attempt before claiming readiness: \(cliCalls)"
+        )
+        XCTAssertFalse(
+            cliCalls.contains(
+                "rpc workspace.remote.terminal_session_connected"
+            ),
+            "Mosh must not claim connected before its transport establishes: \(cliCalls)"
+        )
+    }
+
+    func testSSHStartupRemovesStaleCmuxControlSocketBeforeLaunchingPaneSSH() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-stale-control-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh.log")
+        let socketHash = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased() + "01234567"
+        let staleControlPath = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-ssh-\(getuid())-\(socketHash)")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: root)
+            unlink(staleControlPath.path)
+            unlink(staleControlPath.path + ".auth.lock")
+        }
+
+        let staleSocketFD = try bindUnixSocket(at: staleControlPath.path)
+        Darwin.close(staleSocketFD)
+        XCTAssertTrue(fileManager.fileExists(atPath: staleControlPath.path))
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SSH_LOG}\"",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = '-G' ]; then",
+            "    printf 'controlpath %s\\n' \"${CMUX_TEST_CONTROL_PATH}\"",
+            "    exit 0",
+            "  fi",
+            "done",
+            "previous_arg=",
+            "for arg in \"$@\"; do",
+            "  if [ \"$previous_arg\" = '-O' ] && [ \"$arg\" = 'check' ]; then",
+            "    exit 255",
+            "  fi",
+            "  previous_arg=\"$arg\"",
+            "done",
+            "if [ -e \"${CMUX_TEST_CONTROL_PATH}\" ]; then",
+            "  printf 'ControlSocket %s already exists, disabling multiplexing\\n' \"${CMUX_TEST_CONTROL_PATH}\" >&2",
+            "  exit 99",
+            "fi",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH,
+            sshOptions: [
+                "ControlMaster auto",
+                "ControlPersist 600",
+                "ControlPath \(staleControlPath.path)",
+            ]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_CONTROL_PATH"] = staleControlPath.path
+        environment["CMUX_TEST_SESSION_END_LOG"] = root.appendingPathComponent("ssh-session-end.log").path
+        environment["CMUX_TEST_SSH_LOG"] = logFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(fileManager.fileExists(atPath: staleControlPath.path))
+
+        let sshLog = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        XCTAssertTrue(sshLog.contains("-G"), sshLog)
+        XCTAssertTrue(sshLog.contains("-O check"), sshLog)
+    }
+
+    func testSSHStartupStopsAtConfiguredReconnectLimitAndWaitsForDismissal() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-retry-limit-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "exit 255",
+        ])
+        // Exercise the production backoff selection without spending wall time
+        // in its timer. Zero is normalized to the safe two-second default.
+        try writeShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\"",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let child = try StreamingChildProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment
+        )
+        defer { child.terminate() }
+
+        // The prompt is the wrapper's own completion signal: it is printed only
+        // after the retry loop gave up and reported the session end.
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n2\n")
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 255."), child.standardError)
+        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        let sessionEndCalls = recordedCalls
+            .split(separator: "\n")
+            .filter { $0.contains("ssh-session-end") }
+        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+    }
+
+    func testSSHStartupDoesNotRetryNonTransientSSHExitAndWaitsForDismissal() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-no-retry-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "exit 1",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let child = try StreamingChildProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment
+        )
+        defer { child.terminate() }
+
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        let sessionEndCalls = recordedCalls
+            .split(separator: "\n")
+            .filter { $0.contains("ssh-session-end") }
+        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+    }
+
+    func testSSHSignalDerivedChildExitReportsSessionEnd() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-child-signal-exit-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "exit 130",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let child = try StreamingChildProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment
+        )
+        defer { child.terminate() }
+
+        // A child status is an ordinary session failure, unlike a signal sent
+        // to the supervisor. Keep its status visible until a fresh Enter; EOF
+        // must not dismiss the failure prompt (the #9966 contract).
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 130."), child.standardError)
+        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        let sessionEndCalls = recordedCalls
+            .split(separator: "\n")
+            .filter { $0.contains("ssh-session-end") }
+        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+    }
+
+    func testSSHSignalDuringReconnectDelayDoesNotStartAnotherSSH() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-signal-during-reconnect-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
+        let sleepPIDFile = root.appendingPathComponent("sleep-pid.txt")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            if let rawPID = try? String(contentsOf: sleepPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)),
+               kill(pid, 0) == 0 {
+                kill(pid, SIGKILL)
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "exit 255",
+        ])
+        // Signal from the timer itself so the test reaches backoff before
+        // cancellation. The timer remains alive until the supervisor reaps it.
+        try writeShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\"",
+            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_SLEEP_PID_FILE}\"",
+            "kill -TERM \"${CMUX_SSH_STARTUP_PID:?}\"",
+            "exec /bin/sleep 30",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
+        environment["CMUX_TEST_SLEEP_PID_FILE"] = sleepPIDFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 143, result.stderr)
+        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n")
+        let timerPID = try XCTUnwrap(Int32(
+            try String(contentsOf: sleepPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let timerExists = kill(timerPID, 0)
+        let timerError = errno
+        XCTAssertEqual(timerExists, -1, "cancelled backoff timer must be reaped")
+        XCTAssertEqual(timerError, ESRCH)
+        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        let sessionEndCalls = recordedCalls
+            .split(separator: "\n")
+            .filter { $0.contains("ssh-session-end") }
+        XCTAssertTrue(
+            sessionEndCalls.isEmpty,
+            "Cancelling the pane during backoff must not tear down the shared SSH transport: \(recordedCalls)"
+        )
+    }
+
+    func testSSHStartupPrintsFinalErrorBannerAndWaitsWhenStderrIsCaptured() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-error-banner-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "exit 1",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let child = try StreamingChildProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment
+        )
+        defer { child.terminate() }
+
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 1."), child.standardError)
+    }
+
+    func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
+        // Regression test for cmux ssh sessions where output flowed back from
+        // the remote (prompt rendered) but typed keystrokes never reached the
+        // remote shell after PR #3786 backgrounded `ssh` inside the startup
+        // wrapper. POSIX sh redirects stdin of an async command to /dev/null
+        // when job control is off, so without an explicit `<&0` on the `&`'d
+        // ssh invocation, the local PTY stdin is dropped and the user types
+        // into a dead pipe.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-stdin-forward-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let sessionEndLog = root.appendingPathComponent("ssh-session-end.log")
+        let stdinCapture = root.appendingPathComponent("ssh-stdin.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        // Fake ssh reads one line from stdin and records it so the test can
+        // verify the wrapper's stdin reached the backgrounded ssh process.
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "IFS= read -r line || line='<EOF>'",
+            "printf '%s\\n' \"$line\" > \"${CMUX_TEST_STDIN_LOG}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = sessionEndLog.path
+        environment["CMUX_TEST_STDIN_LOG"] = stdinCapture.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            standardInput: "FORWARDED_KEYSTROKE\n",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let recorded = (try? String(contentsOf: stdinCapture, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        XCTAssertEqual(
+            recorded,
+            "FORWARDED_KEYSTROKE",
+            "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recorded.isEmpty ? "<empty>" : recorded)"
+        )
+    }
+
+    func testSSHStartupIgnoresInheritedInternalPendingSignalState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-inherited-pending-signal-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let sessionEndLog = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' ssh >> \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = sessionEndLog.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        // The wrapper's own deferred-signal state must start empty. An
+        // inherited value would retire the session with 130 before ssh runs.
+        environment["CMUX_SSH_PENDING_SIGNAL"] = "130"
+        environment["CMUX_SSH_PENDING_SIGNAL_NAME"] = "INT"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        // The count is not the contract: the ControlPath preflight also runs
+        // ssh. An unreset inherited signal retires the wrapper before any.
+        XCTAssertTrue(((try? String(contentsOf: attemptFile, encoding: .utf8)) ?? "").hasPrefix("ssh\n"))
+    }
+
+    /// Generates the legacy SSH startup wrapper. `cmux ssh` hands TTY
+    /// sessions to cmux-tui through `workspace.ssh.open`, so this wrapper is
+    /// only produced for sessions without a TTY and for mosh. Unless the
+    /// caller already sets `RequestTTY`, `requestTTYOption` pins the session
+    /// to that path; pass nil for mosh, which keeps its own terminal.
+    private func generatedSSHStartupCommand(
+        replacingSystemSSHWith fakeSSH: URL,
+        sshOptions: [String] = [
+            "ControlMaster no",
+            "ControlPath /tmp/cmux-ssh-%C",
+        ],
+        requestTTYOption: String? = "RequestTTY no",
+        additionalArguments: [String] = [],
+        remoteCommandArguments: [String] = []
+    ) throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-pane-close")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -97,6 +1373,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "workspace_id": workspaceID,
+                        "surface_id": "surface:1",
                     ]
                 )
             case "workspace.remote.configure":
@@ -126,16 +1403,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
+        var arguments = [
+            "ssh",
+            "--no-focus",
+            "--port", "2222",
+        ]
+        for option in sshOptions {
+            arguments += ["--ssh-option", option]
+        }
+        if let requestTTYOption,
+           !sshOptions.contains(where: { $0.lowercased().hasPrefix("requesttty") }) {
+            arguments += ["--ssh-option", requestTTYOption]
+        }
+        arguments += additionalArguments
+        arguments.append("cmux-macmini")
+        if !remoteCommandArguments.isEmpty {
+            arguments.append("--")
+            arguments += remoteCommandArguments
+        }
+
         let result = runProcess(
             executablePath: cliPath,
-            arguments: [
-                "ssh",
-                "--no-focus",
-                "--port", "2222",
-                "--ssh-option", "ControlMaster no",
-                "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
-                "cmux-macmini",
-            ],
+            arguments: arguments,
             environment: environment,
             timeout: 5
         )
@@ -153,12 +1442,370 @@ extension CLINotifyProcessIntegrationRegressionTests {
             requests.first { ($0["method"] as? String) == "workspace.remote.configure" }
         )
         let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
-        return try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let startupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
+    }
+
+    private func generatedVMSSHInitialStartupCommand(
+        replacingSystemSSHWith fakeSSH: URL
+    ) throws -> String {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-ssh-startup")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-test-startup"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let workspaceRef = "workspace:vm-startup"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "transport": "ssh",
+                        "host": "gateway.freestyle.sh",
+                        "port": 2222,
+                        "username": "cmux",
+                        "credential": [
+                            "kind": "password",
+                            "value": "lease-token",
+                        ],
+                    ]
+                )
+            case "workspace.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                    ]
+                )
+            case "workspace.rename":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            case "workspace.remote.configure":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "workspace_ref": workspaceRef,
+                        "remote": [
+                            "enabled": true,
+                            "state": "connecting",
+                        ],
+                    ]
+                )
+            case "workspace.select":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh", vmID],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let requests = try state.commands.map { line -> [String: Any] in
+            let data = try XCTUnwrap(line.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+        }
+        let createRequest = try XCTUnwrap(
+            requests.first { ($0["method"] as? String) == "workspace.create" }
+        )
+        let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
+        let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
+    }
+
+    private func rewritingSystemSSH(
+        in startupCommand: String,
+        with fakeSSH: URL
+    ) throws -> String {
+        let systemSSHPath = "/usr/bin/ssh"
+        let commandURL = URL(
+            fileURLWithPath: startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
+           !isDirectory.boolValue {
+            let script = try String(contentsOf: commandURL, encoding: .utf8)
+            XCTAssertTrue(script.contains(systemSSHPath), script)
+            try script
+                .replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
+                .write(to: commandURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: commandURL.path
+            )
+            return startupCommand
+        }
+
+        if startupCommand.contains(systemSSHPath) {
+            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
+        }
+
+        return try XCTUnwrap(SSHStartupCommandTestSupport.replacingPinnedSSH(
+            in: startupCommand, with: fakeSSH.path
+        ))
     }
 
     private func writeShellFile(at url: URL, lines: [String]) throws {
         try lines.joined(separator: "\n")
             .appending("\n")
             .write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func waitForSSHSignalLifecycleLog(
+        _ url: URL,
+        timeout: TimeInterval = 2,
+        condition: (String) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            if condition(contents) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return condition(contents)
+    }
+}
+
+/// A child process whose output is streamed while it runs.
+///
+/// Startup-wrapper tests that end at the terminal exit prompt used to prove
+/// "the pane stays open" by letting a blocking `runProcess` call burn its whole
+/// timeout (20s under CI). This type lets those tests wait on the real signals
+/// instead: the prompt text the wrapper prints, and the prompt helper blocking
+/// with its input at EOF. Both return the instant they hold, so the timeouts
+/// bound only the failure path.
+final class StreamingChildProcess: @unchecked Sendable {
+    let process = Process()
+
+    private let stdoutPipe = Pipe()
+    private let stderrPipe = Pipe()
+    private let outputLock = NSLock()
+    private let drainGroup = DispatchGroup()
+    private var stdoutData = Data()
+    private var stderrData = Data()
+
+    init(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String]
+    ) throws {
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = CLIChildEnvironment(
+            appHostEnvironment: ProcessInfo.processInfo.environment
+        ).normalizing(environment)
+        // The #9966 contract under test is "input already at EOF must not
+        // dismiss the failure prompt", so the child starts with a closed stdin.
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        drain(stdoutPipe) { [weak self] data in
+            guard let self else { return }
+            self.outputLock.lock()
+            self.stdoutData.append(data)
+            self.outputLock.unlock()
+        }
+        drain(stderrPipe) { [weak self] data in
+            guard let self else { return }
+            self.outputLock.lock()
+            self.stderrData.append(data)
+            self.outputLock.unlock()
+        }
+    }
+
+    var standardOutput: String {
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        return String(data: stdoutData, encoding: .utf8) ?? ""
+    }
+
+    var standardError: String {
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        return String(data: stderrData, encoding: .utf8) ?? ""
+    }
+
+    /// Returns as soon as `text` has been written to stderr.
+    ///
+    /// A child that exits before emitting `text` resolves immediately from its
+    /// drained output rather than waiting out `timeout`.
+    func waitForStandardError(containing text: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if standardError.contains(text) { return true }
+            if !process.isRunning {
+                _ = drainGroup.wait(timeout: .now() + 2)
+                return standardError.contains(text)
+            }
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        return standardError.contains(text)
+    }
+
+    /// Returns true once the child's process tree is alive but consuming no
+    /// CPU, i.e. the prompt helper is parked in a blocking wait rather than on
+    /// its way to exiting.
+    ///
+    /// The startup script prints the prompt text and then execs the CLI
+    /// helper. Whether the helper keeps the launched pid depends on the shell:
+    /// `/bin/sh -c <script>` may exec the script in place, or fork it and sit
+    /// in `waitpid`, where the root alone would look idle while the helper is
+    /// still starting. Sampling the whole tree covers both shapes. With stdin
+    /// at EOF the helper parks in `pause()` after a failed `tcgetattr`, so a
+    /// correct wrapper reaches a steady state: an unchanged set of pids, zero
+    /// scheduled threads, and a frozen CPU counter. A helper that is still
+    /// starting keeps accumulating CPU, and a regression that dismissed the
+    /// prompt on EOF exits instead, which `Process.isRunning` reports without
+    /// waiting.
+    func waitUntilBlocked(timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        var previous: ProcessTreeSample?
+        var stableSamples = 0
+        while Date.now < deadline {
+            guard process.isRunning else { return false }
+            let sample = processTreeSample()
+            if let sample, sample.running == 0, previous == sample {
+                stableSamples += 1
+            } else {
+                stableSamples = 0
+            }
+            previous = sample
+            // Two consecutive idle samples separated by real time: a tree still
+            // starting up, or about to exit, keeps accumulating CPU.
+            if stableSamples >= 2 { return process.isRunning }
+            Thread.sleep(forTimeInterval: 0.025)
+        }
+        return false
+    }
+
+    func terminate() {
+        if process.isRunning {
+            // When the shell forks the startup script instead of exec'ing it,
+            // the parked prompt helper is a descendant that holds the output
+            // pipes, and signalling only the root would leave it in `pause()`
+            // and the drains waiting for EOF. Retire the owned tree the same
+            // way `stopAndCleanUp` in SSHStartupManualReconnectTests does.
+            let cleanupCommand = SSHForegroundAuthenticationRetryPolicy()
+                .processTreeTerminationShellFunction()
+                + "\ncmux_ssh_terminate_auth_process_tree \(process.processIdentifier) \(getpid())"
+            _ = CLINotifyProcessIntegrationRegressionTests.runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", cleanupCommand],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 5
+            )
+        }
+        if process.isRunning {
+            process.terminate()
+        }
+        process.waitUntilExit()
+        _ = drainGroup.wait(timeout: .now() + 2)
+    }
+
+    private struct ProcessTreeSample: Equatable {
+        var pids: [pid_t]
+        var cpu: UInt64
+        var running: Int32
+    }
+
+    /// Sums CPU time and runnable threads over the launched root and all of
+    /// its live descendants. Returns nil when any member cannot be read (for
+    /// example one that exited between listing and sampling), which the caller
+    /// treats as not yet stable.
+    private func processTreeSample() -> ProcessTreeSample? {
+        var pids: [pid_t] = []
+        var pending = [process.processIdentifier]
+        while let pid = pending.popLast() {
+            pids.append(pid)
+            pending.append(contentsOf: Self.childProcessIdentifiers(of: pid))
+        }
+        var sample = ProcessTreeSample(pids: pids.sorted(), cpu: 0, running: 0)
+        for pid in pids {
+            guard let task = Self.taskSample(pid) else { return nil }
+            sample.cpu &+= task.cpu
+            sample.running += task.running
+        }
+        return sample
+    }
+
+    private static func childProcessIdentifiers(of parent: pid_t) -> [pid_t] {
+        var children = [pid_t](repeating: 0, count: 64)
+        let count = children.withUnsafeMutableBufferPointer { buffer in
+            proc_listchildpids(
+                parent,
+                buffer.baseAddress,
+                Int32(buffer.count * MemoryLayout<pid_t>.stride)
+            )
+        }
+        guard count > 0 else { return [] }
+        return children.prefix(min(Int(count), children.count)).filter { $0 > 0 }
+    }
+
+    private static func taskSample(_ pid: pid_t) -> (cpu: UInt64, running: Int32)? {
+        var info = proc_taskinfo()
+        let expectedSize = MemoryLayout<proc_taskinfo>.stride
+        let size = proc_pidinfo(
+            pid,
+            PROC_PIDTASKINFO,
+            0,
+            &info,
+            Int32(expectedSize)
+        )
+        guard Int(size) == expectedSize else { return nil }
+        return (info.pti_total_user &+ info.pti_total_system, info.pti_numrunning)
+    }
+
+    private func drain(_ pipe: Pipe, into append: @escaping @Sendable (Data) -> Void) {
+        drainGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            defer { self.drainGroup.leave() }
+            while true {
+                let data = pipe.fileHandleForReading.availableData
+                if data.isEmpty { return }
+                append(data)
+            }
+        }
     }
 }

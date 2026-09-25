@@ -1,4 +1,5 @@
 import XCTest
+import struct CmuxSettings.AccountCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -15,11 +16,19 @@ final class WorkspaceStressProfileTests: XCTestCase {
         let createP95BudgetMs: Double?
         let switchP95BudgetMs: Double?
 
+        /// The checked-in defaults are the smoke-sized profile every CI run
+        /// pays for: enough workspaces, panels, and switch passes to catch a
+        /// broken workspace lifecycle, and small enough to stay off the
+        /// critical path. A real profiling run raises them through the
+        /// environment (and then supplies the p95 budgets), e.g.
+        /// `CMUX_WORKSPACE_STRESS_WORKSPACES=48
+        ///  CMUX_WORKSPACE_STRESS_TABS_PER_WORKSPACE=10
+        ///  CMUX_WORKSPACE_STRESS_SWITCH_PASSES=6`.
         static func current(environment: [String: String] = ProcessInfo.processInfo.environment) -> StressConfig {
             StressConfig(
-                workspaceCount: parseInt(environment["CMUX_WORKSPACE_STRESS_WORKSPACES"], default: 48, minimum: 2),
-                tabsPerWorkspace: parseInt(environment["CMUX_WORKSPACE_STRESS_TABS_PER_WORKSPACE"], default: 10, minimum: 1),
-                switchPasses: parseInt(environment["CMUX_WORKSPACE_STRESS_SWITCH_PASSES"], default: 6, minimum: 1),
+                workspaceCount: parseInt(environment["CMUX_WORKSPACE_STRESS_WORKSPACES"], default: 12, minimum: 2),
+                tabsPerWorkspace: parseInt(environment["CMUX_WORKSPACE_STRESS_TABS_PER_WORKSPACE"], default: 4, minimum: 1),
+                switchPasses: parseInt(environment["CMUX_WORKSPACE_STRESS_SWITCH_PASSES"], default: 2, minimum: 1),
                 createP95BudgetMs: parseDouble(environment["CMUX_WORKSPACE_STRESS_CREATE_P95_BUDGET_MS"]),
                 switchP95BudgetMs: parseDouble(environment["CMUX_WORKSPACE_STRESS_SWITCH_P95_BUDGET_MS"])
             )
@@ -69,13 +78,14 @@ final class WorkspaceStressProfileTests: XCTestCase {
 
     func testWorkspaceCreationAndSwitchingStressProfile() {
         let config = StressConfig.current()
-        let welcomeWasShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
-        UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let welcomeWasShown = UserDefaults.standard.object(forKey: welcomeShownKey)
+        UserDefaults.standard.set(true, forKey: welcomeShownKey)
         defer {
             if let welcomeWasShown {
-                UserDefaults.standard.set(welcomeWasShown, forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.set(welcomeWasShown, forKey: welcomeShownKey)
             } else {
-                UserDefaults.standard.removeObject(forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.removeObject(forKey: welcomeShownKey)
             }
         }
 
@@ -198,6 +208,99 @@ final class WorkspaceStressProfileTests: XCTestCase {
                 "Workspace switch p95 exceeded budget"
             )
         }
+    }
+
+    func testWorkspaceBatchActionsStressProfile() {
+        let config = StressConfig.current()
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let welcomeWasShown = UserDefaults.standard.object(forKey: welcomeShownKey)
+        UserDefaults.standard.set(true, forKey: welcomeShownKey)
+        defer {
+            if let welcomeWasShown {
+                UserDefaults.standard.set(welcomeWasShown, forKey: welcomeShownKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: welcomeShownKey)
+            }
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        for workspaceIndex in 1..<config.workspaceCount {
+            _ = manager.addWorkspace(
+                title: "Workspace \(label(for: workspaceIndex))",
+                select: false,
+                eagerLoadTerminal: false,
+                autoWelcomeIfNeeded: false
+            )
+        }
+
+        let workspaceIds = manager.tabs.map(\.id)
+        let anchorWorkspaceId = workspaceIds[0]
+        var colorSamples: [TimedSample] = []
+        var scrollBarSamples: [TimedSample] = []
+        var pinSamples: [TimedSample] = []
+        var unpinSamples: [TimedSample] = []
+
+        for pass in 0..<config.switchPasses {
+            timed("pass-\(label(for: pass))-color-apply", collectInto: &colorSamples) {
+                manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: workspaceIds)
+            }
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == "#1565C0" })
+            timed("pass-\(label(for: pass))-color-clear", collectInto: &colorSamples) {
+                manager.applyWorkspaceColor(nil, toWorkspaceIds: workspaceIds)
+            }
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == nil })
+            timed("pass-\(label(for: pass))-scrollbar-hide", collectInto: &scrollBarSamples) {
+                manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: workspaceIds)
+            }
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.terminalScrollBarHidden })
+            timed("pass-\(label(for: pass))-scrollbar-show", collectInto: &scrollBarSamples) {
+                manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: workspaceIds)
+            }
+            XCTAssertTrue(manager.tabs.allSatisfy { !$0.terminalScrollBarHidden })
+            let pinResult = timed("pass-\(label(for: pass))-pin", collectInto: &pinSamples) {
+                WorkspaceActionDispatcher.performPinAction(
+                    WorkspaceActionDispatcher.PinState(
+                        targetWorkspaceIds: workspaceIds,
+                        anchorWorkspaceId: anchorWorkspaceId,
+                        pinned: true
+                    ),
+                    in: manager
+                )
+            }
+            XCTAssertFalse(pinResult.changedWorkspaceIds.isEmpty)
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.isPinned })
+            let unpinResult = timed("pass-\(label(for: pass))-unpin", collectInto: &unpinSamples) {
+                WorkspaceActionDispatcher.performPinAction(
+                    WorkspaceActionDispatcher.PinState(
+                        targetWorkspaceIds: workspaceIds,
+                        anchorWorkspaceId: anchorWorkspaceId,
+                        pinned: false
+                    ),
+                    in: manager
+                )
+            }
+            XCTAssertFalse(unpinResult.changedWorkspaceIds.isEmpty)
+            XCTAssertTrue(manager.tabs.allSatisfy { !$0.isPinned })
+        }
+
+        XCTAssertEqual(manager.tabs.count, config.workspaceCount)
+        XCTAssertTrue(manager.tabs.allSatisfy { !$0.isPinned })
+        XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == nil })
+        XCTAssertTrue(manager.tabs.allSatisfy { !$0.terminalScrollBarHidden })
+
+        let report = [
+            "Workspace batch action stress config workspaces=\(config.workspaceCount) passes=\(config.switchPasses)",
+            reportLine(title: "color", summary: TimingSummary(samples: colorSamples), slowest: slowest(colorSamples)),
+            reportLine(title: "scrollbar", summary: TimingSummary(samples: scrollBarSamples), slowest: slowest(scrollBarSamples)),
+            reportLine(title: "pin", summary: TimingSummary(samples: pinSamples), slowest: slowest(pinSamples)),
+            reportLine(title: "unpin", summary: TimingSummary(samples: unpinSamples), slowest: slowest(unpinSamples))
+        ].joined(separator: "\n")
+
+        print(report)
+        let attachment = XCTAttachment(string: report)
+        attachment.name = "workspace-batch-actions-stress-profile"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func populate(workspace: Workspace, tabsPerWorkspace: Int) {

@@ -3,11 +3,22 @@ import Combine
 import AppKit
 
 /// Type of panel content
-public enum PanelType: String, Codable, Sendable {
+public enum PanelType: String, Codable, CaseIterable, Sendable {
     case terminal
     case browser
     case markdown
     case filePreview = "filepreview"
+    case rightSidebarTool
+    case customSidebar
+    case simulator
+    case agentSession
+    case project
+    case extensionBrowser
+    case workspaceTodo
+    case notifications
+    case cloudVMLoading
+    case mobilePairing
+    case accountSignIn
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -18,6 +29,38 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.filePreview.rawValue {
             self = .filePreview
+            return
+        }
+        if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
+            self = .rightSidebarTool
+            return
+        }
+        if rawValue.lowercased() == Self.customSidebar.rawValue.lowercased() {
+            self = .customSidebar
+            return
+        }
+        if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
+            self = .agentSession
+            return
+        }
+        if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
+            self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
+            self = .notifications
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
+            self = .cloudVMLoading
+            return
+        }
+        if rawValue.lowercased() == Self.mobilePairing.rawValue.lowercased() {
+            self = .mobilePairing
+            return
+        }
+        if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
+            self = .accountSignIn
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -35,6 +78,7 @@ public enum PanelType: String, Codable, Sendable {
 public enum TerminalPanelFocusIntent: Equatable {
     case surface
     case findField
+    case textBoxInput
 }
 
 public enum BrowserPanelFocusIntent: Equatable {
@@ -53,31 +97,36 @@ public enum FilePreviewPanelFocusIntent: Hashable {
     case quickLook
 }
 
+public enum ProjectPanelFocusIntent: Hashable {
+    case navigator
+    case detail
+}
+
 public enum PanelFocusIntent: Equatable {
     case panel
     case terminal(TerminalPanelFocusIntent)
     case browser(BrowserPanelFocusIntent)
     case filePreview(FilePreviewPanelFocusIntent)
+    case project(ProjectPanelFocusIntent)
 }
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
+    case userInitiated
     case notificationArrival
     case notificationDismiss
-    case manualUnreadDismiss
+    case unreadIndicatorDismiss
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
-    case navigationTeal
 
     var strokeColor: NSColor {
         switch self {
         case .notificationBlue:
             return .systemBlue
-        case .navigationTeal:
-            return .systemTeal
         }
     }
 }
@@ -113,20 +162,22 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 }
 
 enum WorkspaceAttentionCoordinator {
+    static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.35,
+        glowRadius: 3
+    )
+
+    static let flashRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.6,
+        glowRadius: 6
+    )
+
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation:
-            return WorkspaceAttentionFlashPresentation(
-                accent: .navigationTeal,
-                glowOpacity: 0.14,
-                glowRadius: 3
-            )
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
-            return WorkspaceAttentionFlashPresentation(
-                accent: .notificationBlue,
-                glowOpacity: 0.6,
-                glowRadius: 6
-            )
+        case .navigation, .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+            return flashRingStyle
         }
     }
 
@@ -139,7 +190,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 
@@ -255,6 +306,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unique identifier for this panel
     var id: UUID { get }
 
+    /// Box that owns this panel's restart-stable surface identity.
+    var stableSurfaceIdentity: PanelStableSurfaceIdentity { get }
+
     /// The type of panel
     var panelType: PanelType { get }
 
@@ -275,6 +329,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 
     /// Unfocus the panel
     func unfocus()
+
+    /// Read the panel's live user selection without changing focus or UI state.
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult
 
     /// Trigger a focus flash animation for this panel.
     func triggerFlash(reason: WorkspaceAttentionFlashReason)
@@ -304,6 +361,11 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+
+    /// Captures the panel's current selection without changing focus or state.
+    public func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .unsupported
+    }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
         _ = window

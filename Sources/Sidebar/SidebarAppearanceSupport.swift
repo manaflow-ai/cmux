@@ -1,23 +1,53 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import Foundation
 import SwiftUI
+import CmuxSettings
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
-    static let appliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
+    static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
+}
 
-    static func isSettingsFileDefaultKey(_ key: String) -> Bool {
-        key == userDefaultsKey
+enum SidebarTabItemFontScale {
+    static func scale(for sidebarFontSize: CGFloat) -> CGFloat {
+        GhosttyConfig.clampedSidebarFontSize(sidebarFontSize)
+            / GhosttyConfig.defaultSidebarFontSize
+    }
+}
+
+/// Resolves AppKit colors against cmux's concrete terminal light/dark scheme.
+///
+/// AppKit semantic colors otherwise resolve against the window's effective
+/// appearance, which can differ from the active cmux theme. This value type is
+/// shared by the SwiftUI and pure-AppKit sidebar paths so they never ask
+/// AppKit to make an independent appearance decision.
+struct SidebarAppearanceColorResolver {
+    /// Returns the scheme selected by the shared terminal-theme authority.
+    func currentColorScheme() -> ColorScheme {
+        GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
     }
 
-    static func shouldApplySettingsFileDefault(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: userDefaultsKey) != nil else { return true }
-        guard let applied = defaults.object(forKey: appliedSettingsFileDefaultKey) as? Bool else { return false }
-        return applied == defaults.bool(forKey: userDefaultsKey)
+    /// Resolves an AppKit semantic color against a concrete cmux scheme.
+    func resolvedColor(
+        _ color: NSColor,
+        for colorScheme: ColorScheme,
+        opacity: CGFloat? = nil
+    ) -> NSColor {
+        let resolved = WindowAppearanceSnapshot.resolvedColor(color, for: colorScheme)
+        guard let opacity else { return resolved }
+        return resolved.withAlphaComponent(max(0, min(opacity, 1)))
     }
 
-    static func recordSettingsFileDefault(_ value: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(value, forKey: appliedSettingsFileDefaultKey)
+    /// Returns the active-control foreground for a concrete cmux scheme.
+    func activeForegroundColor(
+        opacity: CGFloat,
+        for colorScheme: ColorScheme
+    ) -> NSColor {
+        let clampedOpacity = max(0, min(opacity, 1))
+        let baseColor: NSColor = colorScheme == .dark ? .white : .black
+        return baseColor.withAlphaComponent(clampedOpacity)
     }
 }
 
@@ -46,12 +76,43 @@ func coloredCircleImage(color: NSColor) -> NSImage {
 
 func sidebarActiveForegroundNSColor(
     opacity: CGFloat,
-    appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    appAppearance: NSAppearance? = nil
 ) -> NSColor {
-    let clampedOpacity = max(0, min(opacity, 1))
-    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
-    let baseColor: NSColor = (bestMatch == .darkAqua) ? .white : .black
-    return baseColor.withAlphaComponent(clampedOpacity)
+    let colorScheme = appAppearance.map {
+        $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? ColorScheme.dark : .light
+    } ?? SidebarAppearanceColorResolver().currentColorScheme()
+    return SidebarAppearanceColorResolver().activeForegroundColor(
+        opacity: opacity,
+        for: colorScheme
+    )
+}
+
+@MainActor
+func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+    let app = GhosttyApp.shared
+    let appearance = WindowAppearanceResolver(
+        terminalAppearance: WindowTerminalAppearanceSnapshot(
+            backgroundColor: app.defaultBackgroundColor,
+            backgroundOpacity: app.defaultBackgroundOpacity,
+            backgroundBlur: app.defaultBackgroundBlur,
+            usesHostLayerBackground: app.usesHostLayerBackground,
+            resolvedColorScheme: app.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+        )
+    ).currentFromUserDefaults(
+        defaults: .standard,
+        colorScheme: AppearanceSettings.currentAmbientColorScheme()
+    )
+    return titlebarControlForegroundNSColor(
+        opacity: opacity,
+        appearance: appearance
+    )
+}
+
+func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppearanceSnapshot) -> NSColor {
+    cmuxReadableForegroundNSColor(
+        on: appearance.compositedTerminalBackgroundColor,
+        opacity: opacity
+    )
 }
 
 func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
@@ -80,13 +141,99 @@ func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
 }
 
 func cmuxAccentNSColor() -> NSColor {
-    NSColor(name: nil) { appearance in
-        cmuxAccentNSColor(for: appearance)
-    }
+    cmuxAccentNSColor(for: SidebarAppearanceColorResolver().currentColorScheme())
 }
 
 func cmuxAccentColor() -> Color {
     Color(nsColor: cmuxAccentNSColor())
+}
+
+func cmuxReadableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
+    let backgroundLuminance = cmuxRelativeLuminance(backgroundColor)
+    let whiteContrast = cmuxContrastRatio(backgroundLuminance, 1.0)
+    let blackContrast = cmuxContrastRatio(backgroundLuminance, 0.0)
+    return whiteContrast >= blackContrast ? .dark : .light
+}
+
+func cmuxReadableForegroundNSColor(on backgroundColor: NSColor, opacity: CGFloat) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    return cmuxReadableForegroundBaseColor(on: backgroundColor)
+        .withAlphaComponent(clampedOpacity)
+}
+
+func cmuxReadableForegroundNSColor(
+    preferred preferredColor: NSColor,
+    on backgroundColor: NSColor,
+    minimumContrast: CGFloat = 4.5
+) -> NSColor {
+    let foregroundForComparison = preferredColor.alphaComponent < 1
+        ? cmuxCompositedNSColor(preferredColor, over: backgroundColor)
+        : preferredColor
+    guard cmuxContrastRatio(foreground: foregroundForComparison, background: backgroundColor) < minimumContrast else {
+        return preferredColor
+    }
+    return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
+}
+
+func cmuxCompositedNSColor(_ foreground: NSColor, over background: NSColor) -> NSColor {
+    let fg = foreground.usingColorSpace(.sRGB) ?? foreground
+    let bg = background.usingColorSpace(.sRGB) ?? background
+    var foregroundRed: CGFloat = 0
+    var foregroundGreen: CGFloat = 0
+    var foregroundBlue: CGFloat = 0
+    var foregroundAlpha: CGFloat = 0
+    var backgroundRed: CGFloat = 0
+    var backgroundGreen: CGFloat = 0
+    var backgroundBlue: CGFloat = 0
+    var backgroundAlpha: CGFloat = 0
+    fg.getRed(&foregroundRed, green: &foregroundGreen, blue: &foregroundBlue, alpha: &foregroundAlpha)
+    bg.getRed(&backgroundRed, green: &backgroundGreen, blue: &backgroundBlue, alpha: &backgroundAlpha)
+    _ = backgroundAlpha
+
+    let alpha = max(0, min(foregroundAlpha, 1))
+    return NSColor(
+        srgbRed: foregroundRed * alpha + backgroundRed * (1 - alpha),
+        green: foregroundGreen * alpha + backgroundGreen * (1 - alpha),
+        blue: foregroundBlue * alpha + backgroundBlue * (1 - alpha),
+        alpha: 1
+    )
+}
+
+func cmuxContrastRatio(foreground: NSColor, background: NSColor) -> CGFloat {
+    cmuxContrastRatio(
+        cmuxRelativeLuminance(foreground),
+        cmuxRelativeLuminance(background)
+    )
+}
+
+private func cmuxReadableForegroundBaseColor(on backgroundColor: NSColor) -> NSColor {
+    cmuxReadableColorScheme(for: backgroundColor) == .dark ? .white : .black
+}
+
+private func cmuxRelativeLuminance(_ color: NSColor) -> CGFloat {
+    let srgb = color.usingColorSpace(.sRGB) ?? color
+    var red: CGFloat = 0
+    var green: CGFloat = 0
+    var blue: CGFloat = 0
+    var alpha: CGFloat = 0
+    srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    _ = alpha
+
+    func linearized(_ component: CGFloat) -> CGFloat {
+        component <= 0.03928
+            ? component / 12.92
+            : CGFloat(pow(Double((component + 0.055) / 1.055), 2.4))
+    }
+
+    return 0.2126 * linearized(red)
+        + 0.7152 * linearized(green)
+        + 0.0722 * linearized(blue)
+}
+
+private func cmuxContrastRatio(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+    let lighter = max(lhs, rhs)
+    let darker = min(lhs, rhs)
+    return (lighter + 0.05) / (darker + 0.05)
 }
 
 struct SidebarRemoteErrorCopyEntry: Equatable {
@@ -138,11 +285,25 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-    let clampedOpacity = max(0, min(opacity, 1))
-    return NSColor.white.withAlphaComponent(clampedOpacity)
+    sidebarSelectedWorkspaceForegroundNSColor(
+        on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
+        opacity: opacity
+    )
 }
 
-struct SidebarWorkspaceRowBackgroundStyle {
+func sidebarSelectedWorkspaceForegroundNSColor(
+    on backgroundColor: NSColor,
+    opacity: CGFloat
+) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    let whiteContrast = cmuxContrastRatio(foreground: .white, background: backgroundColor)
+    guard whiteContrast < 2.75 else {
+        return NSColor.white.withAlphaComponent(clampedOpacity)
+    }
+    return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: clampedOpacity)
+}
+
+struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     let color: NSColor?
     let opacity: Double
 
@@ -150,7 +311,7 @@ struct SidebarWorkspaceRowBackgroundStyle {
 }
 
 func sidebarWorkspaceRowExplicitRailNSColor(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
     colorScheme: ColorScheme
 ) -> NSColor? {
@@ -166,7 +327,7 @@ func sidebarWorkspaceRowExplicitRailNSColor(
 }
 
 func sidebarWorkspaceRowBackgroundStyle(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     isActive: Bool,
     isMultiSelected: Bool,
     customColorHex: String?,

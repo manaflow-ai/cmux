@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCHEME_FILE="GhosttyTabs.xcodeproj/xcshareddata/xcschemes/cmux.xcscheme"
+SCHEME_FILE="cmux.xcodeproj/xcshareddata/xcschemes/cmux.xcscheme"
 
 if [ ! -f "$SCHEME_FILE" ]; then
   echo "FAIL: Missing scheme file at $SCHEME_FILE" >&2

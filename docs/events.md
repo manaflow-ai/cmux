@@ -90,7 +90,7 @@ heartbeats.
 in memory, or newer than the current process after an app restart. In that case,
 process the replayed tail, then refresh any state you need through
 snapshot-style commands such as `list-workspaces`, `list-notifications`, `tree`,
-or focused surface queries.
+`extension.sidebar.snapshot`, or focused surface queries.
 
 ### Event
 
@@ -139,6 +139,7 @@ Event fields:
 | `surface_id` | Surface UUID when known. |
 | `pane_id` | Pane UUID when known. |
 | `window_id` | Window UUID when known. |
+| `automation_origin` | Optional rule id and ordered rule chain when an in-process automation action produced the event. |
 | `payload` | Event-specific JSON object. |
 
 ### Heartbeat
@@ -189,6 +190,33 @@ auditing, but should treat the socket `ack.resume.gap` contract plus snapshot
 commands as the source of truth for catch-up after long outages. Feed still
 writes its specialized long-term audit log to `~/.cmuxterm/workstream.jsonl`.
 
+## Submitted prompt size
+
+`agent.hook.UserPromptSubmit` and its matching `feed.item.*` event expose
+`payload.prompt_length` when the producer captured the original prompt size.
+It counts **Unicode extended grapheme clusters** (Swift `String.count`), not UTF-8
+bytes, Unicode scalars, JSON characters, or the compacted preview. ASCII prompts
+of 18,635 and 85 bytes therefore report 18,635 and 85. For example, `é`, `中`,
+`e` followed by a combining acute accent, and `👩‍💻` each count as one character.
+Whitespace is counted before normalization; a supplied empty prompt reports zero.
+
+The hook CLI measures the original string before compaction and carries only its
+integer count alongside the existing bounded preview. Event telemetry continues
+to redact `tool_input`, `context`, and `extra_fields`; the size field carries no
+prompt or tool-input text. Attribution remains on the same event's `session_id`,
+`workspace_id`, and `surface_id`.
+
+Only integral JSON numbers from 0 through 1,048,576 are accepted, matching the
+hook CLI's 1 MiB input ceiling. Booleans, strings, fractions, negatives, and larger
+values are rejected. Missing prompts, older producers without original-size
+metadata, and invalid metadata omit `prompt_length`: absence means unknown,
+not zero. A compacted preview cannot recover an unknown original length. Counts
+are producer-reported metadata, not proof of delivery or authenticated claims.
+
+`tool_input_length` retains its existing meaning for every hook: the character
+count of the stored JSON representation of tool input, after compaction. It is
+not a prompt-size field. Other tool-event length semantics are unchanged.
+
 ## CLI
 
 `cmux events` prints the stream as newline-delimited JSON.
@@ -234,6 +262,40 @@ Workspace:
 | `workspace.reordered` | Workspace order changed. |
 | `workspace.moved` | Workspace moved to another window. |
 | `workspace.action` | Workspace action command completed. |
+| `workspace.prompt.submitted` | A prompt was submitted in a workspace. Used by extension sidebars to keep derived state fresh without polling. |
+
+`workspace.reordered` payloads are published by the shared workspace lifecycle
+path and include ordered `workspace_ids`, `moved_workspace_ids`,
+`pinned_workspace_ids`, and `count`.
+
+`workspace.prompt.submitted` payloads include `workspace_id`, a redacted
+`message`, `message_preview`, `message_length`, and `redacted_fields`. This is
+local sensitive data, so consumers should only forward it with explicit user
+opt-in.
+
+Extension sidebars should bootstrap from the v2 socket method
+`extension.sidebar.snapshot`, then subscribe to `cmux events --category
+workspace --category notification --category sidebar --reconnect` and reduce
+events from the returned `seq`. The snapshot returns `selected_workspace_id`
+and an ordered `workspaces` array containing workspace ids/refs, title,
+description, pinned state, root/project paths, branch summary, remote status,
+latest submitted prompt preview/time, listening ports, pull request URLs,
+panel directories, and git branch summaries.
+
+Socket `workspace.reorder` and `workspace.reorder_many` command results include
+`plan` and `events` arrays that use short refs and final indexes. Those response
+fields describe the command result; they are not separate event-stream payloads:
+
+```json
+{
+  "window_id": "2FB4...",
+  "window_ref": "window:1",
+  "workspace_id": "8D10...",
+  "workspace_ref": "workspace:11",
+  "from_index": 12,
+  "to_index": 1
+}
+```
 
 Surface and pane:
 
@@ -251,7 +313,8 @@ Surface and pane:
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |
 | `pane.focused` | Focused pane changed for a workspace. Fires for pane clicks, split focus, `focus-pane`, `last-pane`, and selection convergence after close/move. |
-| `pane.resized` | Pane resized. |
+| `pane.resized` | Local pane resize applied. |
+| `pane.resize_requested` | Remote tmux pane resize accepted for asynchronous application. |
 | `pane.swapped` | Two panes swapped. |
 | `pane.broken` | Pane broken into a new workspace. |
 | `pane.joined` | Pane joined into another pane. |
@@ -278,6 +341,10 @@ Notifications:
 | --- | --- |
 | `notification.requested` | Socket command asked cmux to create a notification. |
 | `notification.clear_requested` | Socket command asked cmux to clear notifications. |
+| `notification.dismiss_requested` | Socket command asked cmux to remove one notification or already-read notifications. |
+| `notification.mark_read_requested` | Socket command asked cmux to mark notifications read. |
+| `notification.open_requested` | Socket command asked cmux to open a notification by id. |
+| `notification.jump_to_unread_requested` | Socket command asked cmux to jump to the latest unread notification. |
 | `notification.created` | Notification store created a notification. |
 | `notification.read` | Notification was marked read. |
 | `notification.removed` | One notification was removed. |
@@ -310,15 +377,17 @@ plugin bridge. The event stream publishes both agent and Feed events:
 
 ```json
 {
-  "name": "agent.hook.PermissionRequest",
+  "name": "agent.hook.Stop",
   "category": "agent",
   "source": "codex",
   "workspace_id": "9B6920C1-6C29-4C27-A069-78CF285F932A",
+  "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
   "payload": {
     "session_id": "session-123",
-    "hook_event_name": "PermissionRequest",
+    "hook_event_name": "Stop",
     "_source": "codex",
-    "tool_name": "exec_command",
+    "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
+    "tool_name": null,
     "_opencode_request_id": "request-456",
     "phase": "received"
   }
@@ -327,6 +396,8 @@ plugin bridge. The event stream publishes both agent and Feed events:
 
 The `feed.item.completed` event contains the same workstream payload plus a
 `result` object matching the `feed.push` socket response.
+When an incoming hook event includes a `surface_id`, it is preserved both on
+the event envelope and in its workstream payload.
 
 ## Privacy
 
@@ -338,3 +409,21 @@ can correlate events without receiving prompt/tool payloads by default.
 
 Consumers should treat the stream as local-sensitive data and avoid forwarding
 it to third-party services without an explicit user opt-in.
+
+## Automation origin
+
+Events emitted while an automation action is executing carry an envelope field
+such as:
+
+```json
+{
+  "automation_origin": {
+    "rule_id": "surface-needs-input",
+    "chain": ["surface-needs-input"],
+    "depth": 1
+  }
+}
+```
+
+The automation engine uses this bounded chain to stop a rule from triggering
+itself or participating in a cycle. Other event consumers may ignore the field.

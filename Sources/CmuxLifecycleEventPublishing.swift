@@ -49,11 +49,12 @@ extension TabManager {
     }
 
     func publishCmuxInitialSurfaceCreated(_ workspace: Workspace, selected: Bool) {
-        guard let terminalPanel = workspace.focusedTerminalPanel else { return }
+        guard let panelId = workspace.focusedSurfaceId,
+              let panel = workspace.panels[panelId] else { return }
         workspace.publishCmuxSurfaceCreated(
-            terminalPanel.id,
-            paneId: workspace.paneId(forPanelId: terminalPanel.id),
-            kind: "terminal",
+            panelId,
+            paneId: workspace.paneId(forPanelId: panelId),
+            kind: Workspace.cmuxEventSurfaceKind(panel),
             origin: "workspace_initial",
             focused: selected
         )
@@ -83,6 +84,7 @@ extension TabManager {
     }
 
     func publishCmuxWorkspaceSelectedChange(from previousWorkspaceId: UUID?) {
+        AppDelegate.shared?.workspacePresenceController.refreshSelection()
         guard let selectedTabId,
               let workspace = tabs.first(where: { $0.id == selectedTabId }) else { return }
         CmuxEventBus.shared.publishWorkspaceSelected(
@@ -212,6 +214,53 @@ extension Workspace {
             return "markdown"
         case .filePreview:
             return "file_preview"
+        case .rightSidebarTool:
+            return "right_sidebar_tool"
+        case .customSidebar:
+            return "custom_sidebar"
+        case .simulator:
+            return "simulator"
+        case .agentSession:
+            return "agent_session"
+        case .project:
+            return "project"
+        case .extensionBrowser:
+            return "extension_browser"
+        case .workspaceTodo:
+            return "workspace_todo"
+        case .notifications:
+            return "notifications"
+        case .cloudVMLoading:
+            return "cloud_vm_loading"
+        case .mobilePairing:
+            return "mobile_pairing"
+        case .accountSignIn:
+            return "account_sign_in"
+        }
+    }
+}
+
+@MainActor
+private enum MainWindowKeyRegainRefresh {
+    static func refresh(window: NSWindow, context: AppDelegate.MainWindowContext) {
+        // Window focus regain owns the redraw invariant. Cursor tracking and
+        // focused subviews can update themselves only after this invalidation.
+        invalidateContentDisplayTree(window: window)
+        _ = context.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+    }
+
+    private static func invalidateContentDisplayTree(window: NSWindow) {
+        guard let contentView = window.contentView else { return }
+        invalidateDisplayTree(rootedAt: contentView)
+        window.invalidateCursorRects(for: contentView)
+    }
+
+    private static func invalidateDisplayTree(rootedAt view: NSView) {
+        guard !view.isHidden else { return }
+        view.needsDisplay = true
+        view.layer?.setNeedsDisplay()
+        for subview in view.subviews {
+            invalidateDisplayTree(rootedAt: subview)
         }
     }
 }
@@ -220,11 +269,20 @@ extension AppDelegate {
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
+            let context = senderRelativeMainWindowContext(for: window)
             setActiveMainWindow(window)
             if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
+                publishCmuxWindowLifecycle(
+                    name: "window.keyed",
+                    windowId: windowId,
+                    origin: "appkit_key",
+                    exactWindow: window,
+                    allowTeardownRoute: false
+                )
             }
-            _ = contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+            if let context {
+                MainWindowKeyRegainRefresh.refresh(window: window, context: context)
+            }
         }
     }
 
@@ -232,13 +290,33 @@ extension AppDelegate {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
             if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
+                publishCmuxWindowLifecycle(
+                    name: "window.unkeyed",
+                    windowId: windowId,
+                    origin: "appkit_key",
+                    exactWindow: window,
+                    allowTeardownRoute: false
+                )
             }
         }
     }
 
-    func publishCmuxWindowLifecycle(name: String, windowId: UUID, origin: String) {
-        let manager = tabManagerFor(windowId: windowId)
+    func publishCmuxWindowLifecycle(
+        name: String,
+        windowId: UUID,
+        origin: String,
+        exactWindow: NSWindow? = nil,
+        allowTeardownRoute: Bool = true
+    ) {
+        let manager: TabManager?
+        if let exactWindow {
+            manager = contextForMainTerminalWindow(exactWindow, reindex: false)?.tabManager
+                ?? recoverableMainWindowIdentity(forExactWindow: exactWindow)?.tabManager
+        } else if allowTeardownRoute {
+            manager = tabManagerForWindowTeardown(windowId: windowId)
+        } else {
+            manager = tabManagerFor(windowId: windowId)
+        }
         let workspaceId = manager?.selectedTabId
         let selectedWorkspaceIndex = workspaceId.flatMap { selectedId in
             manager?.tabs.firstIndex(where: { $0.id == selectedId })

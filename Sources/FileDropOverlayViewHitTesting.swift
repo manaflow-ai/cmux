@@ -6,6 +6,9 @@ import WebKit
 extension FileDropOverlayView {
     func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let loc = sender.draggingLocation
+        let previousHitTest = dragUpdateHitTest
+        dragUpdateHitTest = (loc, uncachedViewUnderPoint(loc))
+        defer { dragUpdateHitTest = previousHitTest }
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -121,18 +124,42 @@ extension FileDropOverlayView {
         sender: any NSDraggingInfo,
         pasteboardTypes: [NSPasteboard.PasteboardType]?
     ) {
-        let kind = textDropDestinationKindUnderPoint(sender.draggingLocation)
+        let windowPoint = sender.draggingLocation
+        if editableTextViewUnderPoint(windowPoint) == nil,
+           webViewUnderPoint(windowPoint) != nil {
+            guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes),
+                  !DragOverlayRoutingPolicy.currentModifierFlags.contains(.shift),
+                  let hintText = FileDropTextDestinationKind.editor.hintText(for: .preview),
+                  let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
+                hintPresentation.hideBadge()
+                return
+            }
+            hintPresentation.show(
+                sequenceNumber: sender.draggingSequenceNumber,
+                text: hintText,
+                centeredIn: targetBounds,
+                clippedTo: bounds
+            )
+            return
+        }
+
+        let kind = textDropDestinationKindUnderPoint(windowPoint)
         guard let alternateBehavior = DragOverlayRoutingPolicy.alternateFileDropBehaviorForShiftHint(
             pasteboardTypes: pasteboardTypes,
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
             canDropAsText: kind != nil
         ), let kind,
            let hintText = kind.hintText(for: alternateBehavior),
-           let targetBounds = hintBadgeTargetBoundsUnderPoint(sender.draggingLocation) else {
-            hintBadgeView.hide()
+           let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
+            hintPresentation.hideBadge()
             return
         }
-        hintBadgeView.show(text: hintText, centeredIn: targetBounds, clippedTo: bounds)
+        hintPresentation.show(
+            sequenceNumber: sender.draggingSequenceNumber,
+            text: hintText,
+            centeredIn: targetBounds,
+            clippedTo: bounds
+        )
     }
 
     func textDropDestinationKindUnderPoint(_ windowPoint: NSPoint) -> FileDropTextDestinationKind? {
@@ -168,25 +195,30 @@ extension FileDropOverlayView {
     func performFileDropAsText(_ sender: any NSDraggingInfo) -> Bool {
         let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
         guard !urls.isEmpty else { return false }
-        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
-        guard !text.isEmpty else { return false }
 
         let windowPoint = sender.draggingLocation
         if let textView = editableTextViewUnderPoint(windowPoint) {
+            let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+            guard !text.isEmpty else { return false }
             return insert(text, into: textView)
         }
         if let terminal = terminalUnderPoint(windowPoint) {
-            return insert(urls, into: terminal)
+            return insert(urls, into: terminal, pasteboard: sender.draggingPasteboard)
         }
         return false
     }
 
     private func viewUnderPoint(_ windowPoint: NSPoint) -> NSView? {
-        guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(windowPoint, from: nil)
-        return contentView.hitTest(point)
+        if let dragUpdateHitTest, dragUpdateHitTest.location == windowPoint {
+            return dragUpdateHitTest.view
+        }
+        return uncachedViewUnderPoint(windowPoint)
+    }
+
+    private func uncachedViewUnderPoint(_ windowPoint: NSPoint) -> NSView? {
+        guard let rootView = hitTestReferenceView ?? window?.contentView else { return nil }
+        let point = rootView.convert(windowPoint, from: nil)
+        return rootView.hitTest(point)
     }
 
     private func editableTextViewUnderPoint(_ windowPoint: NSPoint) -> NSTextView? {
@@ -213,25 +245,12 @@ extension FileDropOverlayView {
         return true
     }
 
-    private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {
-        let handled = terminal.handleDroppedFileURLsAsText(urls)
-        guard handled,
-              let workspaceId = terminal.tabId,
-              let terminalSurfaceId = terminal.terminalSurface?.id,
-              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId),
-              let panelId = FileDropTextDropController.panelIdForTerminalDropFocus(
-                terminalSurfaceId: terminalSurfaceId,
-                workspace: workspace
-              ) else {
-            return handled
-        }
-        FileDropTextDropController.focusPanelAfterSuccessfulTextDrop(
-            workspace: workspace,
-            panelId: panelId,
-            focusIntent: .terminal(.surface),
-            window: terminal.window
+    private func insert(_ urls: [URL], into terminal: GhosttyNSView, pasteboard: NSPasteboard) -> Bool {
+        FileDropTextDropController.performTerminalFileDrop(
+            terminal: terminal,
+            urls: urls,
+            pasteboard: pasteboard
         )
-        return true
     }
 
     /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
@@ -241,13 +260,7 @@ extension FileDropOverlayView {
             return portalWebView
         }
 
-        guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(windowPoint, from: nil)
-        let hitView = contentView.hitTest(point)
-
-        var current: NSView? = hitView
+        var current = viewUnderPoint(windowPoint)
         while let view = current {
             if let webView = view as? WKWebView { return webView }
             current = view.superview
@@ -390,13 +403,7 @@ extension FileDropOverlayView {
             return portalTerminal
         }
 
-        guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(windowPoint, from: nil)
-        let hitView = contentView.hitTest(point)
-
-        var current: NSView? = hitView
+        var current = viewUnderPoint(windowPoint)
         while let view = current {
             if let terminal = view as? GhosttyNSView { return terminal }
             current = view.superview
@@ -431,16 +438,13 @@ extension FileDropOverlayView {
 
     private func inlinePaneDropTargetUnderPoint(_ windowPoint: NSPoint) -> PaneDropTargetView? {
         guard let window, let contentView = window.contentView else { return nil }
-        isHidden = true
-        defer { isHidden = false }
-
         let point = contentView.convert(windowPoint, from: nil)
         return paneDropTarget(in: contentView, at: point)
     }
 
     private func paneDropTarget(in view: NSView, at point: NSPoint) -> PaneDropTargetView? {
         for subview in view.subviews.reversed() {
-            guard !subview.isHidden, subview.alphaValue > 0 else { continue }
+            guard subview !== self, !subview.isHidden, subview.alphaValue > 0 else { continue }
             let pointInSubview = subview.convert(point, from: view)
             guard subview.bounds.contains(pointInSubview) else { continue }
             if let paneTarget = subview as? PaneDropTargetView {
