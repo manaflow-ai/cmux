@@ -201,6 +201,7 @@ export default async function BillingSuccessPage({
           {/* The handler owns a full-document auth-settings transition. */}
           {/* The auth-settings handler performs a full-document transition. */}
           {/* oxlint-disable-next-line react-doctor/nextjs-no-a-element */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a className="underline decoration-border underline-offset-4 hover:text-foreground" href="/handler/account-settings">
             {messages.manageSignInMethods}
           </a>

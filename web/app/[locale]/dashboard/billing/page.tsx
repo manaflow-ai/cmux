@@ -132,6 +132,7 @@ export default async function DashboardBillingPage({
           <span>{t("banners.pastDue")}</span>{" "}
           {/* The portal route creates a session and needs a full document navigation. */}
           {/* oxlint-disable-next-line react-doctor/nextjs-no-a-element */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/billing/portal" className="underline">
             {t("actions.manageBilling")}
           </a>
@@ -143,6 +144,7 @@ export default async function DashboardBillingPage({
           <span>{t("banners.pastDue")}</span>{" "}
           {/* The portal route creates a session and needs a full document navigation. */}
           {/* oxlint-disable-next-line react-doctor/nextjs-no-a-element */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/billing/portal?scope=team" className="underline">
             {t("actions.manageBilling")}
           </a>
@@ -273,6 +275,7 @@ function FreePlan({
         // The portal route creates a Stripe session and needs a full document
         // navigation rather than a Next.js client transition.
         // oxlint-disable-next-line react-doctor/nextjs-no-a-element
+        // eslint-disable-next-line @next/next/no-html-link-for-pages
         <a
           href="/api/billing/portal"
           className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
@@ -496,6 +499,7 @@ function StripePlan({
           // This API route creates a Stripe portal session and must perform a
           // full document navigation rather than a Next.js client transition.
           // oxlint-disable-next-line react-doctor/nextjs-no-a-element
+          // eslint-disable-next-line @next/next/no-html-link-for-pages
           <a
             href="/api/billing/portal"
             className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
@@ -590,6 +594,7 @@ function TeamPlan({
           // This API route creates a Stripe portal session and must perform a
           // full document navigation rather than a Next.js client transition.
           // oxlint-disable-next-line react-doctor/nextjs-no-a-element
+          // eslint-disable-next-line @next/next/no-html-link-for-pages
           <a
             href="/api/billing/portal?scope=team"
             className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"

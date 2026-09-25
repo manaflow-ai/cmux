@@ -56,6 +56,7 @@ export async function browserOpenGraphImageResponse(): Promise<Response> {
       >
         {/* ImageResponse needs a data-URL image rather than next/image. */}
         {/* oxlint-disable-next-line react-doctor/nextjs-no-img-element */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={logoSrc}
           width={128 * scale}
