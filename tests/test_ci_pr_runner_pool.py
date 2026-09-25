@@ -2017,7 +2017,7 @@ class Wiring(unittest.TestCase):
         text = (WORKFLOWS / "ci-macos.yml").read_text()
         self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 2)
 
-    def test_admission_uploads_its_warm_keys_only_once_the_subcommand_exists(self):
+    def test_admission_uploads_its_warm_keys(self):
         steps = self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]["steps"]
         names = [step.get("name") for step in steps]
         keep = names.index("Keep this owned Mac's DerivedData")
@@ -2027,7 +2027,9 @@ class Wiring(unittest.TestCase):
         self.assertIs(listed["continue-on-error"], True)
         self.assertIs(upload["continue-on-error"], True)
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", listed["if"])
-        self.assertIn('*"owned_build_state.py warm-keys"*', listed["run"])
+        self.assertIn('owned_build_state.py warm-keys "$CMUX_OWNED_STATE_ROOT" "$RUNNER_NAME"', listed["run"])
+        # The kept build's merge base is what warm-keys lists first.
+        self.assertIn('"$MERGED_ONTO"', steps[keep]["run"])
         # A fixed name, which the janitor can list; a re-run attempt replaces it.
         self.assertEqual(upload["with"]["name"], "owned-warm-keys")
         self.assertIs(upload["with"]["overwrite"], True)
