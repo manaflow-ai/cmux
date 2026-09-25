@@ -922,6 +922,7 @@ struct ContentView: View {
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
+    @State private var titlebarLocationText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
     private var observedWindow: NSWindow? { observedWindowReference.window }
@@ -2176,7 +2177,7 @@ struct ContentView: View {
                             .allowsHitTesting(false)
                     }
 
-                    // Draggable folder icon + focused command name
+                    // Draggable folder icon + workspace title + focused location
                     if let directory = focusedDirectory {
                         DetachedFolderDragIcon(directory: directory)
                             .frame(width: 16, height: 16)
@@ -2187,7 +2188,19 @@ struct ContentView: View {
                         .cmuxFont(size: 13, weight: .bold)
                         .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
                         .lineLimit(1)
+                        .layoutPriority(1)
                         .allowsHitTesting(false)
+
+                    if !titlebarLocationText.isEmpty {
+                        Text(verbatim: titlebarLocationText)
+                            .cmuxFont(size: 13)
+                            .foregroundColor(fakeTitlebarTextColor(appearance: appearance).opacity(0.6))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .layoutPriority(-1)
+                            .accessibilityIdentifier("TitlebarFocusedLocation")
+                            .allowsHitTesting(false)
+                    }
 
                     Spacer()
 
@@ -2359,6 +2372,9 @@ struct ContentView: View {
             if !titlebarText.isEmpty {
                 titlebarText = ""
             }
+            if !titlebarLocationText.isEmpty {
+                titlebarLocationText = ""
+            }
             return
         }
         let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
@@ -2366,6 +2382,49 @@ struct ContentView: View {
         if titlebarText != title {
             titlebarText = title
         }
+        let location = Self.titlebarFocusedLocation(
+            directory: focusedTerminalDirectory(for: tab),
+            url: tab.focusedPanelId.flatMap { panelID in
+                tab.browserPanel(for: panelID)?.preferredURLStringForOmnibar().flatMap(URL.init(string:))
+            },
+            homeDirectory: tab.isRemoteWorkspace ? nil : NSHomeDirectory()
+        ) ?? ""
+        if titlebarLocationText != location {
+            titlebarLocationText = location
+        }
+    }
+
+    /// Formats the focused terminal directory or browser URL for the titlebar.
+    /// Browser schemes are omitted for compactness; local paths use `~` only when
+    /// they are rooted in this Mac's home directory.
+    nonisolated static func titlebarFocusedLocation(
+        directory: String?,
+        url: URL?,
+        homeDirectory: String?
+    ) -> String? {
+        if let url,
+           url.absoluteString.caseInsensitiveCompare("about:blank") != .orderedSame,
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let host = components.host {
+            var displayHost = host.lowercased()
+            if displayHost.hasPrefix("www.") { displayHost.removeFirst(4) }
+            var result = displayHost
+            if let port = components.port { result += ":\(port)" }
+            let path = components.percentEncodedPath
+            if !path.isEmpty, path != "/" { result += path }
+            if let query = components.percentEncodedQuery, !query.isEmpty { result += "?\(query)" }
+            if let fragment = components.fragment, !fragment.isEmpty { result += "#\(fragment)" }
+            return result.isEmpty ? nil : result
+        }
+        guard let directory else { return nil }
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let homeDirectory,
+           !homeDirectory.isEmpty,
+           trimmed == homeDirectory || trimmed.hasPrefix(homeDirectory + "/") {
+            return "~" + String(trimmed.dropFirst(homeDirectory.count))
+        }
+        return trimmed
     }
 
     @MainActor private func scheduleTitlebarTextRefresh() {
@@ -2485,6 +2544,17 @@ struct ContentView: View {
         if let focusedPanelId = tab.focusedPanelId,
            !tab.isRemoteTerminalSurface(focusedPanelId),
            let panelDir = tab.reportedPanelDirectory(panelId: focusedPanelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !panelDir.isEmpty {
+            return panelDir
+        }
+        if tab.usesRemoteDirectoryProvenance { return nil }
+        return tab.presentedCurrentDirectory
+    }
+
+    private func focusedTerminalDirectory(for tab: Workspace) -> String? {
+        guard let focusedPanelId = tab.focusedPanelId,
+              tab.panels[focusedPanelId]?.panelType == .terminal else { return nil }
+        if let panelDir = tab.reportedPanelDirectory(panelId: focusedPanelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !panelDir.isEmpty {
             return panelDir
         }
@@ -2813,6 +2883,19 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange, object: tabManager)) { notification in
             guard tabManager.shouldRefreshTitleChrome(for: notification) else { return }
             updateTitlebarText()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceFocusedLocationDidChange)) { notification in
+            guard let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                  workspaceId == tabManager.selectedTabId else { return }
+            scheduleTitlebarTextRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { notification in
+            let workspaceID = notification.userInfo?["workspaceId"] as? UUID
+                ?? (notification.object as? Workspace)?.id
+            guard workspaceID == tabManager.selectedTabId else { return }
+            scheduleTitlebarTextRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
