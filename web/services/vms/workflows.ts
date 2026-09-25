@@ -1779,6 +1779,119 @@ export function listEnvLayers(input: {
   });
 }
 
+export const VM_ENV_LAYER_RETENTION_DAYS = 30;
+export const VM_ENV_LAYER_MAX_PER_TEAM = 100;
+export const VM_ENV_LAYER_RETENTION_BATCH_LIMIT = 50;
+
+function boundedEnvLayerRetentionNumber(name: string, fallback: number, maximum: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
+}
+
+export type VmEnvLayerRetentionResult = {
+  readonly candidates: number;
+  readonly deleted: number;
+  readonly failed: number;
+  readonly backlog: boolean;
+};
+
+/**
+ * Reclaim stale and over-capacity env layers without orphaning provider
+ * snapshots. A deletion intent is recorded before the provider call so layer
+ * resolution fails closed during the irreversible part of the operation.
+ */
+export function cleanupEnvLayers(input: {
+  readonly now?: Date;
+  readonly retentionDays?: number;
+  readonly maxLayersPerTeam?: number;
+  readonly batchLimit?: number;
+} = {}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const retentionDays = input.retentionDays ?? boundedEnvLayerRetentionNumber(
+      "CMUX_VM_ENV_LAYER_RETENTION_DAYS",
+      VM_ENV_LAYER_RETENTION_DAYS,
+      3650,
+    );
+    const maxLayersPerTeam = input.maxLayersPerTeam ?? boundedEnvLayerRetentionNumber(
+      "CMUX_VM_ENV_LAYER_MAX_PER_TEAM",
+      VM_ENV_LAYER_MAX_PER_TEAM,
+      10_000,
+    );
+    const batchLimit = input.batchLimit ?? boundedEnvLayerRetentionNumber(
+      "CMUX_VM_ENV_LAYER_RETENTION_BATCH_LIMIT",
+      VM_ENV_LAYER_RETENTION_BATCH_LIMIT,
+      500,
+    );
+    const candidates = yield* repo.listEnvLayerRetentionCandidates({
+      now: input.now ?? new Date(),
+      retentionDays,
+      maxLayersPerTeam,
+      // One extra row tells the cron whether another run is needed.
+      limit: batchLimit + 1,
+    });
+    const work = candidates.slice(0, batchLimit);
+    let deleted = 0;
+    let failed = 0;
+    for (const candidate of work) {
+      const result = yield* Effect.either(Effect.gen(function* () {
+        const deleteSnapshotById = providers.deleteSnapshotById;
+        if (!deleteSnapshotById) {
+          return yield* Effect.fail(new VmOperationUnsupportedError({
+            provider: candidate.provider,
+            operation: "deleteSnapshotById",
+          }));
+        }
+        if (!candidate.deletionRequested) {
+          yield* repo.recordUsageEvent({
+            userId: candidate.userId,
+            billingTeamId: candidate.billingTeamId,
+            vmId: null,
+            eventType: "vm.env.layer.delete_requested",
+            provider: candidate.provider,
+            imageId: candidate.baseImageId,
+            metadata: {
+              snapshotId: candidate.snapshotId,
+              chainHash: candidate.chainHash,
+              source: "retention",
+            },
+          });
+        }
+        yield* deleteSnapshotById(candidate.provider, candidate.snapshotId).pipe(
+          Effect.retry({ times: 2 }),
+          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.void : Effect.fail(error)),
+        );
+        yield* repo.recordUsageEvent({
+          userId: candidate.userId,
+          billingTeamId: candidate.billingTeamId,
+          vmId: null,
+          eventType: "vm.env.layer.deleted",
+          provider: candidate.provider,
+          imageId: candidate.baseImageId,
+          metadata: {
+            snapshotId: candidate.snapshotId,
+            chainHash: candidate.chainHash,
+            source: "retention",
+          },
+        });
+        const invalidated = yield* repo.invalidateEnvLayer({
+          id: candidate.id,
+          snapshotId: candidate.snapshotId,
+        });
+        if (invalidated) deleted += 1;
+      }));
+      if (Either.isLeft(result)) failed += 1;
+    }
+    return {
+      candidates: work.length,
+      deleted,
+      failed,
+      backlog: candidates.length > work.length,
+    } satisfies VmEnvLayerRetentionResult;
+  });
+}
+
 /**
  * Resolve the source shape used by a fork. Legacy rows have no durable claim,
  * so forks use provider stats with a legacy fallback for unknown dimensions.

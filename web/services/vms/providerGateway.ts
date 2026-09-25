@@ -72,6 +72,11 @@ export type VmProviderGatewayShape = {
     vmId: string,
     snapshotId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  /** Delete a provider-global snapshot without requiring its source VM. */
+  readonly deleteSnapshotById?: (
+    provider: ProviderId,
+    snapshotId: string,
+  ) => Effect.Effect<void, VmProviderOperationError>;
   readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   /** Driver capabilities. Optional for compatibility with older test doubles. */
   readonly capabilities?: (provider: ProviderId) => VmCapabilities;
@@ -252,6 +257,14 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         throw new VmOperationUnsupportedError({ provider, operation: "deleteSnapshot" });
       }
       await impl.deleteSnapshot(vmId, snapshotId);
+    }),
+  deleteSnapshotById: (provider, snapshotId) =>
+    providerEffect(provider, "deleteSnapshotById", async () => {
+      const impl = getProvider(provider);
+      if (!impl.deleteSnapshotById) {
+        throw new VmOperationUnsupportedError({ provider, operation: "deleteSnapshotById" });
+      }
+      await impl.deleteSnapshotById(snapshotId);
     }),
   fork: (provider, vmId) =>
     providerEffect(provider, "fork", async () => {

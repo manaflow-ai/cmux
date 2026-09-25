@@ -47,6 +47,16 @@ A layer's cache key is a hash chain over the provider, the resolved base image i
 
 Long steps do not stream over one request: the CLI stages a small runner in the VM, starts each step detached in its own session, and polls a status file every couple of seconds, so a 30-minute `zig build` works even though every network call stays short. If the CLI dies mid-build, already-registered layers make the re-run cheap.
 
+## Retention
+
+The Cloud service runs an hourly retention job. Layers unused for 30 days and
+layers beyond 100 active layers per billing team are eligible for cleanup. The
+limits can be changed by operators with `CMUX_VM_ENV_LAYER_RETENTION_DAYS` and
+`CMUX_VM_ENV_LAYER_MAX_PER_TEAM`; each run deletes at most 50 provider
+snapshots. The job records a deletion intent before calling the provider and
+invalidates the database row only after the snapshot deletion succeeds. A
+failed provider call remains retryable on the next run.
+
 ## Agents
 
 When a coding agent is asked to "set up X in a cloud VM", the intended loop is: draft `.cmux/env.yaml`, run `cmux vm env build --json`, read `failingStepIndex` and `logTail`, fix only that step, and re-run — cached layers before the failure do not re-execute. Commit the spec once verify passes. The repo skill `skills/cmux-cloud-env/SKILL.md` documents this contract for agents.

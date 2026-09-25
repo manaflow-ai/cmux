@@ -97,6 +97,7 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
   revoking all devices would disconnect other team members.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
 - `cloud_vm_env_layers` is the env-layer cache behind `cmux vm env build`. Each row maps a chain hash (provider + base image + ordered `.cmux/env.yaml` steps) to the provider snapshot taken after that step succeeded. Rows are billing-team scoped and never shared across teams because snapshots can contain secrets. Registration re-verifies snapshot ownership via `vm.snapshot.created` usage events, and restores of cached layers flow through the existing `restoreVm` ownership + entitlement gates. Freestyle-only for now (`VmEnvProviderUnsupportedError` otherwise); the chain hash is computed client-side and treated as opaque by the server.
+- The hourly env-layer retention job removes layers unused for 30 days or beyond 100 active layers per billing team. It records a deletion intent, deletes the provider snapshot, then invalidates the row; provider failures remain retryable and each run is capped at 50 snapshots.
 - `cloud_vm_networks` records the one provider private network per (user, provider).
 - `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device
   fingerprint, the client's **public** key, and its address inside the network. No private
