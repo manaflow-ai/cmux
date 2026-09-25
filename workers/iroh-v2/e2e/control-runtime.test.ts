@@ -352,18 +352,53 @@ test("a socket reclaims reservations leaked by a Durable Object reset", async ()
   socket.on("message", value => messages.push(JSON.parse(value.toString())));
   await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
   const response = (requestId: string) => new Promise<any>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${requestId}`)), 2_000);
-    const poll = setInterval(() => {
-      const found = messages.find(message => message.requestId === requestId);
-      if (found) { clearTimeout(timeout); clearInterval(poll); resolve(found); }
-    }, 10);
-    socket.once("close", () => { clearTimeout(timeout); clearInterval(poll); reject(new Error(`Socket closed before ${requestId}`)); });
+    const buffered = messages.find(message => message.requestId === requestId);
+    if (buffered) { resolve(buffered); return; }
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off("message", onMessage);
+      socket.off("close", onClose);
+      socket.off("error", onError);
+    };
+    const onError = (error: Error) => { cleanup(); reject(error); };
+    const onClose = () => onError(new Error(`Socket closed before ${requestId}`));
+    const onMessage = (value: NodeWebSocket.RawData) => {
+      const message = JSON.parse(value.toString());
+      if (message.requestId !== requestId) return;
+      cleanup(); resolve(message);
+    };
+    const timeout = setTimeout(() => onError(new Error(`Timed out waiting for ${requestId}`)), 2_000);
+    socket.on("message", onMessage);
+    socket.once("close", onClose);
+    socket.once("error", onError);
   });
   try {
     socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "leaked-directory" }));
     expect((await response("leaked-directory")).schemaId).toBe("directory.result.v1");
     const remaining = (await usage.listSocketReservations(userId)).value.map((row: { sessionId: string }) => row.sessionId);
     expect(remaining.filter((id: string) => id.startsWith("leaked-"))).toEqual([]);
+    // Repeated leaked budgets must recover on an already-open connection
+    // without reclaiming that live socket's reservation.
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const live = (await usage.listSocketReservations(userId)).value;
+      const liveIDs = live.map((row: any) => row.sessionId);
+      expect(liveIDs.length).toBeGreaterThan(0);
+      let available = 8 * 1024 * 1024 - live.reduce((sum: number, row: any) => sum + row.outputBytes, 0);
+      for (let index = 0; available > 0; index += 1) {
+        const sessionId = `leaked-cycle-${cycle}-${index}`;
+        const bytes = Math.min(available, 2 * 1024 * 1024);
+        expect((await usage.reserveSocket({ userId, teamId, sessionId, deviceKey: "f".repeat(64) })).ok).toBe(true);
+        expect((await usage.setOutput(userId, sessionId, 1, bytes, 1000)).ok).toBe(true);
+        available -= bytes;
+      }
+      const requestId = `directory-cycle-${cycle}`;
+      const pending = response(requestId);
+      socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId }));
+      expect((await pending).schemaId).toBe("directory.result.v1");
+      const retained = (await usage.listSocketReservations(userId)).value.map((row: any) => row.sessionId);
+      expect(retained.filter((id: string) => id.startsWith("leaked-"))).toEqual([]);
+      for (const id of liveIDs) expect(retained).toContain(id);
+    }
   } finally {
     socket.close();
   }

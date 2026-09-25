@@ -87,15 +87,10 @@ struct DeviceDirectoryMerge {
             candidate.directoryEndpoint != nil && existing.directoryEndpoint == nil
         }
 
-        var ids = Set(accountMacs.keys)
-        if !input.requiresAuthenticatedDiscovery {
-            // Explicit legacy pairing remains available without the v2 client.
-            ids.formUnion(registryInstances.keys)
-            ids.formUnion(presenceMacs.keys)
-            ids.formUnion(pairedByID.keys)
-            ids.formUnion(previousByID.keys)
-        }
-        ids = ids.filter { $0.isVisible(from: input.selfInstance) }
+        let ids = SurfaceDeviceDirectoryAdmission(requiresAuthenticatedDiscovery: input.requiresAuthenticatedDiscovery)
+            .admittedInstances(authenticated: Set(accountMacs.keys),
+                legacySources: [Set(registryInstances.keys), Set(presenceMacs.keys), Set(pairedByID.keys), Set(previousByID.keys)],
+                local: input.selfInstance)
 
         let personalScope = input.resolvedTeamID == nil || input.resolvedTeamID == input.currentUserID
 

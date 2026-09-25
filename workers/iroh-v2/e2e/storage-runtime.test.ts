@@ -163,6 +163,9 @@ test("existing v6 storage serves directory and relay renewal operations after ac
   expect(registration.status).toBe(200);
   const first = await renewalPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 9_100, expiresAt: 12_700, now: 9_100, requester: registration.body.device });
   expect(first.status).toBe(200);
+  expect(first.body.revision).toBeNumber();
+  expect(first.body.revision).toBeGreaterThan(registration.body.device.revision);
+  expect((await renewalPost("/authority/get", { userId: renewalIdentity.userId })).body).toMatchObject({ verifiedAt: 9_100, expiresAt: 12_700 });
   expect(first.body.devices).toBe(1);
   const second = await renewalPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 10_100, expiresAt: 13_700, now: 10_100, requester: registration.body.device });
   expect(second.status).toBe(200);
@@ -184,9 +187,11 @@ test.each([6, 7])("a full schema %i audit ring does not turn authority renewal i
   const registration = await auditPost("/register", { input: { descriptor: renewalDescriptor, ...challenge, requestId: "renewal-cap-register", requestHash: "renewal-cap-hash", now: 9_001 } });
   expect(registration.status).toBe(200);
   expect((await auditPost("/audit/fill")).status).toBe(200);
+  const previousRevision = (await auditPost("/revision")).body.revision;
   const renewal = await auditPost("/authority/renewal", { userId: renewalIdentity.userId, verifiedAt: 9_100, expiresAt: 12_700, now: 9_100, requester: registration.body.device });
   expect(renewal.status).toBe(200);
-  expect(renewal.body.revision).not.toBeNull();
+  expect(renewal.body.revision).toBeNumber();
+  expect(renewal.body.revision).toBeGreaterThan(previousRevision);
   expect(renewal.body.devices).toBe(1);
   expect((await auditPost("/authority/get", { userId: renewalIdentity.userId })).body).toMatchObject({ verifiedAt: 9_100, expiresAt: 12_700 });
   expect((await auditPost("/audit/count")).body.count).toBe(65_536);
