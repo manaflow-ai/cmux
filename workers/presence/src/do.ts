@@ -82,9 +82,9 @@ import {
   type StoredPhoneReply,
 } from "./replies";
 import {
-  ackLegacyPhoneReplies,
+  ackPhoneReplies as ackLegacyPhoneReplies,
   enqueueLegacyPhoneReply,
-  listLegacyPhoneReplies,
+  listPhoneReplies as listLegacyPhoneReplies,
   type StoredLegacyPhoneReply,
 } from "./legacyReplies";
 import { captureSentryException, type SentryEnv } from "./sentry";

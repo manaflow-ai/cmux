@@ -321,16 +321,29 @@ struct AgentHookDeliveryQueueTests {
             await probe.deliver(event)
         }
 
-        for index in 1...3 {
+        // Tool telemetry has a single ingress slot, so a second tool event is
+        // admitted only after the drain task has moved the first one into a
+        // lane. Waiting for each delivery to start makes that hand-off
+        // observable instead of racing the drain task. Only two tool
+        // deliveries may run, so the third stays resident behind them.
+        for index in 1...2 {
             #expect(queue.enqueue(try makeEvent(
                 agent: "cursor",
                 subcommand: "shell-exec",
                 payload: "tool-\(index)",
                 surfaceID: "surface-\(index)"
             )))
+            try await probe.waitUntilStarted(count: index)
         }
-        try await probe.waitUntilStarted(count: 2)
+        #expect(queue.enqueue(try makeEvent(
+            agent: "cursor",
+            subcommand: "shell-exec",
+            payload: "tool-3",
+            surfaceID: "surface-3"
+        )))
 
+        // Three outstanding tool events exhaust the best-effort reservation
+        // whether or not tool-3 has left ingress yet.
         #expect(!queue.enqueue(try makeEvent(
             agent: "cursor",
             subcommand: "shell-exec",

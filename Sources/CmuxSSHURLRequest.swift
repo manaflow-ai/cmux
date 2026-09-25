@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 enum CmuxSSHURLParseError: Error, Equatable {

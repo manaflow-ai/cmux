@@ -40,7 +40,8 @@ class E2ECompilationCache(unittest.TestCase):
         self.env = dict(os.environ, GITHUB_WORKSPACE=str(self.workspace),
                         RUNNER_TEMP=str(self.root), GITHUB_RUN_ID='11', GITHUB_RUN_ATTEMPT='1',
                         GITHUB_ENV=str(self.root / 'env'), GITHUB_OUTPUT=str(self.root / 'output'),
-                        PATH=str(tools) + ':' + os.environ['PATH'], FIXTURE_XCODE='Xcode 26.6')
+                        PATH=str(tools) + ':' + os.environ['PATH'], FIXTURE_XCODE='Xcode 26.6',
+                        CMUX_CI_CANONICAL_ROOT=str(self.root / 'canonical'))
 
     def run_step(self, name, job='build', **env):
         return subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', step(name, job)['run']],
@@ -156,7 +157,7 @@ exit 97
         # and `test` consumes that exact artifact. A rerun of a failed `test`
         # job re-downloads the product instead of recompiling it.
         build = JOBS['build']
-        compiles = [s for s in build if 'compile-app-host-test-product.sh build' in (s.get('run') or '')]
+        compiles = [s for s in build if 'compile-app-host-test-product.sh canonical-build' in (s.get('run') or '')]
         self.assertEqual(len(compiles), 1, 'build must compile exactly once')
         for job in ('test',):
             for entry in JOBS[job]:
@@ -173,7 +174,40 @@ exit 97
         outputs = WORKFLOW['jobs']['build']['outputs']
         self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
         self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
-        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'build'])
+        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'runner', 'build'])
+
+    def test_the_build_adopts_the_admission_seed_at_the_canonical_root(self):
+        # The seed is only reusable at the paths it was built at, so the build
+        # must run at the canonical root under compile admission's DerivedData
+        # name, key the seed the way ci-macos.yml does, and adopt it for the
+        # tested revision before compiling.
+        names = [entry.get('name') for entry in JOBS['build']]
+        admission = (ROOT / '.github/workflows/ci-macos.yml').read_text()
+        self.assertIn('admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-', admission)
+        key = step('Compute the DerivedData seed key')
+        self.assertIn('canonical-fingerprint "$CMUX_DERIVED_DATA_PATH"', key['run'])
+        self.assertIn('admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-$fingerprint-', key['run'])
+        start = step('Start the DerivedData seed download')
+        self.assertIn('seed_derived_data.py start', start['run'])
+        self.assertIn('"$TEST_REF"', start['run'])
+        adopt = step('Adopt the DerivedData seed')
+        self.assertIn('seed_derived_data.py adopt', adopt['run'])
+        self.assertIn('"$CMUX_CI_CANONICAL_SRC" "$CMUX_DERIVED_DATA_PATH"', adopt['run'])
+        self.assertIn('"$TEST_REF"', adopt['run'])
+        self.assertIs(adopt.get('continue-on-error'), True)
+        resolve = step('Resolve Swift packages')
+        self.assertIn('compile-app-host-test-product.sh canonical-resolve', resolve['run'])
+        self.assertLess(names.index('Start the DerivedData seed download'), names.index('Resolve Swift packages'))
+        self.assertLess(names.index('Resolve Swift packages'), names.index('Adopt the DerivedData seed'))
+        self.assertLess(names.index('Adopt the DerivedData seed'), names.index('Build the app-host and UI test product'))
+        values = self.prepare()
+        self.assertEqual(values['CMUX_DERIVED_DATA_PATH'],
+                         str(self.root / 'canonical' / 'derived-data-compile-admission'))
+        # The CAS path is a compiler argument: a different one than admission
+        # passes invalidates every compile the seed carries.
+        self.assertIn('CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas', admission)
+        self.assertEqual(values['CMUX_E2E_COMPILATION_CACHE'],
+                         str(self.root / 'canonical' / 'compile-admission-cas'))
 
     def test_the_test_job_verifies_the_product_before_using_it(self):
         # A transport is allowed to miss; it is not allowed to hand over
@@ -319,7 +353,7 @@ exit 97
     def test_failure_guard_only_allows_optional_compilation_cache_steps(self):
         guard = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
         start = guard.index('check_e2e_runner_fallbacks() {')
-        end = guard.index('\ncheck_ios_tart_canary()', start)
+        end = guard.index('\ncheck_ios_runner_routing()', start)
         invoke = guard[start:end] + '\ncheck_e2e_runner_fallbacks\n'
         workflow = (ROOT / '.github/workflows/test-e2e.yml').read_text()
         candidate = self.root / 'workflow.yml'

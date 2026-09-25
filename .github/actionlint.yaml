@@ -12,10 +12,6 @@ self-hosted-runner:
     # macOS 26 needs route to Blacksmith cloud, not warp-macos-26-arm64-6x: our
     # self-hosted minis carry that label, and GitHub prefers a matching
     # self-hosted runner. See check_no_self_hosted_fleet_runners.
-    # Manual E2E canary only. Required CI remains routed through repo variables.
-    - tart-canary
-    # Dispatch-only compile-admission producer; guarded separately from required jobs.
-    - cmux-persistent-macos-compile
     # Linux: Blacksmith primary (LINUX_RUNNER), WarpBuild overflow fallback.
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-8vcpu-ubuntu-2404
