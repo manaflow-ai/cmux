@@ -1,6 +1,7 @@
 """New failures on main's full suite, their suspect pull requests, and the report text."""
 
 import importlib.util
+import json
 import pathlib
 import sys
 import unittest
@@ -183,6 +184,16 @@ class RankingTests(unittest.TestCase):
         reaches = pr(1, reached={"Suite"})
         self.assertEqual(MODULE.suspects_for("Suite/test()", [reaches], ["abc"])[0], [reaches])
 
+    def test_only_commits_that_can_change_an_app_host_test_are_bisected(self):
+        log = "\0".join([
+            "", f"{'a' * 40}\n\nSources/App.swift\ndocs/x.md\n",
+            f"{'b' * 40}\n\ndocs/readme.md\nweb/app/page.tsx\nscripts/ci/foo.py\n",
+            f"{'c' * 40}\n\ncmuxTests/FooTests.swift\n",
+            f"{'d' * 40}\n\n",
+            f"{'e' * 40}\n\nPackages/macOS/Kit/Sources/K.swift\n",
+        ])
+        self.assertEqual(MODULE.outcome_commits(log), ["a" * 40, "c" * 40, "e" * 40])
+
     def test_overlay_reads_changed_files_at_the_merge(self):
         files = {"Sources/A.swift": "old", "Sources/B.swift": "b", "cmuxTests/T.swift": "t"}
         self.assertEqual(
@@ -241,6 +252,24 @@ class ReportTests(unittest.TestCase):
         self.assertIn("`S/x()` | #1, #2 (changes code the suite names) | [job](https://job/1)", text)
         self.assertIn("`T/y()` | #2 (changes code the suite names)", text)
         self.assertIn("`U/z()` | unattributed", text)
+
+    def test_issue_section_carries_the_data_the_bisect_reads(self):
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=self.failures,
+            attributions=self.attributions, prs=[self.a, self.b], direct=[], commits=["c" * 40],
+        )
+        marker = [line for line in text.splitlines() if line.startswith(MODULE.DATA_PREFIX)]
+        self.assertEqual(len(marker), 1)
+        data = json.loads(marker[0][len(MODULE.DATA_PREFIX):-3])
+        self.assertEqual((data["run_id"], data["head"], data["prev"]), (2, HEAD, PREV))
+        self.assertEqual(data["commits"], ["c" * 40])
+        self.assertEqual(data["tests"][0], {"test": "S/x()", "suspects": [1, 2], "how": "changes code the suite names"})
+        self.assertEqual(data["tests"][2]["suspects"], [])
+        without = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=self.failures,
+            attributions=self.attributions, prs=[self.a, self.b], direct=[],
+        )
+        self.assertNotIn(MODULE.DATA_PREFIX, without)
 
     def test_issue_section_lists_failures_without_a_baseline(self):
         text = MODULE.issue_section(
