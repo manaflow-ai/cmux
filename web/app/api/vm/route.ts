@@ -1,7 +1,9 @@
+import { normalizedDisplayName } from "../../../services/vms/displayName";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
 import type { Span } from "@opentelemetry/api";
+import * as Effect from "effect/Effect";
 import { preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
@@ -49,6 +51,7 @@ import {
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import {
+  invalidVmDisplayNameResponse,
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
@@ -283,12 +286,15 @@ export async function POST(request: Request): Promise<Response> {
         imageVersion: imageSelection.imageVersion,
         provider,
         idempotencyKey,
+        displayName: body.displayName,
         persistentHome: homeVolumeRequested && candidate.persistentHome === true,
         perMachineHome: homeVolumeRequested && candidate.perMachineHome === true,
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
         timing,
+        // Keep the `vm.created` ledger write off New Machine's critical path.
+        deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
         onError: createErrorResponders(entitlements),
@@ -307,6 +313,12 @@ export async function POST(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(created.provider),
         displayName: created.displayName,
         slug: created.slug,
+        // The private address and attach contract let the app dial the new
+        // machine's baked daemon directly. Without them, New Machine pays a
+        // fleet list re-read plus a whole POST /attach-endpoint round trip
+        // (~2 s measured) for data this response already had.
+        address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
+        cmuxTuiContract: created.cmuxTuiContract,
       });
     },
   );
@@ -359,6 +371,7 @@ async function unsupportedCreateOptionResponse(
 }
 
 type CreateBody = {
+  readonly displayName: string | null;
   readonly image?: string;
   readonly kind?: VmImageKind;
   readonly provider?: ProviderId;
@@ -424,10 +437,12 @@ async function parseCreateRequest(
     };
   }
   const candidate = (raw ?? {}) as Record<string, unknown>;
-  const invalid = invalidCreateFieldResponse(candidate, request);
+  const invalid = await invalidCreateFieldResponse(candidate, request);
   if (invalid) return { ok: false, response: invalid };
+  const displayName = normalizedDisplayName(candidate.displayName ?? null) ?? null;
   const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
   const body: CreateBody = {
+    displayName,
     image: typeof candidate.image === "string" ? candidate.image : undefined,
     kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
     provider: candidate.provider as ProviderId | undefined,
@@ -450,7 +465,20 @@ function invalidCreateRequestResponse(message: string, action: string, details: 
 }
 
 /** The first field-level 400 for a create body, in the order the fields are documented. */
-function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Response | null {
+async function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Promise<Response | null> {
+  return (await invalidCreateDisplayNameResponse(candidate, request))
+    ?? invalidCreateFieldResponseWithoutDisplayName(candidate, request);
+}
+
+/** A person types the name, so unlike the other fields its rejection is localized. */
+async function invalidCreateDisplayNameResponse(candidate: Record<string, unknown>, request: Request): Promise<Response | null> {
+  if (candidate.displayName !== undefined && normalizedDisplayName(candidate.displayName) === undefined) {
+    return invalidVmDisplayNameResponse(request);
+  }
+  return null;
+}
+
+function invalidCreateFieldResponseWithoutDisplayName(candidate: Record<string, unknown>, request: Request): Response | null {
   if (candidate.image !== undefined && typeof candidate.image !== "string") {
     return invalidCreateRequestResponse(
       "`image` must be a string when provided.",

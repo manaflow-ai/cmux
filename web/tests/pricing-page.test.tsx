@@ -130,12 +130,27 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
-      expect(first.includes("Up to 64 GB RAM per machine")).toBe(true);
+      expect(first.includes("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
       release();
       while (!(await reader.read()).done) { /* Drain the completed response. */ }
+      getUser.mockImplementation(async () => proUser);
+    }
+  });
+
+  test("renders generic pricing when the Hexclave session read fails", async () => {
+    stackConfigured = true;
+    getUser.mockImplementation(async () => {
+      throw new Error("Failed to fetch: api.hexclave.com unreachable");
+    });
+    try {
+      const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+      expect(html).toContain("Get Pro");
+      expect(html).toContain("Get Max");
+      expect(html).not.toContain("Current plan");
+    } finally {
       getUser.mockImplementation(async () => proUser);
     }
   });
@@ -287,7 +302,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Up to 64 GB RAM per machine");
+    expect(html).toContain("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");

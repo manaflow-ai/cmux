@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import CmuxSettings
 import CmuxRemoteSession
@@ -461,8 +462,13 @@ enum TerminalSSHSessionDetector {
 
         for candidate in candidates {
             guard let transport = RemoteShellTransport(executableName: candidate.executableName),
-                  let arguments = argumentsByPID[candidate.pid],
-                  let session = parseCommandLine(arguments, for: transport) else {
+                  let arguments = argumentsByPID[candidate.pid] else {
+                continue
+            }
+            if case .ssh = transport, !isInteractiveSSHArguments(arguments) {
+                continue
+            }
+            guard let session = parseCommandLine(arguments, for: transport) else {
                 continue
             }
             return session

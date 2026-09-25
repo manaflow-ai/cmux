@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxBrowser
 import CmuxSettings
@@ -293,7 +294,7 @@ import WebKit
         return .urlOnly
     }
 
-    func activeErrorPageRetryForAutomation() -> BrowserErrorPageRetry? {
+    func activeErrorPageRetry() -> BrowserErrorPageRetry? {
         guard activePolicyBlockedURL == nil else { return .disabled }
         guard let failedURL = activeErrorPageDisplayURL?.absoluteString else { return nil }
         return retryForFailedNavigation(failedURL: failedURL)

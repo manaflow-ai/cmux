@@ -1,7 +1,9 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import Foundation
 import Observation
 
-/// One shared service route. In-app browsers use an authenticated CONNECT proxy
+/// One shared service route. In-app browsers use an authenticated proxy
 /// through userspace WireGuard while retaining the VM address and port.
 @MainActor
 @Observable

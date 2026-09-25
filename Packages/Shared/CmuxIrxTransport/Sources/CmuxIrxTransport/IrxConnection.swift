@@ -1,3 +1,5 @@
+public import CMUXMobileCore
+import CmuxIrohTransport
 public import Foundation
 public import IrohLib
 
@@ -17,7 +19,7 @@ public actor IrxStreamWriter {
     }
 
     public func writeControlFrame(_ value: some Encodable) async throws {
-        try await write(IrxFrameCodec.encode(value))
+        try await write(IrxFrameCodec().encode(value))
     }
 
     public func setPriority(_ priority: Int32) async throws {
@@ -53,7 +55,7 @@ public actor IrxStreamReader {
         while true {
             if buffer.count >= 4 {
                 let length = buffer.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
-                guard length <= IrxProtocol.maximumControlFrameByteCount else {
+                guard length <= IrxProtocol().maximumControlFrameByteCount else {
                     throw IrxFrameCodecError.frameTooLarge(length)
                 }
                 if buffer.count >= 4 + length {
@@ -74,7 +76,7 @@ public actor IrxStreamReader {
 
     public func readControlFrame<T: Decodable>(_ type: T.Type) async throws -> T? {
         guard let body = try await readControlFrameBody() else { return nil }
-        return try IrxFrameCodec.decode(type, from: body)
+        return try IrxFrameCodec().decode(type, from: body)
     }
 
     /// Raw passthrough: whatever bytes are available (buffered first), or nil
@@ -142,6 +144,7 @@ public actor IrxConnection {
     /// This is diagnostic history; age alone never proves the peer is dead.
     public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
+    private var pathDiagnostics: CmxIrohConnectionPathDiagnostics?
     private var closedFlag = false
     private var nativeClosureObserved = false
     private var localTermination: IrxTermination?
@@ -157,10 +160,16 @@ public actor IrxConnection {
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
-    public init(connection: Connection, role: Role, journal: IrxJournal) {
+    public init(
+        connection: Connection, role: Role, journal: IrxJournal,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
         self.connection = connection
         self.role = role
         self.journal = journal
+        pathDiagnostics = diagnosticLog.map {
+            CmxIrohConnectionPathDiagnostics(connection: connection, diagnosticLog: $0)
+        }
         remoteEndpointIDHex = connection.remoteId().toBytes()
             .map { String(format: "%02x", $0) }.joined()
     }
@@ -320,8 +329,8 @@ public actor IrxConnection {
     /// A failed probe retires its stream; another attempt uses a fresh stream
     /// on the same QUIC connection. Native closure owns dead-peer detection.
     public func startClientKeepalive(
-        interval: Duration = IrxProtocol.keepaliveInterval,
-        deadline: Duration = IrxProtocol.keepaliveDeadline,
+        interval: Duration = IrxProtocol().keepaliveInterval,
+        deadline: Duration = IrxProtocol().keepaliveDeadline,
         onDeath: @escaping @Sendable () async -> Void
     ) async throws {
         guard keepaliveSettings == nil, !isClosed, !Task.isCancelled else { return }
@@ -346,7 +355,7 @@ public actor IrxConnection {
     /// callers share the current probe; a shorter caller deadline also retires
     /// that probe, so no caller retries a stopped receive stream.
     /// A false result is inconclusive and never authorizes connection teardown.
-    public func probeLiveness(deadline: Duration = IrxProtocol.keepaliveDeadline) async -> Bool {
+    public func probeLiveness(deadline: Duration = IrxProtocol().keepaliveDeadline) async -> Bool {
         guard applicationActive, !isClosed, !Task.isCancelled else { return false }
         if let task = probeTask, let id = probeID {
             let result = try? await withIrxDeadlineResult(deadline) { await task.value }
@@ -509,6 +518,7 @@ public actor IrxConnection {
         keepaliveTask?.cancel()
         keepaliveTask = nil
         keepaliveSettings = nil
+        pathDiagnostics = nil
         cancelProbe()
         try? connection.close(errorCode: 1, reason: code.reasonData)
         journal.record(

@@ -137,6 +137,57 @@ struct SidebarJSRuntimeTests {
         #expect(captured == [.cmux(method: "workspace.reorder", params: ["workspace_id": "a", "index": "1"])])
     }
 
+    @Test func reorderableDragFeedbackUpdatesReactiveRowsAndClears() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        const [drag, setDrag] = signal(null);
+        sidebar(() => Reorderable({
+            items: [{ id: "a" }, { id: "b" }],
+            key: w => w.id,
+            onDragChange: setDrag,
+        }, w => Text(() => drag() ? drag().id + ":" + drag().index + ":" + drag().side + ":" + drag().block : "idle")))
+        """))
+        let root = try #require(runtime.store.rootId)
+        let row = try #require(runtime.store.node(root)?.children.first)
+        #expect(runtime.store.node(row)?.string("text") == "idle")
+        runtime.dispatchEvent(nodeId: root, event: "dragChange", payload: [
+            "id": "a", "index": 1, "side": "above", "block": false,
+        ])
+        #expect(runtime.store.node(row)?.string("text") ==
+            "a:1:above:false")
+        runtime.dispatchEvent(nodeId: root, event: "dragChange", payload: [
+            "id": "a", "index": 1, "side": "below", "block": true,
+        ])
+        #expect(runtime.store.node(row)?.string("text") ==
+            "a:1:below:true")
+        runtime.dispatchEvent(nodeId: root, event: "dragChange", payload: [:])
+        #expect(runtime.store.node(row)?.string("text") == "idle")
+        #expect(runtime.store.node(root)?.children.first == row)
+        #expect(runtime.errorMessage == nil)
+    }
+
+    @Test func removingReorderableClearsFeedbackOutsideItsScope() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        const [drag, setDrag] = signal(null);
+        sidebar(() => VStack({}, [
+            Text(() => drag() ? drag().id : "idle"),
+            ForEach({ items: () => data.sections() ?? ["one"] }, () =>
+                Reorderable({ items: ["a", "b"], onDragChange: setDrag }, w => Text(w)))
+        ]))
+        """))
+        let root = try #require(runtime.store.rootId)
+        let children = try #require(runtime.store.node(root)?.children)
+        let list = try #require(runtime.store.node(children[1])?.children.first)
+        runtime.dispatchEvent(nodeId: list, event: "dragChange", payload: [
+            "id": "a", "index": 1, "side": "above", "block": false,
+        ])
+        #expect(runtime.store.node(children[0])?.string("text") == "a")
+        runtime.updateData(key: "sections", value: .array([]))
+        #expect(runtime.store.node(children[0])?.string("text") == "idle")
+        #expect(runtime.errorMessage == nil)
+    }
+
     @Test func contextMenuAttachesAsMenuChild() async {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []

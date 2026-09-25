@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
   accountDeletionTombstones,
+  cloudRuntimes,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
@@ -282,6 +283,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
+    readonly displayName?: string | null;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
     /** Mark an unfinished provider clone for shape reconciliation. */
@@ -331,6 +333,7 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly code: string;
     readonly message: string;
+    readonly cleanupProviderVmId?: string;
   }) => Effect.Effect<void, VmDatabaseError>;
   readonly activeLimitCandidates: (input: {
     readonly userId: string;
@@ -414,6 +417,32 @@ export type VmRepositoryShape = {
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Provider allocations retained after an unconfirmed create rollback. */
+  readonly pendingCreateCleanupCandidates?: (input: {
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Claim one retained allocation before provider I/O. The claim is fenced by a lease. */
+  readonly claimCreateCleanup?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly leaseId: string;
+    readonly now: Date;
+    readonly leaseExpiresAt: Date;
+  }) => Effect.Effect<{ readonly attempt: number } | null, VmDatabaseError>;
+  /** Release a failed cleanup attempt and persist its next retry time. */
+  readonly deferCreateCleanup?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly leaseId: string;
+    readonly nextAttemptAt: Date;
+    readonly now: Date;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Mark a retained create allocation failed after provider deletion is confirmed. */
+  readonly resolveCreateCleanup?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly leaseId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** Live VM rows that currently claim a persistent home volume. */
   readonly listLiveHomeVolumeNames?: (input: {
     readonly provider: ProviderId;
@@ -450,6 +479,8 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly code: string;
     readonly message: string;
+    /** Keeps the allocation reserved and unready until an operator confirms cleanup. */
+    readonly cleanupProviderVmId?: string;
   }) => Effect.Effect<void, VmDatabaseError>;
   /** Durable deletion intents not yet finalized, scoped to their source machine. */
   readonly pendingSnapshotDeletions: (input: {
@@ -592,6 +623,14 @@ async function allocateSlugInTx(tx: CloudDbTransaction, billingTeamId: string): 
   });
 }
 
+/** Creates the durable runtime alongside its first M0 machine placement. */
+async function insertRuntimeForVm(tx: CloudDbTransaction, vm: CloudVmRow): Promise<void> {
+  const ownerTeamId = vm.ownerTeamId.trim() || vm.billingTeamId?.trim() || vm.userId.trim();
+  if (!ownerTeamId) throw new Error(`VM ${vm.id} has no durable owner team`);
+  await tx.insert(cloudRuntimes).values({ ownerTeamId, machineId: vm.id })
+    .onConflictDoNothing({ target: cloudRuntimes.machineId });
+}
+
 async function assertAccountVmCreateAllowed(
   tx: CloudDbTransaction,
   input: { readonly userId: string; readonly provider: ProviderId },
@@ -649,6 +688,24 @@ export const FAILED_CREATE_RETRY_WINDOW_MS = 15 * 60 * 1000;
  * provider failure).
  */
 export const PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE = "provider_create_unavailable";
+/** Provider allocation remains owned by the failed row until cleanup is confirmed. */
+export const PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE = "provider_create_cleanup_pending";
+/** Durable metadata keys for a provider allocation retained after create failure. */
+export const CREATE_CLEANUP_PROVIDER_VM_ID_KEY = "createCleanupProviderVmId";
+export const CREATE_CLEANUP_ATTEMPT_KEY = "createCleanupAttempt";
+export const CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY = "createCleanupNextAttemptAtMs";
+export const CREATE_CLEANUP_LEASE_ID_KEY = "createCleanupLeaseId";
+export const CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY = "createCleanupLeaseExpiresAtMs";
+
+/** Treat malformed/oversized cleanup timestamps as immediately eligible without an unsafe cast. */
+function cleanupTimestampDueSql(raw: SQL<string | null>, nowMs: number) {
+  return sql`case
+    when ${raw} ~ '^[0-9]{1,16}$'
+      and (length(${raw}) < 16 or ${raw} <= '9007199254740991')
+      then (${raw})::numeric <= ${nowMs}
+    else true
+  end`;
+}
 
 const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
@@ -661,6 +718,98 @@ const RETRYABLE_FAILED_CREATE_CODES = new Set([
   VM_MODEL_PLANE_FAILURE_CODES.unavailable,
   LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
 ]);
+
+/**
+ * Finish the transactional half of a Base create failure. Cleanup-pending
+ * creates call this only after the provider confirms the allocation is gone;
+ * ordinary failures call it immediately. Keeping the same transaction for
+ * both paths prevents a late cleanup worker from promoting the wrong retained
+ * generation.
+ */
+async function restoreBaseAfterCreateFailure(
+  tx: CloudDbTransaction,
+  input: {
+    readonly baseId: string;
+    readonly generation: number;
+    readonly vmId: string;
+    readonly userId: string;
+    readonly code: string;
+    readonly message: string;
+  },
+): Promise<void> {
+  const now = new Date();
+  await tx
+    .update(cloudVmBaseGenerations)
+    .set({ state: "failed", updatedAt: now })
+    .where(and(
+      eq(cloudVmBaseGenerations.baseId, input.baseId),
+      eq(cloudVmBaseGenerations.generation, input.generation),
+      eq(cloudVmBaseGenerations.vmId, input.vmId),
+    ));
+  const [retained] = await tx
+    .select({
+      generation: cloudVmBaseGenerations,
+      vm: cloudVms,
+    })
+    .from(cloudVmBaseGenerations)
+    .innerJoin(cloudVms, eq(cloudVms.id, cloudVmBaseGenerations.vmId))
+    .where(and(
+      eq(cloudVmBaseGenerations.baseId, input.baseId),
+      sql`${cloudVmBaseGenerations.generation} < ${input.generation}`,
+      eq(cloudVmBaseGenerations.state, "retained"),
+      ne(cloudVms.status, "failed"),
+      ne(cloudVms.status, "destroyed"),
+    ))
+    .orderBy(desc(cloudVmBaseGenerations.generation))
+    .limit(1);
+  if (retained?.generation && retained.vm) {
+    // Fence promotion on the failed generation still being the active Base
+    // row. A concurrent reset/open may have moved the Base on while provider
+    // cleanup was in flight; in that case leave the newer generation alone.
+    const activeBase = await tx
+      .update(cloudVmBases)
+      .set({
+        activeGeneration: retained.generation.generation,
+        activeVmId: retained.vm.id,
+        activeProvider: retained.vm.provider,
+        activeProviderVmId: retained.vm.providerVmId,
+        state: retained.vm.providerVmId ? "ready" : "creating",
+        updatedAt: now,
+      })
+      .where(and(
+        eq(cloudVmBases.id, input.baseId),
+        eq(cloudVmBases.activeGeneration, input.generation),
+        eq(cloudVmBases.activeVmId, input.vmId),
+      ))
+      .returning({ id: cloudVmBases.id });
+    if (activeBase.length > 0) {
+      await tx
+        .update(cloudVmBaseGenerations)
+        .set({ state: "active", updatedAt: now })
+        .where(eq(cloudVmBaseGenerations.id, retained.generation.id));
+    }
+  } else {
+    await tx
+      .update(cloudVmBases)
+      .set({ state: "failed", updatedAt: now })
+      .where(and(
+        eq(cloudVmBases.id, input.baseId),
+        eq(cloudVmBases.activeGeneration, input.generation),
+        eq(cloudVmBases.activeVmId, input.vmId),
+      ));
+  }
+  await tx.insert(cloudVmBaseEvents).values({
+    baseId: input.baseId,
+    userId: input.userId,
+    eventType: "base.create_failed",
+    oldGeneration: retained?.generation.generation ?? null,
+    newGeneration: input.generation,
+    oldVmId: retained?.vm.id ?? null,
+    newVmId: input.vmId,
+    oldProviderVmId: retained?.vm.providerVmId ?? null,
+    metadata: { code: input.code, message: input.message },
+  });
+}
 
 function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {
   if (vm.status === "destroyed") return true;
@@ -742,7 +891,12 @@ function providerMetadataPatchForPersistence(
       key !== VM_RESOURCE_FORK_PENDING_METADATA_KEY &&
       key !== VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY &&
-      key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
+      key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY &&
+      key !== CREATE_CLEANUP_PROVIDER_VM_ID_KEY &&
+      key !== CREATE_CLEANUP_ATTEMPT_KEY &&
+      key !== CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY &&
+      key !== CREATE_CLEANUP_LEASE_ID_KEY &&
+      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY,
     ),
   );
 }
@@ -1462,6 +1616,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageId: input.image,
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
+                displayName: input.displayName ?? null,
                 idempotencyKey,
                 providerMetadata: reservationMetadataForInput(
                   input.resourceReservation,
@@ -1472,6 +1627,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
+            await insertRuntimeForVm(tx, vm);
             return { inserted: true as const, vm };
           });
         } catch (err) {
@@ -1584,6 +1740,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
+            await insertRuntimeForVm(tx, vm);
 
             const [base] = existing?.base
               ? await tx
@@ -1789,6 +1946,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             })
             .returning();
           if (!vm) throw new Error("insert returned no VM row");
+          await insertRuntimeForVm(tx, vm);
 
           const [base] = existing?.base
             ? await tx
@@ -1950,80 +2108,34 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const db = cloudDb();
       await db.transaction(async (tx) => {
         const now = new Date();
+        const cleanupProviderVmId = input.code === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE
+          ? input.cleanupProviderVmId?.trim() || null
+          : null;
         await tx
           .update(cloudVms)
           .set({
-            status: "failed",
+            status: cleanupProviderVmId ? "provisioning" : "failed",
             failureCode: input.code,
             failureMessage: input.message,
+            ...(cleanupProviderVmId ? {
+              providerMetadata: sql`(
+                coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+                || jsonb_build_object(
+                  '${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}', ${cleanupProviderVmId}::text,
+                  '${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}', 0,
+                  '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', 0
+                )
+              )
+              #- '{${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}}'
+              #- '{${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}}'`,
+            } : {}),
             updatedAt: now,
           })
           .where(eq(cloudVms.id, input.vmId));
-        await tx
-          .update(cloudVmBaseGenerations)
-          .set({ state: "failed", updatedAt: now })
-          .where(and(
-            eq(cloudVmBaseGenerations.baseId, input.baseId),
-            eq(cloudVmBaseGenerations.generation, input.generation),
-            eq(cloudVmBaseGenerations.vmId, input.vmId),
-          ));
-        const [retained] = await tx
-          .select({
-            generation: cloudVmBaseGenerations,
-            vm: cloudVms,
-          })
-          .from(cloudVmBaseGenerations)
-          .innerJoin(cloudVms, eq(cloudVms.id, cloudVmBaseGenerations.vmId))
-          .where(and(
-            eq(cloudVmBaseGenerations.baseId, input.baseId),
-            sql`${cloudVmBaseGenerations.generation} < ${input.generation}`,
-            eq(cloudVmBaseGenerations.state, "retained"),
-            ne(cloudVms.status, "failed"),
-            ne(cloudVms.status, "destroyed"),
-          ))
-          .orderBy(desc(cloudVmBaseGenerations.generation))
-          .limit(1);
-        if (retained?.generation && retained.vm) {
-          await tx
-            .update(cloudVmBaseGenerations)
-            .set({ state: "active", updatedAt: now })
-            .where(eq(cloudVmBaseGenerations.id, retained.generation.id));
-          await tx
-            .update(cloudVmBases)
-            .set({
-              activeGeneration: retained.generation.generation,
-              activeVmId: retained.vm.id,
-              activeProvider: retained.vm.provider,
-              activeProviderVmId: retained.vm.providerVmId,
-              state: retained.vm.providerVmId ? "ready" : "creating",
-              updatedAt: now,
-            })
-            .where(and(
-              eq(cloudVmBases.id, input.baseId),
-              eq(cloudVmBases.activeGeneration, input.generation),
-              eq(cloudVmBases.activeVmId, input.vmId),
-            ));
-        } else {
-          await tx
-            .update(cloudVmBases)
-            .set({ state: "failed", updatedAt: now })
-            .where(and(
-              eq(cloudVmBases.id, input.baseId),
-              eq(cloudVmBases.activeGeneration, input.generation),
-              eq(cloudVmBases.activeVmId, input.vmId),
-            ));
-        }
-        await tx.insert(cloudVmBaseEvents).values({
-          baseId: input.baseId,
-          userId: input.userId,
-          eventType: "base.create_failed",
-          oldGeneration: retained?.generation.generation ?? null,
-          newGeneration: input.generation,
-          oldVmId: retained?.vm.id ?? null,
-          newVmId: input.vmId,
-          oldProviderVmId: retained?.vm.providerVmId ?? null,
-          metadata: { code: input.code, message: input.message },
-        });
+        // Leave the Base generation reserved too; reset/open must not allocate
+        // a replacement while its failed guest still exists at the provider.
+        if (cleanupProviderVmId) return;
+        await restoreBaseAfterCreateFailure(tx, input);
       });
     }),
 
@@ -2540,6 +2652,172 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .limit(input.limit);
     }),
 
+  pendingCreateCleanupCandidates: (input) =>
+    dbEffect("pendingCreateCleanupCandidates", async () => {
+      const db = cloudDb();
+      const cleanupProviderVmId = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}'`;
+      const nextAttemptAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}'`;
+      const leaseExpiresAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}'`;
+      const nowMs = Date.now();
+      const limit = Number.isFinite(input.limit)
+        ? Math.max(0, Math.min(200, Math.trunc(input.limit)))
+        : 200;
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.status, "provisioning"),
+          eq(cloudVms.failureCode, PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE),
+          // The current registry has one provider. Keep retired enum values
+          // out of the worker batch so they cannot starve live cleanup rows.
+          eq(cloudVms.provider, "freestyle"),
+          sql`${cleanupProviderVmId} is not null and ${cleanupProviderVmId} <> ''`,
+          cleanupTimestampDueSql(nextAttemptAtMs, nowMs),
+          cleanupTimestampDueSql(leaseExpiresAtMs, nowMs),
+        ))
+        .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
+        .limit(limit);
+    }),
+
+  claimCreateCleanup: (input) =>
+    dbEffect("claimCreateCleanup", async () => {
+      const providerVmId = input.providerVmId.trim();
+      const leaseId = input.leaseId.trim();
+      if (!providerVmId || !leaseId) return null;
+      const db = cloudDb();
+      const cleanupProviderVmId = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}'`;
+      const leaseIdValue = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}'`;
+      const leaseExpiresAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}'`;
+      const nextAttemptAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}'`;
+      const attempt = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}'`;
+      const [row] = await db
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object(
+              '${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}',
+              case
+                when ${attempt} ~ '^[0-9]{1,9}$' then least((${attempt})::numeric + 1, 1000000)::integer
+                else 1
+              end,
+              -- Keep the row ineligible for the entire claim lease. A second
+              -- worker may already have selected the same candidate before
+              -- this update commits, so the retry fence must be future-dated
+              -- independently of the lease-id predicate.
+              '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', ${input.leaseExpiresAt.getTime()}::bigint,
+              '${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}', ${leaseId}::text,
+              '${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}', ${input.leaseExpiresAt.getTime()}::bigint
+            )
+          )`,
+          updatedAt: input.now,
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "provisioning"),
+          eq(cloudVms.failureCode, PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE),
+          eq(cleanupProviderVmId, providerVmId),
+          cleanupTimestampDueSql(nextAttemptAtMs, input.now.getTime()),
+          sql`(
+            ${leaseIdValue} is null
+            or ${leaseIdValue} = ''
+            or ${cleanupTimestampDueSql(leaseExpiresAtMs, input.now.getTime())}
+          )`,
+        ))
+        .returning({ providerMetadata: cloudVms.providerMetadata });
+      if (!row) return null;
+      const rawAttempt = row.providerMetadata[CREATE_CLEANUP_ATTEMPT_KEY];
+      const parsedAttempt = typeof rawAttempt === "number" && Number.isSafeInteger(rawAttempt)
+        ? rawAttempt
+        : Number.parseInt(String(rawAttempt ?? "1"), 10);
+      return { attempt: Number.isSafeInteger(parsedAttempt) && parsedAttempt > 0 ? parsedAttempt : 1 };
+    }),
+
+  deferCreateCleanup: (input) =>
+    dbEffect("deferCreateCleanup", async () => {
+      const providerVmId = input.providerVmId.trim();
+      const leaseId = input.leaseId.trim();
+      if (!providerVmId || !leaseId) return false;
+      const db = cloudDb();
+      const cleanupProviderVmId = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}'`;
+      const cleanupLeaseId = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}'`;
+      const rows = await db
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object('${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', ${input.nextAttemptAt.getTime()}::bigint)
+          )
+          #- '{${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}}'
+          #- '{${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}}'`,
+          updatedAt: input.now,
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "provisioning"),
+          eq(cloudVms.failureCode, PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE),
+          eq(cleanupProviderVmId, providerVmId),
+          eq(cleanupLeaseId, leaseId),
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
+    }),
+
+  resolveCreateCleanup: (input) =>
+    dbEffect("resolveCreateCleanup", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        const cleanupProviderVmId = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}'`;
+        const cleanupLeaseId = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}'`;
+        const now = new Date();
+        const rows = await tx
+          .update(cloudVms)
+          .set({
+            status: "failed",
+            failureCode: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+            failureMessage: "Provider rollback was confirmed by background cleanup.",
+            providerMetadata: sql`(
+              coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+              #- '{${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}}'
+              #- '{${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}}'
+              #- '{${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}}'
+              #- '{${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}}'
+              #- '{${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}}'
+            )`,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.status, "provisioning"),
+            eq(cloudVms.failureCode, PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE),
+            eq(cleanupProviderVmId, input.providerVmId),
+            eq(cleanupLeaseId, input.leaseId),
+          ))
+          .returning({ id: cloudVms.id, userId: cloudVms.userId });
+        const vm = rows[0];
+        if (!vm) return false;
+
+        const [generation] = await tx
+          .select()
+          .from(cloudVmBaseGenerations)
+          .where(and(
+            eq(cloudVmBaseGenerations.vmId, vm.id),
+            eq(cloudVmBaseGenerations.state, "creating"),
+          ))
+          .limit(1);
+        if (!generation) return true;
+        await restoreBaseAfterCreateFailure(tx, {
+          baseId: generation.baseId,
+          generation: generation.generation,
+          vmId: vm.id,
+          userId: vm.userId,
+          code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+          message: "Provider rollback was confirmed by background cleanup.",
+        });
+        return true;
+      });
+    }),
+
   listLiveHomeVolumeNames: (input) =>
     dbEffect("listLiveHomeVolumeNames", async () => {
       const volumeNames = boundedReaperVolumeNames(input.volumeNames);
@@ -2672,12 +2950,27 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markCreateFailed: (input) =>
     dbEffect("markCreateFailed", async () => {
       const db = cloudDb();
+      const cleanupProviderVmId = input.code === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE
+        ? input.cleanupProviderVmId?.trim() || null
+        : null;
       await db
         .update(cloudVms)
         .set({
-          status: "failed",
+          status: cleanupProviderVmId ? "provisioning" : "failed",
           failureCode: input.code,
           failureMessage: input.message,
+          ...(cleanupProviderVmId ? {
+            providerMetadata: sql`(
+              coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+              || jsonb_build_object(
+                '${sql.raw(CREATE_CLEANUP_PROVIDER_VM_ID_KEY)}', ${cleanupProviderVmId}::text,
+                '${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}', 0,
+                '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', 0
+              )
+            )
+            #- '{${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}}'
+            #- '{${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}}'`,
+          } : {}),
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));

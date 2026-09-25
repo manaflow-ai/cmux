@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 import Testing
@@ -21,7 +22,7 @@ struct CloudSidebarScaleTests {
         let store = CloudNotificationSyncStore(defaults: defaults)
         let sync = CloudNotificationSync(
             machineID: "scale", clientID: "mac-scale", store: store,
-            resolveTarget: { _ in nil }, deliver: { _, _ in true }, send: { _ in }
+            resolveTarget: { _ in nil }, deliver: { _, _ in .delivered }, send: { _ in }
         )
         defer { sync.retire() }
         // Each workspace emits a catalog delta that does not change notifications.
@@ -42,7 +43,7 @@ struct CloudSidebarScaleTests {
             machineID: "scale", clientID: "mac-scale",
             store: store,
             resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) },
-            deliver: { _, _ in true }, send: { _ in }
+            deliver: { _, _ in .delivered }, send: { _ in }
         )
         defer { sync.retire() }
         sync.apply(rows: [CloudVMNotificationRow(
