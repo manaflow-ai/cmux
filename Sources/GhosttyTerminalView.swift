@@ -12175,6 +12175,24 @@ final class GhosttySurfaceScrollView: NSView {
         return tab.isFocusedTerminalInputSurface(surfaceId)
     }
 
+    private func canReplaySuppressedFirstResponderFocus(in window: NSWindow) -> Bool {
+        guard let tabId = surfaceView.tabId,
+              let panelId = surfaceView.terminalSurface?.id else {
+            return true
+        }
+        guard isRightSidebarDockSurface || matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
+            return false
+        }
+        guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
+            workspaceId: tabId,
+            panelId: panelId,
+            in: window
+        ) != false else {
+            return false
+        }
+        return AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) != true
+    }
+
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
     /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
     func suppressReparentFocus() {
@@ -12240,8 +12258,13 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         cmuxDebugLog("focus.reparent.resume surface=\(surfaceShort) firstResponder=\(String(describing: window.firstResponder))")
 #endif
-        if surfaceView.replaySuppressedFirstResponderFocusIfNeeded() {
+        let canReplaySuppressedFocus = canReplaySuppressedFirstResponderFocus(in: window)
+        if canReplaySuppressedFocus,
+           surfaceView.replaySuppressedFirstResponderFocusIfNeeded() {
             return
+        }
+        if !canReplaySuppressedFocus {
+            surfaceView.discardSuppressedFirstResponderFocus()
         }
         reassertTerminalSurfaceFocus(reason: "clearSuppressReparentFocus", force: true)
     }
