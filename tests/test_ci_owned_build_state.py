@@ -273,27 +273,37 @@ class Wiring(unittest.TestCase):
         self.assertIn("Choose this job's canonical build root", identity.NON_PRODUCT_RECIPE_STEPS)
 
     def test_consumers_alias_their_checkout_at_the_producers_root(self):
-        # The receipt's checkout is <root>/src at the producer, and the
-        # product's #filePath strings point there, whatever this runner's root.
+        # Stamp as ci-macos.yml and test-e2e.yml do: once from <root>/src, then
+        # again from the job workspace when packaging. `derived` names the
+        # root at both; `checkout` ends up as the workspace. The restore
+        # snippet then exports the producer's root, whatever this runner's.
         import os
         import subprocess
+        import app_host_test_products as products
         script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text()
-        start = script.index('producer_checkout="$(')
+        start = script.index('producer_derived="$(')
         end = script.index("esac", start) + len("esac")
-        for checkout, root in (("/private/tmp/cmux-ci-2/src", "/private/tmp/cmux-ci-2"),
-                               ("/private/tmp/cmux-ci/src", "/private/tmp/cmux-ci"),
-                               ("/Users/runner/work/cmux/cmux", "mine"),
-                               ("/private/tmp/cmux-ci-x/src", "mine")):
+        self.assertLess(end, script.index('scripts/ci/canonical-build-root.sh --runtime-source "$PWD"'))
+        for slot, expected in (("cmux-ci-2", "cmux-ci-2"), ("cmux-ci", "cmux-ci"), ("elsewhere", None)):
             with tempfile.TemporaryDirectory() as tmp:
-                receipt = Path(tmp, "Build/Products/cmux-test-products.json")
-                receipt.parent.mkdir(parents=True)
-                receipt.write_text(json.dumps({"checkout": checkout}))
+                base = Path(tmp).resolve()
+                derived = base / "private/tmp" / slot / "derived-data-compile-admission"
+                (derived / "Build" / "Products").mkdir(parents=True)
+                # No test manifests here: stamp only validates them.
+                with unittest.mock.patch.object(products, "manifests", return_value={}):
+                    for checkout in (derived.parent / "src", base / "workspace"):
+                        products.stamp(derived, {"revision": "r", "xcode": "x", "architecture": "arm64",
+                                                 "developer": "d", "checkout": str(checkout)})
+                receipt = json.loads((derived / "Build/Products" / products.RECEIPT).read_text())
+                self.assertEqual(receipt["checkout"], str(base / "workspace"))
+                snippet = script[start:end].replace("/private/tmp/cmux-ci", f"{base}/private/tmp/cmux-ci")
                 result = subprocess.run(
-                    ["bash", "-c", "set -euo pipefail\n" + script[start:end] + '\necho "$CMUX_CI_CANONICAL_ROOT"'],
-                    env={"PATH": os.environ["PATH"], "CMUX_DERIVED_DATA_PATH": tmp, "CMUX_CI_CANONICAL_ROOT": "mine"},
+                    ["bash", "-c", "set -euo pipefail\n" + snippet + '\necho "$CMUX_CI_CANONICAL_ROOT"'],
+                    env={"PATH": os.environ["PATH"], "CMUX_DERIVED_DATA_PATH": str(derived),
+                         "CMUX_CI_CANONICAL_ROOT": "mine"},
                     capture_output=True, text=True, check=True)
-                self.assertEqual(result.stdout.strip(), root, checkout)
-        self.assertLess(start, script.index('scripts/ci/canonical-build-root.sh --runtime-source "$PWD"'))
+                want = f"{base}/private/tmp/{expected}" if expected else "mine"
+                self.assertEqual(result.stdout.strip(), want, slot)
 
     def test_only_a_successful_compile_is_kept_as_xcode_left_it(self):
         index = self.names.index

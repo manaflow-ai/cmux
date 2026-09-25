@@ -94,15 +94,20 @@ test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackagePr
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 # Tests also read fixtures via compiled #filePath; manifest relocation alone
 # cannot repair those strings when the product was built at the canonical root.
-# The receipt records the checkout the product was stamped from, <root>/src.
-# That is /private/tmp/cmux-ci, or /private/tmp/cmux-ci-<n> for an owned Mac's
-# second compile slot, and the #filePath strings point there, so alias this
-# checkout at the producer's root rather than this runner's own.
-producer_checkout="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("checkout", ""))' \
+# The receipt's `derived` is the DerivedData the product was compiled into,
+# <root>/derived-data-compile-admission, at /private/tmp/cmux-ci or, for an
+# owned Mac's second compile slot, /private/tmp/cmux-ci-<n>. Packaging
+# re-stamps the receipt from the job's workspace, so its `checkout` never
+# names the root, but `derived` is the same path at both stamps. The
+# product's #filePath strings point at that root, so alias this checkout
+# there rather than at this runner's own.
+producer_derived="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("derived", ""))' \
   "$CMUX_DERIVED_DATA_PATH/Build/Products/cmux-test-products.json")"
-case "$producer_checkout" in
-  /private/tmp/cmux-ci/src|/private/tmp/cmux-ci-[0-9]/src|/private/tmp/cmux-ci-[0-9][0-9]/src)
-    export CMUX_CI_CANONICAL_ROOT="${producer_checkout%/src}"
+case "$producer_derived" in
+  /private/tmp/cmux-ci/derived-data-compile-admission \
+  | /private/tmp/cmux-ci-[0-9]/derived-data-compile-admission \
+  | /private/tmp/cmux-ci-[0-9][0-9]/derived-data-compile-admission)
+    export CMUX_CI_CANONICAL_ROOT="${producer_derived%/derived-data-compile-admission}"
     ;;
 esac
 # On an owned Mac several jobs share the canonical roots, and the alias below
