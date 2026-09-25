@@ -56,11 +56,9 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
     }
 
     /// Releases a tee lease after its callback context is destroyed.
+    @MainActor
     func release(_ lease: AgentFooterStateStore.Lease) {
-        let store = store
-        Task { @MainActor in
-            store.release(lease)
-        }
+        store.release(lease)
     }
 }
 

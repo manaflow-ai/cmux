@@ -109,6 +109,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             self.footerLease = footerLease
         }
 
+        @MainActor
         func release() {
             context.release()
             if let footerPublisher, let footerLease {

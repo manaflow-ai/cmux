@@ -8,6 +8,7 @@ public import GhosttyKit
 /// the userdata's lifetime is unchanged.
 public protocol TerminalByteTeeLease: AnyObject, Sendable {
     /// Balances the retain taken when the tee was installed.
+    @MainActor
     func release()
 }
 
