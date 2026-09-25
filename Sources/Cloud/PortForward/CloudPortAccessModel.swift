@@ -8,7 +8,7 @@ import Observation
 @MainActor
 @Observable
 final class CloudPortAccessModel {
-    enum Phase: Equatable {
+    enum Phase: Equatable, Sendable {
         case needsVPN
         case connecting
         case stopping

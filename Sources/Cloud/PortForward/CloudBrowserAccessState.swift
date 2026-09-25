@@ -1,5 +1,5 @@
 import CmuxSurfaceCatalogModel
-import Combine
+import CmuxObservation
 import Foundation
 import CmuxCore
 import CmuxFoundation
@@ -29,7 +29,7 @@ final class CloudBrowserAccessState {
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
     @ObservationIgnored private var routeTracking: ObservedValueTracking<CloudPortAccessModel.Phase>?
     @ObservationIgnored private var routeTrackingSourceID: ObjectIdentifier?
-    @ObservationIgnored private var routeTrackingSubscription: AnyCancellable?
+    @ObservationIgnored private var routeTrackingTask: Task<Void, Never>?
     @ObservationIgnored private var routeObservationSuspended = false
     @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
@@ -52,6 +52,7 @@ final class CloudBrowserAccessState {
     /// current WebKit navigation (for example, a POST redirect to another port).
     func adoptCommittedRoute(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID) {
         unavailable = nil
+        routeObservationSuspended = false
         self.resourceID = resourceID
         self.model = model
         remoteURL = url
@@ -79,24 +80,26 @@ final class CloudBrowserAccessState {
             cancelRouteTracking()
             return
         }
-        routeObservationSuspended = false
         let sourceID = ObjectIdentifier(model)
         if routeTrackingSourceID != sourceID {
             cancelRouteTracking()
             let tracking = ObservedValueTracking { [weak model] in model?.phase ?? .closed }
             routeTracking = tracking
             routeTrackingSourceID = sourceID
-            routeTrackingSubscription = tracking.publisher.sink { [weak self, weak model] _ in
-                guard let self, let model, self.model === model,
-                      !self.routeObservationSuspended else { return }
-                self.evaluateRoute()
+            routeTrackingTask = Task { @MainActor [weak self, weak model, tracking] in
+                for await _ in tracking.changes() {
+                    guard let self, let model, self.model === model,
+                          !self.routeObservationSuspended else { continue }
+                    self.evaluateRoute()
+                }
             }
         }
         evaluateRoute()
     }
 
     private func cancelRouteTracking() {
-        routeTrackingSubscription = nil
+        routeTrackingTask?.cancel()
+        routeTrackingTask = nil
         routeTracking?.cancel()
         routeTracking = nil
         routeTrackingSourceID = nil
@@ -235,13 +238,13 @@ final class CloudBrowserAccessState {
         dismissedFailure = nil
         desktopConnected = false
         activeNavigationID = nil
+        routeObservationSuspended = false
         connectionDeadline.cancel()
         startDeadline()
         attempt += 1
         trace("configured")
-        // Reconfiguration invalidates the previous observation generation.
-        // Re-arm it even when the same access model is reused by a WebView
-        // replacement that is still waiting for its route to become ready.
+        // Reconfiguration resumes route observation even when a WebView
+        // replacement reuses the same access model while it waits for readiness.
         observeRoute()
     }
 
@@ -330,6 +333,7 @@ final class CloudBrowserAccessState {
 
     func retry() {
         attempt += 1
+        routeObservationSuspended = false
         trace("retry")
         navigationURL = nil
         preservingCommittedRoute = false
