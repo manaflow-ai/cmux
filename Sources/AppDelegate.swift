@@ -612,8 +612,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the SDK is off.
     private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
-    private let connectivityInvalidationSubscriberCoordinator =
-        ConnectivityInvalidationSubscriberCoordinator()
+    private let connectivityInvalidationSubscriberCoordinator = ConnectivityInvalidationSubscriberCoordinator()
+    let workspacePresenceController = WorkspacePresenceController()
     private let sudoApprovalCoordinator: SudoApprovalCoordinator?
 
     @MainActor
@@ -845,15 +845,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
-    /// The app's settings dependency container, handed over by `cmuxApp` via
-    /// `configure(...)` before any main window is created. AppKit builds the
-    /// main window's `NSHostingView` itself, so it injects this into the
-    /// `ContentView` environment so `@LiveSetting` can resolve the stores it
-    /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
     /// Injected before the coordinator is used; the managed-policy extension
     /// re-applies `DisableComputerUse` through it.
     var computerUseRuntimeService: ComputerUseRuntimeService?
+    private(set) var browserDataImportCoordinator: BrowserDataImportCoordinator?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -1246,6 +1242,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didArmSessionLaunchSentinel = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
+    /// True only when it is safe to enumerate the window/tab tree for the v2
+    /// control pre-mint pass (#2751): the initial session-restore decision has
+    /// resolved (`didAttemptStartupSessionRestore`) AND no restore pass is
+    /// currently populating a tab manager in place (`!isApplyingSessionRestore`).
+    /// Deliberately FALSE during the pre-attempt window, the deferred
+    /// signing-secret window (where `didAttemptStartupSessionRestore` stays
+    /// false until the secret arrives), and while `restoreSessionSnapshot` runs
+    /// — the exact windows in which iterating a half-built tree faults. Refs
+    /// mint lazily meanwhile, so skipping the pre-mint is safe.
+    var didCompleteInitialSessionRestore: Bool {
+        didAttemptStartupSessionRestore && !isApplyingSessionRestore
+    }
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
@@ -1570,6 +1578,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Start the one browser-availability watcher before any gated view or
+        // menu mounts: it is lazy, and its consumers only observe its
+        // notification, so nothing else would bring it up (#10866).
+        BrowserAvailabilityMonitor.shared.activate()
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
@@ -1588,6 +1600,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         SurfaceCatalog.shared.installCloudWorkspaceRenameService(
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
+        )
+        TerminalPredictionCenter.shared.bindEnabledSetting(
+            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey
         )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
@@ -1921,7 +1936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if env["CMUX_UI_TEST_BROWSER_IMPORT_AUTO_OPEN"] == "1" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    self.browserDataImportCoordinator?.presentImportDialog()
                 }
             }
         }
@@ -2350,10 +2365,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
-
     func applicationWillTerminate(_ notification: Notification) {
         cloudWorkspaceOperationController?.cancelAll()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        agentChatTranscriptService.shutdown()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
         // persisted a fresh index before AppKit receives its reply; do not overwrite that
@@ -2439,6 +2454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cloudWorkspaceOperationController: CloudWorkspaceOperationController,
         newMachineSheetPresenter: any NewMachineSheetPresenting,
         automationEngine: AutomationEngine,
+        browserDataImportCoordinator: BrowserDataImportCoordinator,
         computerUseRuntimeService: ComputerUseRuntimeService,
         devicesRegistry: DeviceSurfaceProviderRegistry? = nil,
         computersService: HiveComputersService? = nil
@@ -2465,6 +2481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             operations: cloudWorkspaceOperationController, catalog: .shared
         )
         self.newMachineSheetPresenter = newMachineSheetPresenter
+        self.browserDataImportCoordinator = browserDataImportCoordinator
         self.computerUseRuntimeService = computerUseRuntimeService
         let cloudUploader = CloudTelemetryUploader(
             auth: auth.coordinator, baseURL: CloudTelemetryUploader.telemetryBaseURL, client: .current()
@@ -2504,7 +2521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             computersService.configure(auth: auth.coordinator)
             devicesRegistry.configure(auth: auth.coordinator, catalog: .shared, authorization: computersService)
         }
-        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        configureWorkspacePresence(auth: auth.coordinator)
         PhoneReplyInboxClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
         // Relayed phone replies share the direct RPC paste-and-submit path,
@@ -2566,6 +2583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
+        TerminalController.shared.attachBrowserDataImportCoordinator(browserDataImportCoordinator)
         TerminalController.shared.attachCaffeineController(caffeineController)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         TerminalController.shared.attachAutomationEngine(automationEngine)
@@ -9265,14 +9283,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        // Surface the system "New Folder" button so the user can create a
+        // directory and immediately open it as a workspace.
+        panel.canCreateDirectories = true
         panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
         panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
         // Seed the panel with the active workspace's directory. Use the shared
         // main-window resolver so this works even when an auxiliary window is key.
-        if let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed"),
-           let cwd = context.tabManager.selectedWorkspace?.currentDirectory,
-           !cwd.isEmpty {
-            panel.directoryURL = URL(fileURLWithPath: cwd)
+        // app.defaultWorkspacePath, when set to an existing folder, wins.
+        let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed")
+        if let startDirectory = OpenFolderPanelStartDirectory().resolve(
+            configuredPath: AppCatalogSection().defaultWorkspacePath.value(in: .standard),
+            workspaceDirectory: context?.tabManager.selectedWorkspace?.currentDirectory
+        ) {
+            panel.directoryURL = startDirectory
         }
         if panel.runModal() == .OK, let url = panel.url {
             openWorkspaceForExternalDirectory(
@@ -9344,6 +9368,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        // Surface the system "New Folder" button so a fresh directory can be
+        // created and opened in VS Code in one step.
+        panel.canCreateDirectories = true
         panel.title = String(
             localized: "menu.file.openFolderInVSCodeInline.panelTitle",
             defaultValue: "Open Folder in VS Code (Inline)"
@@ -10160,6 +10187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // optional, so a nil runtime just leaves reads at their seeded
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
+            .environment(browserDataImportCoordinator)
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N
@@ -15899,6 +15927,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateForward() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .focusHistoryLast) {
+            if performFocusedDockShortcut(
+                .focusHistoryLast,
+                action: .focusHistoryLast,
+                event: event
+            ) {
+                return true
+            }
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.navigateToLastFocused() != true {
                 NSSound.beep()
             }
             return true

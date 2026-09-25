@@ -98,6 +98,15 @@ public protocol SettingsHostActions: AnyObject {
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
 
+    /// Lists the current opt-in local tmux sessions using the host app's bundled CLI.
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary]
+
+    /// Starts and attaches a named opt-in local tmux session.
+    func startLocalTmuxSession(name: String) async throws
+
+    /// Attaches an existing opt-in local tmux session.
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws
+
     /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
     func openTerminalThemePicker()
 
@@ -435,6 +444,15 @@ public extension SettingsHostActions {
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
+
+    /// Package-only previews expose no local tmux runtime.
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] { [] }
+    func startLocalTmuxSession(name: String) async throws {
+        throw LocalTmuxSettingsActionError.unavailable
+    }
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
+        throw LocalTmuxSettingsActionError.unavailable
+    }
 
     /// Default no-op for package-only settings hosts without a terminal theme picker.
     func openTerminalThemePicker() {}

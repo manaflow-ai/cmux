@@ -4,8 +4,8 @@ Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
 
-Linux uses Blacksmith. macOS uses Blacksmith cloud runners. The self-hosted
-Tart fleet described below carries specific lanes as they are qualified. WarpBuild is paid overflow and is
+Linux uses Blacksmith. macOS uses Blacksmith cloud runners, plus the owned
+glaeda minis for the lanes the pool picker routes to them. WarpBuild is paid overflow and is
 not a steady state for any lane. Non-urgent macOS work also uses free
 GitHub-hosted runners through the background lane described below.
 
@@ -19,12 +19,12 @@ gh variable list --repo manaflow-ai/cmux
 
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
-| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
-| `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included, except attempt 1 of a pull request run whose picker placed it on an owned Mac (no helper build in that run; see "Pull request pool preference") | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_LARGE` | the larger macOS 26 machine: changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -190,7 +190,8 @@ Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
 running on that label. A pull request run puts several macOS jobs on its pool
 at once, each on its own machine, so a run takes the owned pool only when its
 own peak fits there by the expected wait above. The picker runs after the suite choice and counts
-that peak from the run's routing: the Claude wrapper and remote daemon lanes,
+that peak from the run's routing: the Claude wrapper and remote daemon lanes
+(and swift-package-tests when the run builds no Release helper, below),
 beside the larger of compile admission alone or what follows it (a full
 suite's seven app-host shards, tests-build-and-lag and cli-product-tests, 11
 jobs in all; a changed-suites run's one shard; a CLI
@@ -351,8 +352,20 @@ on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
 pull request CI run or main full-suite dispatch (one request per run, more only past 100 artifacts) to
 read its marker's peak into `committed`. A run's other macOS jobs do not rule
-it out: `swift-package-tests` always runs on Blacksmith beside a full suite on
-an owned pool.
+it out: `swift-package-tests` runs on Blacksmith beside a full suite on an
+owned pool whenever that suite also builds the Release helper.
+
+`swift-package-tests` is an owned side lane (`swift-package` in `owned_jobs`)
+only in a run that builds no Release Ghostty helper: a package change under
+the compile-only policy, or a full suite with `release_build` false. The
+helper needs an SDK 15 Xcode that only Blacksmith's macOS 15 image carries
+(the minis have Xcode 26.6 alone), so a full suite with `release_build`
+keeps it there (`pr_runner_pool.package_lane_owned()`). On the owned label it
+takes the lane's Xcode (`CMUX_CI_XCODE_APP` restates the runs-on condition);
+every other attempt keeps the macOS 15 pool and pin. Like the other side
+lanes it takes the pool's side label (`pr_side_runner`) when the picker names
+one, so it never holds a mini's root runner. With it a full suite without the
+helper holds 12 machines at peak (`MAX_RUN_JOBS`).
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -406,7 +419,8 @@ gh variable set CMUX_CI_XCODE_APP_PR --repo manaflow-ai/cmux -b /Applications/Xc
 Unsetting both returns the lane to `blacksmith-6vcpu-macos-15` and Xcode 26.3.
 
 `swift-package-tests` deliberately does **not** resolve through
-`MACOS_RUNNER_PR`. It builds the Release Ghostty CLI helper against an
+`MACOS_RUNNER_PR` (the owned side lane above is the one exception, and it
+never runs the helper steps). It builds the Release Ghostty CLI helper against an
 SDK 15 Xcode -- it pins `CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15` for that step
 and then asserts `HELPER_SDK_VERSION == 15.*` -- and only the `macos-15`
 image carries an SDK 15 Xcode. That pin dates from Zig 0.15.2, whose MachO
@@ -469,6 +483,25 @@ organization-level GitHub App; naming a `blacksmith-*` label in a personal
 fork does not produce a useful error, it leaves the job queued indefinitely.
 The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
 `LINUX_RUNNER` value can select organization-only capacity.
+
+A fork pull request into `manaflow-ai/cmux` runs with `repository_owner ==
+'manaflow-ai'`, so the owner branch does not catch it. Any runner variable can
+name a self-hosted machine, so every expression in the pull-request graph that
+reads `MACOS_RUNNER_*`, `LINUX_RUNNER` or `LINUX_ARM64_RUNNER` first takes
+
+```
+github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '<Blacksmith fallback>'
+```
+
+as a top-level alternative, ahead of any variable. Workflows that an outside
+contributor can start in the base repository's context (`pull_request_target`,
+`issue_comment`, `issues`, `pull_request_review`, `pull_request_review_comment`)
+cannot use this branch: `pull_request_target` carries a write token, and a
+comment event does not say whether the pull request comes from a fork. Their
+jobs pin a literal GitHub-hosted label instead and read no runner variable.
+The guard parses each
+expression rather than matching text, so this branch nested under another
+condition (for example the paid-overflow switch) does not count.
 
 `tests/test_ci_fork_runner_routing.py` discovers every `pull_request`
 workflow, recursively follows its local reusable-workflow calls, and requires
@@ -548,29 +581,53 @@ relay-tls `system-keychain` (it changes the System keychain trust store),
 plain-paste-worker (macOS 15 only) and app-host-test-rerun (a fixed canonical
 root) stay on Blacksmith. Clear the variable to send every side lane back.
 
-## Tart isolation and capacity
+### Which macOS jobs may take an owned Mac
 
-Each GitHub runner identity is sealed into a Tart template. A job runs in a
-fresh clone with an Aqua login session, then the host deletes the clone. This
-provides the GUI session required by macOS XCTest and prevents DerivedData,
-simulators, credentials, and workspaces from leaking into later jobs.
+Owned minis run macOS 26 with Xcode 26.6 only, run same-repository pull
+request code, and keep their home directory and caches between jobs. So a job
+stays on Blacksmith when it signs, notarizes, uploads or publishes (anything
+with signing, store or release secrets, or whose output ships or seeds a
+shared cache), when it runs fork code, or when it needs an OS or Xcode the
+minis lack. Everything else routes through a picker, with Blacksmith as the
+overflow and ci-owned-pool-rescue.yml as the way off a busy or refusing mini.
 
-The fleet has 18 Sequoia slots: two each on the seven 48 GB or larger hosts and
-one each on the two 16 GB hosts. The 16 large-host slots accept GUI and iOS
-jobs; all 18 accept ordinary macOS 15 jobs. macOS 26 and release builds stay on
-Blacksmith until a Tahoe VM image passes the same runner and GUI canaries. Hosts
-reject new jobs below their free-space threshold, delete every job VM after
-use, and reap stale clones.
+| Jobs | Route | Why |
+| --- | --- | --- |
+| `ci-macos.yml` compile admission, app-host shards, `tests-build-and-lag`, `cli-product-tests` | owned via `pr_runner_pool.py` (root label), pull requests and main's full-suite dispatch | canonical-root jobs |
+| `ci.yml` `claude-wrapper`, `remote-daemon.yml` macOS tests | owned side lane via the picker (the side label) | light |
+| `ci-macos.yml` `swift-package-tests` | owned side lane via the picker (the side label) when the run builds no Release helper; else Blacksmith macOS 15 | the helper needs an SDK 15 Xcode |
+| the seven side-lane workflows above | `CI_SIDE_LANE_RUNNER` on attempt 1 of a pull request | light; other events stay on Blacksmith |
+| `test-e2e.yml` (and `dispatch-focused-test.py`) | owned via `e2e_runner_pool.py`; UI runs with `CI_E2E_OWNED_UI=1` | root jobs; Blacksmith when no root runner is free |
+| `test-ios.yml`, `ios-screenshots.yml` | owned via `ios_runner_pool.py` behind `CI_IOS_OWNED=1` | needs the `glaeda-ios-sim` label (an iOS 26.x simulator runtime) |
+| `app-host-test-rerun.yml` `rerun` | Blacksmith | restores a product into a fixed canonical root; needs a root route and a glaeda class first |
+| `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | Blacksmith | could move; glaeda classes unknown ids as compile (root), and these ids are generic |
+| `ci-macos.yml` `release-build` | `MACOS_RUNNER_26` | could move; needs a picker key and a glaeda class |
+| low-volume dispatches: `test-macos-suite`, `tmux-corpus`, `perf-activation`, command palette benchmarks, `iroh-release-gate` version skew | Blacksmith or the caller's runner input | a few runs a week; benchmarks want a quiet machine |
+| `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
+| `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
+| `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets |
+| nightly app and compilation caches, `seed-derived-data` Blacksmith pools, `build-ghosttykit`, `cmux-tui-build-package` (artifacts, nightly, release), `relay-publish-npm` | Blacksmith | publish, or write a cache other runs trust, with R2 or release secrets |
+| `ios-streamed-validate`, `iroh-release-gate` simulator E2E | Blacksmith | secrets in the job, fixed ports, GUI session changes |
 
-Do not route jobs to the physical mini runner records. The supported
-self-hosted labels are the `tart-*` labels, and each Tart-aware canary checks
-that the resolved runner name starts with `tart-cmux-` and that the guest has
-the immutable `/etc/cmux-tart-ci` marker.
+## Retired: Tart VM fleet
+
+The `tart-*` runner choices (`tart-canary`, `tart-dual` and `tart-small` in
+`test-e2e.yml`, `tart-ios` in `test-ios.yml`) were removed on 2026-09-25.
+Every Tart VM (the AWS EC2 Mac hosts, runners `tart-cmux-aws-m4pro-*`) was
+offline, jobs that picked one queued for hours, and the hosts cost money while
+allocated. The owned glaeda minis plus Blacksmith cover the load.
+
+To bring it back, revert the pull request that removed it. That restores the
+dispatch options, the runner identity steps (runner name `tart-cmux-*` and the
+`/etc/cmux-tart-ci` marker), the `tart-canary` label in
+`.github/actionlint.yaml`, and the fleet-label guard's allowlist for those
+option lines. Then point the runner variables at the fleet again. See #14101
+and #14106 for the earlier removal and its revert.
 
 ## Shared physical-host interoperability
 
-The current required-CI policy continues to use isolated Tart guests or hosted
-providers. Any future path that executes directly on shared CMUX-owned hardware
+The current required-CI policy continues to use hosted providers or owned
+pools reached through the pool picker. Any future path that executes directly on shared CMUX-owned hardware
 must preserve a separate caller identity, semantic workload request, and
 machine-local physical lease.
 
@@ -601,7 +658,7 @@ admission or is draining, pressured, or unavailable.
 
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow for the runner variables. If the Tart pool is
+There is no automatic overflow for the runner variables. If a pool is
 unavailable or its queue is too long, set the affected variable to a paid
 provider.
 
@@ -647,29 +704,9 @@ gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b blacksmith-6v
 gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 ```
 
-Leave `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` unset in either recipe.
+Leave `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` unset.
 They exist to hold the pull-request and manual test lanes on Blacksmith
 independently of whatever the pool above is set to.
-
-Restore the self-hosted pool with explicit labels. The gate above applies
-here too: `MACOS_RUNNER_15`, `MACOS_RUNNER_DISPLAY` and the other gated
-variables are read only when `CI_PAID_MACOS_OVERFLOW=1`, so Tart needs that
-flag set even though Tart is free. Without it, these values are ignored and
-every lane stays on its Blacksmith fallback, with no error. `MACOS_RUNNER_26`
-is ungated, so repointing the ordinary macOS 26 pool does not require the paid
-overflow switch.
-
-```bash
-gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b tart-macos-15
-gh variable set MACOS_RUNNER_DUAL_XCODE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
-gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
-gh variable set MACOS_RUNNER_26_LARGE   --repo manaflow-ai/cmux -b blacksmith-12vcpu-macos-26
-gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b tart-gui
-gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b tart-ios
-```
-
-`MACOS_RUNNER_DUAL_XCODE` remains on Blacksmith because the Tart macOS 15
-image currently carries Xcode 26 only and cannot build the SDK 15 helper.
 
 Check current values:
 
@@ -684,9 +721,7 @@ defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Blacksm
 fallback, so flipping the repo variable redirects those workflows. An explicit
 manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
-runs. `test-e2e.yml` also exposes `tart-canary`, `tart-dual`, and `tart-small`
-for targeted fleet validation. These choices are available only through
-`workflow_dispatch`.
+runs. These choices are available only through `workflow_dispatch`.
 
 ## Guard
 
@@ -706,9 +741,9 @@ repository per minute, since Blacksmith is sponsored for this organization.
 The CI health report counts those two. Keep new labels in
 `.github/actionlint.yaml`.
 
-The fleet-label guard allows Tart labels only as exact manual canary choices.
-Required jobs continue to reference repository variables, so cutover and
-break-glass remain configuration changes instead of workflow edits.
+The fleet-label guard refuses `tart-*` labels everywhere. Required jobs
+continue to reference repository variables, so cutover and break-glass remain
+configuration changes instead of workflow edits.
 
 ## CMUX-owned machine enrollment
 
@@ -737,5 +772,4 @@ group. Owned pools are reached only through `pr_runner_pool.py`, behind
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` rejects any required-job or generic fleet
-route. Repository variables may keep
-pointing at the isolated `tart-*` pool for their existing jobs.
+route.

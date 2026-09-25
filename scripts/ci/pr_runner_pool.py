@@ -79,7 +79,8 @@ on its root runners. With the rounds at 0 every run counts its whole peak
 against the machines, as before (owned_free()). An owned pool is
 skipped when it has no slot count, and like every pool when the snapshot is
 older than MAX_SNAPSHOT_MINUTES. With the org route App's token, the runners
-API gives the idle runners carrying each label, and every other runner
+API (this repository's and the org's glaeda-minis group, GitHub.runners())
+gives the idle runners carrying each label, and every other runner
 counts as busy (live_pools()); a label with no idle runner is charged the
 snapshot's queue and the runs since it, since the API shows no queue.
 A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
@@ -100,7 +101,8 @@ most room (at least one job), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
 and a mini keeps its warm DerivedData), then the GUI jobs (app-host shards by
 index, tests-build-and-lag), which queue longest on Blacksmith, then the light
-jobs (cli-product-tests, the remote daemon and Claude wrapper lanes).
+jobs (cli-product-tests, the remote daemon and Claude wrapper lanes, and
+swift-package-tests when it builds no Release helper; see run_plan()).
 Each job counts one machine; the jobs after admission reuse its machine.
 Every other job of attempt 1 takes
 `retry_runner`, the Blacksmith pool on the lane's Xcode. The shards and
@@ -126,9 +128,18 @@ runners' count beside the pool's (`{"std": 40, "root-std": 10}`). A pool with
 a root count sends its placed root jobs (ROOT_JOBS) to the `root_runner`
 output, and place() puts no more of them there than its root runners have
 room for, by the same expected wait; a
-pool without one keeps the pool label for every job. The side lanes keep the
-pool label either way. A root job also holds one of the pool's machines, so
-it counts against both.
+pool without one keeps the pool label for every job. A root job also holds
+one of the pool's machines, so it counts against both.
+
+Side lanes (the Claude wrapper, remote daemon and package lanes, light jobs
+that never touch a canonical root) take the pool's side label,
+`glaeda-side-<class>-xcode-<version>` (side_label()), the other runners of
+each mini, whenever the pool has a root count and more machines than root
+runners (the `side_runner` output). On the pool label a side lane landed on a
+root runner about half the time (11 of 21 on 2026-09-25, 06:30 to 09:00Z,
+3,300 s of root-runner time) and kept a compile or product consumer off that
+mini's root while it ran; on cmux7s and cmux9s, with one root, it blocked the
+mini's only compile. A pool without a root count keeps the pool label.
 
 Warm affinity: an owned Mac keeps compile admission's DerivedData
 (owned_build_state.py), and ci-owned-warm-labels.yml labels its root runner
@@ -244,8 +255,8 @@ DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 RUN_CLASSES = ("std", "light")
 # `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
 # `glaeda-side-...` are the other runners: the light side-lane workflows take it
-# (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS). No picker
-# routes to it, but its jobs hold its pool's machines.
+# (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
+# this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
 OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
@@ -283,8 +294,8 @@ DEFAULT_MAIN_RESERVE = 0
 MAIN_REF = "refs/heads/main"
 MAIN_BRANCH = "main"
 # A pull request run holds several macOS machines at once, each job on its
-# own. Beside compile admission run the Claude wrapper and remote daemon
-# lanes; once admission passes, a full suite adds APP_HOST_SHARDS
+# own. Beside compile admission run the Claude wrapper, remote daemon and
+# package lanes; once admission passes, a full suite adds APP_HOST_SHARDS
 # shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
 # shard, and a CLI change cli-product-tests. A run takes an owned pool when
 # its own peak (run_jobs) fits there by the expected wait and the queue bound
@@ -294,11 +305,17 @@ MAIN_BRANCH = "main"
 # job without one means it took none. Its peak counts toward the queue bound,
 # and toward the wait only once it is older than a job (young_charge()).
 # Only a run still picking is replayed and charged REPLAYED_RUN_JOBS, the
-# peak of a compile-only run with every side lane.
+# peak of a compile-only run with the Claude wrapper and remote daemon lanes.
+# swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane on a run that
+# builds no Release helper (package_lane_owned()): a package change, or a full
+# suite with release_build false, which then peaks at all three side lanes
+# beside admission and its nine follow-on jobs. MAX_RUN_JOBS counts all three;
+# the replay charge leaves out the package lane, which a compile-only run
+# carries only on a package change.
 APP_HOST_SHARDS = 7
-SIDE_LANES = 2
+SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
-REPLAYED_RUN_JOBS = SIDE_LANES + 1
+REPLAYED_RUN_JOBS = 3
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
 # but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
 # apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40 idle minis.
@@ -363,6 +380,8 @@ MARKER_STEP = "Mark a run on a persistent macOS pool"
 # many are replayed as unknown.
 ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
+# The org runner group holding the glaeda minis (glaeda#1222 moved them there).
+RUNNER_GROUP = "glaeda-minis"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -385,6 +404,27 @@ def root_label(label: str) -> str:
     if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX)):
         return ""
     return ROOT_PREFIX + label.removeprefix("glaeda-")
+
+
+def side_label(label: str) -> str:
+    """The side runners' label for an owned pool label, or "" for any other label."""
+    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX)):
+        return ""
+    return SIDE_PREFIX + label.removeprefix("glaeda-")
+
+
+def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
+    """The label a pick's side lanes take: the pool's side label, or "" to keep the pool label.
+
+    Only on a pool with a root count (the root and side runners are split),
+    and only while CI_OWNED_POOL_SLOTS leaves it machines beyond its root
+    runners, so a side lane never waits on a label no runner carries.
+    """
+    if not choice.root_runner or not persistent(choice.runner):
+        return ""
+    if owned_slots.get(choice.runner, 0) <= owned_slots.get(choice.root_runner, 0):
+        return ""
+    return side_label(choice.runner)
 
 
 def pool_label(label: str) -> str:
@@ -471,12 +511,13 @@ def shard_job(index: int) -> str:
 
 # A full suite with every side lane: what a run whose routing is unknown is charged.
 FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", "cli-product"),
-                   ("claude-wrapper", "remote-daemon"))
+                   ("claude-wrapper", "remote-daemon", "swift-package"))
 
 
 def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | None,
              unit_in_admission: str | None, claude_wrapper: str | None, cli: str | None,
-             remote_daemon: str | None, unit_selectors: str | None = None) -> RunJobs:
+             remote_daemon: str | None, unit_selectors: str | None = None,
+             swift_packages: str | None = None, release_build: str | None = None) -> RunJobs:
     """This run's macOS jobs, from the changes job's routing.
 
     Counted high on purpose: compile admission is assumed to run (the reuse
@@ -485,11 +526,16 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     and cli-product-tests after it for a CLI change or a full suite. A unit
     suite with no selectors (the unit-ci label) runs all seven shards; with
     selectors, the one changed-suites worker. `unit_selectors` None (a caller
-    that does not know) counts one shard, as before.
+    that does not know) counts one shard, as before. swift-package-tests is a
+    side lane only when package_lane_owned() says it may take the pool;
+    `swift_packages` None (a caller that does not pass it) leaves it out.
     """
     full = flag(macos) and flag(full_suite)
     side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
-                                     ("remote-daemon", flag(remote_daemon))) if on)
+                                     ("remote-daemon", flag(remote_daemon)),
+                                     (SWIFT_PACKAGE_JOB, package_lane_owned(
+                                         full=full, full_suite=full_suite, swift_packages=swift_packages,
+                                         release_build=release_build))) if on)
     if not (flag(macos) or flag(cli)):
         return RunJobs(False, (), side)
     unit = flag(macos) and flag(unit_suite) and not flag(unit_in_admission)
@@ -503,6 +549,28 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     return RunJobs(True, after, side)
 
 
+# swift-package-tests (ci-macos.yml): `swift test` per selected package into
+# the workspace's .build, which glaeda's hook classes as light (no canonical
+# root, no GUI). It runs for a full suite or a change the router attributed to
+# a Swift package. With a full suite that also checks the Release build it
+# first builds the Ghostty CLI helper against an SDK 15 Xcode, which only the
+# Blacksmith macOS 15 image carries (the minis have Xcode 26.6 alone), so only
+# a run without that helper build places it on an owned pool.
+SWIFT_PACKAGE_JOB = "swift-package"
+
+
+def package_lane_owned(*, full: bool, full_suite: str | None, swift_packages: str | None,
+                       release_build: str | None) -> bool:
+    """swift-package-tests runs in this run and needs no SDK 15 Xcode, so an owned Mac can take it.
+
+    `release_build` None (a caller that does not pass it) counts as a helper
+    build under a full suite: the safe side.
+    """
+    runs = full or flag(swift_packages)
+    helper = flag(full_suite) and (release_build is None or flag(release_build))
+    return runs and not helper
+
+
 def run_jobs(**routing: str | None) -> int:
     """Most macOS machines this run holds at once, from the changes job's routing (run_plan)."""
     return run_plan(**routing).peak
@@ -511,10 +579,12 @@ def run_jobs(**routing: str | None) -> int:
 # Owned placement priority: the heavy compile, then GUI jobs (the longest
 # Blacksmith queues), then light jobs. GUI jobs need the mini's console
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
-LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper")
+LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
 ROOT_JOBS = "admission, shards, lag, cli-product"
+# The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
+SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB)
 
 
 def gui_job(key: str) -> bool:
@@ -704,8 +774,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
         elif label.startswith(("side-", SIDE_PREFIX)):
-            # No picker routes to side runners (vars.CI_SIDE_LANE_RUNNER does), so a count is a mistake.
-            problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which take no picked run")
+            # Side runners are a pool's machines less its root runners (side_runner()), so a count is a mistake.
+            problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which are counted "
+                            "as the pool's machines less its root runners")
         elif label in CAPABILITY_LABELS:
             continue
         elif persistent(label):
@@ -1448,7 +1519,12 @@ class GitHub:
         }
 
     def get(self, path: str) -> Any:
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", headers=self.headers)
+        """GET a path under this repository."""
+        return self.get_api(f"/repos/{self.repo}{path}")
+
+    def get_api(self, path: str) -> Any:
+        """GET any API path (an org endpoint, for one)."""
+        request = urllib.request.Request(f"{API}{path}", headers=self.headers)
         with urllib.request.urlopen(request, timeout=15) as response:
             return json.loads(response.read())
 
@@ -1542,10 +1618,36 @@ class GitHub:
         return None
 
     def runners(self) -> list[Mapping[str, Any]]:
-        """This repository's self-hosted runners (needs administration:read)."""
+        """The self-hosted runners this repository can use: its own and the org's RUNNER_GROUP.
+
+        The glaeda minis are org runners in RUNNER_GROUP (glaeda#1222), which
+        the repository endpoint does not list. Listing that group needs the
+        App's organization permission "Self-hosted runners: read" (ci.yml
+        mints the token with it). Raises when the group cannot be read, so
+        each caller falls back to the snapshot instead of counting every
+        mini as busy.
+        """
+        found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+        owner, _, name = self.repo.partition("/")
+        try:
+            groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
+                                  f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
+            group = next((group for group in groups
+                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP
+                          and isinstance(group.get("id"), int)), None)
+            if group is None:
+                raise RuntimeError(f"no runner group {RUNNER_GROUP} is visible to {self.repo}")
+            org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners")
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"org runner group {RUNNER_GROUP} unreadable (HTTP {error.code}); the routing "
+                               "App needs the organization permission Self-hosted runners: read") from error
+        found.update((runner.get("id"), runner) for runner in org)
+        return list(found.values())
+
+    def _runner_pages(self, path: str) -> list[Mapping[str, Any]]:
         found: list[Mapping[str, Any]] = []
         for page in range(1, 6):
-            batch = self.get(f"/actions/runners?per_page={PAGE_SIZE}&page={page}").get("runners") or []
+            batch = self.get_api(f"{path}?per_page={PAGE_SIZE}&page={page}").get("runners") or []
             found.extend(runner for runner in batch if isinstance(runner, Mapping))
             if len(batch) < PAGE_SIZE:
                 break
@@ -1565,7 +1667,7 @@ class GitHub:
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime,
             owned_slots: Mapping[str, int] | None = None, problems: Sequence[str] = (),
-            owned_jobs: Sequence[str] = (), admission_runner: str = "") -> str:
+            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "") -> str:
     runner = choice.runner or "each job's default (MACOS_RUNNER_PR or its fallback)"
     lines = ["### macOS pool for this run", "", f"- Pool: `{runner}`", f"- Why: {choice.reason}"]
     if choice.xcode_app:
@@ -1575,6 +1677,8 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
                      f"and a re-run of failed jobs, goes to: `{choice.retry_runner}`")
     if choice.root_runner:
         lines.append(f"- Root jobs among them ({ROOT_JOBS}) take `{choice.root_runner}`")
+    if side:
+        lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`")
     if admission_runner:
         labels = " + ".join(f"`{label}`" for label in json.loads(admission_runner))
         lines.append(f"- Compile admission takes {labels}: an idle root runner kept a build of this run's merge base")
@@ -1629,7 +1733,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # shard 8 (ci.yml), so the plan always counts that shard.
         unit_in_admission="false", claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
-        unit_selectors=env.get("RUN_UNIT_SELECTORS"))
+        unit_selectors=env.get("RUN_UNIT_SELECTORS"),
+        swift_packages=env.get("RUN_SWIFT_PACKAGES"), release_build=env.get("RUN_RELEASE_BUILD"))
     if on_main:
         # The side lanes read the pick only on a pull request (ci.yml's
         # claude-wrapper, remote-daemon.yml); main's keep their own route.
@@ -1704,8 +1809,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if (env.get("WARM_LABELS") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
             and live_runners is not None):
         admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"))
-    text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS"), pr_xcode_app), problems=problems,
-                   owned_jobs=owned_jobs, admission_runner=admission_runner)
+    owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
+    side = side_runner(choice, owned_slots)
+    text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
+                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
@@ -1722,6 +1829,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # What the root jobs in owned_jobs take instead of
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"root_runner={choice.root_runner}\n"
+                         # What the side lanes in owned_jobs take instead of
+                         # the pool label, on attempt 1 and on that attempt 2.
+                         f"side_runner={side}\n"
                          # JSON labels for admission's attempt 1: the root label
                          # and the warm label of this run's merge base, or "".
                          f"admission_runner={admission_runner}\n"

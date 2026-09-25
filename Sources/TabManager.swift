@@ -3573,12 +3573,12 @@ class TabManager: ObservableObject {
     }
 
     func applyWindowBackdropModeForAllTabs(reason: String) {
-        let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
-        let backgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
+        let config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            reason: reason
+        )
         for tab in tabs {
             tab.applyGhosttyChrome(
-                backgroundColor: backgroundColor,
-                backgroundOpacity: backgroundOpacity,
+                from: config,
                 reason: reason
             )
         }
@@ -4326,6 +4326,12 @@ class TabManager: ObservableObject {
     @discardableResult
     func navigateForward() -> Bool {
         focusHistoryNavigation.navigateForward()
+    }
+
+    /// Toggles focus back to the position it most recently left.
+    @discardableResult
+    func navigateToLastFocused() -> Bool {
+        focusHistoryNavigation.navigateToLastFocused()
     }
 
     var canNavigateBack: Bool {

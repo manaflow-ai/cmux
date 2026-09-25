@@ -30,7 +30,12 @@ E2E_BUILD_JOB = "build"
 PRODUCT_PROFILES = {
     # The app/UI scheme builds first so its warning log keeps the runtime
     # job's warning-budget scope; later schemes reuse the same app objects.
-    "app-host": ("cmux", "cmux-unit", "cmux-numeric-locale", "cmux-cli-tests"),
+    # cmux-unit supplies both ordinary app-host tests and the serialized
+    # numeric-locale gate (app_host_test_products.OUTPUT_ALIASES); the two
+    # schemes' product contracts are kept equivalent by
+    # tests/test_app_host_test_products.py, so cmux-numeric-locale is not
+    # built a third time.
+    "app-host": ("cmux", "cmux-unit", "cmux-cli-tests"),
     "cli": ("cmux-cli-tests",),
 }
 DEFAULT_PRODUCT_PROFILE = "app-host"
@@ -80,6 +85,7 @@ NON_PRODUCT_TOOLING_PREFIXES = (
 )
 NON_PRODUCT_TOOLING = frozenset({
     "scripts/benchmark-dev-fleet-warm-slots.py",
+    "scripts/check-pbxproj-group-membership.py",
     "scripts/check-pbxproj.sh",
     "scripts/check-test-determinism.py",
     "scripts/dev-fleet-warm-slot.py",

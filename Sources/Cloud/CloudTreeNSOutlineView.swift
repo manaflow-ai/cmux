@@ -168,9 +168,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
         var view = responder as? NSView
         while let candidate = view, candidate !== self {
-            if let vpnButton = candidate as? CloudVPNHelpButton {
-                return !vpnButton.isHiddenOrHasHiddenAncestor
-            }
             if let controls = candidate as? CloudTreeRowControlsHostingView {
                 return !controls.isHiddenOrHasHiddenAncestor
             }

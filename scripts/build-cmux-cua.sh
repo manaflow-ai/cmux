@@ -2,12 +2,19 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="7a57a7c79522ece017a3ae4ef7884a24d7eec270"
+CMUX_CUA_PINNED_SHA="a1f88669fb936c3cad643fe25c5d522962e714bb"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
 CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Xcode build phases do not inherit a login-shell PATH, so fall back to
+# rustup's conventional bin directory, then the standard Homebrew prefixes.
+# Append rather than prepend: tools the caller already put on PATH (a pinned
+# toolchain, or the fake git/cargo in tests/test_cmux_cua_build_cache_safety.py)
+# must keep precedence over Homebrew's copies.
+export PATH="${PATH}:${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
 
 OUTPUT=""
 ARCHS_RAW=""

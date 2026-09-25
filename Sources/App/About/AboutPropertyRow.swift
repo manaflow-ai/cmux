@@ -40,4 +40,3 @@ struct AboutPropertyRow: View {
         .frame(maxWidth: .infinity)
     }
 }
-

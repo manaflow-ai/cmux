@@ -1,6 +1,8 @@
 import CmuxCloud
-import CmuxSurfaceCatalogModel
 import AppKit
+import CMUXMobileCore
+import CmuxSurfaceCatalogModel
+import CmuxWorkspacePresence
 import SwiftUI
 
 /// Hosts SwiftUI row content inside an `NSOutlineView` cell while leaving every
@@ -11,6 +13,10 @@ import SwiftUI
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
     var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
+    private var configuredNode: CloudTreeNode?
+    private var configuredStyle = CloudTreeStyleStore.current
+    private let presenceObserverID = UUID()
+    private let collaborators: @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant]
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         machineReorderAccessibilityActions?() ?? super.accessibilityCustomActions()
@@ -19,6 +25,7 @@ final class CloudTreeCellView: NSTableCellView {
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var portsStatus: CloudPortsStatusContent?
     private var portsStatusTrailingConstraint: NSLayoutConstraint?
+    private var portAction: @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     private var buttonsHost: CloudTreeRowControlsHostingView?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
@@ -29,9 +36,22 @@ final class CloudTreeCellView: NSTableCellView {
     }
     private var keepsControlsVisible = false
 
-    override init(frame frameRect: NSRect) {
+    override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, collaborators: { machine, workspaceID in
+            AppDelegate.shared?.workspacePresenceController.collaborators(forCloudMachine: machine, workspaceID: workspaceID) ?? []
+        })
+    }
+
+    init(frame frameRect: NSRect, collaborators: @escaping @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant]) {
+        self.collaborators = collaborators
         super.init(frame: frameRect)
         identifier = Self.identifier
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(workspacePresenceDidChange(_:)),
+            name: .workspacePresenceDidChange,
+            object: nil
+        )
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
         // The outline owns the complete disclosure slot and gap. The hosted
@@ -55,6 +75,55 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        let owner = presenceObserverID
+        Task { @MainActor in
+            AppDelegate.shared?.workspacePresenceController.observeCloudWorkspace(machine: nil, workspaceID: nil, owner: owner)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updatePresenceSubscription()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        updatePresenceSubscription()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        updatePresenceSubscription()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updatePresenceSubscription()
+    }
+
+    private func updatePresenceSubscription() {
+        let controller = AppDelegate.shared?.workspacePresenceController
+        if window != nil, superview != nil, !isHiddenOrHasHiddenAncestor,
+           let configuredNode, case .workspace(let machine, let workspace, _, _, _) = configuredNode.kind {
+            controller?.observeCloudWorkspace(machine: machine, workspaceID: workspace.id, owner: presenceObserverID)
+            configureDisplayHost(node: configuredNode, style: configuredStyle)
+        } else {
+            controller?.observeCloudWorkspace(machine: nil, workspaceID: nil, owner: presenceObserverID)
+        }
+    }
+
+    @objc private func workspacePresenceDidChange(_ notification: Notification) {
+        guard let configuredNode, case .workspace = configuredNode.kind else { return }
+        if let scope = notification.userInfo?["scope"] as? WorkspacePresenceScope,
+           case .workspace(let machine, let workspace, _, _, _) = configuredNode.kind,
+           (machine != .cloud(scope.ownerID) || workspace.id != scope.workspaceID) { return }
+        configureDisplayHost(node: configuredNode, style: configuredStyle)
+        displayHost.invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
+
     /// Rehosts one immutable tree snapshot and its optional row actions.
     ///
     /// - Parameters:
@@ -69,6 +138,9 @@ final class CloudTreeCellView: NSTableCellView {
         style: CloudTreeStyle = CloudTreeStyleStore.current,
         portAction: @escaping @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     ) {
+        configuredNode = node
+        configuredStyle = style
+        self.portAction = portAction
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
@@ -79,17 +151,7 @@ final class CloudTreeCellView: NSTableCellView {
             return placeholder.portStatus
         }()
         displayHost.isHidden = status != nil
-        displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style,
-                openVPNSetup: { portAction(.setupVPN, node.machine) })
-                .modifier(CloudSidebarRowDecoration(
-                    isPinned: node.isPinned,
-                    showsAttentionSlot: node.showsAttentionSlot,
-                    hasUnreadNotification: node.hasUnreadAttention,
-                    attentionSlot: style.rowGrid.attentionSlot
-                ))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        )
+        configureDisplayHost(node: node, style: style)
         if let status {
             let view = portsStatus ?? makePortsStatus(style: style)
             view.isHidden = false
@@ -147,13 +209,31 @@ final class CloudTreeCellView: NSTableCellView {
             setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
         } else if case .display(let resource, _, _) = node.kind {
             setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
-        } else if case .port(let resource, _, _) = node.kind {
-            setAccessibilityLabel([node.searchableTitle, resource.detail ?? CloudPortsStatusPresentation.routeNote].joined(separator: ", "))
-        } else if let status {
-            setAccessibilityLabel("\(status.title), \(status.message)")
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }
+        updatePresenceSubscription()
+    }
+
+    private func configureDisplayHost(node: CloudTreeNode, style: CloudTreeStyle) {
+        let presenceHeads: [WorkspacePresenceParticipant] = {
+            guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return [] }
+            return collaborators(machine, workspace.id)
+        }()
+        if case .workspace = node.kind {
+            let names = WorkspacePresencePolicy.accessibilityLabel(presenceHeads)
+            toolTip = presenceHeads.isEmpty ? nil : names
+            setAccessibilityLabel(presenceHeads.isEmpty ? node.searchableTitle : "\(node.searchableTitle), \(names)")
+        }
+        displayHost.rootView = AnyView(
+            CloudTreeRowContentView(
+                kind: node.kind,
+                presenceHeads: presenceHeads,
+                style: style
+            )
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        )
     }
 
     private func makeButtonsHost(style: CloudTreeStyle) -> CloudTreeRowControlsHostingView {
@@ -204,23 +284,18 @@ final class CloudTreeCellView: NSTableCellView {
     override func prepareForReuse() {
         super.prepareForReuse()
         machineReorderAccessibilityActions = nil
+        configuredNode = nil
+        updatePresenceSubscription()
+        toolTip = nil
         hovered = false
         portsStatus?.isHidden = true
     }
 }
 
-/// Ordinary content leaves events to the outline; the native VPN help button
-/// retains its own click, keyboard, and accessibility action.
+/// A hosting view that is invisible to hit testing, so the outline row beneath
+/// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // AppKit owns coordinate conversion; only the native help control
-        // intercepts a hit. Labels still leave selection and expansion to the outline.
-        guard let hit = super.hitTest(point) else { return nil }
-        var candidate: NSView? = hit
-        while let view = candidate {
-            if let button = view as? CloudVPNHelpButton { return button }
-            candidate = view.superview
-        }
         return nil
     }
 }

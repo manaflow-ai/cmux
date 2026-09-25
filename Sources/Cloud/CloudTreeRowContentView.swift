@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
+import CmuxWorkspacePresence
 import SwiftUI
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
@@ -11,8 +12,8 @@ enum CloudTreeIconPalette {
 }
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
+    var presenceHeads: [WorkspacePresenceParticipant] = []
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    var openVPNSetup: (() -> Void)? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -68,7 +69,12 @@ struct CloudTreeRowContentView: View {
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
-                titleWeight: workspace.focused ? .medium : .regular
+                titleWeight: workspace.focused ? .medium : .regular,
+                accessories: {
+                    if !presenceHeads.isEmpty {
+                        SidebarWorkspacePresenceHeadsView(participants: presenceHeads)
+                    }
+                }
             )
         case .localWorkspace(let row):
             CloudTreeLeafRow(
@@ -103,7 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style, openVPNSetup: openVPNSetup)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
         case .resourcesPool:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: nil, style: style)
         case .resource(_, let row):

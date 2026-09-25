@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -26,6 +27,10 @@ extension TerminalController {
             "machine": machine.rawValue,
             "remote_workspace_id": remoteView?.workspace.id ?? resource.remoteWorkspace?.id ?? NSNull(),
         ]
+        if let remoteWorkspaceName = remoteView?.workspace.name ?? resource.remoteWorkspace?.name,
+           !remoteWorkspaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["remote_workspace_name"] = remoteWorkspaceName
+        }
         if let destination {
             let opened = try await catalog.project(
                 resource.id,
