@@ -559659,6 +559659,131 @@
           }
         }
       }
+    },
+    "cli.agent.goalState.error.fenceRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goal lifecycle generation was rejected as stale or invalid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Generation des Ziellifecycles wurde als veraltet oder ungültig abgelehnt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La génération du cycle de vie de l’objectif a été refusée car elle est obsolète ou invalide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رُفض جيل دورة حياة الهدف لأنه قديم أو غير صالح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La generación del ciclo de vida del objetivo se rechazó porque es antigua o no válida."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標生命週期世代因過時或無效而遭拒。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标生命周期代际因过时或无效而被拒绝。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목표 수명 주기 세대가 오래되었거나 잘못되어 거부되었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標ライフサイクルの世代が古いか無効なため拒否されました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generacija životnog ciklusa cilja odbijena je jer je zastarjela ili nevažeća."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Målets livscyklusgeneration blev afvist, fordi den er forældet eller ugyldig."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La generazione del ciclo di vita dell’obiettivo è stata rifiutata perché obsoleta o non valida."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំនាន់វដ្តជីវិតគោលដៅត្រូវបានបដិសេធ ព្រោះហួសសម័យ ឬមិនត្រឹមត្រូវ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Målets livssyklusgenerasjon ble avvist fordi den er foreldet eller ugyldig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generacja cyklu życia celu została odrzucona, ponieważ jest nieaktualna lub nieprawidłowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A geração do ciclo de vida do objetivo foi rejeitada por estar desatualizada ou inválida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поколение жизненного цикла цели отклонено: оно устарело или недопустимо."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสร้างวงจรชีวิตเป้าหมายถูกปฏิเสธเนื่องจากล้าสมัยหรือไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hedef yaşam döngüsü nesli eski veya geçersiz olduğu için reddedildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покоління життєвого циклу цілі відхилено, оскільки воно застаріле або недійсне."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

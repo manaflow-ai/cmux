@@ -123,6 +123,9 @@ extension CMUXCLI {
             deadline: Date.now.addingTimeInterval(3)
         )
         guard socketResponse.hasPrefix("OK") else {
+            if socketResponse == "ERROR: goal_fence_rejected" {
+                throw CLIError(message: String(localized: "cli.agent.goalState.error.fenceRejected", defaultValue: "Goal lifecycle generation was rejected as stale or invalid."))
+            }
             throw CLIError(message: String(localized: "cli.agent.goalState.error.rejected", defaultValue: "Goal lifecycle update was rejected."))
         }
         let response: [String: Any] = [

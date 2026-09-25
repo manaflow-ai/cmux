@@ -300,6 +300,10 @@ final class AgentJournalLifecycleCenter: Sendable {
 #if DEBUG
             cmuxDebugLog("agentJournal.append.error \(String(describing: error))")
 #endif
+            if draft.kind == .goalStateChanged,
+               case .invalidDraft = error {
+                return "ERROR: goal_fence_rejected"
+            }
             return "ERROR: agent journal append failed"
         }
     }

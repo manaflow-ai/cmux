@@ -76,9 +76,14 @@ extension CMUXCLI {
             return nil
         }
 
-        let generation = firstValue(in: object) { key in
+        guard let generation = firstValue(in: object, matching: { key in
             key.contains("generation") || key == "goalid" || key == "objectiveid"
-        } ?? "codex-session-\(sessionID)"
+        }) else {
+            // A session id identifies the conversation, not an objective.
+            // Without a provider receipt carrying a goal identity, publishing
+            // a session-derived generation would merge successive objectives.
+            return nil
+        }
         return AgentGoalLifecycle(
             state: state,
             generation: generation,
