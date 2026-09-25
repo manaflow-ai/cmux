@@ -1030,9 +1030,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
             mutationTaskID = taskID
             mutationTask = Task { @MainActor [weak self] in
                 defer {
-                    guard let self, self.mutationTaskID == taskID else { return }
-                    self.mutationTask = nil
-                    self.mutationTaskID = nil
+                    if let self, self.mutationTaskID == taskID {
+                        self.mutationTask = nil
+                        self.mutationTaskID = nil
+                    }
                 }
                 do {
                     try Task.checkCancellation()
