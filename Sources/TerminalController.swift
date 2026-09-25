@@ -14678,8 +14678,7 @@ class TerminalController {
     ) async -> MobileHostRPCResult {
         guard request.isOrderedTerminalInput,
               let executionContext,
-              let orderingToken = executionContext.terminalInputOrderingToken,
-              let surfaceID = mobileCanonicalTerminalTarget(params: request.params)?.surfaceID
+              let orderingToken = executionContext.terminalInputOrderingToken
         else {
             return await mobileHostHandleRPCUnordered(
                 request,
@@ -14688,6 +14687,12 @@ class TerminalController {
         }
         if let error = mobileTerminalAliasValidationError(params: request.params) {
             return error
+        }
+        guard let surfaceID = mobileCanonicalTerminalTarget(params: request.params)?.surfaceID else {
+            return await mobileHostHandleRPCUnordered(
+                request,
+                executionContext: executionContext
+            )
         }
 
         let inputSequence = mobileInputSequence(params: request.params)
