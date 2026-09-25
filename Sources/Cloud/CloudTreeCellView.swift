@@ -215,8 +215,13 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // AppKit owns coordinate conversion; only the native help control
         // intercepts a hit. Labels still leave selection and expansion to the outline.
-        guard let hit = super.hitTest(point), hit is CloudVPNHelpButton else { return nil }
-        return hit
+        guard let hit = super.hitTest(point) else { return nil }
+        var candidate: NSView? = hit
+        while let view = candidate {
+            if let button = view as? CloudVPNHelpButton { return button }
+            candidate = view.superview
+        }
+        return nil
     }
 }
 

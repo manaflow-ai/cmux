@@ -116,6 +116,12 @@ struct CloudPortsVPNAffordanceTests {
         #expect(status.message == CloudPortsStatusPresentation.routeNote)
     }
 
+    @Test("Ports stay closed until the person opens the group")
+    func portsStartCollapsed() {
+        #expect(CloudTreeNode.Kind.portsGroup(machine: .cloud("default-collapsed"))
+            .isExpandedByDefault == false)
+    }
+
     @Test("Status actions hit-test in AppKit coordinates and fit narrow rows", arguments: [140.0, 260.0])
     func nativeActionLayout(width: Double) throws {
         let status = CloudPortsStatusPresentation(state: .unavailable(.transport))
