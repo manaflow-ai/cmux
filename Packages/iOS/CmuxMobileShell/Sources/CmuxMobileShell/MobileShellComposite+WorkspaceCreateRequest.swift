@@ -29,11 +29,18 @@ extension MobileShellComposite {
         pinnedContext context: WorkspaceCreatePinnedContext,
         willStartCreate: (@MainActor () -> Void)? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        guard groupID == nil || allowsMacScopedWorkspaceMutations(targetClient: context.client) else {
+        guard groupID == nil
+            || spec?.workspaceGroupID == nil
+            || groupID == spec?.workspaceGroupID else {
+            return .failure(.rejected(hostDisplayName: context.hostDisplayName))
+        }
+        let requestedGroupID = groupID ?? spec?.workspaceGroupID
+        guard requestedGroupID == nil
+            || allowsMacScopedWorkspaceMutations(targetClient: context.client) else {
             return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
         }
         if let createWorkspaceTask {
-            guard spec == nil, createWorkspaceTaskSpec == nil, createWorkspaceTaskGroupID == groupID else {
+            guard spec == nil, createWorkspaceTaskSpec == nil, createWorkspaceTaskGroupID == requestedGroupID else {
                 return .failure(.busy(hostDisplayName: context.hostDisplayName))
             }
             return await createWorkspaceTask.value
@@ -48,19 +55,52 @@ extension MobileShellComposite {
             defer { self?.clearCreateWorkspaceTask(id: taskID) }
             guard let self else { return .success(()) }
             return await self.createRemoteWorkspace(
-                inGroup: groupID,
+                inGroup: requestedGroupID,
                 appliesOperationalError: false,
                 spec: spec,
                 pinnedContext: context
             )
         }
         createWorkspaceTask = task
-        createWorkspaceTaskGroupID = groupID
+        createWorkspaceTaskGroupID = requestedGroupID
         createWorkspaceTaskSpec = spec
         return await task.value
     }
 
     func createRemoteWorkspace(
+        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        appliesOperationalError: Bool = true,
+        spec: MobileWorkspaceCreateSpec? = nil,
+        pinnedContext suppliedContext: WorkspaceCreatePinnedContext? = nil
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let startedAt = appDiagnosticNow()
+        let correlationID = groupID?.rawValue ?? suppliedContext?.macDeviceID
+        recordAppEvent(.workspaceCreateStarted, correlationID: correlationID)
+        let result = await performCreateRemoteWorkspace(
+            inGroup: groupID,
+            appliesOperationalError: appliesOperationalError,
+            spec: spec,
+            pinnedContext: suppliedContext
+        )
+        switch result {
+        case .success:
+            recordAppEvent(
+                .workspaceCreateSucceeded,
+                correlationID: correlationID,
+                startedAt: startedAt
+            )
+        case .failure(let failure):
+            recordAppEvent(
+                .workspaceCreateFailed,
+                correlationID: correlationID,
+                startedAt: startedAt,
+                failure: failure.diagnosticFailureKind
+            )
+        }
+        return result
+    }
+
+    private func performCreateRemoteWorkspace(
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
         appliesOperationalError: Bool = true,
         spec: MobileWorkspaceCreateSpec? = nil,
@@ -76,7 +116,7 @@ extension MobileShellComposite {
         do {
             var params: [String: Any] = [:]
             if let groupID {
-                params["group_id"] = groupID.rawValue
+                params["group_id"] = remoteWorkspaceGroupID(for: groupID).rawValue
             }
             if let title = spec?.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
                 params["title"] = title
@@ -99,7 +139,11 @@ extension MobileShellComposite {
                 return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
             }
             let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
+                MobileCoreRPCClient.requestData(method: "workspace.create", params: params),
+                attachTicketPolicy: groupID != nil
+                    && context.supportedHostCapabilities.contains(Self.workspaceMutationAccountAuthCapability)
+                    ? .omit
+                    : .whenCovered
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             let createdWorkspace: MobileWorkspacePreview.ID?
@@ -137,7 +181,8 @@ extension MobileShellComposite {
                 setSelectedWorkspaceID(
                     rowWorkspaceID(
                         forRemoteWorkspaceID: createdWorkspace,
-                        macDeviceID: context.macDeviceID
+                        macDeviceID: context.macDeviceID,
+                        instanceTag: context.instanceTag
                     ) ?? createdWorkspace
                 )
             }
@@ -192,6 +237,7 @@ extension MobileShellComposite {
         guard connectionState == .connected, let remoteClient else { return nil }
         return WorkspaceCreatePinnedContext(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration,
             supportedHostCapabilities: supportedHostCapabilities,
@@ -202,6 +248,7 @@ extension MobileShellComposite {
     private func isCurrentWorkspaceCreateContext(_ context: WorkspaceCreatePinnedContext) -> Bool {
         context.isCurrent(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration
         ) && isSignedIn && connectionState == .connected

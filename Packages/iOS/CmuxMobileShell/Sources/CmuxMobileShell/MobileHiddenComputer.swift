@@ -1,8 +1,6 @@
 /// One computer hidden on this iPhone.
 ///
-/// Local entries retain their paired-Mac row and can be restored offline.
-/// Legacy entries have only the marker left by an older cmux version and need
-/// one live same-account discovery to recreate their local row.
+/// Hidden entries retain their paired-Mac row and can be restored offline.
 public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
     /// Stable pairing identity used by list diffing.
     public let id: String
@@ -16,8 +14,15 @@ public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
     public let customColor: String?
     /// User-selected icon retained by a local paired-Mac row.
     public let customIcon: String?
-    /// Whether unhide requires live legacy recovery rather than a local marker change.
-    public let requiresLegacyRecovery: Bool
+    /// Owning Stack user of the local paired-Mac row this entry came from.
+    ///
+    /// Captured so Forget deletes the exact row it was shown for. A team-less
+    /// row is visible under any selected team (legacy visibility), so the live
+    /// display scope is not a safe delete key.
+    public let stackUserID: String?
+    /// Owning Stack team of the local paired-Mac row, or `nil` for a team-less
+    /// pairing. This is the row's OWN team, not the currently-selected team.
+    public let teamID: String?
 
     /// Creates an immutable hidden-computer presentation value.
     public init(
@@ -27,7 +32,8 @@ public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
         displayName: String,
         customColor: String?,
         customIcon: String?,
-        requiresLegacyRecovery: Bool
+        stackUserID: String? = nil,
+        teamID: String? = nil
     ) {
         self.id = id
         self.macDeviceID = macDeviceID
@@ -35,6 +41,7 @@ public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
         self.displayName = displayName
         self.customColor = customColor
         self.customIcon = customIcon
-        self.requiresLegacyRecovery = requiresLegacyRecovery
+        self.stackUserID = stackUserID
+        self.teamID = teamID
     }
 }

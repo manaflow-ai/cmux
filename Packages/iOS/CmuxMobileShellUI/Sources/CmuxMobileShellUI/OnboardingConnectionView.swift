@@ -1,9 +1,20 @@
 #if os(iOS)
+import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct OnboardingConnectionView: View {
     let phase: OnboardingConnectionPhase
+    let connectionMethod: MobileConnectionMethod
+    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
+    var keepAwakeOffer: OnboardingKeepAwakeOffer?
+    var onSetKeepAwake: (Bool) async -> Void = { _ in }
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// Names the minimum Mac version for this app version in the connect
+    /// copy. Optional so previews without the app root keep versionless copy.
+    @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
+        MobileMacCompatCenter?
 
     var body: some View {
         ZStack {
@@ -16,8 +27,74 @@ struct OnboardingConnectionView: View {
             OnboardingSceneContent(
                 title: title,
                 message: message,
-                visual: OnboardingConnectionPreview(phase: phase)
+                visual: visual,
+                bodyLineReservation: 3
             )
+        }
+    }
+
+    /// Keep the connection choice available for the whole connect page. A
+    /// successful automatic connection is not a commitment to Iroh; people
+    /// may still switch to Tailscale before leaving onboarding.
+    private var showsMethodPicker: Bool {
+        true
+    }
+
+    /// The Keep Mac Awake ask appears once the Mac is connected and its state
+    /// is known, below the always-available method picker.
+    private var visibleKeepAwakeOffer: OnboardingKeepAwakeOffer? {
+        phase == .ready ? keepAwakeOffer : nil
+    }
+
+    private var visual: some View {
+        ViewThatFits(in: .vertical) {
+            connectionVisual(density: .regular)
+            connectionVisual(density: .compact)
+        }
+    }
+
+    @ViewBuilder
+    private func connectionVisual(density: OnboardingConnectionVisualDensity) -> some View {
+        if verticalSizeClass == .compact {
+            VStack(spacing: density.sectionSpacing) {
+                HStack(alignment: .center, spacing: density.sectionSpacing) {
+                    OnboardingConnectionPreview(phase: phase, density: density)
+                        .frame(maxWidth: .infinity)
+                    OnboardingConnectionMethodPicker(
+                        method: connectionMethod,
+                        density: density,
+                        onSelect: onSelectConnectionMethod
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                if let visibleKeepAwakeOffer {
+                    OnboardingKeepAwakeCard(
+                        offer: visibleKeepAwakeOffer,
+                        density: density,
+                        onSet: onSetKeepAwake
+                    )
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(spacing: density.sectionSpacing) {
+                OnboardingConnectionPreview(phase: phase, density: density)
+                if showsMethodPicker {
+                    OnboardingConnectionMethodPicker(
+                        method: connectionMethod,
+                        density: density,
+                        onSelect: onSelectConnectionMethod
+                    )
+                }
+                if let visibleKeepAwakeOffer {
+                    OnboardingKeepAwakeCard(
+                        offer: visibleKeepAwakeOffer,
+                        density: density,
+                        onSet: onSetKeepAwake
+                    )
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -28,6 +105,12 @@ struct OnboardingConnectionView: View {
                 defaultValue: "Your Mac is connected"
             )
         }
+        if connectionMethod == .tailscale {
+            return L10n.string(
+                "mobile.onboarding.connect.tailscaleTitle",
+                defaultValue: "Connect over Tailscale"
+            )
+        }
         return L10n.string(
             "mobile.onboarding.connect.title",
             defaultValue: "Your Mac connects automatically"
@@ -36,15 +119,74 @@ struct OnboardingConnectionView: View {
 
     private var message: String {
         if phase == .ready {
-            return L10n.string(
+            let connectedCopy = L10n.string(
                 "mobile.onboarding.ready.body",
-                defaultValue: "Open a workspace to see the latest activity and respond when an agent needs you."
+                defaultValue: "Open any workspace and respond when an agent needs you."
             )
+            return "\(connectedCopy) \(MobilePairingCopy().enableOnMacShort)"
         }
-        return L10n.string(
+        if connectionMethod == .tailscale {
+            if let requiredMacVersion {
+                let connectionCopy = String(
+                    format: L10n.string(
+                        "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat",
+                        defaultValue: "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
+                    ),
+                    requiredMacVersion
+                )
+                return "\(connectionCopy) \(MobilePairingCopy().enableOnMacShort)"
+            }
+            // Versionless fallback (below-tier app versions, previews): no
+            // stale hardcoded floor; the policy-driven branch above names one.
+            let connectionCopy = L10n.string(
+                "mobile.onboarding.connect.tailscaleBody",
+                defaultValue: "Install Tailscale on both devices and join the same network, then scan the pairing code once."
+            )
+            return "\(connectionCopy) \(MobilePairingCopy().enableOnMacShort)"
+        }
+        if let requiredMacVersion {
+            let connectionCopy = String(
+                format: L10n.string(
+                    "mobile.onboarding.connect.bodyWithMinVersionFormat",
+                    defaultValue: "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+                ),
+                requiredMacVersion
+            )
+            return "\(connectionCopy) \(MobilePairingCopy().enableOnMacShort)"
+        }
+        let connectionCopy = L10n.string(
             "mobile.onboarding.connect.body",
-            defaultValue: "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
         )
+        return "\(connectionCopy) \(MobilePairingCopy().enableOnMacShort)"
+    }
+
+    /// The minimum stable-channel Mac version this app version accepts, from
+    /// the fetched (or compiled-in) policy tier; `nil` when no tier applies,
+    /// which keeps the versionless copy.
+    ///
+    /// Deliberately the STABLE floor even though Nightly Macs are admitted
+    /// under a separate rule: onboarding guides a fresh Mac install, where
+    /// the stable download is the default and its floor is the one version a
+    /// person can act on. The nightly floor is a build counter, not a
+    /// human-typeable version, and this copy is informational — a compatible
+    /// Nightly Mac is never blocked by it.
+    private var requiredMacVersion: String? {
+        macCompatCenter?.policy
+            .tier(forIOSVersion: AppVersionInfo.current().marketingVersion)?
+            .stableMinVersion.description
+    }
+}
+
+enum OnboardingConnectionVisualDensity {
+    case regular
+    case compact
+
+    var sectionSpacing: CGFloat {
+        switch self {
+        case .regular: 14
+        case .compact: 8
+        }
     }
 }
 #endif

@@ -1,8 +1,175 @@
+import Bonsplit
+import CmuxPanes
 import CmuxWorkspaces
 import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
+    /// Synchronizes a nested remote-tmux pane with its outer workspace pane
+    /// without reactivating an already-selected container's hidden surface.
+    func focusRemoteTmuxContainerPaneIfNeeded(_ paneId: PaneID) {
+        guard bonsplitController.focusedPaneId != paneId else { return }
+        bonsplitController.focusPane(paneId)
+    }
+
+    /// Moves keyboard focus through the rendered pane hierarchy. A selected
+    /// remote-tmux window owns a nested split tree, so it gets first refusal;
+    /// an edge with no inner neighbor falls through to the workspace tree.
+    func moveFocus(direction: NavigationDirection) {
+        if layoutMode == .canvas {
+            moveCanvasFocus(direction: direction)
+            return
+        }
+        if let focusedPanelId,
+           let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) {
+            switch mirror.navigateFocus(direction: direction) {
+            case .moved, .invalid:
+                return
+            case .edge:
+                break
+            }
+        }
+
+        let previousFocusedPanelId = focusedPanelId
+        if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
+            previous.unfocus()
+        }
+
+        bonsplitController.navigateFocus(direction: direction)
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
+    /// Moves the focused surface into another pane, optionally creating a
+    /// directional split when no adjacent pane exists.
+    @discardableResult
+    func moveFocusedSurface(
+        to movement: SurfacePaneMovement,
+        allowMissingDestinationSplit: Bool = true
+    ) -> Bool {
+        guard let panelId = focusedPanelId else { return false }
+        return moveSurface(
+            panelId: panelId,
+            to: movement,
+            allowMissingDestinationSplit: allowMissingDestinationSplit
+        )
+    }
+
+    /// Moves a surface through the same ownership-transfer path used by
+    /// same-workspace drag and drop.
+    @discardableResult
+    func moveSurface(
+        panelId: UUID,
+        to movement: SurfacePaneMovement,
+        allowMissingDestinationSplit: Bool = true
+    ) -> Bool {
+        guard layoutMode != .canvas,
+              !isRemoteTmuxMirror,
+              panels[panelId] != nil,
+              let sourcePaneId = paneId(forPanelId: panelId) else {
+            return false
+        }
+
+        let destinationPaneId = destinationPane(
+            from: sourcePaneId,
+            for: movement
+        )
+        let directionalSplit = allowMissingDestinationSplit
+            ? directionalSplit(for: movement)
+            : nil
+        guard destinationPaneId != nil || directionalSplit != nil else {
+            return false
+        }
+
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        if zoomedPaneId != nil {
+            clearSplitZoom()
+        }
+
+        let didMove: Bool
+        if let destinationPaneId {
+            didMove = moveSurface(
+                panelId: panelId,
+                toPane: destinationPaneId,
+                atIndex: insertionIndexAfterSelectedSurface(in: destinationPaneId),
+                focus: true
+            )
+        } else if let directionalSplit,
+                  let tabId = surfaceIdFromPanelId(panelId),
+                  let newPaneId = splitPaneMovingTab(
+                      sourcePaneId,
+                      orientation: directionalSplit.orientation,
+                      movingTab: tabId,
+                      insertFirst: directionalSplit.insertFirst,
+                      focusIntent: .activateMovedTab
+                  ) {
+            bonsplitController.focusPane(newPaneId)
+            bonsplitController.selectTab(tabId)
+            focusPanel(panelId)
+            didMove = true
+        } else {
+            didMove = false
+        }
+
+        if !didMove, let zoomedPaneId {
+            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        }
+        return didMove
+    }
+
+    private func destinationPane(
+        from sourcePaneId: PaneID,
+        for movement: SurfacePaneMovement
+    ) -> PaneID? {
+        if let direction = directionalSplit(for: movement)?.direction {
+            return bonsplitController.adjacentPane(
+                to: sourcePaneId,
+                direction: direction
+            )
+        }
+
+        let orderedPaneIds = spatiallyOrderedPaneIds
+        guard orderedPaneIds.count > 1,
+              let sourceIndex = orderedPaneIds.firstIndex(of: sourcePaneId.id) else {
+            return nil
+        }
+        let offset = movement == .previous ? -1 : 1
+        let destinationIndex = (
+            sourceIndex + offset + orderedPaneIds.count
+        ) % orderedPaneIds.count
+        let destinationID = orderedPaneIds[destinationIndex]
+        return bonsplitController.allPaneIds.first { $0.id == destinationID }
+    }
+
+    private func directionalSplit(
+        for movement: SurfacePaneMovement
+    ) -> (
+        direction: NavigationDirection,
+        orientation: SplitOrientation,
+        insertFirst: Bool
+    )? {
+        switch movement {
+        case .left: (.left, .horizontal, true)
+        case .right: (.right, .horizontal, false)
+        case .up: (.up, .vertical, true)
+        case .down: (.down, .vertical, false)
+        case .previous, .next: nil
+        }
+    }
+
+    private func insertionIndexAfterSelectedSurface(in paneId: PaneID) -> Int {
+        let destinationTabs = bonsplitController.tabs(inPane: paneId)
+        guard let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+              let selectedIndex = destinationTabs.firstIndex(where: {
+                  $0.id == selectedTabId
+              }) else {
+            return destinationTabs.count
+        }
+        return selectedIndex + 1
+    }
+
     /// Notification unread lookup for sidebar surface indicators.
     func hasUnreadNotification(panelId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
@@ -10,7 +177,12 @@ extension Workspace {
 
     /// Surface-kind mapping used by workspace state snapshots.
     func surfaceKind(for panel: any Panel) -> String {
-        switch panel.panelType {
+        Self.surfaceKind(for: panel.panelType)
+    }
+
+    /// Surface-kind mapping used by snapshots and mobile mapping parity tests.
+    static func surfaceKind(for panelType: PanelType) -> String {
+        switch panelType {
         case .terminal:
             return SurfaceKind.terminal.rawValue
         case .browser:
@@ -23,6 +195,8 @@ extension Workspace {
             return SurfaceKind.rightSidebarTool.rawValue
         case .customSidebar:
             return SurfaceKind.customSidebar.rawValue
+        case .simulator:
+            return SurfaceKind.simulator.rawValue
         case .agentSession:
             return SurfaceKind.agentSession.rawValue
         case .project:
@@ -31,8 +205,14 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .notifications:
+            return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
+        case .mobilePairing:
+            return SurfaceKind.mobilePairing.rawValue
+        case .accountSignIn:
+            return SurfaceKind.accountSignIn.rawValue
         }
     }
 
@@ -64,6 +244,32 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+    }
+
+    /// Cycles focus to the next or previous split pane in tree order, wrapping at the ends.
+    @discardableResult
+    func cycleFocus(forward: Bool) -> Bool {
+        guard layoutMode != .canvas else { return false }
+
+        guard let targetPaneId = PaneCycleNavigator().targetPane(
+            orderedPaneIds: spatiallyOrderedPaneIds,
+            livePaneIds: bonsplitController.allPaneIds,
+            focusedPaneId: bonsplitController.focusedPaneId,
+            forward: forward
+        ) else { return false }
+
+        if let previousPanelId = focusedPanelId,
+           let previousPanel = panels[previousPanelId] {
+            previousPanel.unfocus()
+        }
+
+        bonsplitController.focusPane(targetPaneId)
+
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+        return true
     }
 
     /// Moves the selected surface within its focused split or Canvas pane

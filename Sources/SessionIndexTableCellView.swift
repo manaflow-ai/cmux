@@ -4,8 +4,22 @@ import SwiftUI
 /// Recycled AppKit cell containing one stable Vault row hosting view.
 @MainActor
 final class SessionIndexTableCellView: NSTableCellView {
-    private let hostingView = NSHostingView(
+    private let model: SessionIndexTableCellModel
+    private let highlightProjection = SessionIndexTableCellHighlightProjection()
+    private var popoverAnchorRects: [SessionIndexTablePopoverIdentity: NSRect] = [:]
+    private lazy var hostingView = NSHostingView(
         rootView: SessionIndexTableCellRootView(
+            model: model,
+            highlight: highlightProjection,
+            onPopoverAnchorChange: { [weak self] identity, rect in
+                self?.updatePopoverAnchor(identity, rect: rect)
+            }
+        )
+    )
+    var onPopoverAnchorChange: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        model = SessionIndexTableCellModel(
             row: .gap(beforeKey: nil, isValidDrop: true, actions: SectionGapActions(
                 currentDraggedKey: { nil },
                 moveSection: { _, _ in },
@@ -13,11 +27,6 @@ final class SessionIndexTableCellView: NSTableCellView {
             )),
             environment: .fallback
         )
-    )
-    private var configuredRow: SessionIndexTableRow?
-    private var configuredEnvironment: SessionIndexTableEnvironmentSnapshot?
-
-    override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         hostingView.wantsLayer = true
@@ -43,17 +52,49 @@ final class SessionIndexTableCellView: NSTableCellView {
         row: SessionIndexTableRow,
         environment: SessionIndexTableEnvironmentSnapshot
     ) {
-        if let configuredRow,
-           let configuredEnvironment,
-           configuredRow.hasEquivalentContent(to: row),
-           configuredEnvironment.hasEquivalentPresentation(to: environment) {
+        highlightProjection.sync(from: row)
+        guard model.configure(row: row, environment: environment) else {
             return
         }
-        configuredRow = row
-        configuredEnvironment = environment
-        hostingView.rootView = SessionIndexTableCellRootView(
-            row: row,
-            environment: environment
-        )
+        popoverAnchorRects.removeAll()
+    }
+
+    func updatePresentation(from row: SessionIndexTableRow) {
+        highlightProjection.sync(from: row)
+    }
+
+    func popoverAnchorRect(for identity: SessionIndexTablePopoverIdentity) -> NSRect? {
+        popoverAnchorRects[identity]
+    }
+
+    /// Returns the native row-sized view for a transcript identity, if the
+    /// session is currently realized inside this recycled cell.
+    func popoverAnchorView(for identity: SessionIndexTablePopoverIdentity) -> NSView? {
+        guard case .transcript(_, let entryID) = identity else { return nil }
+        var pending = subviews
+        while let view = pending.popLast() {
+            if let sourceView = view as? SessionDragSourceView,
+               sourceView.entry.id == entryID,
+               sourceView.window != nil {
+                return sourceView
+            }
+            pending.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    private func updatePopoverAnchor(
+        _ identity: SessionIndexTablePopoverIdentity,
+        rect: CGRect?
+    ) {
+        // SwiftUI's named coordinate spaces use a flipped (top-left) origin,
+        // while NSTableCellView is unflipped (bottom-left). Convert through the
+        // hosting view before handing the rectangle to NSPopover; passing the
+        // raw SwiftUI value mirrors the row vertically and makes the preview
+        // appear detached from the session that was clicked.
+        let convertedRect = rect.map { hostingView.convert($0, to: self) }
+        guard popoverAnchorRects[identity] != convertedRect else { return }
+        popoverAnchorRects[identity] = convertedRect
+        onPopoverAnchorChange?()
     }
 }

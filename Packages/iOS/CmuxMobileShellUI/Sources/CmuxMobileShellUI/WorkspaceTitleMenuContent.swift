@@ -4,16 +4,44 @@ import SwiftUI
 struct WorkspaceTitleMenuContent: View {
     let workspaceName: String
     let hasUnread: Bool
+    let canCustomizeWorkspace: Bool
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
+    let canReconnect: Bool
+    let presentCustomization: () -> Void
     let presentRename: () -> Void
     let toggleReadState: () -> Void
     let requestClose: () -> Void
+    let reconnect: () -> Void
 
     var body: some View {
-        if canRenameWorkspace || canToggleReadState || canCloseWorkspace {
+        if canReconnect {
+            Section {
+                Button(action: reconnect) {
+                    Label(
+                        L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleReconnectMenuItem")
+            }
+        }
+        if canCustomizeWorkspace || canRenameWorkspace || canToggleReadState || canCloseWorkspace {
             Section(workspaceName) {
+                if canCustomizeWorkspace {
+                    Button(action: presentCustomization) {
+                        Label(
+                            L10n.string(
+                                "mobile.workspace.customize.title",
+                                defaultValue: "Customize Workspace"
+                            ),
+                            systemImage: "slider.horizontal.3"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceTitleCustomizeMenuItem")
+                }
+
                 if canRenameWorkspace {
                     Button(action: presentRename) {
                         Label(

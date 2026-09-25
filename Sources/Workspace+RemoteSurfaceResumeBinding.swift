@@ -63,12 +63,31 @@ extension Workspace {
               !configuration.skipDaemonBootstrap,
               configuration.persistentDaemonSlot != nil,
               let relayPort = configuration.relayPort,
-              let startupInput = binding.remoteStartupInputWithLauncherScript(allowLauncherScript: false) else {
+              let startupInput = binding.remoteStartupInput() else {
             return nil
         }
         return SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
             relayPort: relayPort,
-            initialCommand: startupInput
+            initialCommand: startupInput,
+            configuredRemoteCommand: configuration.configuredRemoteCommand
+        )
+    }
+
+    /// Wraps a takeover notice in the same interactive remote shell used by
+    /// persistent-SSH resume commands, without embedding an agent launch.
+    func persistentSSHLiveOwnerNoticeCommand(_ noticeInput: String) -> String? {
+        guard let configuration = remoteConfiguration,
+              configuration.transport == .ssh,
+              configuration.preserveAfterTerminalExit,
+              !configuration.skipDaemonBootstrap,
+              configuration.persistentDaemonSlot != nil,
+              let relayPort = configuration.relayPort else {
+            return nil
+        }
+        return SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
+            relayPort: relayPort,
+            initialCommand: noticeInput,
+            configuredRemoteCommand: configuration.configuredRemoteCommand
         )
     }
 
@@ -78,7 +97,11 @@ extension Workspace {
         persistentPTYSessionID: String
     ) -> String? {
         guard let binding else { return nil }
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        guard case let .resolved(effectiveBinding) = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
+            to: binding
+        ) else {
+            return nil
+        }
         if effectiveBinding.isAgentHookBinding,
            !AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) {
             return nil

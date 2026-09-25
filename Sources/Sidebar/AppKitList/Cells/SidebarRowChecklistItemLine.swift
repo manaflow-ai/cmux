@@ -155,10 +155,7 @@ final class SidebarRowChecklistItemLine: NSView {
         textLabel.isHidden = isEditing
         textClickOverlay.isHidden = isEditing
         guard isEditing else {
-            editField?.removeFromSuperview()
-            editField = nil
-            editFieldBridge = nil
-            editingItemId = nil
+            discardEditField()
             return
         }
         guard editField == nil || editingItemId != item.id else {
@@ -169,7 +166,7 @@ final class SidebarRowChecklistItemLine: NSView {
             editField?.caretColor = primary
             return
         }
-        editField?.removeFromSuperview()
+        discardEditField()
         // Fresh field per edit session (legacy recreates via view identity):
         // `FocusGrabbingTextField` takes first responder when it attaches to
         // the window, and select-all marks the edit variant.
@@ -318,6 +315,11 @@ final class SidebarRowChecklistItemLine: NSView {
             y: vertical.lineCenter - metrics.attach.height / 2,
             width: metrics.attach.width, height: metrics.attach.height
         )
+        // A pooled line can be laid out underneath a stationary pointer. In
+        // that case AppKit has no new mouse-enter event to reveal the button.
+        // Reconcile after the frame is final so the affordance reflects the
+        // pointer's current location immediately.
+        updateRemoveButtonVisibilityFromCurrentPointer()
     }
 
     override func updateTrackingAreas() {
@@ -327,7 +329,7 @@ final class SidebarRowChecklistItemLine: NSView {
         }
         let next = NSTrackingArea(
             rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
             owner: self,
             userInfo: nil
         )
@@ -335,12 +337,33 @@ final class SidebarRowChecklistItemLine: NSView {
         trackingArea = next
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        updateTrackingAreas()
+        updateRemoveButtonVisibilityFromCurrentPointer()
+    }
+
     override func mouseEntered(with event: NSEvent) {
-        removeButton.isHidden = false
+        updateRemoveButtonVisibility(atWindowPoint: event.locationInWindow)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateRemoveButtonVisibility(atWindowPoint: event.locationInWindow)
     }
 
     override func mouseExited(with event: NSEvent) {
         removeButton.isHidden = true
+    }
+
+    private func updateRemoveButtonVisibilityFromCurrentPointer() {
+        guard let window else { return }
+        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        updateRemoveButtonVisibility(atWindowPoint: windowPoint)
+    }
+
+    private func updateRemoveButtonVisibility(atWindowPoint point: NSPoint) {
+        removeButton.isHidden = !bounds.contains(convert(point, from: nil))
     }
 
     /// Reuse teardown: drop the item, action bundle, editor, and click
@@ -348,10 +371,7 @@ final class SidebarRowChecklistItemLine: NSView {
     /// workspace.
     func resetForReuse() {
         guard item != nil || actions != nil || editField != nil else { return }
-        editField?.removeFromSuperview()
-        editField = nil
-        editFieldBridge = nil
-        editingItemId = nil
+        discardEditField()
         isEditing = false
         item = nil
         model = nil
@@ -362,6 +382,28 @@ final class SidebarRowChecklistItemLine: NSView {
         textClickOverlay.onClick = nil
         textLabel.stringValue = ""
         attachmentButton.resetForReuse()
+    }
+
+    /// Removes the editor immediately while deferring its pending model
+    /// mutation until the enclosing AppKit update has unwound.
+    func detachPresentation(commitEdits: Bool) -> (@MainActor () -> Void)? {
+        let postUpdateAction = commitEdits
+            ? editFieldBridge?.deferredEndEditingAction(text: editField?.stringValue ?? "")
+            : nil
+        // Only representable/controller teardown suppresses AppKit's normal
+        // focus-loss callback: the pending result was claimed above and must
+        // run after the enclosing update. Ordinary editor reconciliation
+        // keeps its delegate so switching items commits the previous draft.
+        editField?.delegate = nil
+        resetForReuse()
+        return postUpdateAction
+    }
+
+    private func discardEditField() {
+        editField?.removeFromSuperview()
+        editField = nil
+        editFieldBridge = nil
+        editingItemId = nil
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

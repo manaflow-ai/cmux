@@ -37,11 +37,15 @@ struct CLIRemoteShellStartupPerformanceTests {
 
     @Test
     func generatedSSHStartupDoesNotBlockOnRelayRPCWarmup() throws {
-        let startupCommand = try generatedSSHStartupCommandForShellPerformance()
         let root = try makeFakeRemoteShellRoot()
         defer { try? FileManager.default.removeItem(at: root.url) }
+        let startupCommand = try replacingPinnedSSH(
+            in: generatedSSHStartupCommandForShellPerformance(),
+            with: root.bin.appendingPathComponent("ssh").path
+        )
         let shellMarker = root.url.appendingPathComponent("remote-shell-started")
         let relayRPCGate = root.url.appendingPathComponent("relay-rpc-gate")
+        let sshInvocationLog = root.url.appendingPathComponent("ssh-invocations.log")
 
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = root.home.path
@@ -54,6 +58,7 @@ struct CLIRemoteShellStartupPerformanceTests {
         environment["CMUX_SURFACE_ID"] = "surface-cli-perf"
         environment["CMUX_FAKE_SHELL_MARKER"] = shellMarker.path
         environment["CMUX_FAKE_RELAY_RPC_GATE"] = relayRPCGate.path
+        environment["CMUX_FAKE_SSH_LOG"] = sshInvocationLog.path
         environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = root.bin.appendingPathComponent("cmux").path
 
         let running = try launchProcess(
@@ -71,10 +76,16 @@ struct CLIRemoteShellStartupPerformanceTests {
         let shellStartedBeforeRelayRPCCompleted = waitForFile(shellMarker, timeout: 3)
         try Data().write(to: relayRPCGate)
         let result = waitForProcess(running, timeout: 5)
+        let sshInvocations =
+            (try? String(contentsOf: sshInvocationLog, encoding: .utf8)) ?? "<no fake SSH invocation>"
 
         #expect(
             shellStartedBeforeRelayRPCCompleted,
-            "CLI SSH startup waited for relay RPC warmup before starting the remote shell"
+            """
+            CLI SSH startup waited for relay RPC warmup before starting the remote shell.
+            Fake SSH invocations:\n\(sshInvocations)
+            Startup stderr:\n\(result.stderr)
+            """
         )
         #expect(!result.timedOut)
         #expect(result.status == 0)
@@ -101,12 +112,16 @@ struct CLIRemoteShellStartupPerformanceTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        // `cmux ssh` hands TTY sessions to cmux-tui through
+        // `workspace.ssh.open`; the startup wrapper measured here is only
+        // produced for sessions without a TTY, so pin RequestTTY=no.
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh", "--no-focus",
                 "--ssh-option", "ControlMaster no",
                 "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
+                "--ssh-option", "RequestTTY no",
                 "cmux-test-host",
             ],
             environment: environment,
@@ -120,6 +135,12 @@ struct CLIRemoteShellStartupPerformanceTests {
         let configure = try #require(requests.first { ($0["method"] as? String) == "workspace.remote.configure" })
         let params = try #require(configure["params"] as? [String: Any])
         return try #require(params["terminal_startup_command"] as? String)
+    }
+
+    private func replacingPinnedSSH(in command: String, with sshPath: String) throws -> String {
+        return try #require(SSHStartupCommandTestSupport.replacingPinnedSSH(
+            in: command, with: sshPath
+        ))
     }
 
     private func startMockServer(listenerFD: Int32, state: MockSocketServerState) -> DispatchSemaphore {
@@ -201,9 +222,13 @@ struct CLIRemoteShellStartupPerformanceTests {
           shift
           exec "$executable" "$@"
         fi
-        if [ "$1" = "rpc" ] && [ -n "${CMUX_FAKE_RELAY_RPC_GATE:-}" ]; then
-          while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ]; do sleep 0.05; done
-        fi
+        case "${1:-}:${2:-}" in
+          rpc:surface.report_tty|rpc:surface.ports_kick)
+            if [ -n "${CMUX_FAKE_RELAY_RPC_GATE:-}" ]; then
+              while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ]; do sleep 0.05; done
+            fi
+            ;;
+        esac
         exit 0
         """)
         try writeExecutable(at: bin.appendingPathComponent("tty"), contents: "#!/bin/sh\nprintf '%s\\n' /dev/ttys997")
@@ -217,38 +242,68 @@ struct CLIRemoteShellStartupPerformanceTests {
     }
 
     private var fakeSSHScript: String {
-        // Mirrors OpenSSH RemoteCommand semantics: the first obtained value
-        // wins and `none` clears it (so the bootstrap install hop's
-        // `-o RemoteCommand=none` guard for issue #7246 falls through to the
-        // positional installer command, exactly like real ssh).
+        // Mirrors the OpenSSH argv boundary: options precede one destination,
+        // and every remaining argument forms the remote login-shell command.
+        // The first RemoteCommand value wins; `none` clears it so a positional
+        // installer command can run, exactly like real ssh.
         """
         #!/bin/sh
+        if [ -n "${CMUX_FAKE_SSH_LOG:-}" ]; then
+          printf '%s\\n' '---' "$@" >> "$CMUX_FAKE_SSH_LOG"
+        fi
         remote_command=
         remote_command_seen=
-        last=
         while [ "$#" -gt 0 ]; do
-          if [ "$1" = "-o" ] && [ "$#" -gt 1 ]; then
-            shift
-            case "$1" in
-              RemoteCommand=*)
-                if [ -z "$remote_command_seen" ]; then
-                  remote_command_seen=1
-                  remote_command="${1#RemoteCommand=}"
-                  [ "$remote_command" = none ] && remote_command=
-                fi ;;
-            esac
-          elif [ "${1#RemoteCommand=}" != "$1" ]; then
-            if [ -z "$remote_command_seen" ]; then
-              remote_command_seen=1
-              remote_command="${1#RemoteCommand=}"
-              [ "$remote_command" = none ] && remote_command=
-            fi
-          fi
-          last="$1"
-          shift
+          case "$1" in
+            -G)
+              printf '%s\\n' 'controlpath none'
+              exit 0
+              ;;
+            -o)
+              [ "$#" -gt 1 ] || exit 2
+              option="$2"
+              if [ -z "$remote_command_seen" ]; then
+                case "$option" in
+                  RemoteCommand=*|remotecommand=*)
+                    remote_command_seen=1
+                    remote_command="${option#*=}"
+                    [ "$remote_command" = none ] && remote_command=
+                    ;;
+                esac
+              fi
+              shift 2
+              ;;
+            -oRemoteCommand=*|-oremotecommand=*)
+              if [ -z "$remote_command_seen" ]; then
+                remote_command_seen=1
+                remote_command="${1#*=}"
+                [ "$remote_command" = none ] && remote_command=
+              fi
+              shift
+              ;;
+            -S|-p|-i|-l|-F|-E|-e|-b|-c|-D|-I|-J|-L|-m|-Q|-R|-W|-w|-B)
+              [ "$#" -gt 1 ] || exit 2
+              shift 2
+              ;;
+            --)
+              shift
+              [ "$#" -gt 0 ] || exit 2
+              shift
+              break
+              ;;
+            -*) shift ;;
+            *)
+              shift
+              break
+              ;;
+          esac
         done
-        [ -n "$remote_command" ] && exec /bin/sh -c "$remote_command"
-        case "$last" in /bin/sh\\ -c*) exec /bin/sh -c "$last" ;; esac
+        if [ -n "$remote_command" ]; then
+          exec /bin/sh -c "$remote_command"
+        fi
+        if [ "$#" -gt 0 ]; then
+          exec /bin/sh -c "$*"
+        fi
         exit 0
         """
     }
@@ -344,15 +399,10 @@ struct CLIRemoteShellStartupPerformanceTests {
     }
 
     private func waitForProcess(_ running: RunningProcess, timeout: TimeInterval) -> ProcessRunResult {
-        let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            running.process.waitUntilExit()
-            done.signal()
-        }
-        let timedOut = done.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(running.process, timeout: timeout) == .timedOut
         if timedOut {
             running.process.terminate()
-            _ = done.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(running.process, timeout: 1)
         }
         let stderr = String(data: running.stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(

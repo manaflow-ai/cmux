@@ -1,0 +1,82 @@
+name: Terminal hang diagnostics
+
+on:
+  pull_request:
+    # Exactly what the jobs below compile, test or read. Hang-prone app sources
+    # (Ghostty views, window portals, Workspace) are not built here; the
+    # app-host macOS suite in ci.yml covers them.
+    paths:
+      # phase-attribution and portal-reconciliation (local dependency)
+      - Packages/Shared/CMUXMobileCore/**
+      # phase-attribution
+      - Packages/Shared/CmuxSentryTelemetry/**
+      - cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+      # portal-reconciliation
+      - Sources/TerminalPortalReconciliation*.swift
+      - cmuxTests/TerminalPortalReconciliationReentrancyTests.swift
+      - tests/run_terminal_portal_reconciliation_tests.sh
+      # both macOS jobs
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
+      # release-gate
+      - scripts/terminal-hang-release-gate.py
+      - tests/test_terminal_hang_release_gate.py
+      - .github/workflows/terminal-hang-diagnostics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terminal-hang-diagnostics-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  portal-reconciliation:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Verify portal reconciliation delivery
+        run: bash tests/run_terminal_portal_reconciliation_tests.sh
+
+  release-gate:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - run: python3 tests/test_terminal_hang_release_gate.py
+
+  phase-attribution:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Verify phase ingress and serialization
+        run: swift test --package-path Packages/Shared/CMUXMobileCore --filter TerminalWorkIntervalTests
+      - name: Verify attribution and privacy with the package SDK pin
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'
+      - name: Resolve the shipping SDK pin
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          app = json.loads(Path("cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
+          path = Path("Packages/Shared/CmuxSentryTelemetry/Package.resolved")
+          package = json.loads(path.read_text())
+          package["pins"] = [next(pin for pin in app["pins"] if pin["identity"] == "sentry-cocoa")]
+          path.write_text(json.dumps(package, indent=2) + "\n")
+          PY
+      - name: Verify attribution and privacy with the shipping SDK pin
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'

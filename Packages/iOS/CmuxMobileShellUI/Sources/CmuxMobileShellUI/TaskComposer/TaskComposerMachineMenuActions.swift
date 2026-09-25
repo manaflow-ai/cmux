@@ -1,5 +1,5 @@
 #if os(iOS)
 struct TaskComposerMachineMenuActions {
-    let selectMachine: (String) -> Void
+    let selectMachine: (String, String?) -> Void
 }
 #endif

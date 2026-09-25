@@ -20,7 +20,7 @@ public enum CLIForwardingDecision: Equatable, Sendable {
 /// environment variable, exec'ing the bundled CLI, writing errors, exiting).
 public enum CLIForwardingLaunchPolicy {
     /// Launch sentinels passed by tagged GUI builds; never CLI subcommands.
-    private static let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY"]
+    private static let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY", "RC"]
 
     /// True when `argv` looks like an invocation of the bundled CLI.
     /// macOS-launch arguments (`-psn_...`, other `-` flags), `cmux://` URLs,

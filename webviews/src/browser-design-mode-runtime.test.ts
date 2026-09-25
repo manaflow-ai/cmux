@@ -91,7 +91,6 @@ type DesignRuntime = {
     y: number,
     width: number,
     height: number,
-    imageURL: string,
     expectedScrollX: number,
     expectedScrollY: number,
     expectedViewportWidth: number,
@@ -709,7 +708,7 @@ describe("browser design-mode runtime", () => {
     expect(dom.window.document.querySelector(selector)).toBe(second);
   });
 
-  test("freehand ink becomes a captured context card only after native capture completes", () => {
+  test("freehand ink becomes a captured context outline only after native capture completes", () => {
     const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
     const at = (name: string, x: number, y: number) => doc.dispatchEvent(
@@ -727,8 +726,8 @@ describe("browser design-mode runtime", () => {
     at("pointermove", 210, 340);
     at("pointerup", 110, 140);
 
-    // Completion is ink-only: no region token/card exists until the native
-    // screenshot callback returns the exact composited artifact.
+    // Completion is ink-only: no region token/outline exists until the native
+    // screenshot callback returns the captured context artifact.
     const inkOnly = runtime.composerState();
     expect(inkOnly.annotation_phase).toBe("ink_only");
     expect(inkOnly.selection_count).toBe(0);
@@ -748,7 +747,6 @@ describe("browser design-mode runtime", () => {
       0,
       258,
       408,
-      "data:image/png;base64,Y2FyZA==",
       descriptor?.scroll_x ?? 0,
       descriptor?.scroll_y ?? 0,
       descriptor?.viewport.width ?? 0,
@@ -768,7 +766,7 @@ describe("browser design-mode runtime", () => {
     expect(runtime.composerState().selection_count).toBe(1);
 
     // One stroke is one immutable context artifact. A later stroke stacks a
-    // new request/card rather than merging into or replacing the first.
+    // new request/outline rather than merging into or replacing the first.
     // A deliberate one-axis stroke is still an annotation; it does not need
     // circle-like width and height to become a context artifact.
     at("pointerdown", 300, 300);
@@ -786,7 +784,6 @@ describe("browser design-mode runtime", () => {
       252,
       156,
       96,
-      "data:image/png;base64,Y2FyZDI=",
       secondDescriptor?.scroll_x ?? 0,
       secondDescriptor?.scroll_y ?? 0,
       secondDescriptor?.viewport.width ?? 0,
@@ -804,7 +801,7 @@ describe("browser design-mode runtime", () => {
     expect(runtime.composerState().selection_count).toBe(0);
   });
 
-  test("native annotation completion presents the card when an earlier animation frame is stalled", () => {
+  test("native annotation completion presents only an outline over the live page", () => {
     const { dom, messages, overlayShadowRoot, runtime } = fixture(
       `<main><button id="b">B</button></main>`,
       { stallAnimationFrames: true },
@@ -828,32 +825,33 @@ describe("browser design-mode runtime", () => {
       12,
       196,
       196,
-      "data:image/png;base64,Y2FyZA==",
       descriptor?.scroll_x ?? 0,
       descriptor?.scroll_y ?? 0,
       descriptor?.viewport.width ?? 0,
       descriptor?.viewport.height ?? 0,
     );
 
-    const card = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
-      (element) => element.style.backgroundImage.includes("Y2FyZA=="),
+    const outline = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
+      (element) => element.style.left === "2px"
+        && element.style.top === "12px"
+        && element.style.width === "196px"
+        && element.style.height === "196px",
     );
-    expect(card).toBeDefined();
-    expect(card?.style.display).toBe("block");
-    expect(card?.style.left).toBe("2px");
-    expect(card?.style.top).toBe("12px");
-    expect(card?.style.width).toBe("196px");
-    expect(card?.style.height).toBe("196px");
-    expect(card?.style.borderStyle).toBe("dashed");
-    expect(card?.style.borderColor).toBe("rgb(10, 132, 255)");
+    expect(outline).toBeDefined();
+    expect(outline?.style.display).toBe("block");
+    expect(outline?.style.borderStyle).toBe("dashed");
+    expect(outline?.style.borderColor).toBe("rgb(10, 132, 255)");
+    expect(outline?.style.backgroundColor).toBe("transparent");
+    expect(outline?.style.backgroundImage).toBe("");
+    expect(outline?.style.boxShadow).toBe("none");
 
     runtime.setSelectionHover(completed.selections?.[0]?.selector ?? "");
-    expect(card?.style.boxShadow).toContain("rgba(10, 132, 255, 0.55)");
+    expect(outline?.style.boxShadow).toContain("rgba(10, 132, 255, 0.55)");
     runtime.setSelectionHover(null);
-    expect(card?.style.boxShadow).not.toContain("rgba(10, 132, 255, 0.55)");
+    expect(outline?.style.boxShadow).toBe("none");
   });
 
-  test("annotation cards evict the oldest retained image after the bounded stack fills", () => {
+  test("annotation outlines evict the oldest region after the bounded stack fills", () => {
     const { dom, messages, runtime } = fixture(`<main><button>B</button></main>`);
     const doc = dom.window.document;
     const at = (name: string, x: number, y: number) => doc.dispatchEvent(
@@ -878,7 +876,6 @@ describe("browser design-mode runtime", () => {
         0,
         128,
         128,
-        `data:image/png;base64,Y2FyZC0${index}`,
         descriptor?.scroll_x ?? 0,
         descriptor?.scroll_y ?? 0,
         descriptor?.viewport.width ?? 0,
@@ -942,7 +939,6 @@ describe("browser design-mode runtime", () => {
       0,
       188,
       188,
-      "data:image/png;base64,Y2FyZA==",
       descriptor?.scroll_x ?? 0,
       descriptor?.scroll_y ?? 0,
       descriptor?.viewport.width ?? 0,

@@ -5,25 +5,78 @@ public import IrohLib
 // exporting `String(describing: error)`, which may contain endpoint identities,
 // relay URLs, credentials, or private network addresses.
 
+/// Recognizes operating-system route failures that Iroh currently exposes only
+/// through an opaque display string. Keep this list narrow. A peer-controlled
+/// close reason must not be allowed to turn an established-session close into a
+/// local route diagnosis.
+enum CmxIrohRouteFailureClassifier {
+    static func classify(_ message: String) -> DiagnosticFailureKind? {
+        let normalized = message.lowercased()
+        // These strings describe an already established close, or contain
+        // peer-controlled application text. They are not local route
+        // evidence, even when the peer's reason happens to say "no route".
+        if normalized.hasPrefix("closed by peer:")
+            || normalized.hasPrefix("aborted by peer:")
+            || normalized.hasPrefix("reset by peer:")
+            || normalized.contains("connectionlost(")
+            || normalized.contains("applicationclosed(")
+            || normalized.contains("connectionclosed(") {
+            return nil
+        }
+        if normalized.contains("connection refused")
+            || normalized.contains("econnrefused") {
+            return .connectionRefused
+        }
+        if normalized.contains("network is unreachable")
+            || normalized.contains("no route to host")
+            || normalized.contains("host unreachable")
+            || normalized.contains("enetunreach")
+            || normalized.contains("ehostunreach") {
+            return .hostUnreachable
+        }
+        if normalized.contains("no route")
+            || normalized.contains("no usable route")
+            || normalized.contains("no usable path")
+            || normalized.contains("no route candidates") {
+            return .noRoute
+        }
+        return nil
+    }
+}
+
 extension IrohError: @retroactive DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         Self.diagnosticFailureKind(message: message())
     }
 
-    /// iroh-ffi 1.0.2-cmux.4 (iroh 1.0.2) exposes one opaque `IrohError`
+    /// iroh-ffi 1.0.2-cmux.4 and later (iroh 1.0.2) expose one opaque `IrohError`
     /// object. Its `message()` retains `ReadError` case names and other errors'
     /// stable display chains, but no structured discriminator. These pinned
     /// tokens are the narrowest fallback until the binding exports a taxonomy.
     private static func diagnosticFailureKind(
         message: String
     ) -> DiagnosticFailureKind {
+        // iroh-ffi's ConnectAttempt fails a cancelled dial with this fixed marker
+        // (CONNECT_CANCELLED_MESSAGE, iroh-ffi src/endpoint.rs, v1.0.2-cmux.4+).
+        if message.contains("outgoing connection cancelled") {
+            return .cancelled
+        }
         if message.contains("ConnectionLost(TimedOut)") {
             return .transportIdleTimedOut
         }
         if message.contains("ConnectionLost(LocallyClosed)") {
             return .cancelled
         }
-        if message.contains("ConnectionLost(TransportError(")
+        // ConnectAttempt can render a peer close without the structured
+        // ConnectionLost wrapper. Preserve the same attribution rule here:
+        // the peer's reason is not local route evidence.
+        let normalized = message.lowercased()
+        if normalized.hasPrefix("closed by peer:")
+            || normalized.hasPrefix("aborted by peer:")
+            || normalized.hasPrefix("reset by peer:") {
+            return .connectionClosed
+        }
+        if message.contains("TransportError(")
             && (message.contains("Code::crypto(")
                 || message.contains("TLS error:")) {
             return .secureChannelFailed
@@ -44,6 +97,38 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
             || message.contains("Resolve failed, IPv4:")
             || message.contains("Failed to resolve") {
             return .dnsFailed
+        }
+        // Route words are meaningful only on an opaque pre-connection error.
+        // Structured close markers above describe an already admitted session;
+        // a peer-controlled application reason must never be exported as a
+        // local no-route diagnosis.
+        if let routeFailure = CmxIrohRouteFailureClassifier.classify(message) {
+            return routeFailure
+        }
+        // Connection-level operations (`accept_bi`, `open_bi`, `accept_uni`,
+        // `open_uni`) surface `iroh::endpoint::ConnectionError` Debug-formatted
+        // WITHOUT the `ConnectionLost(...)` wrapper that stream read/write
+        // errors carry (noq `ConnectionError` at manaflow-ai/noq@2271bbc, via
+        // iroh-ffi 1.0.2-cmux.4+). Host rings from the 2026-07-23 WiFi
+        // path-flap loop showed admitted sessions dying `applicationLaneFailed`
+        // with these bare tokens classified `unknown`.
+        if message.contains("TimedOut") {
+            return .transportIdleTimedOut
+        }
+        if message.contains("LocallyClosed") {
+            return .cancelled
+        }
+        if message.contains("VersionMismatch") {
+            return .protocolViolation
+        }
+        if message.contains("CidsExhausted") {
+            return .endpointUnavailable
+        }
+        if message.contains("ApplicationClosed(")
+            || message.contains("ConnectionClosed(")
+            || message.contains("TransportError(")
+            || message.contains("Reset") {
+            return .connectionClosed
         }
         if message.contains("timed out")
             || message.contains("Timed out")
@@ -81,6 +166,12 @@ extension CmxIrohTrustBrokerClientError: DiagnosticFailureProviding {
         case .rateLimited:
             .policyUnavailable
         case let .rejected(statusCode, _):
+            switch statusCode {
+            case 401, 403: .authorizationFailed
+            case 408: .timedOut
+            default: .policyUnavailable
+            }
+        case let .rejectedWithRetryAfter(statusCode, _, _):
             switch statusCode {
             case 401, 403: .authorizationFailed
             case 408: .timedOut
@@ -146,6 +237,8 @@ extension CmxIrohClientSessionError: DiagnosticFailureProviding {
             .identityMismatch
         case .admissionDenied:
             .admissionDenied
+        case .dialTimedOut:
+            .timedOut
         case .alreadyClosed, .notConnected, .unexpectedEndOfStream:
             .connectionClosed
         case .invalidAdmissionFrame, .invalidMaximumByteCount,

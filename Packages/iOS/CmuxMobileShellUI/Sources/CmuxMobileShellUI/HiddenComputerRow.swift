@@ -1,70 +1,218 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// Immutable hidden-computer row with offline unhide and legacy recovery actions.
-struct HiddenComputerRow: View {
-    let computer: MobileHiddenComputer
-    let isRecoveringLegacyComputer: Bool
-    let unhide: @MainActor () async -> Void
-    let recoverLegacyComputer: @MainActor () async -> MobileHiddenComputerRecoveryResult
+private enum ComputerVisibilityRowItem: Identifiable {
+    case visible(MacComputerSnapshot)
+    case hidden(MobileHiddenComputer)
 
-    @State private var actionTask: Task<Void, Never>?
-    @State private var alertMessage: String?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            avatar
-            VStack(alignment: .leading, spacing: 2) {
-                Text(computer.displayName)
-                    .font(.headline)
-                    .lineLimit(1)
-                if computer.requiresLegacyRecovery {
-                    Text(L10n.string(
-                        "mobile.computers.hidden.legacyStatus",
-                        defaultValue: "Needs this Mac online once"
-                    ))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 8)
-            Button(action: performUnhide) {
-                if isBusy {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text(L10n.string(
-                        "mobile.computers.unhide",
-                        defaultValue: "Unhide"
-                    ))
-                }
-            }
-            .disabled(isBusy)
-            .buttonStyle(.borderless)
-            .accessibilityIdentifier("MobileComputerUnhide-\(computer.id)")
-        }
-        .padding(.vertical, 4)
-        .alert(
-            L10n.string(
-                "mobile.computers.unhideFailedTitle",
-                defaultValue: "Couldn't unhide computer"
-            ),
-            isPresented: alertPresented
-        ) {
-            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {
-                alertMessage = nil
-            }
-        } message: {
-            Text(alertMessage ?? "")
-        }
-        .onDisappear {
-            actionTask?.cancel()
-            actionTask = nil
+    var id: String {
+        switch self {
+        case .visible(let computer): computer.id
+        case .hidden(let computer): computer.id
         }
     }
 
-    private var avatar: some View {
+    var name: String {
+        switch self {
+        case .visible(let computer): computer.title
+        case .hidden(let computer): computer.displayName
+        }
+    }
+
+    var isVisible: Bool {
+        if case .visible = self { return true }
+        return false
+    }
+
+    var visibleComputer: MacComputerSnapshot? {
+        guard case .visible(let computer) = self else { return nil }
+        return computer
+    }
+
+    var hiddenComputer: MobileHiddenComputer? {
+        guard case .hidden(let computer) = self else { return nil }
+        return computer
+    }
+}
+
+/// Insertion/removal phase for a row copy crossing sections: a transitioning
+/// copy is invisible AND untouchable until the phase ends. SwiftUI still hit
+/// tests zero-opacity views, so a bare opacity transition would leave an
+/// invisible, enabled switch tappable during the sequenced fade-in delay.
+private struct ComputerRowTransitionPhase: ViewModifier {
+    let shown: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+    }
+}
+
+/// A stable computer row whose trailing visibility switch survives transitions
+/// between visible and hidden content.
+///
+/// Keeping one row identity and one `Toggle` instance lets SwiftUI carry the
+/// native switch transaction through the model update.
+private struct ComputerVisibilityRow: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
+    let item: ComputerVisibilityRowItem
+    let setVisible: (Bool) -> Void
+    let isVisibilityMutating: Bool
+    var style: MacComputerRow.Style
+    let connect: @MainActor (MacComputerSnapshot) -> Void
+    let isConnecting: Bool
+    var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
+    var isCaffeineMutating: Bool = false
+    var gateWarningPairingIDs: Set<String> = []
+    @State private var showingHiddenVersionGateWarning = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var isBusy: Bool { isVisibilityMutating }
+
+    /// The computer this row can toggle keep-awake on via the leading swipe:
+    /// a visible Computers-screen row with a live, capable connection whose
+    /// state is known. Reconnect-style rows have no connection to act on.
+    private var caffeineSwipeTarget: (computer: MacComputerSnapshot, enabled: Bool)? {
+        guard style == .computers,
+              let computer = item.visibleComputer,
+              computer.supportsCaffeineControl,
+              let enabled = computer.caffeineEnabled else { return nil }
+        return (computer, enabled)
+    }
+
+    var body: some View {
+        HStack(spacing: item.isVisible ? 8 : 12) {
+            leadingContent
+            ComputerVisibilityToggle(
+                computerID: item.id,
+                computerName: item.name,
+                isVisible: item.isVisible,
+                isDisabled: isBusy,
+                setVisible: setVisible
+            )
+        }
+        .padding(.vertical, item.isVisible ? 0 : 4)
+        // A toggle that moves a row across sections (Computers screen) is a
+        // remove+insert of two row copies: identity carries a Toggle through a
+        // model update only within one ForEach. Sequencing the fades (outgoing
+        // copy gone before the incoming copy appears) keeps the two switches
+        // from blending into one malformed half-on ghost. Within a single
+        // ForEach (disconnected shell) toggles reorder in place, so this
+        // transition never fires there. Reduce Motion swaps rows instantly,
+        // matching the owning lists' nil animation.
+        .transition(reduceMotion ? .identity : .asymmetric(
+            insertion: AnyTransition.modifier(
+                active: ComputerRowTransitionPhase(shown: false),
+                identity: ComputerRowTransitionPhase(shown: true)
+            ).animation(.easeIn(duration: 0.15).delay(0.25)),
+            removal: AnyTransition.modifier(
+                active: ComputerRowTransitionPhase(shown: false),
+                identity: ComputerRowTransitionPhase(shown: true)
+            ).animation(.easeOut(duration: 0.12))
+        ))
+        // Keep-awake one swipe away; the same control lives visibly in the
+        // computer's detail view, so the hidden gesture is a shortcut, not
+        // the only path. Non-destructive, so full swipe commits it.
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if let target = caffeineSwipeTarget {
+                Button {
+                    setCaffeine(target.computer, !target.enabled)
+                } label: {
+                    if target.enabled {
+                        Label(
+                            L10n.string(
+                                "mobile.computers.keepAwake.letSleep",
+                                defaultValue: "Let Sleep"
+                            ),
+                            systemImage: "moon.zzz.fill"
+                        )
+                    } else {
+                        Label(
+                            L10n.string(
+                                "mobile.computers.keepAwake.keepAwake",
+                                defaultValue: "Keep Awake"
+                            ),
+                            systemImage: "cup.and.saucer.fill"
+                        )
+                    }
+                }
+                .tint(target.enabled ? .indigo : .orange)
+                .disabled(isCaffeineMutating)
+                .accessibilityIdentifier(
+                    "MobileComputerCaffeineSwipe-\(target.computer.connectionRef.automationID)"
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var leadingContent: some View {
+        if let computer = item.visibleComputer {
+            MacComputerRow(
+                computer: computer,
+                style: style,
+                connect: { _ in connect(computer) },
+                isConnecting: isConnecting,
+                hasVersionGateWarning: gateWarningPairingIDs.contains(computer.id)
+            )
+        } else if let computer = item.hiddenComputer {
+            hiddenLabel(computer)
+        }
+    }
+
+    private func hiddenLabel(_ computer: MobileHiddenComputer) -> some View {
+        HStack(spacing: 12) {
+            hiddenAvatar(computer)
+            HStack(spacing: 6) {
+                Text(computer.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                if computer.instanceTag != nil,
+                   let buildLabel = MacBuildChannel().label(
+                       bundleID: nil,
+                       tag: computer.instanceTag
+                   ) {
+                    ComputerBuildBadge(label: buildLabel)
+                }
+                if gateWarningPairingIDs.contains(computer.id)
+                    || ((listAuthState?.hasSnapshot == true)
+                        && listAuthState?.compatibilityEntry(pairingID: computer.id).isOutdated == true) {
+                    Button {
+                        showingHiddenVersionGateWarning = true
+                    } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        L10n.string(
+                            "computers.version.outdated.title",
+                            defaultValue: "Mac update required"
+                        )
+                    )
+                    .popover(isPresented: $showingHiddenVersionGateWarning) {
+                        Text(
+                            L10n.string(
+                                "mobile.pairing.guidance.macUpdateRequired",
+                                defaultValue: "Update cmux on this Mac to connect securely."
+                            )
+                        )
+                        .padding()
+                        .frame(idealWidth: 300, maxWidth: 340)
+                        .presentationCompactAdaptation(.popover)
+                    }
+                }
+            }
+            Spacer(minLength: 8)
+        }
+    }
+
+    private func hiddenAvatar(_ computer: MobileHiddenComputer) -> some View {
         ZStack {
             Circle()
                 .fill(MachineAvatarColors.gradient(
@@ -89,95 +237,60 @@ struct HiddenComputerRow: View {
         .accessibilityHidden(true)
     }
 
-    private var isBusy: Bool {
-        actionTask != nil
-            || (computer.requiresLegacyRecovery && isRecoveringLegacyComputer)
-    }
-
-    private var alertPresented: Binding<Bool> {
-        Binding(
-            get: { alertMessage != nil },
-            set: { if !$0 { alertMessage = nil } }
-        )
-    }
-
-    private func performUnhide() {
-        guard !isBusy else { return }
-        actionTask = Task { @MainActor in
-            defer { actionTask = nil }
-            if computer.requiresLegacyRecovery {
-                let result = await recoverLegacyComputer()
-                guard !Task.isCancelled else { return }
-                if result == .notFound {
-                    alertMessage = L10n.string(
-                        "mobile.computers.unhideFailedMessage",
-                        defaultValue: "This computer was removed with an older version of cmux. Open cmux on the Mac, make sure it is online and signed in to this account, then try again."
-                    )
-                }
-            } else {
-                await unhide()
-            }
-        }
-    }
+    /// Red like a destructive swipe action, but deliberately WITHOUT
+    /// `role: .destructive`: a destructive-role swipe button makes SwiftUI
+    /// batch-delete the row on tap, and this tap only presents the
+    /// confirmation dialog, so the unchanged model count aborted in
+    /// UIKit's item-count assertion (TestFlight crash, build
+    /// 20260731052644). Same pattern as `WorkspaceNavigationRow`'s
+    /// confirm-first Delete.
 }
 
-/// Shared localized copy for every Hidden Computers surface so the strings
-/// cannot drift between the Computers screen, the disconnected shell, and its
-/// empty state.
-enum HiddenComputersCopy {
-    static var title: String {
-        L10n.string("mobile.computers.hidden.title", defaultValue: "Hidden Computers")
-    }
+/// Shared row wiring for visible and hidden computers in one stable `ForEach`.
+struct ComputerVisibilityRows: View {
+    let visibleComputers: [MacComputerSnapshot]
+    let hiddenComputers: [MobileHiddenComputer]
+    var style: MacComputerRow.Style = .computers
+    var connect: @MainActor (MacComputerSnapshot) -> Void = { _ in }
+    var connectingComputerID: String?
+    var mutatingComputerIDs: Set<String> = []
+    var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
+    var caffeineMutatingComputerIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
+    let hide: @MainActor (MacComputerSnapshot) -> Void
+    let unhide: @MainActor (MobileHiddenComputer) -> Void
 
-    static var footer: String {
-        L10n.string(
-            "mobile.computers.hidden.footer",
-            defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
-        )
+    private var items: [ComputerVisibilityRowItem] {
+        visibleComputers.map(ComputerVisibilityRowItem.visible)
+            + hiddenComputers.map(ComputerVisibilityRowItem.hidden)
     }
-}
-
-/// Shared per-computer row wiring for Hidden Computers lists. Takes immutable
-/// snapshots plus closures only; the store stays at the caller's boundary.
-struct HiddenComputersRows: View {
-    let computers: [MobileHiddenComputer]
-    let isRecoveringLegacyComputer: Bool
-    let unhide: @MainActor (MobileHiddenComputer) async -> Void
-    let recoverLegacyComputer: @MainActor (MobileHiddenComputer) async -> MobileHiddenComputerRecoveryResult
 
     var body: some View {
-        ForEach(computers) { computer in
-            HiddenComputerRow(
-                computer: computer,
-                isRecoveringLegacyComputer: isRecoveringLegacyComputer,
-                unhide: { await unhide(computer) },
-                recoverLegacyComputer: { await recoverLegacyComputer(computer) }
+        ForEach(items) { item in
+            ComputerVisibilityRow(
+                item: item,
+                setVisible: { visible in setVisibility(visible, for: item) },
+                isVisibilityMutating: mutatingComputerIDs.contains(item.id),
+                style: style,
+                connect: connect,
+                isConnecting: connectingComputerID == item.id,
+                setCaffeine: setCaffeine,
+                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id),
+                gateWarningPairingIDs: gateWarningPairingIDs
             )
         }
     }
-}
 
-/// The list-style Hidden Computers section shared by the Computers screen and
-/// the disconnected shell.
-struct HiddenComputersSection: View {
-    let computers: [MobileHiddenComputer]
-    let isRecoveringLegacyComputer: Bool
-    let unhide: @MainActor (MobileHiddenComputer) async -> Void
-    let recoverLegacyComputer: @MainActor (MobileHiddenComputer) async -> MobileHiddenComputerRecoveryResult
-
-    var body: some View {
-        Section {
-            HiddenComputersRows(
-                computers: computers,
-                isRecoveringLegacyComputer: isRecoveringLegacyComputer,
-                unhide: unhide,
-                recoverLegacyComputer: recoverLegacyComputer
-            )
-        } header: {
-            Text(HiddenComputersCopy.title)
-        } footer: {
-            Text(HiddenComputersCopy.footer)
+    private func setVisibility(_ visible: Bool, for item: ComputerVisibilityRowItem) {
+        switch item {
+        case .visible(let computer):
+            guard !visible else { return }
+            hide(computer)
+        case .hidden(let computer):
+            guard visible else { return }
+            unhide(computer)
         }
     }
+
 }
 #endif

@@ -4,9 +4,8 @@ enum SessionIndexTableRow {
         section: IndexSection,
         rowLimit: Int,
         isDragged: Bool,
-        previewEntryId: SessionEntry.ID?,
+        popoverIdentity: SessionIndexTablePopoverIdentity?,
         isCollapsed: Bool,
-        isPopoverOpen: Bool,
         actions: IndexSectionActions,
         setCollapsed: @MainActor (Bool) -> Void,
         setPopoverOpen: @MainActor (Bool) -> Void
@@ -19,7 +18,7 @@ enum SessionIndexTableRow {
 
     var id: SessionIndexTableRowID {
         switch self {
-        case .section(let section, _, _, _, _, _, _, _, _):
+        case .section(let section, _, _, _, _, _, _, _):
             return .section(section.key)
         case .gap(let beforeKey?, _, _):
             return .gapBefore(beforeKey)
@@ -36,20 +35,28 @@ enum SessionIndexTableRow {
         return candidate
     }
 
+    var containedPreviewEntryID: SessionEntry.ID? {
+        guard case let .section(section, _, _, popoverIdentity, _, _, _, _) = self,
+              case let .transcript(sectionKey, entryID)? = popoverIdentity,
+              sectionKey == section.key else {
+            return nil
+        }
+        return Self.containedPreviewEntryID(entryID, in: section)
+    }
+
     func hasEquivalentContent(to other: SessionIndexTableRow) -> Bool {
         switch (self, other) {
         case let (
-            .section(lhsSection, lhsLimit, lhsDragged, lhsPreview, lhsCollapsed, lhsPopover, _, _, _),
-            .section(rhsSection, rhsLimit, rhsDragged, rhsPreview, rhsCollapsed, rhsPopover, _, _, _)
+            .section(lhsSection, lhsLimit, lhsDragged, _, lhsCollapsed, _, _, _),
+            .section(rhsSection, rhsLimit, rhsDragged, _, rhsCollapsed, _, _, _)
         ):
-            let lhsContainedPreview = Self.containedPreviewEntryID(lhsPreview, in: lhsSection)
-            let rhsContainedPreview = Self.containedPreviewEntryID(rhsPreview, in: rhsSection)
+            // Popover and preview selection are presentation state owned by
+            // SessionIndexTableController. They must not replace this row's
+            // NSHostingView root while AppKit is applying or laying out rows.
             return lhsSection == rhsSection
                 && lhsLimit == rhsLimit
                 && lhsDragged == rhsDragged
-                && lhsContainedPreview == rhsContainedPreview
                 && lhsCollapsed == rhsCollapsed
-                && lhsPopover == rhsPopover
         case let (.gap(lhsKey, lhsValid, _), .gap(rhsKey, rhsValid, _)):
             return lhsKey == rhsKey && lhsValid == rhsValid
         default:

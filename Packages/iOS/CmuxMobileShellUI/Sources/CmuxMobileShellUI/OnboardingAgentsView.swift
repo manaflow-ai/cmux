@@ -15,7 +15,7 @@ struct OnboardingAgentsView: View {
                 title: title,
                 message: L10n.string(
                     "mobile.onboarding.agents.body",
-                    defaultValue: "See every workspace and its latest activity, wherever you are."
+                    defaultValue: "Track every workspace from your phone."
                 ),
                 visual: OnboardingScreenshot(
                     content: .workspaces,

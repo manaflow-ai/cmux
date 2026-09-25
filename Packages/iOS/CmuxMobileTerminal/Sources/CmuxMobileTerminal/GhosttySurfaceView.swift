@@ -6,13 +6,13 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
-import Synchronization
 import UIKit
+import os
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
-    /// The surface whose hidden text input is currently first responder, if any.
+    /// The surface whose terminal proxy or composer currently owns input.
     ///
     /// Tracked statically so chrome (SwiftUI overlays presented over the
     /// terminal) can dismiss the live keyboard via ``resignActiveInput()``
@@ -39,10 +39,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var liveFontSize: Float32
     /// The user's EXPLICIT font choice: the init font until a pinch, accessory
     /// zoom step, overlay reset, or Mac-pushed `set_font` changes it. The
-    /// stretch-to-fill auto-fit renders at a derived size but never moves this
-    /// baseline, and viewport reports advertise the row capacity at THIS size
-    /// (see `TerminalRowCapacityFit`) so the daemon negotiation can always
-    /// recover when the constraining device grows.
+    /// rendered font never moves off this baseline on its own (no auto-fit),
+    /// and viewport reports advertise the row capacity at THIS size (see
+    /// `TerminalRowCapacityFit`) so the daemon negotiation can always recover
+    /// when the constraining device grows.
     var userBaseFontSize: Float32
     /// Latest zoom target awaiting a coalesced apply. The display link applies
     /// it once per frame via an absolute `set_font_size` so a burst of zoom
@@ -78,7 +78,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
     var bridge = GhosttySurfaceBridge()
-    private let prefersSnapshotFallbackRendering = false
     /// Enables both terminal artifact taps and the coalesced visible-frame count.
     public var artifactFilesEnabled: Bool {
         get { inputProxy.artifactFilesEnabled }
@@ -92,13 +91,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
-    private var cursorBlinkState = TerminalCursorBlinkState()
-    var cursorOverlayLayer: CALayer?
+    private var cursorRenderWakeState = TerminalCursorRenderWakeState()
     /// Immutable last-verified pixels retained above an in-progress replay.
     var verifiedReplayFrozenPresentationLayer: CALayer?
     var verifiedReplayFrozenBackgroundLayer: CALayer?
     var verifiedReplayFrozenContentLayer: CALayer?
-    var verifiedReplayFrozenCursorLayer: CALayer?
     var verifiedReplayFrozenImage: CGImage?
     var verifiedReplayFrozenTransactionID: UInt64?
     var verifiedReplayFrozenViewportRect: CGRect?
@@ -108,29 +105,77 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Set before the pre-freeze drain submission and kept set until an exact
     /// replay presentation is revealed or the surface is torn down.
     var verifiedReplayRenderSuppressed = false
-    /// Whether the host terminal currently wants the cursor shown (DECTCEM).
-    /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
-    /// the render-grid producer forwards that in the VT-patch bytes, so we track
-    /// the last applied state from the byte stream and hide the overlay to
-    /// match. Defaults to visible (a normal shell shows its cursor).
-    private var hostCursorVisible: Bool = true
     var needsDraw: Bool = false
     /// Countdown of extra draw requests after a geometry change, so the
     /// renderer (which presents a frame behind) produces a frame at the final
     /// settled layer size rather than leaving a stale mid-animation surface.
     /// Bounded to avoid a perpetual main-queue present flood.
     private var pendingRenderFrames: Int = 0
-    /// At most one `render_now` is in flight on `outputQueue` at a time. The
+    /// At most one tokened render is in flight on `outputQueue` at a time. The
     /// display link can fire at 120Hz and previously enqueued a render every
     /// frame with no guard, so during a continuous pinch renders piled up
     /// faster than the serial queue drained them. Each op stayed fast, but the
     /// DISPLAYED frame fell seconds behind the live font and only caught up
     /// when zoom stopped and the backlog drained — the "frozen, no updates"
     /// symptom. Coalescing caps the backlog: while a render is in flight, mark
-    /// `needsAnotherRender` and re-enqueue exactly one when it completes.
+    /// `needsAnotherRender` and re-enqueue exactly one after the platform layer
+    /// acknowledges the current frame.
     var renderInFlight: Bool = false
     var renderInFlightSince: CFTimeInterval?
     var needsAnotherRender: Bool = false
+    /// Retry count carried into the one follow-up ordinary submission after a
+    /// renderer failure. Keeping it outside the new token prevents the
+    /// follow-up request from silently resetting the failure episode to zero.
+    var pendingRenderRetryCount: UInt8 = 0
+    /// Geometry invalidation may replace a token only once while that
+    /// replacement is still queued on `outputQueue`. Later size changes mark
+    /// another frame instead of enqueueing another overlapping replacement.
+    var renderReplacementInFlight = false
+    /// The one frame currently allowed to reach the renderer. The callback is
+    /// delivered only after Ghostty assigns the matching IOSurface, so output,
+    /// local scrolling, geometry, and verified replay share one barrier.
+    typealias RenderSubmissionKind = TerminalRenderSubmissionKind
+    private static let maximumRenderPresentationRetries: UInt8 = 3
+    /// Value-only render metadata captured by the serial surface queue.
+    ///
+    /// Instances cross from the main-actor admission path into
+    /// `GhosttySurfaceWorkQueue.async`, so the type stays free of actor
+    /// isolation and value-only. The raw surface pointer is valid for the
+    /// matching generation, and the owning view resets that generation before
+    /// teardown; no UIKit state is accessed from the queue closure.
+    struct RenderSubmission: @unchecked Sendable {
+        let token: UInt64
+        let generation: UInt64
+        let kind: RenderSubmissionKind
+        let surface: ghostty_surface_t
+        let verifiedReplayRead: VerifiedReplaySurfaceRead?
+        let presentationRetryCount: UInt8
+        var outputPresentation: (@MainActor @Sendable () -> Void)? = nil
+
+        var ticket: TerminalRenderSubmission {
+            TerminalRenderSubmission(token: token, generation: generation, kind: kind)
+        }
+
+        func withPresentationRetryCount(_ count: UInt8) -> RenderSubmission {
+            RenderSubmission(
+                token: token,
+                generation: generation,
+                kind: kind,
+                surface: surface,
+                verifiedReplayRead: verifiedReplayRead,
+                presentationRetryCount: count,
+                outputPresentation: outputPresentation
+            )
+        }
+    }
+    /// Observation attached to the next ordinary render submission.
+    public var onOutputPresentation: (@MainActor @Sendable () -> Void)?
+    var renderPresentationGate = TerminalRenderPresentationGate()
+    var renderSubmission: RenderSubmission?
+    var pendingRenderSubmission: RenderSubmission?
+    /// Set once output has changed the local model. The fallback remains visible
+    /// until a tokened frame carrying that model is actually presented.
+    var hasAppliedOutput = false
     private let surfaceFreeDrainWatchdog = SurfaceFreeDrainWatchdog()
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
@@ -186,13 +231,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     static let renderPipelineRecoveryResumeInterval: TimeInterval = 5.0
     static let visibleSnapshotTimeout: CFTimeInterval = 0.6
     static let copyableTextTimeout: CFTimeInterval = 2.0
+    /// A prompt reveal must not keep probing a permanently busy renderer on
+    /// every display-link tick. Retries are short and bounded; a later user
+    /// interaction starts a fresh attempt.
+    static let maximumScrollToBottomRetries: UInt8 = 8
+    static let scrollToBottomRetryBaseDelay: CFTimeInterval = 1.0 / 60.0
+    static let scrollToBottomRetryMaximumDelay: CFTimeInterval = 0.25
     static let maxPendingSurfaceFrees = 4
     // Timer-forced recovery may leak wedged libghostty surfaces, but only up to this hard cap.
     static let maxForcedRecoveryPendingSurfaceFrees = 8
     var nextSurfaceOperationID: UInt64 = 0
     var pendingOutputApply: PendingSurfaceOperation?
     var pendingGeometryApply: PendingSurfaceOperation?
+    /// The local scroll operation is not itself an awaited surface operation,
+    /// but replay reveal may wait for its generation. Keep an explicit
+    /// deadline so a wedged output queue cannot park that waiter forever.
+    var localScrollApplyStartedAt: CFTimeInterval?
+    var localScrollApplyToken: UInt64?
+    /// Same deadline contract for the pixel-precise local scroll pump.
+    var localPixelScrollApplyStartedAt: CFTimeInterval?
+    var localPixelScrollApplyToken: UInt64?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
+    var pendingVerifiedReplayViewportAnchorCapture: PendingVerifiedReplayViewportAnchorCapture?
+    var pendingVerifiedReplayViewportAnchorRestore: PendingVerifiedReplayViewportAnchorRestore?
     var pendingCopyableTextRead: PendingCopyableTextRead?
     var pendingVerifiedReplayPresentation: PendingVerifiedReplayPresentation?
     /// Quiet-frame countdown for local visible-path detection. Output, geometry,
@@ -204,6 +265,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var visibleArtifactSnapshotGeneration: UInt64 = 0
     var visibleArtifactCountTask: Task<Void, Never>?
     var lastVisibleArtifactSnapshotText: String?
+    var lastVisibleArtifactSnapshotColumns: Int?
+    var lastVisibleArtifactSnapshotGeneration: UInt64?
     var lastReportedVisibleArtifactCount = 0
 
     /// Current visible-snapshot generation used to reject stale artifact totals.
@@ -212,7 +275,140 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
+            || pendingVerifiedReplayViewportAnchorCapture != nil
+            || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
+            || localScrollApplyStartedAt != nil
+            || localPixelScrollApplyStartedAt != nil
+    }
+    /// Viewport-restore gate. `interactionGeneration` records user intent
+    /// bumped on the main actor, while `appliedInteractionGeneration` records
+    /// what `outputQueue` has applied. Anchors use the applied value at snapshot
+    /// time and remain restorable only while intent equals that label, so a
+    /// gesture whose batch has not reached the queue voids the anchor. The lock
+    /// is held only for field reads and writes, never across a Ghostty C call.
+    /// The ticket revokes a timed-out restore whose queued block has not claimed it.
+    struct ViewportRestoreGate {
+        var interactionGeneration: UInt64 = 0
+        var appliedInteractionGeneration: UInt64 = 0
+        /// Raw Ghostty scrollbar state is not user intent. Resize and replay
+        /// can transiently leave the mirror above bottom, so an anchor is
+        /// eligible only after a real touch-scroll interaction.
+        var preservesUserViewportAnchor = false
+        var activeRestoreTicket: UInt64?
+    }
+    nonisolated let viewportRestoreGate =
+        OSAllocatedUnfairLock<ViewportRestoreGate>(initialState: .init())
+    /// Pixel-scroll state shared with `outputQueue`. `remainderPx` is the
+    /// best-effort fractional pixel carried between batches; batches write it
+    /// on `outputQueue`, and bottom snaps / surface replacement reset it from
+    /// the main actor. Same lock discipline as `viewportRestoreGate`: held
+    /// only for field reads and writes, never across a Ghostty C call.
+    struct LocalPixelScrollState {
+        /// Bumped by every clear (dock/typing snap, surface replacement,
+        /// alt routing). Batches capture the epoch at pump time and only
+        /// commit results while it still matches, so an in-flight batch
+        /// cannot resurrect a held position that a snap just cleared.
+        var epoch: UInt64 = 0
+        var remainderPx: Double = 0
+        var lastFallbackLogTime: CFTimeInterval = 0
+        /// One applied pixel-pump position, remembered as the gesture's
+        /// authority between batches.
+        struct Held: Equatable, Sendable {
+            /// The viewport top row applied to Ghostty.
+            var row: UInt64
+            /// The whole-pixel offset actually applied to Ghostty.
+            var remainderPx: Double
+            /// The exact (unrounded) content-space position, so sub-pixel
+            /// deltas accumulate across batches.
+            var positionPx: Double
+            /// Row-space revision at apply time; the held content anchor is
+            /// only valid verbatim while it matches.
+            var revision: UInt64
+            /// Row-space total at apply time.
+            var total: UInt64
+            /// Cumulative local scrollback pushes at apply time.
+            var rowsPushed: UInt64
+            /// True when this batch docked at the tail (`row == total`).
+            /// A docked hold is BOTTOM-anchored, not content-anchored: while
+            /// it stands, batches target the LIVE tail so streaming output
+            /// cannot leave the viewport a few rows behind the bottom.
+            var dockedAtTail: Bool
+        }
+
+        /// The last position the pixel pump applied. While a gesture is
+        /// active this is the position AUTHORITY: batches rebase from it
+        /// instead of the live viewport, so a verified-replay bottom-reset
+        /// between batches is overwritten on the next frame instead of
+        /// hijacking the gesture. Cleared on dock/typing snaps and surface
+        /// replacement, where the live viewport becomes the truth again.
+        var lastApplied: Held?
+        /// Device pixels of scroll-top reveal: how far the gesture has pulled
+        /// into the clipped-top zone, realized by the host sliding the
+        /// bottom-pinned render back down to uncover the rows the keyboard-up
+        /// presentation clips above the screen. On the primary screen it is
+        /// the pixel axis's continuation past scrollback-top (only nonzero at
+        /// position 0); on the line path (alt screens) it resolves before
+        /// wheel dispatch. Presentation-space, so the line path's routing
+        /// clear preserves it while dropping `lastApplied`; bottom snaps,
+        /// surface replacement, and every keyboard leg (the budget it was
+        /// granted against changes with the keyboard) still zero it.
+        var topRevealPx: Double = 0
+        #if DEBUG
+        /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
+        var lastPerfLogTime: CFTimeInterval = 0
+        #endif
+    }
+    // Carve-out: main-actor gestures and synchronous libghostty callbacks share one pixel-scroll snapshot.
+    nonisolated let localPixelScrollState =
+        OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
+    /// Cumulative rows this view has pushed into its local mirror's scrollback
+    /// (the line feeds of screen-anchored delta prologues). Incremented on the
+    /// serial output queue as each chunk applies, and read there by viewport
+    /// anchor capture/restore and pixel-scroll batches, so reads are exactly
+    /// ordered against the pushes they account for. Below the scrollback cap a
+    /// push grows the row space; at the cap it evicts a retained top row, which
+    /// totals alone cannot distinguish — this counter can.
+    // lint:allow lock - one cumulative row counter shared between the main
+    // actor and the serial output queue; same discipline as viewportRestoreGate.
+    nonisolated let localScrollbackRowsPushed =
+        OSAllocatedUnfairLock<UInt64>(initialState: 0)
+    #if DEBUG
+    /// Last pixel-precise viewport position the pixel pump applied.
+    var debugLastPixelScroll: LocalPixelScrollState.Held? {
+        localPixelScrollState.withLock { $0.lastApplied }
+    }
+    #endif
+    var userViewportInteractionGeneration: UInt64 {
+        viewportRestoreGate.withLock { $0.interactionGeneration }
+    }
+    var preservesUserViewportAnchor: Bool {
+        viewportRestoreGate.withLock { $0.preservesUserViewportAnchor }
+    }
+    @discardableResult
+    func recordUserViewportScrollInteraction() -> UInt64 {
+        let generation = viewportRestoreGate.withLock {
+            $0.interactionGeneration &+= 1
+            $0.preservesUserViewportAnchor = true
+            return $0.interactionGeneration
+        }
+        // A queued prompt reveal is valid only until the next user gesture.
+        // Invalidate it before the local scroll is admitted to the serial
+        // surface queue, so a stale try-only completion cannot retry after
+        // the user deliberately moves above live output.
+        scrollToBottomRequested = false
+        scrollToBottomRetryCount = 0
+        scrollToBottomRetryAt = nil
+        scrollToBottomInteractionGeneration = nil
+        return generation
+    }
+    @discardableResult
+    func recordFollowBottomInteraction() -> UInt64 {
+        viewportRestoreGate.withLock {
+            $0.interactionGeneration &+= 1
+            $0.preservesUserViewportAnchor = false
+            return $0.interactionGeneration
+        }
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -236,6 +432,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.delegate = self
         return view
     }()
+    /// Whether a scroll gesture or its deceleration currently owns the
+    /// scroll mechanics view. Runtime seam: the local pixel-scroll path uses
+    /// it to hold position through replays mid-gesture, so it must compile in
+    /// every configuration, not just DEBUG.
+    var scrollInteractionActive: Bool {
+        scrollMechanicsView.isTracking
+            || scrollMechanicsView.isDragging
+            || scrollMechanicsView.isDecelerating
+    }
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
@@ -291,6 +496,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
+    /// Frame counter + one-shot latch for the scripted headless scroll
+    /// (`Debug/GhosttySurfaceView+ScrollScriptDebug.swift`).
+    var debugScrollScriptFrame = 0
+    /// Scroll-smoothness audit: aggregates display-link cadence while a scroll
+    /// gesture or its deceleration is active, logging one summary per second.
+    struct DebugScrollFrameRateStats {
+        var windowStart: CFTimeInterval = 0
+        var lastTick: CFTimeInterval = 0
+        var ticks = 0
+        var missed = 0
+        var maxGapMs: Double = 0
+        var loggedDisplayInfo = false
+    }
+    var debugScrollFrameRateStats = DebugScrollFrameRateStats()
+    var debugScrollScriptDone = false
 
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
@@ -312,12 +532,86 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // here, or a large `surfaceMinXInWindow`, points at the displacement source.
         let surfaceMinXInWindow = window.map { Int(convert(bounds, to: $0).minX) } ?? -1
         let toolbarOriginX = dockedToolbar.map { Int($0.frame.minX) } ?? -1
+        let requestedInputOwner = switch inputSession.state.requestedOwner {
+        case .terminal: "terminal"
+        case .composer: "composer"
+        case nil: "none"
+        }
+        let actualInputOwner = switch inputSession.state.actualOwner {
+        case .terminal: "terminal"
+        case .composer: "composer"
+        case nil: "none"
+        }
+        let inputScene = switch inputSession.state.scenePhase {
+        case .active: "active"
+        case .inactive: "inactive"
+        }
+        let inputModal = switch inputSession.state.modalPhase {
+        case .none: "none"
+        case .willPresent: "willPresent"
+        case .presented: "presented"
+        }
+        let pointValue: (CGFloat) -> String = {
+            String(format: "%.3f", Double($0))
+        }
+        let toolbarFrame = dockedToolbarFrameInSurface
+        let composerFrame = composerContainer.convert(composerContainer.bounds, to: self)
+        let toolbarMinY = toolbarFrame.map { pointValue($0.minY) } ?? "none"
+        let toolbarMaxY = toolbarFrame.map { pointValue($0.maxY) } ?? "none"
+        let internalPresentationGap = pointValue(currentInternalDockPresentationGap)
+        let maximumInternalPresentationGap = pointValue(maximumInternalDockPresentationGap)
+        let host = bottomDockHostView as? GhosttySurfaceHostView
+        let keyboardTransitionID = keyboardTransitionActiveForGeometry ? 1 : 0
+        let keyboardTransitionTarget = pointValue(keyboardHeight)
+        // Dock bottom edge (the keyboard's top edge when up) in SURFACE
+        // coordinates — the same basis as the composer/toolbar frames above.
+        // The host slides the surface during keyboard motion, so host
+        // coordinates would drift from those frames by the slide amount.
+        let dockBottomInSurface = bottomDockContainer.superview != nil
+            ? bottomDockContainer.convert(bottomDockContainer.bounds, to: self).maxY
+            : bounds.maxY
+        let keyboardDockTargetTop = pointValue(dockBottomInSurface)
+        let keyboardSlack = pointValue(host?.debugKeyboardAbsorptionSlack ?? 0)
+        let keyboardTopReveal = pointValue(hostedScrollTopReveal)
+        let keyboardDockSource = host?.debugUsesNotificationKeyboardDock == true
+            ? "notification"
+            : "layoutGuide"
+        let terminalDockPresentationGap = pointValue(
+            host?.debugTerminalDockPresentationGap ?? 0
+        )
+        let maximumTerminalDockPresentationGap = pointValue(
+            host?.debugMaximumTerminalDockPresentationGap ?? 0
+        )
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
             "fieldFocused=\(composerFieldIsFirstResponder ? 1 : 0)",
             "keyboardUp=\(keyboardVisible ? 1 : 0)",
             "proxyFirstResponder=\(inputProxy.isFirstResponder ? 1 : 0)",
+            "inputRequested=\(requestedInputOwner)",
+            "inputActual=\(actualInputOwner)",
+            "inputScene=\(inputScene)",
+            "inputModal=\(inputModal)",
+            "keyboardHeight=\(pointValue(keyboardHeight))",
+            "composerMinY=\(pointValue(composerFrame.minY))",
+            "composerMaxY=\(pointValue(composerFrame.maxY))",
+            "toolbarMinY=\(toolbarMinY)",
+            "toolbarMaxY=\(toolbarMaxY)",
+            "dockInternalPresentationGap=\(internalPresentationGap)",
+            "dockMaxInternalPresentationGap=\(maximumInternalPresentationGap)",
+            "terminalDockPresentationGap=\(terminalDockPresentationGap)",
+            "terminalDockMaxPresentationGap=\(maximumTerminalDockPresentationGap)",
+            "keyboardSlack=\(keyboardSlack)",
+            "keyboardTopReveal=\(keyboardTopReveal)",
+            "dockSeamPadding=\(pointValue(hostedDockSeamPadding))",
+            "screenScale=\(pointValue(preferredScreenScale))",
+            "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
+            "keyboardGuideTop=\(keyboardDockTargetTop)",
+            "keyboardDockSource=\(keyboardDockSource)",
+            "keyboardSeatWillOnly=\(host?.debugSeatTrustsOnlyWillFrames == true ? 1 : 0)",
+            "keyboardDockTargetTop=\(keyboardDockTargetTop)",
+            "keyboardTransitionID=\(keyboardTransitionID)",
+            "keyboardTransitionTarget=\(keyboardTransitionTarget)",
             "bandMounted=\(composerContainer.subviews.isEmpty ? 0 : 1)",
             "toolbarVisible=\(dockedToolbar?.isHidden == false ? 1 : 0)",
             "surfaceMinXInWindow=\(surfaceMinXInWindow)",
@@ -366,6 +660,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
+    #if DEBUG
+    var latencyLastAppliedSequence: UInt64?
+    #endif
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -396,6 +693,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the natural grid would be unchanged afterwards, nothing would ever
     /// re-report, and the letterbox gap above the terminal would be permanent.
     private var viewportReportID: UInt64 = 0
+    /// True from the moment a natural-grid report is handed to the delegate
+    /// until the daemon's round-trip resolves for the NEWEST report (echo
+    /// confirmed, or the bounded retries are exhausted). While set, the
+    /// viewport layout treats the negotiation as unsettled (see
+    /// `viewportSnapshot()`): `effectiveGrid` is about to be superseded by
+    /// the grant answering this report, so layout decisions must not treat
+    /// the outgoing value as final.
+    private var awaitingViewportEcho = false
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -422,11 +727,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     var lastRenderRect: CGRect = .zero
-    var lastRenderLayoutViewportHeight: CGFloat?
-    var lastRenderHasSourceLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
-    private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
-    private var keyboardHeightAnimationID = 0
+    /// The bounds size the last layout-driven geometry sync ran for. Layout
+    /// passes with unchanged bounds (host keyboard animation, sibling churn)
+    /// must not re-enter `set_size`: every other geometry input (composer
+    /// band, chrome, safe area, fonts) schedules its own sync at its
+    /// mutation site, so bounds are the only layout-borne input.
+    var lastLayoutGeometrySyncSize: CGSize = .zero
+    private var alternateScreenGeometryFence = TerminalViewportGeometryFence()
+    private var hostedInterfaceTransitionActive = false
+    private var dockReflowGeneration: UInt64 = 0
+    private var dockReflowActive = false
+    /// A keyboard leg changes the local viewport only after UIKit's animation
+    /// completes. The first geometry pass that measures that settled viewport
+    /// can publish its natural grid immediately; waiting through the generic
+    /// quiet-frame report debounce makes the host move first and Vim redraw
+    /// later, which looks like a second resize.
+    private var publishSettledKeyboardViewportImmediately = false
+    private var bottomDockToKeyboardConstraint: NSLayoutConstraint?
+    private var bottomDockHostConstraints: [NSLayoutConstraint] = []
+    private weak var bottomDockHostView: UIView?
+    private var composerHeightConstraint: NSLayoutConstraint?
+    private var toolbarHeightConstraint: NSLayoutConstraint?
+    #if DEBUG
+    private var keyboardHeightOverrideForTesting: CGFloat?
+    private var maximumInternalDockPresentationGap: CGFloat = 0
+    #endif
 
     #if DEBUG
     struct DebugGeometrySnapshot {
@@ -481,13 +807,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    /// Test seam for a keyboard leg. Drives exactly what a real leg drives:
+    /// ``setHostedKeyboardState`` seats the dock and re-places the render
+    /// inside the (keyboard-independent) viewport, and the host's
+    /// `beginKeyboardLeg` schedules NO geometry negotiation. The keyboard
+    /// stopped being a grid input when the stretch-to-fill auto-fit was
+    /// removed, so a `set_size` here would be a no-op resize with one real
+    /// side effect: `shouldReassertNaturalSize` re-reports capacity whenever
+    /// the effective grid sits below it, which is every Mac-constrained
+    /// terminal. That made the seam emit a viewport report per toggle that
+    /// production never emits.
     func setKeyboardHeightForTesting(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
-        keyboardHeight = max(0, height)
+        setKeyboardHeightOverrideForTesting(height)
+        setHostedKeyboardTransitionActive(false)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
-        syncSurfaceGeometry(shouldReassertNaturalSize: true)
+        layoutBottomDockHierarchyIfNeeded()
     }
+
 
     #endif
 
@@ -503,19 +840,35 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
-    #if DEBUG
-    /// Structured diagnostic log (DEBUG dogfood builds only), property-injected
-    /// from the shell store by ``GhosttySurfaceRepresentable`` so the
-    /// composer-dock probes land in the blob the diagnostic export captures.
-    /// `nil` in hosts that do not wire it; every probe is then a no-op. The
-    /// property does not exist in release builds — every reader is inside a
-    /// `#if DEBUG` block.
+    /// Structured diagnostic log, property-injected from the shell store by
+    /// ``GhosttySurfaceRepresentable`` so the composer-dock probes land in the
+    /// blob the diagnostic export captures. The event payloads are bounded and
+    /// privacy-safe, so the same sink is available in Release builds. `nil` in
+    /// hosts that do not wire it; every probe is then a no-op.
     public var diagnosticLog: DiagnosticLog?
-    #endif
+    /// Content-free population snapshot supplied by the mounting shell.
+    public var terminalWorkPopulation: TerminalWorkContext = .init()
 
-    private lazy var inputProxy: TerminalInputTextView = {
+    private lazy var inputSession = TerminalInputSessionCoordinator(
+        focus: { [weak self] owner in
+            self?.performInputFocus(owner) ?? false
+        },
+        resign: { [weak self] owner in
+            self?.performInputResign(owner) ?? true
+        },
+        actualOwnerDidChange: { [weak self] owner in
+            self?.inputActualOwnerDidChange(owner)
+        }
+    )
+
+    lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
         inputProxy.terminalTheme = terminalTheme
+        inputProxy.onFirstResponderChanged = { [weak self] isFirstResponder in
+            self?.inputSession.send(
+                .responderChanged(owner: .terminal, isFirstResponder: isFirstResponder)
+            )
+        }
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.handleUserProducedInput()
@@ -553,16 +906,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)
         }
+        inputProxy.onToolbarDiagnosticAction = { [weak self] action in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: action)
+        }
         inputProxy.onToggleComposer = { [weak self] in
             guard let self else { return }
             self.handleComposerButtonTap()
         }
         inputProxy.onHideKeyboard = { [weak self] in
             guard let self else { return }
-            #if DEBUG
-            // The keyboard-toggle was tapped while composing. Round 8 no longer
-            // dismisses the composer here (the composer survives a keyboard-down), so
-            // this is now purely diagnostic.
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .keyboardToggle)
+            // The keyboard toggle is a low-frequency, privacy-safe lifecycle
+            // edge. Keep it in Release diagnostics so a shared user log can
+            // distinguish responder loss from an intentional keyboard close.
             if self.composerActive {
                 let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
                 self.diagnosticLog?.record(DiagnosticEvent(
@@ -572,7 +929,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     b: frOwner.rawValue
                 ))
             }
-            #endif
             // Round 8: the keyboard-toggle button only raises/lowers the keyboard. The
             // toolbar stays visible either way, and an open composer survives a
             // keyboard-down (its draft lives in the store; the field just loses focus).
@@ -583,42 +939,74 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // is a sibling of `composerContainer`, so `endEditing` on the container
             // alone would resign nothing and the keyboard would stay up.
             if self.keyboardVisible {
-                if self.inputProxy.isFirstResponder {
-                    self.resignInput()
-                } else {
-                    self.composerContainer.endEditing(true)
-                }
+                self.resignCurrentInput()
             } else {
                 self.focusInput()
             }
         }
         inputProxy.onHideChrome = { [weak self] in
-            self?.setChromeHidden(true)
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .hideChrome)
+            self.setChromeHidden(true)
         }
         inputProxy.onOpenToolbarSettings = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .customize)
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
         inputProxy.onOpenArtifactFiles = { [weak self] sourceView in
             guard let self else { return }
             self.delegate?.ghosttySurfaceView(self, didRequestArtifactFilesFrom: sourceView)
         }
-        inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
+        inputProxy.accessoryLayoutInsetsProvider = { [weak self, weak inputProxy] in
             guard let self,
                   let window = self.window else {
                 return .zero
             }
 
-            let terminalFrame = self.convert(self.bounds, to: window)
-            return UIEdgeInsets(
-                top: 0,
-                left: max(0, terminalFrame.minX),
-                bottom: 0,
-                right: max(0, window.bounds.maxX - terminalFrame.maxX)
+            // The docked toolbar lives INSIDE the surface, so its leading edge
+            // already sits at the terminal's leading edge; measure the strip's
+            // insets against the toolbar's own frame, not the window. Window-space
+            // terminal X alone double-counts the horizontal offset whenever the
+            // surface does not start at the window edge (an iPad split-view detail
+            // pane next to a visible sidebar), stranding the whole control row a
+            // sidebar-width from the strip's leading edge.
+            let toolbarFrame: CGRect? = inputProxy.flatMap { proxy in
+                let toolbar = proxy.toolbarView
+                guard let toolbarSuperview = toolbar.superview,
+                      toolbar.window === window else { return nil }
+                return toolbarSuperview.convert(toolbar.frame, to: window)
+            }
+            return Self.accessoryLayoutInsets(
+                terminalFrame: self.convert(self.bounds, to: window),
+                toolbarFrame: toolbarFrame,
+                windowBounds: window.bounds
             )
         }
         return inputProxy
     }()
+
+    /// The accessory-strip insets that align the toolbar's controls with the
+    /// terminal's horizontal span, measured in window space. `toolbarFrame` is
+    /// the hosting bar's own frame: each side insets only by the span of the
+    /// BAR the terminal does not cover, so a window-spanning keyboard accessory
+    /// keeps its historical window-edge math (`toolbarFrame` == window bounds)
+    /// while a toolbar docked inside the surface (its edges already flush with
+    /// the terminal's) resolves to zero instead of re-applying the terminal's
+    /// window offset. `nil` (not yet hosted) falls back to the window bounds.
+    nonisolated static func accessoryLayoutInsets(
+        terminalFrame: CGRect,
+        toolbarFrame: CGRect?,
+        windowBounds: CGRect
+    ) -> UIEdgeInsets {
+        let reference = toolbarFrame ?? windowBounds
+        return UIEdgeInsets(
+            top: 0,
+            left: max(0, terminalFrame.minX - reference.minX),
+            bottom: 0,
+            right: max(0, reference.maxX - terminalFrame.maxX)
+        )
+    }
 
     /// Creates an embedded surface and applies its colors before the first frame.
     /// - Parameters:
@@ -661,8 +1049,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         addSubview(debugAccessibilityProxy)
         addSubview(composerDockProbe)
         #endif
+        installBottomDockContainer()
         installPersistentToolbar()
         installComposerContainer()
+        installBottomDockConstraints()
         installArtifactChipContainer()
         initializeSurface()
 
@@ -701,15 +1091,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             name: UIApplication.willEnterForegroundNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardWillChangeFrame(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil
-        )
     }
 
     @objc private func handleAppWillResignActive() {
+        inputSession.send(.sceneWillResignActive)
         suspendRendering()
     }
 
@@ -721,6 +1106,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc private func handleAppDidBecomeActive() {
         resumeRendering()
+        inputSession.send(.sceneDidBecomeActive)
+        // The guide reflects the current keyboard even if this surface missed a
+        // notification while inactive; force a layout read before the next render.
+        setNeedsLayout()
+        delegate?.ghosttySurfaceViewDidBecomeActive(self)
     }
 
     @objc private func handleAppWillEnterForeground() {
@@ -762,7 +1152,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderingSuspended = false
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
+        renderPresentationGate.reset()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
         guard let surface, window != nil else { return }
         ghostty_surface_set_occlusion(surface, true)  // true = visible
         setFocus(true)
@@ -771,13 +1166,44 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
+    /// Keyboard overlap used by the alternate-screen grid. This is committed
+    /// only after the host's keyboard transaction completes, so the PTY never
+    /// observes an intermediate height while UIKit is moving the keyboard.
+    private var committedKeyboardHeight: CGFloat = 0
+    private var keyboardTransitionActiveForGeometry = false
+    /// True after the keyboard will-frame target has been committed to the
+    /// alternate-screen geometry fence. The target is known before UIKit
+    /// starts animating, so the local surface and the PTY report can use one
+    /// transition geometry instead of crossing through an intermediate grid.
+    private var keyboardGeometryTargetPrepared = false
+    private var keyboardTargetGeometryReportPending = false
+    /// Last-good pixels shown while a keyboard target changes the alternate-
+    /// screen grid. The layer lives in the host's screen-fixed clip view, at
+    /// the renderer's on-screen rect and unscaled, so the pane animation and
+    /// the local resize cannot move or stretch it. It is replaced in one
+    /// transaction by the first renderer frame that carries the TUI's redraw
+    /// for the target grid (see ``KeyboardTransitionPresentationFreeze``).
+    private var keyboardTransitionPresentationOverlay: CALayer?
+    private var keyboardTransitionPresentationFreeze: KeyboardTransitionPresentationFreeze?
+    private var keyboardTransitionPresentationTimeout: Task<Void, Never>?
+    /// Silence allowed while holding the frozen frame after UIKit finishes
+    /// the leg. Relay round trips stall for seconds under load, and a held
+    /// frame is preferable to the old TUI reflowed into the new grid, so this
+    /// only covers a dead link or a TUI that never redraws.
+    private static let keyboardTransitionPresentationTimeout: Duration = .seconds(5)
+    /// Screen-fixed view the host provides for the frozen frame. Nil when the
+    /// surface is not hosted, in which case no freeze is installed.
+    weak var hostedTransitionPresentationContainer: UIView?
     private var keyboardVisible = false
+    #if DEBUG
+    var keyboardToggleDebugToken: Int32 = 0
+    var rotateDebugToken: Int32 = 0
+    #endif
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
-    /// toolbar is docked above the keyboard (when up) or the home indicator
-    /// (when down) via `keyboardLayoutGuide`, so the grid must shrink by this
-    /// much to keep the bottom TUI rows visible above it. 0 until the toolbar is
-    /// installed (`installPersistentToolbar`), so the home-indicator reservation
-    /// still lands even if the toolbar UI is absent.
+    /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
+    /// coordinator consumes that same guide-derived overlap, so the grid must shrink
+    /// by this much to keep the bottom TUI rows visible above it. Zero until the
+    /// toolbar is installed (`installPersistentToolbar`).
     private var reservedToolbarHeight: CGFloat = 0
     /// Height of the docked accessory bar reserved in the grid geometry so the
     /// bottom TUI rows stay visible above it. Locked to the bar's actual button-row
@@ -788,10 +1214,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// toolbar's live top edge equal to the viewport edge; any whole-cell render
     /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
     private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
-    /// The docked accessory bar. Positioned by ``bottomDockFrames()`` with the
-    /// SAME bottom-occupancy math as the grid reservation, so its top is always
-    /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
-    /// edge (up) or above the home indicator (down).
+    /// The single visual dock translated by the selected keyboard geometry source.
+    /// The Shortcut and Composer bars are children of this view, so an interrupted
+    /// animation cannot leave their presentation layers on different timelines.
+    private let bottomDockContainer = UIView()
+    /// The docked accessory bar. It is the upper child of ``bottomDockContainer``;
+    /// the composer is the lower child nearest the keyboard.
     private weak var dockedToolbar: UIView?
     /// Whether the iMessage-style composer is currently open. The surface owns the
     /// whole bottom dock (terminal grid / toolbar / composer band / keyboard) in ONE
@@ -805,14 +1233,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The composer band: a surface-owned container the host installs the SwiftUI
     /// compose field into (via a `UIHostingController` in
     /// `GhosttySurfaceRepresentable`, which can see both layers; the terminal package
-    /// cannot import the UI package). The surface positions it itself — pinned
-    /// directly above the keyboard (iMessage's field-nearest-keyboard layout), with
-    /// the docked toolbar riding its top edge and the terminal grid above that — and
-    /// reserves its height in the grid, so the compose field, the toolbar, and the
-    /// keyboard all live in the surface's single coordinate system (see
-    /// ``bottomDockFrames()`` for the `terminal / toolbar / composer / keyboard`
-    /// stack). Replaces the round-5/6 `safeAreaInset`-plus-toolbar-handoff that
-    /// fought the surface's frame math.
+    /// cannot import the UI package). Auto Layout pins it directly to
+    /// ``UIView/keyboardLayoutGuide`` (iMessage's field-nearest-keyboard layout), with
+    /// the docked toolbar riding its top edge and the terminal grid above that. The
+    /// viewport coordinator consumes the same guide overlap for the
+    /// `terminal / toolbar / composer / keyboard` stack.
     private let composerContainer = UIView()
     /// Height (points) the open composer band reserves above the keyboard edge. Fed
     /// by the host from the hosted compose field's intrinsic content size
@@ -821,6 +1246,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+
+    /// Opt out of the alternate-screen visible-height treatment and retain the
+    /// current keyboard-independent terminal sizing for every screen mode.
+    /// This is injected from the iOS Terminal settings preference.
+    public var useLegacyTerminalSizing = false {
+        didSet {
+            guard useLegacyTerminalSizing != oldValue else { return }
+            if useLegacyTerminalSizing {
+                committedKeyboardHeight = 0
+            } else if !keyboardTransitionActiveForGeometry {
+                committedKeyboardHeight = max(0, keyboardHeight)
+            }
+            clearHostedScrollTopReveal()
+            resetAlternateScreenGeometryFence()
+            layoutRenderedTerminalForCurrentViewport()
+            setNeedsGeometrySync()
+        }
+    }
     /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
     /// toolbar/composer containers makes keyboard and composer movement use one
     /// coordinate system instead of a competing SwiftUI safe-area offset.
@@ -843,119 +1286,694 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// whichever registered surface happens to sort first.
     public var hostSurfaceID: String?
 
-    @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
-        guard let transition = MobileKeyboardTransition(notification: notification) else { return }
-        let overlap = transition.overlap(in: self)
-        let willBeVisible = transition.isVisible(in: self)
-        guard abs(overlap - keyboardHeight) > 0.5 || willBeVisible != keyboardVisible else { return }
-        let wasVisible = keyboardVisible
-        #if DEBUG
-        // The composer-up/keyboard-down desync can be reached WITHOUT the dismiss
-        // button (code 24): a swipe-to-dismiss, an attached hardware keyboard, or
-        // backgrounding all collapse the keyboard straight through this visible→false
-        // transition. Codes 23/24 are silent on those paths, so the onset of the
-        // desync — `keyboardVisible→false while the composer is still active` — is recorded
-        // here too, with the resolved first-responder owner, so a Capture&Send trace
-        // is complete no matter how the keyboard went down. Pure diagnostics; the hide
-        // behavior below is unchanged.
-        if wasVisible, !willBeVisible, composerActive {
-            let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
-            MobileDebugLog.anchormux(
-                "composer.keyboardHideWhilePresented prevKeyboardHeight=\(Int(keyboardHeight)) frOwner=\(frOwner.rawValue) proxyIsFR=\(inputProxy.isFirstResponder ? 1 : 0)"
-            )
+    /// Updates the live dock model. Alternate-screen grid geometry consumes
+    /// this height only outside an active keyboard transition.
+    ///
+    /// - Parameters:
+    ///   - height: The live keyboard overlap in points.
+    ///   - isVisible: The keyboard visibility when the caller knows it
+    ///     (notifications); `nil` for settled-seat self-heals (layout guide
+    ///     reads), which must not fabricate a visibility transition.
+    func setHostedKeyboardState(height: CGFloat, isVisible: Bool?) {
+        if let isVisible, keyboardVisible != isVisible {
+            #if DEBUG
+            // The composer-up/keyboard-down desync can be reached WITHOUT the dismiss
+            // button (code 24): a swipe-to-dismiss, an attached hardware keyboard, or
+            // backgrounding all collapse the keyboard straight through this visible→false
+            // transition. Codes 23/24 are silent on those paths, so the onset of the
+            // desync — `keyboardVisible→false while the composer is still active` — is recorded
+            // here too, with the resolved first-responder owner, so a Capture&Send trace
+            // is complete no matter how the keyboard went down. Pure diagnostics; the hide
+            // behavior below is unchanged.
+            if keyboardVisible, !isVisible, composerActive {
+                let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
+                MobileDebugLog.anchormux(
+                    "composer.keyboardHideWhilePresented prevKeyboardHeight=\(Int(keyboardHeight)) frOwner=\(frOwner.rawValue) proxyIsFR=\(inputProxy.isFirstResponder ? 1 : 0)"
+                )
+            }
+            #endif
+            keyboardVisible = isVisible
+            inputProxy.setKeyboardShown(isVisible)
+            // Round 8: the toolbar is ALWAYS visible and the composer band survives
+            // a keyboard-down (its draft lives in the store; the field just loses
+            // focus). The composer is dismissed only by its chevron or the toolbar
+            // composer button.
+            updateDockedToolbarVisibility()
         }
-        #endif
-        keyboardVisible = willBeVisible
-        inputProxy.setKeyboardShown(willBeVisible)
-        // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
-        // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
-        // the keyboard collapsing no longer dismisses the composer. The composer's
-        // draft lives in the store (`terminalInputText`), so the field just loses focus
-        // and its text stays; tapping it refocuses and re-raises the keyboard. The
-        // composer is dismissed only by its chevron or the toolbar composer button.
-        //
-        // The toolbar stays visible while the keyboard is down (it now rides the bottom
-        // safe area), so visibility does not change here. Re-seat the dock and re-sync
-        // the grid: `keyboardOccupancyInBounds` flips from the keyboard height to the
-        // safe-area inset, so the dock drops to ride the home indicator and the grid
-        // reclaims the keyboard's space (minus the now-reserved safe area + toolbar +
-        // composer band).
-        updateDockedToolbarVisibility()
-        startKeyboardHeightAnimation(to: overlap, transition: transition)
+        let nextHeight = max(0, height)
+        guard abs(nextHeight - keyboardHeight) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "kb.model \(Int(keyboardHeight))->\(Int(nextHeight)) vis=\(isVisible.map { $0 ? "1" : "0" } ?? "-")"
+        )
+        keyboardHeight = nextHeight
+        layoutBottomDock(using: viewportSnapshot())
+        if keyboardTransitionActiveForGeometry, alternateScreenSizingEnabled {
+            prepareHostedKeyboardGeometryTarget()
+        } else if !keyboardTransitionActiveForGeometry {
+            commitHostedKeyboardGeometryIfNeeded()
+        }
     }
 
-    private func startKeyboardHeightAnimation(
-        to targetHeight: CGFloat,
-        transition: MobileKeyboardTransition
-    ) {
-        stopKeyboardHeightAnimation()
-        let clampedTarget = max(0, targetHeight)
-        guard transition.duration > 0, abs(clampedTarget - keyboardHeight) > 0.5 else {
-            applyKeyboardHeight(clampedTarget)
-            if clampedTarget == 0 {
-                scheduleKeyboardHideHeightResync()
+    /// Marks the UIKit keyboard leg as owning the geometry fence. The host
+    /// calls this before applying a will-frame and clears it from the leg's
+    /// completion, after which the settled keyboard height becomes eligible
+    /// for the alternate-screen grid.
+    func setHostedKeyboardTransitionActive(_ active: Bool) {
+        let wasActive = keyboardTransitionActiveForGeometry
+        keyboardTransitionActiveForGeometry = active
+        if active {
+            keyboardGeometryTargetPrepared = false
+            keyboardTargetGeometryReportPending = false
+            publishSettledKeyboardViewportImmediately = false
+        }
+        if !active {
+            if wasActive {
+                noteKeyboardTransitionPresentationLegEnded()
             }
+            let committed = commitHostedKeyboardGeometryIfNeeded()
+            if wasActive,
+               (committed || keyboardTargetGeometryReportPending),
+               alternateScreenSizingEnabled {
+                publishSettledKeyboardViewportImmediately = true
+            }
+        }
+    }
+
+    /// Commits the final keyboard target as soon as UIKit announces it. This
+    /// is the transaction boundary shared by the pane animation, the local
+    /// Ghostty grid, and the eventual Mac PTY resize. The target is already
+    /// the expected end state, so no intermediate TUI size is exposed.
+    private func prepareHostedKeyboardGeometryTarget() {
+        let next = max(0, keyboardHeight)
+        guard abs(next - committedKeyboardHeight) > 0.25 else { return }
+        committedKeyboardHeight = next
+        keyboardGeometryTargetPrepared = true
+        keyboardTargetGeometryReportPending = true
+        installKeyboardTransitionPresentationOverlayIfNeeded()
+        MobileDebugLog.anchormux(
+            "kb.geometry.prepare (Int(committedKeyboardHeight)) alt=\(hostedAltScreenActive ? 1 : 0)"
+        )
+        if let effectiveGrid {
+            MobileDebugLog.anchormux(
+                "kb.geometry.clearEffectiveGrid \(effectiveGrid.cols)x\(effectiveGrid.rows)"
+            )
+            self.effectiveGrid = nil
+        }
+        resetAlternateScreenGeometryFence()
+        alternateScreenGeometryFence.commitTransitionTarget(viewportSnapshot())
+        layoutRenderedTerminalForCurrentViewport()
+        alignSettledKeyboardRenderToViewportTop()
+        setNeedsGeometrySync()
+        publishSettledKeyboardViewportImmediately = true
+    }
+
+    /// Captures the presented renderer frame at its current on-screen rect
+    /// before the target geometry changes the surface.
+    private func installKeyboardTransitionPresentationOverlayIfNeeded() {
+        if keyboardTransitionPresentationOverlay != nil {
+            // A reversed or chained transition keeps the original pixels but
+            // must wait for its own leg, report, and redraw.
+            keyboardTransitionPresentationFreeze = KeyboardTransitionPresentationFreeze()
+            keyboardTransitionPresentationTimeout?.cancel()
+            keyboardTransitionPresentationTimeout = nil
+            MobileDebugLog.anchormux("kb.presentation.refreeze")
             return
         }
+        guard let container = hostedTransitionPresentationContainer,
+              let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) else { return }
+        let presentedRenderer = renderer.presentation() ?? renderer
+        guard !renderer.isHidden,
+              let image = copyVerifiedReplayCGImage(from: presentedRenderer.contents ?? renderer.contents)
+        else { return }
+        // The pane may already be mid-animation (a reversed leg), so convert
+        // through the presentation tree to get the pixels' visible position.
+        let frame = presentedRenderer.convert(
+            presentedRenderer.bounds,
+            to: container.layer.presentation() ?? container.layer
+        )
+        let overlay = CALayer()
+        overlay.name = "cmux.keyboardTransitionPresentation"
+        overlay.contents = image
+        overlay.contentsGravity = .topLeft
+        overlay.contentsScale = renderer.contentsScale
+        overlay.masksToBounds = true
+        overlay.zPosition = 1_900
+        overlay.actions = [
+            "bounds": NSNull(),
+            "contents": NSNull(),
+            "frame": NSNull(),
+            "hidden": NSNull(),
+            "opacity": NSNull(),
+            "position": NSNull(),
+        ]
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        overlay.frame = frame
+        container.layer.addSublayer(overlay)
+        setGhosttyRendererLayersHidden(true)
+        CATransaction.commit()
+        keyboardTransitionPresentationOverlay = overlay
+        keyboardTransitionPresentationFreeze = KeyboardTransitionPresentationFreeze()
+        keyboardTransitionPresentationTimeout?.cancel()
+        keyboardTransitionPresentationTimeout = nil
+        MobileDebugLog.anchormux(
+            "kb.presentation.freeze frame=\(Int(frame.minY))+\(Int(frame.height))"
+        )
+    }
 
-        keyboardHeightAnimationID &+= 1
-        let animationID = keyboardHeightAnimationID
-        keyboardHeightAnimation = TerminalKeyboardHeightAnimation(id: animationID)
+    /// Geometry passes during the freeze may re-add or resize renderer
+    /// layers; keep every one hidden until the reveal.
+    private func enforceKeyboardTransitionPresentationHold() {
+        guard keyboardTransitionPresentationOverlay != nil else { return }
+        setGhosttyRendererLayersHidden(true)
+    }
+
+    private func setGhosttyRendererLayersHidden(_ hidden: Bool) {
+        for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = hidden
+        }
+    }
+
+    private func noteKeyboardTransitionPresentationLegEnded() {
+        guard keyboardTransitionPresentationFreeze != nil else { return }
+        keyboardTransitionPresentationFreeze?.noteTransitionEnded()
+        armKeyboardTransitionPresentationTimeout()
+        // A frame may already satisfy every other milestone.
+        needsDraw = true
         startDisplayLink()
-        transition.animate {
-            self.applyKeyboardHeight(clampedTarget)
-            self.layoutIfNeeded()
-        } completion: { _ in
-            guard self.keyboardHeightAnimationID == animationID else { return }
-            self.finishKeyboardHeightAnimation(targetHeight: clampedTarget)
+    }
+
+    /// The fallback measures silence, not total latency: a confirmation or
+    /// output proves the link is alive, so the wait starts over.
+    private func armKeyboardTransitionPresentationTimeout() {
+        keyboardTransitionPresentationTimeout?.cancel()
+        keyboardTransitionPresentationTimeout = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: Self.keyboardTransitionPresentationTimeout)
+            } catch {
+                return
+            }
+            guard let self, self.keyboardTransitionPresentationOverlay != nil else { return }
+            MobileDebugLog.anchormux("kb.presentation.timeout")
+            self.revealKeyboardTransitionPresentation(reason: "timeout")
         }
     }
 
-    private func stopKeyboardHeightAnimation() {
-        keyboardHeightAnimationID &+= 1
-        keyboardHeightAnimation = nil
+    private func noteKeyboardTransitionPresentationReportPublished(id: UInt64) {
+        keyboardTransitionPresentationFreeze?.noteReportPublished(id: id)
     }
 
-    private func finishKeyboardHeightAnimation(targetHeight: CGFloat) {
-        stopKeyboardHeightAnimation()
-        applyKeyboardHeight(targetHeight)
-        if targetHeight == 0 {
-            scheduleKeyboardHideHeightResync()
+    private func noteKeyboardTransitionPresentationReportUnneeded() {
+        keyboardTransitionPresentationFreeze?.noteReportUnneeded(lastIssuedToken: nextSurfaceOperationID)
+    }
+
+    private func noteKeyboardTransitionPresentationReportConfirmed(id: UInt64) {
+        keyboardTransitionPresentationFreeze?.noteReportConfirmed(id: id)
+        if keyboardTransitionPresentationFreeze?.transitionEnded == true {
+            armKeyboardTransitionPresentationTimeout()
         }
     }
 
-    private func advanceKeyboardHeightAnimation() {
-        guard keyboardHeightAnimation != nil else { return }
+    private func noteKeyboardTransitionPresentationOutputApplied() {
+        keyboardTransitionPresentationFreeze?.noteOutputApplied(lastIssuedToken: nextSurfaceOperationID)
+        // Only output after the confirmation counts as progress; a busy TUI
+        // must not hold the frame forever if the confirmation was lost.
+        if keyboardTransitionPresentationFreeze?.transitionEnded == true,
+           keyboardTransitionPresentationFreeze?.reportConfirmed == true {
+            armKeyboardTransitionPresentationTimeout()
+        }
+    }
+
+    private func noteKeyboardTransitionPresentationPresented(token: UInt64) {
+        guard keyboardTransitionPresentationFreeze?.notePresented(token: token) == true else { return }
+        revealKeyboardTransitionPresentation(reason: "target_presented")
+    }
+
+    private func revealKeyboardTransitionPresentation(reason: String) {
+        guard let overlay = keyboardTransitionPresentationOverlay else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        overlay.removeFromSuperlayer()
+        setGhosttyRendererLayersHidden(false)
+        CATransaction.commit()
+        keyboardTransitionPresentationOverlay = nil
+        keyboardTransitionPresentationFreeze = nil
+        keyboardTransitionPresentationTimeout?.cancel()
+        keyboardTransitionPresentationTimeout = nil
+        MobileDebugLog.anchormux("kb.presentation.reveal reason=\(reason)")
+    }
+
+    private func clearKeyboardTransitionPresentationOverlay() {
+        revealKeyboardTransitionPresentation(reason: "cleared")
+    }
+
+    @discardableResult
+    private func commitHostedKeyboardGeometryIfNeeded() -> Bool {
+        let next = hostedAltScreenActive && !useLegacyTerminalSizing
+            ? max(0, keyboardHeight)
+            : 0
+        guard abs(next - committedKeyboardHeight) > 0.25 else { return false }
+        keyboardGeometryTargetPrepared = false
+        committedKeyboardHeight = next
+        MobileDebugLog.anchormux(
+            "kb.geometry.commit \(Int(committedKeyboardHeight)) alt=\(hostedAltScreenActive ? 1 : 0)"
+        )
+        // The daemon's previous keyboard-leg echo is still an effective-grid
+        // pin at this point (for example, 29 rows while the keyboard is up).
+        // Keeping it through the new settled geometry pass makes the host move
+        // with the new viewport while the renderer paints the old pin, then a
+        // second pass expands it to the natural grid. Drop that stale pin at
+        // the same commit boundary; the settled natural-grid report below is
+        // the new authoritative negotiation, and its echo can install a fresh
+        // effective grid if the daemon grants one.
+        if alternateScreenSizingEnabled, let effectiveGrid {
+            MobileDebugLog.anchormux(
+                "kb.geometry.clearEffectiveGrid \(effectiveGrid.cols)x\(effectiveGrid.rows)"
+            )
+            self.effectiveGrid = nil
+        }
+        resetAlternateScreenGeometryFence()
+        alternateScreenGeometryFence.commitTransitionTarget(viewportSnapshot())
         layoutRenderedTerminalForCurrentViewport()
-        layoutZoomOverlay()
+        alignSettledKeyboardRenderToViewportTop()
+        setNeedsGeometrySync()
+        return true
     }
 
-    private func applyKeyboardHeight(_ height: CGFloat) {
-        let clamped = max(0, height)
-        if abs(keyboardHeight - clamped) > 0.25 {
-            keyboardHeight = clamped
-            setNeedsGeometrySync()
+    /// The replayed renderer can still contain the previous keyboard leg's
+    /// grid when the host finishes its UIKit animation. Bottom-pinning that
+    /// old frame to the newly settled viewport puts Vim's top rows far below
+    /// the toolbar for one frame, then the natural-grid pass moves them back
+    /// up. Keep the stale frame top-anchored until the settled geometry pass
+    /// replaces it; the final Ghostty grid still owns the real layout.
+    private func alignSettledKeyboardRenderToViewportTop() {
+        guard !lastRenderRect.isEmpty else { return }
+        let snapshot = viewportSnapshot()
+        enforceKeyboardTransitionPresentationHold()
+        let aligned = CGRect(
+            x: lastRenderRect.minX,
+            y: snapshot.layoutViewportRect.minY,
+            width: lastRenderRect.width,
+            height: lastRenderRect.height
+        )
+        guard aligned != lastRenderRect else {
+            alignVerifiedReplayFrozenPresentationToViewportTop(
+                viewportRect: snapshot.layoutViewportRect
+            )
+            return
         }
+        MobileDebugLog.anchormux(
+            "kb.renderRect.topAlign \(Int(lastRenderRect.minY))->\(Int(aligned.minY)) "
+                + "h=\(Int(aligned.height))"
+        )
+        lastRenderRect = aligned
+        syncRendererLayerFrame(
+            scale: preferredScreenScale,
+            renderRect: rendererLayerRect(forGridRenderRect: aligned)
+        )
+        updateLetterboxBorder(
+            renderRect: aligned,
+            isLetterboxed: snapshot.isLetterboxed(renderSize: aligned.size)
+        )
+        alignVerifiedReplayFrozenPresentationToViewportTop(
+            viewportRect: snapshot.layoutViewportRect
+        )
+    }
+
+    func sampleHostedKeyboardPresentation() {
+        let host = bottomDockHostView as? GhosttySurfaceHostView
+        // Content written while the keyboard is up consumes the blank band;
+        // the host re-derives the absorption slack so the render follows the
+        // content bottom down to the composer bar (and back up after a
+        // `clear`). Cheap: a single non-blocking cursor query per frame,
+        // only while a keyboard is actually up.
+        host?.refreshKeyboardAbsorptionIfNeeded()
+        host?.sampleTerminalDockPresentationGap()
+        #if DEBUG
+        sampleInternalDockPresentationGap()
+        #endif
+    }
+
+    private func installBottomDockContainer() {
+        bottomDockContainer.backgroundColor = .clear
+        bottomDockContainer.clipsToBounds = false
+        bottomDockContainer.layer.zPosition = Self.bottomChromeZPosition
+        addSubview(bottomDockContainer)
+    }
+
+    /// Pins one dock container to the selected keyboard geometry source. Keyboard
+    /// motion translates one layer; child constraints arrange the bars internally.
+    private func installBottomDockConstraints() {
+        guard let dockedToolbar else { return }
+        bottomDockContainer.translatesAutoresizingMaskIntoConstraints = false
+        dockedToolbar.translatesAutoresizingMaskIntoConstraints = false
+        composerContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        let dockBottom = bottomDockContainer.bottomAnchor.constraint(equalTo: bottomAnchor)
+        dockBottom.constant = -keyboardOccupancyInBounds
+        let composerHeight = composerContainer.heightAnchor.constraint(equalToConstant: 0)
+        let toolbarHeight = dockedToolbar.heightAnchor.constraint(equalToConstant: 0)
+        bottomDockToKeyboardConstraint = dockBottom
+        composerHeightConstraint = composerHeight
+        self.toolbarHeightConstraint = toolbarHeight
+
+        let hostConstraints = [
+            bottomDockContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bottomDockContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dockBottom,
+        ]
+        bottomDockHostConstraints = hostConstraints
+        bottomDockHostView = self
+
+        NSLayoutConstraint.activate(hostConstraints + [
+            dockedToolbar.topAnchor.constraint(equalTo: bottomDockContainer.topAnchor),
+            dockedToolbar.leadingAnchor.constraint(equalTo: bottomDockContainer.leadingAnchor),
+            dockedToolbar.trailingAnchor.constraint(equalTo: bottomDockContainer.trailingAnchor),
+            dockedToolbar.bottomAnchor.constraint(equalTo: composerContainer.topAnchor),
+            composerContainer.leadingAnchor.constraint(equalTo: bottomDockContainer.leadingAnchor),
+            composerContainer.trailingAnchor.constraint(equalTo: bottomDockContainer.trailingAnchor),
+            composerContainer.bottomAnchor.constraint(equalTo: bottomDockContainer.bottomAnchor),
+            composerHeight,
+            toolbarHeight,
+        ])
         layoutBottomDock()
-        layoutRenderedTerminalForCurrentViewport()
-        layoutZoomOverlay()
     }
 
-    /// Force a follow-up geometry sync shortly after the keyboard-hide layout
-    /// pass, so the terminal reliably returns to full height even if the first
-    /// sync read a stale safe-area inset or its display-link frame was dropped.
-    ///
-    /// Runs on the main queue (one runloop later, after UIKit has applied the
-    /// keyboard-hide layout) and only while the keyboard is still down and the
-    /// view is on a window, so a fast hide/show flicker does not re-shrink the
-    /// grid. `setNeedsGeometrySync` itself applies directly when the display link
-    /// is stopped, so this guarantees an APPLIED sync, not just a queued one.
-    private func scheduleKeyboardHideHeightResync() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.window != nil, self.keyboardHeight == 0 else { return }
-            self.setNeedsGeometrySync()
+    /// Moves the visual dock into the host that owns keyboard presentation.
+    /// Returns the sole dock-bottom constraint for that host.
+    func moveBottomDock(to host: UIView) -> NSLayoutConstraint {
+        if host === bottomDockHostView, let bottomDockToKeyboardConstraint {
+            return bottomDockToKeyboardConstraint
+        }
+        NSLayoutConstraint.deactivate(bottomDockHostConstraints)
+        bottomDockContainer.removeFromSuperview()
+        host.addSubview(bottomDockContainer)
+
+        let dockBottom = bottomDockContainer.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+        dockBottom.constant = -keyboardOccupancyInBounds
+        let hostConstraints = [
+            bottomDockContainer.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            bottomDockContainer.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            dockBottom,
+        ]
+        bottomDockToKeyboardConstraint = dockBottom
+        bottomDockHostConstraints = hostConstraints
+        bottomDockHostView = host
+        NSLayoutConstraint.activate(hostConstraints)
+        host.setNeedsLayout()
+        return dockBottom
+    }
+
+    var hostedBottomDockTopAnchor: NSLayoutYAxisAnchor {
+        bottomDockContainer.topAnchor
+    }
+
+    var hostedBottomDockBottomAnchor: NSLayoutYAxisAnchor {
+        bottomDockContainer.bottomAnchor
+    }
+
+    var hostedBottomDockFrame: CGRect {
+        bottomDockContainer.frame
+    }
+
+    /// Strips keyboard-motion animations after a window detach so a reattach
+    /// during a transition cannot resume a stale leg from the old window.
+    func removeHostedBottomDockAnimations() {
+        bottomDockContainer.layer.removeAllAnimations()
+    }
+
+    var hostedKeyboardHeight: CGFloat { keyboardHeight }
+
+    /// Whether the current keyboard leg already committed its announced final
+    /// alternate-screen target. The host uses this to avoid holding the pane
+    /// on the old grid while the target grid is already being rendered.
+    var hostedKeyboardGeometryTargetPrepared: Bool {
+        keyboardGeometryTargetPrepared
+    }
+
+    var hostedChromeHidden: Bool { chromeHidden }
+
+    /// Host-driven geometry resync for inputs the surface cannot observe
+    /// itself: the grid container reads the WINDOW's bottom safe-area inset
+    /// (the slid surface's own inset is a meaningless 0), and a window-level
+    /// inset change does not fire this surface's `safeAreaInsetsDidChange`
+    /// or change its bounds.
+    func hostRequestsGeometrySync() {
+        setNeedsGeometrySync()
+    }
+
+    /// Reassert the host viewport after a foreground reconnect. The local
+    /// output stream may survive while the Mac drops its sticky viewport
+    /// lease, so an alternate-screen surface needs a fresh report and layout
+    /// pass before it can safely render again.
+    public func requestForegroundViewportRefresh() {
+        requestViewportReportForMount()
+        setNeedsGeometrySync(reassertNaturalSize: true)
+    }
+
+    /// True while the mirrored terminal is on the ALTERNATE screen (a
+    /// full-screen TUI that owns the whole grid). Injected by the hosting
+    /// representable from the shell store; the keyboard blank-space
+    /// absorption is disabled then, because a TUI's cursor position says
+    /// nothing about which rows are safe to cover.
+    public var hostedAltScreenActive = false {
+        didSet {
+            guard hostedAltScreenActive != oldValue else { return }
+            if !hostedAltScreenActive || useLegacyTerminalSizing {
+                committedKeyboardHeight = 0
+            } else if !keyboardTransitionActiveForGeometry {
+                committedKeyboardHeight = max(0, keyboardHeight)
+            }
+            clearHostedScrollTopReveal()
+            resetAlternateScreenGeometryFence()
+            layoutRenderedTerminalForCurrentViewport()
+            setNeedsGeometrySync()
+            bottomDockHostView?.setNeedsLayout()
         }
     }
+
+    private var alternateScreenSizingEnabled: Bool {
+        hostedAltScreenActive && !useLegacyTerminalSizing
+    }
+
+    /// Rows of the visible viewport that contain content, measured from the
+    /// rendered screen text on the serial output queue (see `processOutput`).
+    /// The cursor row alone is NOT a content proxy: apps like Claude Code
+    /// draw UI rows BELOW the cursor (input-box border, shortcut hints), and
+    /// covering them with the keyboard hid real content.
+    var hostedContentBottomRowCount: Int?
+
+    /// Points of blank render below the content bottom, or nil when it
+    /// cannot be trusted (alternate screen, nothing measured yet, no render).
+    /// Content bottom is the LOWER of the last non-blank screen row and the
+    /// cursor row (the cursor can sit on a blank line below the last text).
+    /// The host lets this blank band absorb the keyboard intrusion before
+    /// the render slides: a mostly-empty screen stays top-pinned under the
+    /// navigation bar and the keyboard covers only blank rows.
+    var hostedBlankBelowContent: CGFloat? {
+        guard !hostedAltScreenActive, !lastRenderRect.isEmpty else { return nil }
+        let cellHeight = cellPixelSize.height / max(preferredScreenScale, 1)
+        let rowsBottom: CGFloat? = hostedContentBottomRowCount.flatMap { rows in
+            cellHeight > 0 ? CGFloat(rows) * cellHeight : nil
+        }
+        let cursorBottom = cursorBottomInRenderPoints()
+        var contentBottom: CGFloat?
+        switch (rowsBottom, cursorBottom) {
+        case let (.some(rows), .some(cursor)): contentBottom = max(rows, cursor)
+        case let (.some(rows), nil): contentBottom = rows
+        case let (nil, .some(cursor)): contentBottom = cursor
+        case (nil, nil): contentBottom = nil
+        }
+        guard let contentBottom else { return nil }
+        return max(0, lastRenderRect.height - contentBottom)
+    }
+
+    /// Schedules an immediate off-main content-bottom measurement, bypassing
+    /// the output-driven throttle, so a keyboard raise never computes its
+    /// blank-space absorption from a stale row count (content written or
+    /// cleared just before the raise, with no output since).
+    func refreshHostedContentBottomNow() {
+        guard let surface, !isDismantled else { return }
+        let workQueue = outputQueue
+        let generation = surfaceGeneration
+        workQueue.async { [weak self] in
+            workQueue.lastContentBottomTime = CACurrentMediaTime()
+            guard let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
+                  viewportText.utf8.count <= 131_072 else { return }
+            let rows = Self.contentRowCount(inViewportText: viewportText)
+            DispatchQueue.main.async {
+                guard let self, self.surfaceGeneration == generation else { return }
+                if rows != self.hostedContentBottomRowCount {
+                    MobileDebugLog.anchormux(
+                        "kb.contentRows \(self.hostedContentBottomRowCount.map(String.init) ?? "nil")->\(rows) at-raise"
+                    )
+                }
+                self.hostedContentBottomRowCount = rows
+            }
+        }
+    }
+
+    /// The number of viewport rows up to and including the last row with any
+    /// non-whitespace content. Pure text scan, safe off the main actor.
+    nonisolated static func contentRowCount(inViewportText text: String) -> Int {
+        var lastNonBlank = 0
+        var row = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            row += 1
+            if !line.allSatisfy(\.isWhitespace) {
+                lastNonBlank = row
+            }
+        }
+        return lastNonBlank
+    }
+
+    /// The cursor's bottom edge in render-local points (the coordinate space
+    /// of `lastRenderRect.size`), or nil when not measurable. A non-blocking
+    /// `ghostty_surface_ime_point` query; Ghostty remains the sole cursor
+    /// renderer.
+    private func cursorBottomInRenderPoints() -> CGFloat? {
+        guard let surface else { return nil }
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = 0
+        var height: Double = 0
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        guard y > 0 else { return nil }
+        return CGFloat(y)
+    }
+
+    /// The steady-state bottom chrome band in points: what
+    /// `renderWrapper.bottom` must sit BELOW the dock top so the full-height
+    /// render's bottom edge lands `hostedDockSeamPadding` above the dock top
+    /// (composer bar) — the grid container reserves that seam, so this
+    /// matches `bounds.height - layoutViewportRect.height - hostedDockSeamPadding`
+    /// by construction and never contains the keyboard.
+    var hostedBottomChromeReservation: CGFloat {
+        chromeHidden
+            ? 0
+            : max(0, composerBandHeight) + reservedToolbarHeight + safeAreaInsetsBottom
+    }
+
+    /// The seam the grid container reserves above the dock while the chrome
+    /// is visible: the render's bottom edge lands this many points above the
+    /// dock top instead of flush against the toolbar.
+    var hostedDockSeamPadding: CGFloat {
+        chromeHidden ? 0 : TerminalLetterboxGeometry.dockSeamPadding
+    }
+
+    func hostedBottomReservation(
+        keyboardHeight: CGFloat,
+        bottomSafeAreaInset: CGFloat
+    ) -> CGFloat {
+        chromeHidden
+            ? max(0, keyboardHeight)
+            : TerminalLetterboxGeometry.keyboardOccupancy(
+                keyboardHeight: keyboardHeight,
+                bottomSafeAreaInset: bottomSafeAreaInset
+            )
+    }
+
+    /// Points of scroll-top reveal the pixel-scroll axis has granted: how far
+    /// the host slides the bottom-pinned render back down so the rows the
+    /// keyboard-up presentation clips above the screen become visible. Read
+    /// per frame by the host's content cap alongside the blank band.
+    var hostedScrollTopReveal: CGFloat {
+        CGFloat(localPixelScrollState.withLock { $0.topRevealPx }) / max(preferredScreenScale, 1)
+    }
+
+    /// The scroll-top reveal budget in points: how much of the full-height
+    /// render the keyboard-up bottom-pin clips above the screen once the
+    /// blank band's absorption is spent. Zero with the keyboard down. This is
+    /// exactly how far the render may slide back down before it reaches its
+    /// natural (keyboard-down) position, so a full reveal never over-rotates
+    /// past the natural cap.
+    var hostedScrollTopRevealBudget: CGFloat {
+        guard !alternateScreenSizingEnabled else { return 0 }
+        let inset = safeAreaInsetsBottom
+        let intrusion = hostedBottomReservation(
+            keyboardHeight: keyboardHeight,
+            bottomSafeAreaInset: inset
+        ) - hostedBottomReservation(keyboardHeight: 0, bottomSafeAreaInset: inset)
+        guard intrusion > 0 else { return 0 }
+        return max(0, intrusion - (hostedBlankBelowContent ?? 0))
+    }
+
+    /// The reveal budget in device pixels, the pixel-scroll batch's unit
+    /// (captured on the main actor at pump time, alongside the epoch).
+    var hostedScrollTopRevealBudgetPx: Double {
+        Double(hostedScrollTopRevealBudget * max(preferredScreenScale, 1))
+    }
+
+    /// Drops any granted reveal. Called on every keyboard leg: the budget
+    /// the reveal was granted against changes with the keyboard, and a stale
+    /// reveal on the next raise would cover the newest rows the user never
+    /// scrolled away from.
+    ///
+    /// A nonzero reveal clears like every other pixel-authority clear, with
+    /// an epoch bump, so a batch already in flight (whose captured budget
+    /// predates this keyboard leg) cannot re-commit the cleared reveal after
+    /// the leg seats the cap. Dropping the held anchor is free here: reveal
+    /// is only ever granted at scrollback-top, where the anchor is
+    /// (row 0, position 0) and the live viewport says the same thing. When
+    /// no reveal is granted (the common keyboard toggle) this is a no-op so
+    /// an active gesture's scroll authority is never perturbed.
+    func clearHostedScrollTopReveal() {
+        localPixelScrollState.withLock {
+            guard $0.topRevealPx != 0 else { return }
+            $0.epoch &+= 1
+            $0.remainderPx = 0
+            $0.lastApplied = nil
+            $0.topRevealPx = 0
+        }
+    }
+
+    func hostedTerminalPresentationBottom(in host: UIView) -> CGFloat? {
+        let hostLayer = host.layer.presentation() ?? host.layer
+        if let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) {
+            let source = renderer.presentation() ?? renderer
+            // The layer extends past the grid by the bottom scroll-edge
+            // band; the presentation contract is about the GRID's bottom
+            // edge (the content that must ride the dock).
+            return source.convert(
+                CGPoint(
+                    x: source.bounds.midX,
+                    y: source.bounds.maxY - appliedRenderBottomInsetPts
+                ),
+                to: hostLayer
+            ).y
+        }
+        let source = layer.presentation() ?? layer
+        return source.convert(
+            CGPoint(
+                x: bounds.midX,
+                y: lastRenderRect.isEmpty ? terminalViewportRect.maxY : lastRenderRect.maxY
+            ),
+            to: hostLayer
+        ).y
+    }
+
+    func hostedBottomDockPresentationTop(in host: UIView) -> CGFloat? {
+        guard bottomDockContainer.superview != nil else { return nil }
+        let source = bottomDockContainer.layer.presentation() ?? bottomDockContainer.layer
+        let hostLayer = host.layer.presentation() ?? host.layer
+        return source.convert(
+            CGPoint(x: source.bounds.midX, y: source.bounds.minY),
+            to: hostLayer
+        ).y
+    }
+
+    #if DEBUG
+    /// Switches the dock to a synthetic bottom anchor for host tests and previews.
+    private func setKeyboardHeightOverrideForTesting(_ height: CGFloat) {
+        let clamped = max(0, height)
+        keyboardHeightOverrideForTesting = clamped
+        keyboardHeight = clamped
+        bottomDockToKeyboardConstraint?.constant = -TerminalLetterboxGeometry.keyboardOccupancy(
+            keyboardHeight: clamped,
+            bottomSafeAreaInset: safeAreaInsetsBottom
+        )
+    }
+    #endif
 
     #if DEBUG
     /// Test seam: force a synthetic keyboard height so the keyboard-up layout
@@ -964,15 +1982,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the software keyboard. Drives the exact same geometry path as a real
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
+        setKeyboardHeightOverrideForTesting(height)
+        setHostedKeyboardTransitionActive(false)
         keyboardVisible = height > 0
         inputProxy.setKeyboardShown(keyboardVisible)
-        keyboardHeight = max(0, height)
         // Mirror the live keyboard-tied visibility so the preview shows the bar
         // only when the synthetic keyboard is "up".
         updateDockedToolbarVisibility()
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
+        layoutBottomDockHierarchyIfNeeded()
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -986,14 +2005,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     #endif
 
-    /// Dock the accessory bar as a persistent bottom toolbar. Frame-positioned
-    /// (not `keyboardLayoutGuide`-pinned) so it uses the exact same bottom
-    /// occupancy as the grid reservation and the two never disagree. The grid
-    /// reserves its height (see `reservedToolbarHeight`) so the bottom TUI rows
-    /// stay visible above it.
+    /// Dock the accessory bar as a persistent bottom toolbar. Auto Layout pins it
+    /// through the composer container to ``UIView/keyboardLayoutGuide``; the viewport
+    /// coordinator consumes the same guide-derived overlap for the terminal grid.
     private func installPersistentToolbar() {
         let toolbar = inputProxy.toolbarView
-        addSubview(toolbar)
+        bottomDockContainer.addSubview(toolbar)
         dockedToolbar = toolbar
         // Raise the toolbar above the Ghostty renderer's own sublayer (which it
         // inserts directly into `self.layer`), so a dragged/lifted Liquid-Glass button
@@ -1004,25 +2021,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // is visible above the strip.
         toolbar.layer.zPosition = Self.bottomChromeZPosition
         toolbar.clipsToBounds = false
+        // The toggle glyph reflects the CURRENT model, not just future
+        // transitions — a toolbar (re)installed mid-session must not lie
+        // until the next keyboard event.
+        inputProxy.setKeyboardShown(keyboardVisible)
         updateDockedToolbarVisibility()
-        layoutBottomDock()
     }
 
     /// Layer `zPosition` for the bottom chrome (toolbar + composer band), placing it
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
-    /// Floats above dock chrome and terminal content while yielding to the zoom HUD.
-    private static let artifactChipZPosition: CGFloat = 1050
+    /// Floats above dock chrome, terminal content, AND the verified-replay
+    /// frozen presentation (zPosition 2000). The freeze copies only renderer
+    /// pixels, so anything below it blinks out for the length of every
+    /// freeze/reveal transaction — one ~40-90ms chip blink per output burst
+    /// while an agent streams. Zoom-HUD conflicts are handled by the
+    /// `zoomOverlayShown` visibility gate, not by z-order.
+    private static let artifactChipZPosition: CGFloat = 2050
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
     ///
     /// Round 8 makes the toolbar ALWAYS visible — terminal mode, composer mode,
     /// keyboard up AND down — so the only thing that hides it is the explicit HIDE
-    /// button (``chromeHidden``). The toolbar is no longer keyboard-tied. When the
+    /// button (``chromeHidden``). When the
     /// keyboard is down the toolbar (and any open composer) ride above the bottom
-    /// safe area instead of disappearing; see ``bottomChromeInset``.
+    /// safe area through the keyboard guide's default fallback.
     private var dockedToolbarShouldBeVisible: Bool {
         !chromeHidden
     }
@@ -1041,7 +2066,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (Round 8), so it must clear the bottom safe area (home indicator) rather than
     /// sit flush on the screen edge — this returns ``safeAreaInsetsBottom`` then. The
     /// composer band and toolbar stack ABOVE this inset; the grid reserves it too.
-    /// Used by ``bottomDockFrames()`` and the grid reservation.
+    /// Used by the viewport coordinator and grid reservation.
     private var keyboardOccupancyInBounds: CGFloat {
         TerminalLetterboxGeometry.keyboardOccupancy(
             keyboardHeight: keyboardHeight,
@@ -1058,11 +2083,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var terminalViewportHeight: CGFloat {
-        let snapshot = viewportSnapshot()
-        return snapshot.renderViewportRect(
-            forRenderSize: lastRenderRect.size,
-            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
-        ).height
+        viewportSnapshot().layoutViewportRect.height
     }
 
     var terminalViewportRect: CGRect {
@@ -1073,21 +2094,81 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportCoordinator.snapshot(inputs: TerminalViewportInputs(
             bounds: bounds.size,
             keyboardHeight: keyboardHeight,
+            gridKeyboardHeight: alternateScreenSizingEnabled ? committedKeyboardHeight : 0,
             composerBandHeight: composerBandHeight,
             reservedToolbarHeight: reservedToolbarHeight,
             toolbarFrameHeight: Self.persistentToolbarHeight,
             bottomSafeAreaInset: safeAreaInsetsBottom,
             chromeHidden: chromeHidden,
-            chromeVisible: dockedToolbarShouldBeVisible && dockedToolbar?.isHidden == false,
-            toolbarFrame: dockedToolbar?.frame,
-            toolbarPresentationFrame: dockedToolbar?.layer.presentation()?.frame
+            topContentInset: topContentInset
         ))
     }
 
-    private func shouldClampStaleLiveViewport(using snapshot: TerminalViewportSnapshot) -> Bool {
-        guard lastRenderHasSourceLayoutViewport,
-              let height = lastRenderLayoutViewportHeight else { return false }
-        return abs(height - snapshot.layoutViewportRect.height) <= 1
+    /// The top safe-area band this surface underlaps for the scroll-edge
+    /// band (0 when the surface does not extend under the top bar). Pushed
+    /// by the hosting representable from SwiftUI-captured geometry: the
+    /// UIKit `safeAreaInsets.top` reads 0 once the SwiftUI hierarchy ignores
+    /// the top container edge, so the value must be captured outside that
+    /// expansion and forwarded here.
+    private(set) var topContentInset: CGFloat = 0
+
+    /// The band heights actually applied to the libghostty surface by the
+    /// last geometry pass, pixel-aligned. The render layer is sized with
+    /// THESE values (not the live inputs) so the layer always matches the
+    /// exact pixel extent the renderer drew; changed insets converge
+    /// through the next geometry pass.
+    private(set) var appliedRenderTopInsetPts: CGFloat = 0
+    private var appliedRenderBottomInsetPts: CGFloat = 0
+
+    public func setTopContentInset(_ inset: CGFloat) {
+        let clamped = max(0, inset)
+        guard abs(clamped - topContentInset) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "scrolledge.topInset \(Int(topContentInset))->\(Int(clamped))"
+        )
+        topContentInset = clamped
+        let snapshot = viewportSnapshot()
+        layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
+        setNeedsGeometrySync()
+        setNeedsLayout()
+        // The host owns the screen-anchored scroll-edge fade sized by this
+        // inset; its layout does not follow from this view's.
+        bottomDockHostView?.setNeedsLayout()
+    }
+
+    /// The render layer rect: the grid render rect grown upward and
+    /// downward by the applied scroll-edge bands, matching the surface's
+    /// inflated drawable.
+    private func rendererLayerRect(forGridRenderRect renderRect: CGRect) -> CGRect {
+        let top = appliedRenderTopInsetPts
+        let bottom = appliedRenderBottomInsetPts
+        guard top > 0 || bottom > 0 else { return renderRect }
+        return CGRect(
+            x: renderRect.minX,
+            y: renderRect.minY - top,
+            width: renderRect.width,
+            height: renderRect.height + top + bottom
+        )
+    }
+
+    /// Screen-anchored scroll-edge fade: rows dissolve into the terminal
+    /// background as they pass under the (glass) navigation bar. Owned by
+    /// the HOST's keyboard-invariant chrome space (like the dock): the
+    /// render wrapper slides for the keyboard, the under-bar fade must not.
+    /// The host reads the live band height through this hook.
+    var hostedScrollEdgeFadeHeight: CGFloat {
+        topContentInset
+    }
+
+    /// Whether the dock-anchored bottom scroll-edge fade should show: the
+    /// band feature is on (a nonzero top inset is its enablement signal)
+    /// and the bottom chrome is visible to fade under. The bottom band
+    /// itself rides the grid bottom, which the constraint system glues to
+    /// the dock, so the fade's geometry lives entirely in dock-anchored
+    /// constraints.
+    var hostedBottomScrollEdgeFadeActive: Bool {
+        topContentInset > 0 && !chromeHidden
     }
 
     private func layoutRenderedTerminalForCurrentViewport() {
@@ -1097,36 +2178,71 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func layoutRenderedTerminalForCurrentViewport(using snapshot: TerminalViewportSnapshot) {
         snapshotFallbackView.frame = snapshot.layoutViewportRect
         layoutVerifiedReplayFrozenPresentation(viewportRect: snapshot.layoutViewportRect)
+        enforceKeyboardTransitionPresentationHold()
         guard !lastRenderRect.isEmpty else { return }
-        let renderRect = snapshot.renderRect(
-            forRenderSize: lastRenderRect.size,
-            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
-        )
+        let renderRect = snapshot.renderRect(forRenderSize: lastRenderRect.size)
         guard renderRect != lastRenderRect else { return }
+        MobileDebugLog.anchormux(
+            "kb.renderRect \(Int(lastRenderRect.minY))->\(Int(renderRect.minY)) h=\(Int(renderRect.height))"
+        )
         lastRenderRect = renderRect
-        #if DEBUG
-        recordBottomViewportMismatchIfNeeded()
-        #endif
-        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: preferredScreenScale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
         )
-        updateCursorOverlay()
     }
 
     /// The bottom safe-area inset (home-indicator height) in this surface's bounds.
     ///
     /// The surface extends under the bottom safe area (the host applies
     /// `ignoresSafeArea(.container, .bottom)`), so when the keyboard is down the
-    /// always-visible toolbar must clear this much to avoid the home indicator. Reads
-    /// the view's own inset, falling back to the window's, because `safeAreaInsets`
-    /// can be zero before the view is on a window.
+    /// always-visible toolbar must clear this much to avoid the home indicator.
+    /// The window or captured outer inset owns the reservation: this surface
+    /// slides for the keyboard, so its local inset changes with presentation.
     private var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
+            ancestorInsets: safeAreaAncestorBottomInsets
         )
+    }
+
+    /// Safe-area value captured outside the SwiftUI subtree that intentionally
+    /// ignores the terminal's bottom container region. This stays as a
+    /// fallback for the window, ahead of this moving surface's local inset.
+    private var capturedBottomSafeAreaInset: CGFloat = 0
+
+    /// Updates the outer safe-area fallback and immediately re-seats the dock
+    /// and grid when the ignored SwiftUI subtree first reports its physical
+    /// bottom inset.
+    public func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
+        let next = max(0, inset)
+        guard abs(next - capturedBottomSafeAreaInset) > 0.25 else { return }
+        capturedBottomSafeAreaInset = next
+        layoutBottomDock(using: viewportSnapshot())
+        bottomDockHostView?.setNeedsLayout()
+        setNeedsGeometrySync()
+    }
+
+    /// The terminal is deliberately mounted inside a SwiftUI subtree that
+    /// ignores the container's bottom safe area. In that arrangement the
+    /// surface and its immediate UIKit host can both report zero even though
+    /// an outer hosting container still carries the device inset. Keep the
+    /// fallback resolver aware of that chain, while leaving the window inset
+    /// authoritative whenever UIKit exposes it.
+    private var safeAreaAncestorBottomInsets: [CGFloat] {
+        var insets: [CGFloat] = []
+        var ancestor = superview
+        while let view = ancestor {
+            insets.append(view.safeAreaInsets.bottom)
+            ancestor = view.superview
+        }
+        return insets
     }
 
     /// Reconcile the docked bar's visibility (and its reserved grid height) with
@@ -1140,8 +2256,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         dockedToolbar?.isHidden = !shouldShow
         // The composer band rides with the toolbar: hide it when the chrome is
         // suppressed, show it again when the chrome returns and a field is mounted.
-        // Its frame already collapses to `.zero` while hidden (see
-        // ``bottomDockFrames()``); toggling `isHidden` also stops it intercepting taps.
+        // Its height constraint already collapses to zero while hidden; toggling
+        // `isHidden` also stops it intercepting taps.
         composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
         layoutRenderedTerminalForCurrentViewport()
@@ -1157,23 +2273,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// only makes sense as "clear all chrome to see the full terminal", which requires
     /// resigning the keyboard too. `isComposerPresented` is left untouched, so the
     /// composer (and its draft) reappear intact on the next terminal tap
-    /// (``handleTap``). Animated on the keyboard curve via ``animateBottomDock``.
-    private func setChromeHidden(_ hidden: Bool) {
+    /// (``handleTap``). UIKit animates keyboard movement through its layout guide;
+    /// ``animateBottomDock`` handles only the chrome-height change.
+    /// Internal (not private) so behavior tests can drive the chrome-hidden
+    /// dock seat via @testable import instead of a shipped test seam.
+    func setChromeHidden(_ hidden: Bool) {
         guard chromeHidden != hidden else { return }
         chromeHidden = hidden
         if hidden, keyboardVisible {
-            // Drop the keyboard first; its hide notification re-seats the dock, then
-            // the visibility update below removes the toolbar/composer. Resign
+            // Drop the keyboard first; its layout guide re-seats the dock while the
+            // visibility update below removes the toolbar/composer. Resign
             // whichever responder actually owns the keyboard — the band can be
             // presented while the terminal's hidden input proxy (a sibling of
             // `composerContainer`) holds first responder, so gating on
             // `composerActive` alone would leave the keyboard up while the chrome
             // hides.
-            if inputProxy.isFirstResponder {
-                resignInput()
-            } else {
-                composerContainer.endEditing(true)
-            }
+            resignCurrentInput()
         }
         updateDockedToolbarVisibility()
         if hidden {
@@ -1240,10 +2355,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // host animates the band height back to 0 (with the field still mounted, item
             // 3), so the band shrink reads as one motion; do NOT snap it to 0 here or that
             // pre-empts the animation.
-            if keyboardVisible, window != nil, !isDismantled, !inputProxy.isFirstResponder {
-                Self.activeInputSurface = self
-                inputProxy.updateAccessoryLayoutInsets()
-                inputProxy.becomeFirstResponder()
+            if keyboardVisible, window != nil, !isDismantled {
+                requestTerminalInputFocus()
+            } else {
+                inputSession.send(.releaseFocus)
             }
         }
         // The toolbar's visibility and reserved height do not change with the composer
@@ -1258,16 +2373,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // device dogfood pass conclusive about whether the bar stays visible and
         // docks correctly while composing, since the simulator cannot show the
         // keyboard. Records the state that decides the bar's frame.
-        let barFrame = dockedToolbar?.frame ?? .zero
+        let barFrame = dockedToolbarFrameInSurface ?? .zero
         MobileDebugLog.anchormux(
             "composer.toggle active=\(active) keyboardHeight=\(Int(keyboardHeight)) occInBounds=\(Int(keyboardOccupancyInBounds)) barHidden=\(dockedToolbar?.isHidden ?? true) barY=\(Int(barFrame.minY)) barH=\(Int(barFrame.height)) boundsH=\(Int(bounds.height))"
         )
-        // COMPOSER: structured event for the item-4 edge case (composer shown while
-        // textbox/keyboard hidden). Captures the composer-active transition plus the
-        // resolved first-responder owner and keyboardHeight at that instant, into the
-        // same sink the round-4 composer flag/appear/focus events use. With these,
-        // a captured trace shows whether the composer ever ends up active with the
-        // FR owned by no terminal/composer responder and keyboardHeight 0.
+        #endif
+        // This structured transition contains only booleans, a bounded height,
+        // and a fixed responder category, so it remains safe in Release logs.
         let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
         diagnosticLog?.record(DiagnosticEvent(
             .composerActiveTransition,
@@ -1276,7 +2388,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             b: frOwner.rawValue,
             c: inputProxy.isFirstResponder ? 1 : 0
         ))
-        #endif
     }
 
     /// Whether the composer's hosted field currently holds first responder.
@@ -1320,7 +2431,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastComposerDockIntent = intent
         #endif
         switch intent {
-        case .openComposer, .closeComposer:
+        case .openComposer:
             // Optimistically flip the local mirror to the intent's outcome BEFORE
             // the store round-trip. `composerActive` is otherwise synced back via
             // SwiftUI's `updateUIView`, which runs a render pass after the store
@@ -1329,45 +2440,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // dismiss the composer the first tap just presented. The authoritative
             // sync still arrives via `setComposerActive` (idempotent when the
             // optimistic value already matches).
-            setComposerActive(intent == .openComposer)
+            setComposerActive(true)
+            requestComposerInputFocus()
+            delegate?.ghosttySurfaceViewDidRequestComposerToggle(self)
+        case .closeComposer:
+            setComposerActive(false)
             delegate?.ghosttySurfaceViewDidRequestComposerToggle(self)
         case .revealAndFocusComposer:
             if chromeHidden {
                 setChromeHidden(false)
             }
             delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
-            focusMountedComposerField()
-        }
-    }
-
-    /// Deterministic UIKit focus for an already-mounted composer band.
-    ///
-    /// The store handshake (`composerFocusRequest`) drives the SwiftUI field's
-    /// `@FocusState`, but a programmatic `@FocusState` set inside a hosting
-    /// controller whose view is frame-mounted into the band can be dropped
-    /// (observed as a device-dependent flake: the request is consumed yet the
-    /// field never becomes first responder). After asking the host to focus,
-    /// drive the band's backing text input to first responder directly on the
-    /// next runloop hop; SwiftUI mirrors UIKit first responder back into
-    /// `@FocusState`, so the store's focus mirror stays consistent. A no-op
-    /// when the band is unmounted (the fresh-mount path focuses via the
-    /// consumed request in `onAppear`) or the field already holds focus.
-    private func focusMountedComposerField() {
-        Task { @MainActor [weak self] in
-            guard let self,
-                  self.composerActive,
-                  !self.composerFieldIsFirstResponder,
-                  let input = self.composerContainer.firstFocusableTextInputInSubtree() else { return }
-            input.becomeFirstResponder()
+            requestComposerInputFocus()
         }
     }
 
     /// Install the composer band container into the surface's view hierarchy, above
     /// the docked toolbar. Hidden and zero-height until the host mounts a compose
     /// field into it (``mountComposerView(_:)``); the surface positions it in
-    /// ``layoutBottomDock()`` and reserves its height in the grid. Frame-positioned
-    /// (`translatesAutoresizingMaskIntoConstraints = true`) like the docked toolbar so
-    /// the whole bottom dock shares one coordinate system.
+    /// ``layoutBottomDock()`` and reserves its height in the grid. Auto Layout pins its
+    /// bottom to ``UIView/keyboardLayoutGuide`` and pins the toolbar above it, so UIKit
+    /// and the viewport coordinator share one keyboard edge.
     private func installComposerContainer() {
         composerContainer.backgroundColor = .clear
         composerContainer.isHidden = true
@@ -1377,8 +2470,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // z-position as the toolbar.
         composerContainer.clipsToBounds = false
         composerContainer.layer.zPosition = Self.bottomChromeZPosition
-        addSubview(composerContainer)
-        layoutBottomDock()
+        bottomDockContainer.addSubview(composerContainer)
     }
 
     /// Mounts the host-built artifact chip inside the terminal's bottom-dock
@@ -1389,20 +2481,68 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - animated: Whether visibility changes should fade and slide.
     public func mountArtifactChipView(_ view: UIView?, animated: Bool) {
         artifactChipHost.setContent(view)
-        layoutArtifactChip(using: viewportSnapshot())
         updateArtifactChipVisibility(animated: animated)
     }
 
     private func installArtifactChipContainer() {
         artifactChipHost.install(in: self, zPosition: Self.artifactChipZPosition)
+        installArtifactChipAccessibilityObservers()
     }
 
-    private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
-        artifactChipHost.layout(in: bounds, topInset: safeAreaInsets.top)
+    /// The scroll-reveal gate is bypassed while VoiceOver or Switch Control
+    /// runs; without observing their status changes, enabling one over an
+    /// idle terminal would leave the only Files control hidden until some
+    /// unrelated visibility update. Registered once with the chip container;
+    /// block observers are removed automatically when the tokens deallocate
+    /// with the view.
+    private var artifactChipAccessibilityObserverTokens: [NSObjectProtocol] = []
+
+    private func installArtifactChipAccessibilityObservers() {
+        guard artifactChipAccessibilityObserverTokens.isEmpty else { return }
+        let names: [Notification.Name] = [
+            UIAccessibility.voiceOverStatusDidChangeNotification,
+            UIAccessibility.switchControlStatusDidChangeNotification,
+        ]
+        artifactChipAccessibilityObserverTokens = names.map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateArtifactChipVisibility(animated: true)
+                }
+            }
+        }
+    }
+
+    /// Re-homes the artifact chip container into the host's keyboard-invariant
+    /// chrome coordinate space — the same adoption ``moveBottomDock(to:)``
+    /// performs for the dock. The keyboard slides the render wrapper (and this
+    /// surface with it), never the host, so a chip anchored in host space
+    /// stays at the terminal's visible top edge through every keyboard leg
+    /// with no keyboard math of its own.
+    func moveArtifactChip(to host: UIView) {
+        artifactChipHost.install(in: host, zPosition: Self.artifactChipZPosition)
+    }
+
+    /// The view whose bounds match the SwiftUI representable that presents
+    /// the artifact-files popover: the adopting host once the chrome is
+    /// re-homed, else this surface. Popover anchors normalized against the
+    /// sliding surface would drift downward by the keyboard slide.
+    public var artifactChipAnchorReferenceView: UIView {
+        bottomDockHostView ?? self
     }
 
     private var artifactChipShouldBeVisible: Bool {
         artifactChipHost.isRequestedVisible
+            // Assistive technologies cannot reasonably perform a scroll to
+            // reveal the only Files control, and the host hides its
+            // accessibility descendants while invisible — so the transient
+            // reveal is bypassed whenever VoiceOver or Switch Control runs.
+            && (artifactChipScrollRevealed
+                || UIAccessibility.isVoiceOverRunning
+                || UIAccessibility.isSwitchControlRunning)
             && dockedToolbarShouldBeVisible
             && dockedToolbar?.isHidden == false
             && !zoomOverlayShown
@@ -1415,17 +2555,84 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    /// The chip is scroll-revealed: hidden at rest, shown while the user
+    /// scrolls, and faded out after a short linger once scrolling settles —
+    /// scrollbar-style, so it never sits over terminal content the user is
+    /// reading. Mount state (whether there are files to show) is orthogonal
+    /// and owned by the host content above.
+    private var artifactChipScrollRevealed = false
+    private var artifactChipRevealHideTask: Task<Void, Never>?
+    /// Injected so the linger is testable and cancellable
+    /// (`DispatchQueue.asyncAfter` is banned for intentional delays).
+    var artifactChipRevealClock: any Clock<Duration> = ContinuousClock()
+    /// How long the chip stays after the last scroll movement. Long enough to
+    /// move a thumb from mid-screen to the chip and tap it.
+    static let artifactChipRevealLinger: Duration = .seconds(2.2)
+
+    /// Reveals the chip for a movement delta. Runs on every scroll frame, so
+    /// it must do no task management: past the cheap guards it is a single
+    /// bool flip per gesture. The fade-out linger is armed only by the
+    /// drag-end/deceleration-end callbacks, and the user-driven guard keeps
+    /// programmatic offset changes (recentering, scroll-to-bottom) from
+    /// revealing a chip nobody is interacting with.
+    private func noteArtifactChipScrollActivity() {
+        // Deliberately NOT gated on mounted chip content: the scroll that
+        // brings the first file into view finishes before the settled scan
+        // mounts the chip, and the recorded reveal is what lets that mount
+        // become visible without a second scroll.
+        guard scrollMechanicsView.isTracking
+                || scrollMechanicsView.isDragging
+                || scrollMechanicsView.isDecelerating,
+              !artifactChipScrollRevealed else { return }
+        revealArtifactChipForScroll()
+    }
+
+    private func revealArtifactChipForScroll() {
+        artifactChipRevealHideTask?.cancel()
+        artifactChipRevealHideTask = nil
+        if !artifactChipScrollRevealed {
+            artifactChipScrollRevealed = true
+            updateArtifactChipVisibility(animated: true)
+        }
+    }
+
+    private func armArtifactChipRevealLinger() {
+        artifactChipRevealHideTask?.cancel()
+        artifactChipRevealHideTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await self.artifactChipRevealClock.sleep(
+                for: Self.artifactChipRevealLinger,
+                tolerance: nil
+            )
+            guard !Task.isCancelled else { return }
+            self.artifactChipRevealHideTask = nil
+            // A finger resting on the screen mid-drag produces no deltas;
+            // keep the chip up until the touch actually ends.
+            if self.scrollMechanicsView.isTracking {
+                self.armArtifactChipRevealLinger()
+                return
+            }
+            self.artifactChipScrollRevealed = false
+            self.updateArtifactChipVisibility(animated: true)
+        }
+    }
+
+    private func resetArtifactChipReveal() {
+        artifactChipRevealHideTask?.cancel()
+        artifactChipRevealHideTask = nil
+        artifactChipScrollRevealed = false
+    }
+
     /// Mount (or unmount, with `nil`) the host-built compose field into the surface's
     /// composer band. The terminal package cannot import the SwiftUI composer (that
     /// would invert the package DAG), so `GhosttySurfaceRepresentable` builds it in a
     /// `UIHostingController` and hands the controller's view here. The surface owns the
-    /// band's position and the grid reservation; the host owns the field's content and
+    /// band's height and grid reservation; the host owns the field's content and
     /// reports its measured height via ``setComposerBandHeight(_:animated:)``.
     ///
     /// The mounted view is pinned edge-to-edge inside the band with Auto Layout, so it
-    /// fills whatever height the surface frames the band to — there is no second layout
-    /// system fighting the surface for the band's frame (the band's own frame is set by
-    /// `layoutBottomDock()`).
+    /// fills the guide-pinned band — there is no second keyboard layout system fighting
+    /// the surface for the band's frame.
     public func mountComposerView(_ view: UIView?) {
         composerContainer.subviews.forEach { $0.removeFromSuperview() }
         guard let view else {
@@ -1441,14 +2648,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             view.bottomAnchor.constraint(equalTo: composerContainer.bottomAnchor),
         ])
         composerContainer.isHidden = false
+        composerContainer.layoutIfNeeded()
+        inputSession.send(.lifecycleBoundary)
     }
 
     /// Set the height (points) the open composer band reserves below the docked
     /// toolbar, from the hosted compose field's intrinsic content size. Drives the
     /// grid reservation (so a field-grow pushes only the terminal up) and the dock
-    /// layout. When `animated`, the reservation + reflow run inside a `UIView.animate`
-    /// using the keyboard curve so the height change reads as one smooth motion with
-    /// the rest of the dock (item 3/4). Idempotent: a no-op when the height is
+    /// layout. When `animated`, the reservation + reflow run inside a `UIView.animate`;
+    /// keyboard movement itself remains owned by ``UIView/keyboardLayoutGuide``.
+    /// Idempotent: a no-op when the height is
     /// unchanged (then `completion` runs immediately so an unmount-on-close never
     /// strands the mounted field).
     ///
@@ -1473,16 +2682,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.layoutRenderedTerminalForCurrentViewport()
             self.layoutBottomDock()
-            self.layoutIfNeeded()
+            self.layoutBottomDockHierarchyIfNeeded()
         }
         if animated {
-            UIView.animate(
-                withDuration: Self.composerReflowDuration,
-                delay: 0,
-                options: [.curveEaseInOut, .beginFromCurrentState],
-                animations: apply,
-                completion: { _ in completion?() }
-            )
+            animateDockReflow(animations: apply, completion: completion)
         } else {
             apply()
             completion?()
@@ -1490,44 +2693,103 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
     }
 
-    /// Duration (seconds) of the composer band grow/shrink reflow. Matches the system
-    /// keyboard's default animation duration so a field-grow reads as one smooth
-    /// motion with the dock; keyboard show/hide reflow samples the notification's
-    /// own curve/duration through ``startKeyboardHeightAnimation(to:transition:)``.
+    /// Duration (seconds) used for dock reflows when no keyboard transition is active.
     private static let composerReflowDuration: TimeInterval = 0.25
 
-    /// Position the composer band and docked toolbar from one viewport snapshot.
+    /// Toolbar geometry in the surface coordinate system. The toolbar is nested in
+    /// ``bottomDockContainer``, so its raw `frame` is container-relative.
+    private var dockedToolbarFrameInSurface: CGRect? {
+        guard let dockedToolbar, dockedToolbar.superview != nil else { return nil }
+        return dockedToolbar.convert(dockedToolbar.bounds, to: self)
+    }
+
+    /// Live toolbar geometry including the keyboard-driven presentation transform of
+    /// its parent dock. Renderer clipping consumes this rather than reconstructing a
+    /// keyboard animation from notification timing.
+    private var dockedToolbarPresentationFrameInSurface: CGRect? {
+        presentationFrameInSurface(of: dockedToolbar)
+    }
+
+    private func presentationFrameInSurface(of view: UIView?) -> CGRect? {
+        guard let view,
+              view.superview != nil,
+              let presentationLayer = view.layer.presentation() else { return nil }
+        let surfaceLayer = layer.presentation() ?? layer
+        return presentationLayer.convert(view.bounds, to: surfaceLayer)
+    }
+
+    #if DEBUG
+    private var currentInternalDockPresentationGap: CGFloat {
+        guard dockedToolbarShouldBeVisible,
+              dockedToolbar?.isHidden == false,
+              !composerContainer.isHidden,
+              let toolbarFrame = dockedToolbarPresentationFrameInSurface,
+              let composerFrame = presentationFrameInSurface(of: composerContainer),
+              toolbarFrame.height > 0.5,
+              composerFrame.height > 0.5 else { return 0 }
+        return abs(composerFrame.minY - toolbarFrame.maxY)
+    }
+
+    private func sampleInternalDockPresentationGap() {
+        maximumInternalDockPresentationGap = max(
+            maximumInternalDockPresentationGap,
+            currentInternalDockPresentationGap
+        )
+    }
+    #endif
+
+    /// Apply dock heights from the same snapshot the terminal viewport consumes.
     private func layoutBottomDock() {
         layoutBottomDock(using: viewportSnapshot())
     }
 
     private func layoutBottomDock(using snapshot: TerminalViewportSnapshot) {
-        composerContainer.frame = snapshot.composerFrame
-        dockedToolbar?.frame = snapshot.toolbarFrame
-        layoutArtifactChip(using: snapshot)
+        composerHeightConstraint?.constant = snapshot.composerFrame.height
+        toolbarHeightConstraint?.constant = min(
+            reservedToolbarHeight,
+            snapshot.toolbarFrame.height
+        )
     }
 
-    /// Animate the whole bottom dock (composer band + toolbar) to its current target
-    /// frames over the given duration/curve. Used by the HIDE/show and composer close
-    /// paths (item 3), which have no keyboard notification and so default to the system
-    /// keyboard duration + easeInOut so the motion still reads as one smooth coordinated
-    /// reflow. Real keyboard changes use the per-frame keyboard height owner, so the
-    /// exact UIKit keyboard transaction drives the dock.
-    private func animateBottomDock(
-        duration: TimeInterval = 0.25,
-        curveOption: UIView.AnimationOptions = .curveEaseInOut
-    ) {
-        let snapshot = viewportSnapshot()
-        let frames = (composer: snapshot.composerFrame, toolbar: snapshot.toolbarFrame)
-        UIView.animate(
-            withDuration: duration,
-            delay: 0,
-            options: [curveOption, .beginFromCurrentState]
-        ) { [weak self] in
-            self?.composerContainer.frame = frames.composer
-            self?.dockedToolbar?.frame = frames.toolbar
-            self?.layoutArtifactChip(using: snapshot)
+    /// Lays out the hierarchy that owns the dock constraints. Once the dock moves
+    /// into `GhosttySurfaceHostView`, laying out only the renderer cannot animate
+    /// composer or toolbar height changes because those constraints are siblings.
+    private func layoutBottomDockHierarchyIfNeeded() {
+        (bottomDockHostView ?? self).layoutIfNeeded()
+    }
+
+    /// Animate the whole bottom dock to its current target frames.
+    private func animateBottomDock() {
+        animateDockReflow { [weak self] in
+            guard let self else { return }
+            self.layoutBottomDock()
+            self.layoutBottomDockHierarchyIfNeeded()
+            self.layoutRenderedTerminalForCurrentViewport()
         }
+    }
+
+    /// Reflow composer-height changes without replacing UIKit's keyboard-guide motion.
+    private func animateDockReflow(
+        animations: @escaping () -> Void,
+        completion: (() -> Void)? = nil
+    ) {
+        dockReflowGeneration &+= 1
+        let generation = dockReflowGeneration
+        dockReflowActive = true
+        UIView.animate(
+            withDuration: Self.composerReflowDuration,
+            delay: 0,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
+            animations: animations,
+            completion: { [weak self] _ in
+                if let self, self.dockReflowGeneration == generation {
+                    self.dockReflowActive = false
+                    self.resetAlternateScreenGeometryFence()
+                    self.setNeedsGeometrySync()
+                }
+                completion?()
+            }
+        )
     }
 
     private var pinchAccumulatedScale: CGFloat = 1.0
@@ -1557,20 +2819,97 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollMechanicsIsRecentering = false
     }
 
-    private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
+    /// Accumulates one native scroll delta for the display-link flush.
+    ///
+    /// The scroll view callback is the production caller. Keeping this method
+    /// internal also lets the terminal package exercise the real accumulation
+    /// path with `@testable import`, without adding a debug-only production
+    /// entrypoint.
+    func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
         // The transparent UIScrollView supplies native iOS tracking,
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
+        let interactionGeneration = recordUserViewportScrollInteraction()
+        // User-driven movement reveals the chip; this is guard-only work per
+        // frame (the linger is armed by the gesture-end callbacks).
+        noteArtifactChipScrollActivity()
+        // One wheel line per cell-height of finger travel: alt-screen content
+        // tracks the finger 1:1 in row units, the same pixels/cell-height
+        // conversion macOS ghostty applies to precise trackpad deltas. The
+        // 14pt fallback stands in for a typical cell height until metrics
+        // land.
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
-        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
+        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) : 14
         pendingScrollLines += -Double(deltaY) / divisor
+        // Same direction in device pixels: the pixel position is the viewport
+        // top's distance from the top of scrollback, so a finger drag DOWN
+        // (negative deltaY, positive lines, older content) decreases it.
+        pendingScrollPixels += Double(deltaY) * Double(max(preferredScreenScale, 1))
         pendingScrollCell = scrollCell(at: touchPoint)
+        pendingScrollInteractionGeneration = interactionGeneration
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
+    /// The same coalesced deltas in device pixels for the pixel-precise local path.
+    private var pendingScrollPixels: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    private var pendingScrollInteractionGeneration: UInt64?
+    var pendingLocalScrollLines: Double = 0
+    var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
+    var pendingLocalScrollInteractionGeneration: UInt64?
+    var localScrollApplyInFlight = false
+    var localScrollApplyInFlightGeneration: UInt64?
+    var pendingLocalScrollPixels: Double = 0
+    var pendingLocalPixelScrollInteractionGeneration: UInt64?
+    var localPixelScrollApplyInFlight = false
+    var localPixelScrollApplyInFlightGeneration: UInt64?
+    /// A verified replay completed mid-gesture: run one zero-delta pixel
+    /// batch to re-assert the held position over the replay's bottom reset.
+    var pendingLocalPixelScrollReassert = false
+    /// When line-path (alt/TUI) deceleration began; the flush kills the
+    /// momentum tail after ``linePathDecelerationBudget`` so a flick cannot
+    /// keep scrolling a full-screen app for seconds.
+    private var linePathDecelerationStartedAt: CFTimeInterval?
+    private static let linePathDecelerationBudget: CFTimeInterval = 0.45
+    /// Sub-line remainder from whole-line dispatch on the line path. Kept
+    /// out of `pendingScrollLines` so a leftover fraction cannot re-trigger
+    /// the flush (and record interactions) with no real gesture delta.
+    private var linePathFractionCarry: Double = 0
+    var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
+
+    /// Drops scroll work tied to a surface generation that will no longer run.
+    func resetScrollStateForSurfaceReplacement() {
+        pendingScrollLines = 0
+        linePathFractionCarry = 0
+        pendingScrollPixels = 0
+        pendingScrollInteractionGeneration = nil
+        pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
+        localScrollApplyInFlight = false
+        localScrollApplyInFlightGeneration = nil
+        localScrollApplyStartedAt = nil
+        localScrollApplyToken = nil
+        pendingLocalScrollPixels = 0
+        pendingLocalPixelScrollInteractionGeneration = nil
+        localPixelScrollApplyInFlight = false
+        localPixelScrollApplyInFlightGeneration = nil
+        localPixelScrollApplyStartedAt = nil
+        localPixelScrollApplyToken = nil
+        pendingLocalPixelScrollReassert = false
+        localPixelScrollState.withLock {
+            let epoch = $0.epoch
+            $0 = .init()
+            $0.epoch = epoch &+ 1
+        }
+        scrollToBottomInFlight = false
+        scrollToBottomRequested = false
+        scrollToBottomRetryCount = 0
+        scrollToBottomRetryAt = nil
+        scrollToBottomInteractionGeneration = nil
+        completePendingLocalScrollDrains(returning: false)
+    }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
@@ -1583,15 +2922,155 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (col, row)
     }
 
-    private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
+    @discardableResult
+    private func flushPendingScrollIfNeeded() -> (generation: UInt64, appliedLocally: Bool)? {
+        guard pendingScrollLines != 0 else { return nil }
         let lines = pendingScrollLines
+        let pixels = pendingScrollPixels
         let cell = pendingScrollCell
+        let generation = pendingScrollInteractionGeneration
+            ?? recordUserViewportScrollInteraction()
         pendingScrollLines = 0
-        if scrollPresentationAuthority.appliesLocally {
-            applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        pendingScrollPixels = 0
+        pendingScrollInteractionGeneration = nil
+        let appliedLocally = scrollPresentationAuthority.appliesLocally
+        var dispatchLines = lines
+        if appliedLocally {
+            // Pixel-precise local scroll only where the phone owns
+            // primary-screen scrolling (the confirmed-primary condition that
+            // also suppresses the Mac scroll RPC). Alt screens and legacy
+            // transports keep the row-quantized line path.
+            if pixels != 0,
+               delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true {
+                // Entering the pixel path: drop any line-path residue so a
+                // sub-line fraction from an earlier alt gesture cannot leak
+                // into a later line-path dispatch.
+                linePathFractionCarry = 0
+                linePathDecelerationStartedAt = nil
+                applyLocalPixelScroll(
+                    pixels: pixels,
+                    interactionGeneration: generation
+                )
+            } else {
+                // Routing to the line path (alt screen or legacy transport):
+                // drop any pixel-path residue so a primary->alt flip cannot
+                // carry a held anchor or re-assert into the TUI's screen.
+                pendingLocalScrollPixels = 0
+                pendingLocalPixelScrollReassert = false
+                // The keyboard-up bottom-pin clips the render's top above the
+                // screen on alt screens too, and wheel lines cannot reach it:
+                // a short TUI transcript has nothing to scroll, and a long one
+                // exhausts its history with the grid's top rows still hidden.
+                // Resolve the same top-reveal zone the pixel path owns before
+                // dispatching wheel lines (reveal-first in both directions —
+                // see `lineScrollTopRevealResolution`); the host's content cap
+                // follows the reveal on its display link, exactly as it does
+                // for the pixel path. The reveal is presentation-space, so
+                // unlike the held anchor it survives the routing flip.
+                let revealBudgetPx = hostedScrollTopRevealBudgetPx
+                let deltaPixels = pixels
+                let wheelDeltaPixels = localPixelScrollState.withLock { state -> Double in
+                    state.epoch &+= 1
+                    state.remainderPx = 0
+                    state.lastApplied = nil
+                    let resolved = TerminalLetterboxGeometry.lineScrollTopRevealResolution(
+                        currentRevealPx: state.topRevealPx,
+                        deltaPixels: deltaPixels,
+                        maxRevealPx: revealBudgetPx
+                    )
+                    state.topRevealPx = resolved.revealPx
+                    return resolved.leftoverDeltaPixels
+                }
+                let wheelFraction = deltaPixels != 0 ? wheelDeltaPixels / deltaPixels : 1
+                // TUI scroll feel: dispatch whole lines only, carrying the
+                // fraction in its own accumulator, so the app sees clean
+                // steps instead of a 120Hz fragment stream; and cap the
+                // momentum tail so a flick cannot keep scrolling a
+                // full-screen app for seconds. The carry lives OUTSIDE
+                // pendingScrollLines so a sub-line leftover cannot re-trigger
+                // the flush every frame and churn interaction generations.
+                let totalLines = linePathFractionCarry + lines * wheelFraction
+                let wholeLines = totalLines < 0
+                    ? totalLines.rounded(.up)
+                    : totalLines.rounded(.down)
+                linePathFractionCarry = totalLines - wholeLines
+                dispatchLines = wholeLines
+                if scrollMechanicsView.isDecelerating {
+                    let now = CACurrentMediaTime()
+                    if let startedAt = linePathDecelerationStartedAt {
+                        if now - startedAt > Self.linePathDecelerationBudget {
+                            scrollMechanicsView.setContentOffset(
+                                scrollMechanicsView.contentOffset,
+                                animated: false
+                            )
+                            pendingScrollLines = 0
+                            linePathFractionCarry = 0
+                            dispatchLines = 0
+                        }
+                    } else {
+                        linePathDecelerationStartedAt = now
+                    }
+                } else {
+                    linePathDecelerationStartedAt = nil
+                }
+                if dispatchLines != 0 {
+                    applyLocalScrollbackScroll(
+                        lines: dispatchLines,
+                        col: cell.col,
+                        row: cell.row,
+                        interactionGeneration: generation
+                    )
+                }
+            }
         }
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        if dispatchLines != 0 {
+            delegate?.ghosttySurfaceView(self, didScrollLines: dispatchLines, atCol: cell.col, row: cell.row)
+        }
+        return (generation, appliedLocally)
+    }
+
+    /// Pulls a pending native scroll batch into the replay transaction before
+    /// revealing the verified renderer. Without this drain, a render-grid
+    /// update can reveal the pre-scroll viewport for one frame while the
+    /// display-link batch is still waiting behind the frozen presentation.
+    ///
+    /// This transaction owns only the work present when it is admitted. New
+    /// gesture callbacks belong to the next presentation. Chasing newly
+    /// produced scroll batches here can keep this main-actor task runnable for
+    /// the entire gesture and trip iOS's scene-update watchdog.
+    @discardableResult
+    public func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
+        let targetGeneration: UInt64
+        if let flushed = flushPendingScrollIfNeeded() {
+            guard flushed.appliedLocally else { return false }
+            targetGeneration = flushed.generation
+        } else if let pendingGeneration = pendingLocalScrollTargetGenerationForReveal() {
+            targetGeneration = pendingGeneration
+        } else {
+            return false
+        }
+        return await waitForLocalScrollApplied(upTo: targetGeneration)
+    }
+
+    private func pendingLocalScrollTargetGenerationForReveal() -> UInt64? {
+        var generation: UInt64?
+        if pendingLocalScrollLines != 0,
+           let pendingLocalScrollInteractionGeneration {
+            generation = max(generation ?? 0, pendingLocalScrollInteractionGeneration)
+        }
+        if localScrollApplyInFlight,
+           let localScrollApplyInFlightGeneration {
+            generation = max(generation ?? 0, localScrollApplyInFlightGeneration)
+        }
+        if pendingLocalScrollPixels != 0,
+           let pendingLocalPixelScrollInteractionGeneration {
+            generation = max(generation ?? 0, pendingLocalPixelScrollInteractionGeneration)
+        }
+        if localPixelScrollApplyInFlight,
+           let localPixelScrollApplyInFlightGeneration {
+            generation = max(generation ?? 0, localPixelScrollApplyInFlightGeneration)
+        }
+        return generation
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -1611,6 +3090,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             setChromeHidden(false)
         }
         let cell = scrollCell(at: gesture.location(in: self))
+        let tapIntent = delegate?.ghosttySurfaceView(
+            self,
+            inputPolicyForTapAtCol: cell.col,
+            row: cell.row
+        ) ?? .immediateInput
+        var deferredTapID: UInt64?
+        switch tapIntent {
+        case .immediateInput:
+            // A fresh cache proved this is ordinary terminal content, so input
+            // ownership is synchronous and independent of the async Mac click.
+            // Click-generation invalidation cannot starve this focus request.
+            if wasHidden, composerActive {
+                requestComposerInputFocus()
+            } else {
+                deferredTapID = inputSession.send(
+                    .terminalTapped(.immediateInput)
+                ).deferredTapID
+            }
+        case .deferForArtifactDecision:
+            deferredTapID = inputSession.send(
+                .terminalTapped(.deferForArtifactDecision)
+            ).deferredTapID
+        }
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             let disposition = await self.delegate?.ghosttySurfaceView(
@@ -1618,19 +3121,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 didTapAtCol: cell.col,
                 row: cell.row
             ) ?? .focusTerminal
-            guard disposition.shouldFocusTerminal else { return }
-
-            // A tap inside the composer band is excluded by the gesture recognizer
-            // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
-            // deliberate terminal tap. Only a reveal-from-hide with the composer still
-            // presented re-focuses the composer; every other terminal tap focuses the
-            // terminal proxy as before. Artifact taps never enter this focus path.
-            if wasHidden, self.composerActive {
-                self.delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
-                self.focusMountedComposerField()
-            } else {
-                self.focusInput()
+            guard let deferredTapID else { return }
+            let resolution: TerminalDeferredTapResolution = switch disposition {
+            case .focusTerminal: .focusTerminal
+            case .openedArtifact: .artifactHandled
+            case .ignored: .ignored
             }
+            self.inputSession.send(
+                .deferredTerminalTapResolved(id: deferredTapID, resolution: resolution)
+            )
         }
     }
 
@@ -1683,13 +3182,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard surface != nil else { return false }
 
         pendingFontSize = target
-        // A pinch/accessory step is an explicit choice: it rebases the user
-        // font so the stretch-to-fill auto-fit re-derives from the new size
-        // instead of fighting the gesture.
+        // A pinch/accessory step is an explicit choice: it moves the user
+        // baseline that capacity reports (and the converge-to-base step)
+        // derive from.
         userBaseFontSize = target
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         showZoomOverlay()
+        delegate?.ghosttySurfaceView(
+            self,
+            didChangeZoom: direction == .increase ? .stepIncrease : .stepDecrease
+        )
         return true
     }
 
@@ -1722,10 +3225,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
         let action = "set_font_size:\(target)"
-        outputQueue.async {
+        let workQueue = outputQueue
+        workQueue.async {
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
+            // A font change reflows the grid without a `set_size`; record the
+            // new grid so render-grid applies fence on the reflow.
+            let measured = ghostty_surface_size(surface)
+            workQueue.noteObservedGrid(
+                columns: Int(measured.columns),
+                rows: Int(measured.rows)
+            )
         }
         // Render the new font (the grid reflows inside the current surface) but
         // do NOT resize the surface this frame. Resizing the render target on
@@ -1744,6 +3255,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// zoom-control overlay, so there is one clamp + reflow path, then refreshes
     /// the zoom HUD so the on-screen size tracks the remote change.
     public func setLiveFontSize(_ points: Float32) {
+        delegate?.ghosttySurfaceView(self, didChangeZoom: .hostSet)
         applyUserFontSize(points)
         zoomOverlay?.updateZoom(points: pendingFontSize ?? liveFontSize)
     }
@@ -1761,7 +3273,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Set the live zoom to an absolute size (clamped to the font range),
     /// driving the same coalesced apply path as a pinch step. Does NOT move
-    /// the user baseline — the stretch-to-fill auto-fit funnels through here.
+    /// the user baseline; the geometry pass funnels its converge-to-base
+    /// step through here.
     func applyAbsoluteFontSize(_ target: Float32) {
         guard surface != nil else { return }
         let clamped = min(
@@ -1817,6 +3330,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         overlay.onResetToDefault = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .zoomResetToDefault)
+            self.delegate?.ghosttySurfaceView(self, didChangeZoom: .resetToDefault)
             let target = self.zoomPreference.savedFontSize
                 ?? MobileTerminalFontPreference.defaultSize
             self.applyUserFontSize(target)
@@ -1824,10 +3339,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         overlay.onSaveAsDefault = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .zoomSaveAsDefault)
             self.zoomPreference.save(self.pendingFontSize ?? self.liveFontSize)
         }
         overlay.onRestoreBuiltIn = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .zoomRestoreBuiltIn)
+            self.delegate?.ghosttySurfaceView(self, didChangeZoom: .restoreBuiltIn)
             self.zoomPreference.clear()
             self.applyUserFontSize(MobileTerminalFontPreference.defaultSize)
             self.zoomOverlay?.updateZoom(points: MobileTerminalFontPreference.defaultSize)
@@ -1843,8 +3361,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let zoomOverlay else { return }
         let fitting = zoomOverlay.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         let size = CGSize(width: max(fitting.width, 220), height: max(fitting.height, 1))
-        let bottomReserve = composerBandHeight + reservedToolbarHeight + keyboardOccupancyInBounds
-        let availableH = max(1, bounds.height - bottomReserve)
+        let availableH = max(1, viewportSnapshot().layoutViewportRect.height)
         zoomOverlay.bounds = CGRect(origin: .zero, size: size)
         zoomOverlay.center = CGPoint(x: bounds.midX, y: availableH * 0.45)
     }
@@ -1857,14 +3374,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         performFontZoom(direction)
     }
 
-    private func recordBottomViewportMismatchIfNeeded() {
-        guard debugScrollbarAtBottomForTesting else { return }
-        let targetHeight = targetTerminalViewportHeight
-        let liveHeight = terminalViewportHeight
-        guard liveHeight > targetHeight + 1, lastRenderRect.height <= targetHeight + 1,
-              lastRenderRect.minY > 1 else { return }
-        debugBottomViewportMismatchObserved = true
+    func debugEnqueueScrollForTesting(deltaY: CGFloat, touchPoint: CGPoint) {
+        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
     }
+
     #endif
 
     required init?(coder: NSCoder) {
@@ -1872,7 +3385,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     deinit {
-        stopKeyboardHeightAnimation()
         disposeSurface()
     }
 
@@ -1881,8 +3393,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public override func layoutSubviews() {
+        let work = bounds.size != lastLayoutGeometrySyncSize
+            ? diagnosticLog?.beginTerminalWork(.layout, context: terminalWorkSnapshot(transition: .resize)) : nil
+        defer { work?.end() }
         super.layoutSubviews()
         let snapshot = viewportSnapshot()
+        layoutBottomDock(using: snapshot)
         layoutRenderedTerminalForCurrentViewport(using: snapshot)
         layoutScrollMechanicsView()
         #if DEBUG
@@ -1894,10 +3410,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.updateAccessoryLayoutInsets()
-        layoutBottomDock(using: snapshot)
         layoutZoomOverlay()
         MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
-        setNeedsGeometrySync()
+        if bounds.size != lastLayoutGeometrySyncSize {
+            #if DEBUG
+            // Ancestor-frame dump on every size change: pinpoints which hosting
+            // view reshaped the surface (e.g. keyboard-coupled SwiftUI safe-area
+            // churn). Fires only on actual size changes, so it is quiet in
+            // steady state.
+            var chainNode: UIView? = self
+            var chain: [String] = []
+            while let node = chainNode {
+                chain.append(
+                    "\(String(describing: type(of: node)).prefix(38)) "
+                    + "y=\(Int(node.frame.minY)) h=\(Int(node.frame.height)) "
+                    + "sab=\(Int(node.safeAreaInsets.bottom))"
+                )
+                chainNode = node.superview
+            }
+            MobileDebugLog.anchormux("kb.chain " + chain.joined(separator: " | "))
+            #endif
+            lastLayoutGeometrySyncSize = bounds.size
+            setNeedsGeometrySync()
+        }
         syncSurfaceVisibility()
     }
 
@@ -1911,24 +3446,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// next unrelated relayout.
     public override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
+        #if DEBUG
+        if let keyboardHeightOverrideForTesting {
+            setKeyboardHeightOverrideForTesting(keyboardHeightOverrideForTesting)
+        }
+        #endif
         let snapshot = viewportSnapshot()
-        layoutRenderedTerminalForCurrentViewport(using: snapshot)
         layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
         setNeedsGeometrySync()
     }
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
         MobileDebugLog.anchormux("surface.didMoveToWindow window=\(window != nil)")
+        #if DEBUG
+        syncKeyboardToggleDebugTrigger()
+        #endif
         syncSurfaceVisibility()
         if window != nil {
             isDismantled = false
+            setNeedsLayout()
+            if UIApplication.shared.applicationState == .active {
+                inputSession.send(.sceneDidBecomeActive)
+            } else {
+                inputSession.send(.sceneWillResignActive)
+            }
             #if DEBUG
             debugAccessibilityProxy.isAccessibilityElement = true
             #endif
             setNeedsGeometrySync()
             setFocus(true)
-            if autoFocusOnWindowAttach {
+            if autoFocusOnWindowAttach, UIApplication.shared.applicationState == .active {
                 focusInput()
             }
             resetVisibleArtifactCountTracking()
@@ -2026,6 +3575,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pending.continuation.resume(returning: result)
             completed = true
         }
+        if let pending = pendingVerifiedReplayViewportAnchorCapture {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            pending.continuation.resume(returning: nil)
+            completed = true
+        }
+        if let pending = pendingVerifiedReplayViewportAnchorRestore {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
+            pending.continuation.resume(returning: false)
+            completed = true
+        }
         if let pending = pendingVerifiedReplayPresentation {
             pendingVerifiedReplayPresentation = nil
             pending.continuation.resume(returning: nil)
@@ -2072,6 +3632,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func processOutput(
         _ data: Data,
         terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
+        renderGridContract: RenderGridApplyContract? = nil,
+        pushesLocalScrollbackRows: Int = 0,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -2098,6 +3660,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #endif
         let forwarded = Self.forwardDaemonOutputBytes(data)
+        // The blank-band measurement only steers live absorption while a
+        // keyboard is up; keep a slow warm value otherwise so the NEXT raise
+        // has one, without scanning the viewport on every output burst.
+        let contentMeasurementInterval: CFTimeInterval = keyboardVisible ? 0.25 : 1.0
         let generation = surfaceGeneration
         let outputConfigTheme = outputConfigTheme?.validatedOrDefault()
         let configThemeToApply = outputConfigTheme.flatMap { theme in
@@ -2106,15 +3672,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let preparedConfigBits = configThemeToApply
             .flatMap { runtime?.makeThemeConfig($0) }
             .map { Int(bitPattern: $0) }
+        // Optimistic: rolled back on a fence failure below, or the surface
+        // would permanently skip re-applying this theme after the replay.
+        let previousAppliedTerminalConfigTheme = appliedTerminalConfigTheme
         if let outputConfigTheme, preparedConfigBits != nil {
             appliedTerminalConfigTheme = outputConfigTheme
         }
-        // Track the host's cursor-visible mode (DECTCEM) straight from the VT
-        // bytes the surface is about to apply, so the cursor overlay can match a
-        // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
-        // previous visibility stands.
-        let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
-
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
         // hanging the main thread (`Thread.Futex.Deadline.wait`) until the
@@ -2122,17 +3685,124 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
+        let pushedRowsCounter = localScrollbackRowsPushed
+        let phaseLog = diagnosticLog
+        let phaseContext = terminalWorkSnapshot(transition: .unknown)
         workQueue.async { [weak self] in
+            let work = renderGridContract?.isDelta == false
+                ? phaseLog?.beginTerminalWork(.renderGridReplay, context: phaseContext) : nil
+            defer { work?.end() }
+            // Render-grid frames paint absolute rows of the producer's grid.
+            // Verify the local grid matches HERE, on the same serial queue as
+            // every `set_size`, so no resize can interleave between the check
+            // and the paint. A mismatched full, or a delta after any local
+            // resize/reflow since the previous applied frame, must not paint:
+            // fail the apply so the caller resets its queue and replays.
+            if let renderGridContract {
+                // Screen-anchored primary deltas are chained to the exact
+                // locally observed grid. Querying libghostty's size for each
+                // keystroke adds a cross-thread surface read directly in the
+                // input-to-paint path, while the serial queue's generation is
+                // already updated by every local resize/reflow operation.
+                let measuredGrid: ghostty_surface_size_s?
+                let gridGeneration: UInt64
+                let dimsMatch: Bool
+                if renderGridContract.requiresSurfaceDimensionCheck {
+                    let measured = ghostty_surface_size(surface)
+                    measuredGrid = measured
+                    gridGeneration = workQueue.noteObservedGrid(
+                        columns: Int(measured.columns),
+                        rows: Int(measured.rows)
+                    )
+                    dimsMatch = Int(measured.columns) == renderGridContract.columns
+                        && Int(measured.rows) == renderGridContract.rows
+                } else {
+                    measuredGrid = nil
+                    gridGeneration = workQueue.observedGridGeneration
+                    // The producer's dimensions are stable for this direct
+                    // delta path. Compare them with the last locally observed
+                    // grid so stale daemon frames still fail closed; the
+                    // generation fence also rejects a delta that followed a
+                    // local reflow.
+                    dimsMatch = workQueue.observedGridMatches(
+                        columns: renderGridContract.columns,
+                        rows: renderGridContract.rows
+                    )
+                }
+                let deltaBaseIntact = !renderGridContract.isDelta
+                    || workQueue.gridGenerationAtLastRenderGridApply == gridGeneration
+                if !dimsMatch || !deltaBaseIntact {
+                    let appliedGeneration = workQueue.gridGenerationAtLastRenderGridApply
+                        .map(String.init) ?? "nil"
+                    let localGrid = measuredGrid.map {
+                        "\($0.columns)x\($0.rows)"
+                    } ?? workQueue.observedGridDescription
+                    MobileDebugLog.anchormux(
+                        "render_grid.apply_fence local=\(localGrid) " +
+                            "frame=\(renderGridContract.columns)x\(renderGridContract.rows) " +
+                            "delta=\(renderGridContract.isDelta) gen=\(gridGeneration) " +
+                            "applied=\(appliedGeneration)"
+                    )
+                    // The prepared theme config never reached the surface:
+                    // free it and roll back the optimistic applied-theme mark,
+                    // or the replay carrying the same theme would skip the
+                    // configuration update and render with stale defaults.
+                    if let preparedConfigBits,
+                       let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
+                        ghostty_config_free(preparedConfig)
+                    }
+                    DispatchQueue.main.async {
+                        if let self,
+                           !self.isDismantled,
+                           self.surfaceGeneration == generation,
+                           let outputConfigTheme,
+                           preparedConfigBits != nil,
+                           self.appliedTerminalConfigTheme == outputConfigTheme {
+                            self.appliedTerminalConfigTheme = previousAppliedTerminalConfigTheme
+                        }
+                        completion?(false)
+                    }
+                    return
+                }
+            }
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
                 ghostty_config_free(preparedConfig)
             }
+            #if DEBUG
+            let outputApplyStartedAt = CACurrentMediaTime()
+            #endif
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
+            if renderGridContract != nil {
+                workQueue.gridGenerationAtLastRenderGridApply = workQueue.observedGridGeneration
+            }
+            // Account for this chunk's scroll-prologue pushes at the exact
+            // queue position they landed, so an anchor capture or pixel batch
+            // queued before/after this block reads a counter consistent with
+            // the row space it observes.
+            if pushesLocalScrollbackRows > 0 {
+                pushedRowsCounter.withLock { $0 &+= UInt64(pushesLocalScrollbackRows) }
+            }
+            #if DEBUG
+            // Perf probe for the scroll-hitch investigation: a VT apply on this
+            // serial queue delays any queued scroll-position batch by its full
+            // duration (head-of-line blocking). Log slow applies, rate-limited.
+            let outputApplyMs = (CACurrentMediaTime() - outputApplyStartedAt) * 1000
+            if outputApplyMs > 8 {
+                let perfNow = CACurrentMediaTime()
+                if perfNow - workQueue.lastOutputPerfLogTime >= 0.25 {
+                    workQueue.lastOutputPerfLogTime = perfNow
+                    MobileDebugLog.anchormux(
+                        "perf.process_output ms=\(Int(outputApplyMs)) bytes=\(forwarded.count)"
+                    )
+                }
+            }
+            #endif
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed
@@ -2150,6 +3820,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 accessibilityText = Self.accessibilitySurfaceText(surface)
             }
             #endif
+            // Content-bottom measurement for the keyboard blank-space
+            // absorption. Same off-main lock discipline and throttling as the
+            // accessibility read above; only the row count crosses to main.
+            var contentBottomRows: Int?
+            let contentNow = CACurrentMediaTime()
+            if contentNow - workQueue.lastContentBottomTime > contentMeasurementInterval {
+                workQueue.lastContentBottomTime = contentNow
+                // The viewport read is bounded by the visible screen (a few
+                // KB at phone grid sizes), never scrollback; the cap is a
+                // defensive guard against a pathological viewport.
+                if let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
+                   viewportText.utf8.count <= 131_072 {
+                    contentBottomRows = Self.contentRowCount(inViewportText: viewportText)
+                }
+            }
             DispatchQueue.main.async {
                 guard let self, !self.isDismantled else {
                     completion?(true)
@@ -2160,18 +3845,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     return
                 }
                 self.consecutiveOutputTimeoutRecoveries = 0
+                // The model is now newer, but its pixels are not visible yet.
+                // Keep this distinction until the matching render-presented
+                // callback so UIKit never scrolls ahead of the frame it shows.
+                self.hasAppliedOutput = true
+                self.noteKeyboardTransitionPresentationOutputApplied()
                 self.needsDraw = true
-                self.scheduleVisibleArtifactCountUpdate()
-                if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
-                    self.hostCursorVisible = cursorVisibilityDelta
-                    self.updateCursorOverlay()
+                if let contentBottomRows {
+                    if contentBottomRows != self.hostedContentBottomRowCount {
+                        MobileDebugLog.anchormux(
+                            "kb.contentRows \(self.hostedContentBottomRowCount.map(String.init) ?? "nil")->\(contentBottomRows)"
+                        )
+                    }
+                    self.hostedContentBottomRowCount = contentBottomRows
                 }
+                self.scheduleVisibleArtifactCountUpdate()
                 #if DEBUG
                 self.lastOutputAppliedTime = CACurrentMediaTime()
                 #endif
                 if !self.surfaceHasReceivedOutput {
-                    self.surfaceHasReceivedOutput = true
-                    self.snapshotFallbackView.isHidden = true
                     self.scrollInitialOutputToBottomIfNeeded()
                 }
                 let now = CACurrentMediaTime()
@@ -2195,6 +3887,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func scrollInitialOutputToBottomIfNeeded() {
         guard shouldScrollInitialOutputToBottom, surface != nil else { return }
         shouldScrollInitialOutputToBottom = false
+        guard !preservesUserViewportAnchor else { return }
         enqueueScrollToBottom()
     }
 
@@ -2207,29 +3900,110 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// because it runs after everything already queued, so key-repeat during a
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
-        guard let surface, !scrollToBottomInFlight else { return }
+        // The bottom snap resets Ghostty's fractional pixel offset; drop the
+        // pixel batch, remainder, and held position so the next gesture
+        // rebases from the bottom.
+        pendingScrollPixels = 0
+        pendingLocalScrollPixels = 0
+        pendingLocalPixelScrollInteractionGeneration = nil
+        pendingLocalPixelScrollReassert = false
+        localPixelScrollState.withLock {
+            $0.epoch &+= 1
+            $0.remainderPx = 0
+            $0.lastApplied = nil
+            $0.topRevealPx = 0
+        }
+        let interactionGeneration = recordFollowBottomInteraction()
+        scrollToBottomInteractionGeneration = interactionGeneration
+        if !scrollToBottomRequested && !scrollToBottomInFlight {
+            scrollToBottomRetryCount = 0
+            scrollToBottomRetryAt = nil
+        }
+        scrollToBottomRequested = true
+        pumpScrollToBottomIfNeeded()
+    }
+
+    /// True while a non-blocking prompt-reveal operation is queued or running
+    /// on the serial surface queue.
+    var scrollToBottomInFlight = false
+    /// Generation of the current follow-bottom intent. A user scroll clears
+    /// this token, invalidating queued or in-flight prompt reveal work.
+    var scrollToBottomInteractionGeneration: UInt64?
+    /// Coalesced prompt-reveal work. A busy renderer mutex leaves this set and
+    /// the display link retries it on a later frame; no output operation waits
+    /// behind an unbounded Ghostty binding action.
+    var scrollToBottomRequested = false
+    /// Number of failed try-only attempts in the current prompt-reveal episode.
+    var scrollToBottomRetryCount: UInt8 = 0
+    /// Earliest display-link time at which the next try-only attempt may run.
+    var scrollToBottomRetryAt: CFTimeInterval?
+
+    private func pumpScrollToBottomIfNeeded() {
+        guard scrollToBottomRequested,
+              !scrollToBottomInFlight,
+              !renderingSuspended,
+              !isDismantled,
+              let surface else { return }
+        if let retryAt = scrollToBottomRetryAt,
+           CACurrentMediaTime() < retryAt {
+            return
+        }
+        scrollToBottomRetryAt = nil
+        scrollToBottomRequested = false
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
-        let action = "scroll_to_bottom"
+        let interactionGeneration = scrollToBottomInteractionGeneration
+            ?? viewportRestoreGate.withLock { $0.interactionGeneration }
+        let gate = viewportRestoreGate
         outputQueue.async { [weak self] in
-            action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            // This C entry point is deliberately try-only. A false result is
+            // ordinary under a PTY burst, so the main actor keeps the request
+            // coalesced and retries it from the next display-link tick.
+            let applied = ghostty_surface_try_scroll_to_bottom(surface)
+            if applied {
+                gate.withLock {
+                    $0.appliedInteractionGeneration = max(
+                        $0.appliedInteractionGeneration,
+                        interactionGeneration
+                    )
+                }
             }
             DispatchQueue.main.async {
-                // Generation-guarded like the `processOutput` completion: a
-                // stale pre-recovery completion must not clear the flag a
-                // new-generation snap has since set.
+                // Generation-guarded like the process-output completion: a
+                // stale pre-recovery completion must not mutate a new queue's
+                // request state.
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.scrollToBottomInFlight = false
-                self.scheduleVisibleArtifactCountUpdate()
+                guard self.scrollToBottomInteractionGeneration == interactionGeneration else {
+                    self.needsDraw = true
+                    return
+                }
+                if !applied {
+                    if self.scrollToBottomRetryCount >= Self.maximumScrollToBottomRetries {
+                        self.scrollToBottomRequested = false
+                        self.scrollToBottomRetryAt = nil
+                        MobileDebugLog.anchormux("scroll_to_bottom.retry_exhausted")
+                    } else {
+                        self.scrollToBottomRetryCount &+= 1
+                        let exponent = min(Int(self.scrollToBottomRetryCount) - 1, 3)
+                        let multiplier = 1 << max(exponent, 0)
+                        let delay = min(
+                            Self.scrollToBottomRetryMaximumDelay,
+                            Self.scrollToBottomRetryBaseDelay * CFTimeInterval(multiplier)
+                        )
+                        self.scrollToBottomRetryAt = CACurrentMediaTime() + delay
+                        self.scrollToBottomRequested = true
+                    }
+                    self.needsDraw = true
+                } else {
+                    self.scrollToBottomRetryCount = 0
+                    self.scrollToBottomRetryAt = nil
+                    self.needsDraw = true
+                    self.scheduleVisibleArtifactCountUpdate()
+                }
             }
         }
     }
-
-    /// True while a `scroll_to_bottom` binding action is queued or running on
-    /// the serial surface queue. Cleared on the reset path alongside the queue
-    /// regeneration so a wedged surface cannot permanently disable the snap.
-    var scrollToBottomInFlight = false
 
     static func forwardDaemonOutputBytes(_ data: Data) -> Data {
         // The daemon owns terminal byte semantics. iOS must feed Ghostty the
@@ -2238,22 +4012,127 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         data
     }
 
-    /// The final DECTCEM cursor-visibility state in `data`, or nil if the chunk
-    /// contains no cursor show/hide. Scans for the exact sequences the
-    /// render-grid producer emits: `ESC [ ? 2 5 h` (show) / `ESC [ ? 2 5 l`
-    /// (hide). The last occurrence wins, so a delta that toggles ends on the
-    /// applied state.
-    nonisolated static func lastCursorVisibility(in data: Data) -> Bool? {
-        TerminalDECTCEMCursorScanner.lastVisibility(in: data)
-    }
-
     @objc
     func focusInput() {
+        requestTerminalInputFocus()
+    }
+
+    private func requestTerminalInputFocus() {
         onFocusInputRequestedForTesting?()
-        Self.activeInputSurface = self
-        setNeedsGeometrySync()
-        inputProxy.updateAccessoryLayoutInsets()
-        inputProxy.becomeFirstResponder()
+        synchronizeActualInputOwner()
+        inputSession.send(
+            keyboardVisible
+                ? .requestFocus(.terminal)
+                : .requestVisibleFocus(.terminal)
+        )
+    }
+
+    /// Requests the hosted composer through the same responder owner as terminal taps.
+    public func requestComposerInputFocus() {
+        synchronizeActualInputOwner()
+        inputSession.send(
+            keyboardVisible
+                ? .requestFocus(.composer)
+                : .requestVisibleFocus(.composer)
+        )
+    }
+
+    /// Mirrors the SwiftUI field's user-driven responder changes into the owner.
+    public func composerInputFocusChanged(_ isFirstResponder: Bool) {
+        inputSession.send(
+            .responderChanged(owner: .composer, isFirstResponder: isFirstResponder)
+        )
+    }
+
+    /// Clears current intent and resigns before the Photos picker starts presenting.
+    public func photoPickerWillPresent() {
+        synchronizeActualInputOwner()
+        inputSession.send(.modalWillPresent)
+    }
+
+    /// Records the PhotosPicker binding's presented edge.
+    public func photoPickerDidPresent() {
+        inputSession.send(.modalDidPresent)
+    }
+
+    /// Reconciles any focus request retained while the picker was on screen.
+    public func photoPickerDidDismiss() {
+        inputSession.send(.modalDidDismiss)
+    }
+
+    private func performInputFocus(_ owner: TerminalInputOwner) -> Bool {
+        guard window != nil,
+              !isDismantled,
+              UIApplication.shared.applicationState == .active else {
+            return false
+        }
+
+        switch owner {
+        case .terminal:
+            setNeedsGeometrySync()
+            inputProxy.updateAccessoryLayoutInsets()
+            // The keyboard toggle no longer rides inputAccessoryView, so
+            // reloading input views here only forces UIKit to re-evaluate the
+            // keyboard mid-transition and can snap the reveal on iOS 27.
+            let alreadyFocused = inputProxy.isFirstResponder
+            let becameFocused = alreadyFocused || inputProxy.becomeFirstResponder()
+            return becameFocused
+        case .composer:
+            guard composerActive else { return false }
+            composerContainer.layoutIfNeeded()
+            guard let input = composerContainer.firstFocusableTextInputInSubtree() else {
+                return false
+            }
+            // Same rule for the composer field, the show path should be a
+            // straight responder handoff, not a keyboard view reload.
+            let alreadyFocused = input.isFirstResponder
+            let becameFocused = alreadyFocused || input.becomeFirstResponder()
+            return becameFocused
+        }
+    }
+
+    private func performInputResign(_ owner: TerminalInputOwner) -> Bool {
+        let responder: UIView?
+        switch owner {
+        case .terminal:
+            responder = inputProxy.isFirstResponder ? inputProxy : nil
+        case .composer:
+            responder = composerContainer.firstResponderInSubtree()
+        }
+        guard let responder else { return true }
+        return responder.resignFirstResponder() || !responder.isFirstResponder
+    }
+
+    private func inputActualOwnerDidChange(_ owner: TerminalInputOwner?) {
+        if owner != nil {
+            Self.activeInputSurface = self
+        } else if Self.activeInputSurface === self {
+            Self.activeInputSurface = nil
+        }
+    }
+
+    private func synchronizeActualInputOwner() {
+        let observedOwner: TerminalInputOwner?
+        if inputProxy.isFirstResponder {
+            observedOwner = .terminal
+        } else if composerContainer.firstResponderInSubtree() != nil {
+            observedOwner = .composer
+        } else {
+            observedOwner = nil
+        }
+
+        if let actualOwner = inputSession.state.actualOwner,
+           actualOwner != observedOwner {
+            inputSession.send(
+                .responderChanged(owner: actualOwner, isFirstResponder: false)
+            )
+        }
+        if let observedOwner,
+           inputSession.state.actualOwner != observedOwner {
+            inputSession.send(
+                .responderChanged(owner: observedOwner, isFirstResponder: true)
+            )
+        }
     }
 
     /// Resigns the currently focused terminal input proxy, if any.
@@ -2262,25 +4141,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the hidden text input and the terminal can recalculate full-height
     /// geometry after the keyboard leaves.
     public static func resignActiveInput() {
-        activeInputSurface?.resignInput()
+        activeInputSurface?.resignCurrentInput()
     }
 
-    /// Resigns this surface's hidden text input and clears keyboard geometry.
+    /// Resigns whichever input currently owns this surface's software keyboard.
+    ///
+    /// The terminal proxy and the hosted composer field are siblings, so neither
+    /// subtree can release the other. Modal presentations must call this before
+    /// presenting: UIKit can otherwise hide the keyboard while leaving the proxy
+    /// first responder, and a later terminal tap cannot trigger another focus
+    /// transition because the proxy already reports itself focused.
+    public func resignCurrentInput() {
+        synchronizeActualInputOwner()
+        inputSession.send(.releaseFocus)
+    }
+
+    /// Resigns this surface's hidden text input.
     public func resignInput() {
-        inputProxy.resignFirstResponder()
-        if Self.activeInputSurface === self {
-            Self.activeInputSurface = nil
-        }
-        // Don't zero `keyboardHeight` here. `resignFirstResponder()` triggers
-        // `keyboardWillHide`, which owns the full hide cleanup (proxy state,
-        // docked-toolbar animation, geometry). Pre-zeroing would make that
-        // handler's `keyboardHeight != 0` guard short-circuit, leaving the
-        // toolbar at the old keyboard edge with a stale glyph.
+        resignCurrentInput()
+        // Dock geometry follows the OS-selected source; responder release only
+        // decides whether UIKit should dismiss the software keyboard.
     }
 
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
     public func prepareForDismantle() {
         isDismantled = true
+        // Block-based observers stay registered (and their closures retained
+        // by NotificationCenter) until explicitly removed; dropping the token
+        // array alone would leak a registration per surface remount.
+        for token in artifactChipAccessibilityObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        artifactChipAccessibilityObserverTokens.removeAll()
         prepareForReuseAfterDetach()
     }
 
@@ -2290,24 +4182,35 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
         clearVerifiedReplayPresentation()
+        clearKeyboardTransitionPresentationOverlay()
         visibleArtifactCountTask?.cancel()
         visibleArtifactCountTask = nil
         visibleArtifactCountSettleFrames = nil
         visibleArtifactSnapshotGeneration &+= 1
         lastVisibleArtifactSnapshotText = nil
+        lastVisibleArtifactSnapshotColumns = nil
+        lastVisibleArtifactSnapshotGeneration = nil
         lastReportedVisibleArtifactCount = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
         artifactChipHost.setContent(nil)
+        resetArtifactChipReveal()
         updateArtifactChipVisibility(animated: false)
+        resetScrollStateForSurfaceReplacement()
         completePendingSurfaceOperations(returning: false)
         cancelRenderPipelineRecoveryResumeTimer()
         renderPipelineRecoveryPaused = false
         renderPipelineRecoveryPausedAt = nil
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
-        resignInput()
-        stopKeyboardHeightAnimation()
+        pendingRenderRetryCount = 0
+        renderPresentationGate.reset()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
+        hasAppliedOutput = false
+        surfaceHasReceivedOutput = false
+        inputSession.send(.surfaceDetached)
         stopDisplayLink()
         setFocus(false)
         #if DEBUG
@@ -2481,6 +4384,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func disposeSurface() {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
+        resetScrollStateForSurfaceReplacement()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2495,22 +4399,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // never use-after-free against the free, and no two of them ever touch
         // the surface concurrently. `processOutput`'s main-actor guard stops new
         // work from being enqueued once `surface` is nil, so only the bounded
-        // backlog drains before the free. (Retain the bridge across the hop; it
-        // owns the userdata libghostty still references until the free.)
-        enqueueSurfaceFree(surface, bridge: currentBridge, generation: surfaceGeneration, on: currentQueue)
+        // backlog drains before the free. The host-owned bridge retain stays
+        // alive until synchronous libghostty teardown has stopped callbacks.
+        enqueueSurfaceFree(surface, generation: surfaceGeneration, on: currentQueue)
     }
 
     func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
-        bridge: GhosttySurfaceBridge,
         generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
         queue.async { [weak self] in
+            let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
-            retainedBridge.release()
+            GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
             Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
         }
     }
@@ -2550,10 +4453,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             GhosttySurfaceView.register(surface: surface, for: self)
             appliedTerminalConfigTheme = nil
             applyTerminalConfigTheme()
-            // Hide the snapshot fallback immediately. The Metal renderer
-            // handles all rendering once the surface exists.
-            snapshotFallbackView.isHidden = true
-            surfaceHasReceivedOutput = true
+            // A live C surface is not proof that its first pixels reached the
+            // IOSurface layer. Keep the fallback visible until a tokened frame
+            // is acknowledged by Ghostty.
+            surfaceHasReceivedOutput = false
+            hasAppliedOutput = false
         }
         setNeedsGeometrySync()
         startDisplayLink()
@@ -2565,43 +4469,48 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
-        cursorBlinkState.start(now: CACurrentMediaTime())
+        cursorRenderWakeState.start(now: CACurrentMediaTime())
         needsDraw = true
-        updateCursorOverlay()
     }
 
     func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
-        cursorOverlayLayer?.isHidden = true
     }
 
     /// Shared reaction to user-produced terminal input (typing, backspace,
-    /// escape sequences, paste): restart the cursor blink and optimistically
-    /// snap the local mirror to the bottom of scrollback. The mirror is
-    /// display-only — the Mac echoes input at the prompt — so a user who types
+    /// escape sequences, paste): restart Ghostty's cursor frame cadence and
+    /// optimistically snap the local mirror to the bottom of scrollback. The
+    /// mirror is display-only — the Mac echoes input at the prompt — so a user who types
     /// while scrolled up would otherwise keep looking at old scrollback and
     /// read the terminal as frozen. Passive output never forces this jump;
     /// only explicit user input does (plus the one-time initial-output scroll
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
-        resetCursorBlink()
+        restartCursorRenderWake()
         // A flick still decelerating would fight the snap: deltas already in
         // `pendingScrollLines` flush on the display-link frame AFTER the snap
         // below, and UIScrollView momentum keeps producing more. Drop the
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        linePathFractionCarry = 0
+        pendingScrollPixels = 0
+        pendingScrollInteractionGeneration = nil
+        pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
+        pendingLocalScrollPixels = 0
+        pendingLocalPixelScrollInteractionGeneration = nil
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
 
-    /// Reset cursor to visible and restart blink cycle (call on user input).
-    private func resetCursorBlink() {
+    /// Request a frame now and restart the host cadence that gives Ghostty
+    /// opportunities to advance its renderer-owned cursor blink phase.
+    private func restartCursorRenderWake() {
         guard surface != nil else { return }
-        cursorBlinkState.reset(now: CACurrentMediaTime())
+        cursorRenderWakeState.reset(now: CACurrentMediaTime())
         needsDraw = true
-        updateCursorOverlay()
     }
 
     @objc func handleDisplayLinkFire() {
@@ -2609,6 +4518,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if checkSurfaceOperationDeadlines(now: now) {
             return
         }
+        // Prompt reveal is best-effort and try-only. Pump it once per frame so
+        // a busy renderer mutex never turns typing into a queue-wide stall.
+        pumpScrollToBottomIfNeeded()
         completePendingVerifiedReplayPresentationIfPresented()
         guard surface != nil else {
             if !hasPendingSurfaceOperationDeadline {
@@ -2616,6 +4528,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             return
         }
+        #if DEBUG
+        debugStepScrollScriptIfNeeded()
+        debugRecordScrollFrameRateTick(now: now)
+        #endif
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
         // no behavior change. The `contents`/size fields let an IDLE blank be
@@ -2645,6 +4561,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let renderInFlightSince {
             let stalledMs = Int((now - renderInFlightSince) * 1000)
             if stalledMs >= Int(Self.renderPipelineStallDeadline * 1000),
+               renderSubmission != nil,
                recoverRenderPipeline(
                    reason: "render_in_flight",
                    stalledMs: stalledMs,
@@ -2670,20 +4587,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 zoomSettleFrames = frames
             }
         }
-        advanceKeyboardHeightAnimation()
+        sampleHostedKeyboardPresentation()
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
         // set_size calls (the source of the jumbled grid + renderer overload).
         if needsGeometrySync {
-            needsGeometrySync = false
-            let reassert = pendingGeometryReassert
-            pendingGeometryReassert = false
-            syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
+            if !shouldDeferAlternateScreenGeometry() {
+                needsGeometrySync = false
+                let reassert = pendingGeometryReassert
+                pendingGeometryReassert = false
+                syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
+            }
         }
-        let blinkChanged = cursorBlinkState.advance(now: now)
-        // Draw on content/cursor changes, and for a short bounded burst after
-        // any geometry change. iOS has no renderer-side vsync, so a frame is
+        let cursorRenderWakeDue = cursorRenderWakeState.consumeWakeIfDue(now: now)
+        // Draw on content changes, Ghostty cursor wake-ups, and for a short
+        // bounded burst after any geometry change. iOS has no renderer-side vsync, so a frame is
         // only produced when we ask. The renderer draws at the layer size read
         // at draw time and presents a frame behind, so a single post-resize
         // draw can land while the layer is still mid-animation, leaving a
@@ -2694,10 +4613,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // blocks, which made the app unresponsive.
         let geometrySettling = pendingRenderFrames > 0
         if geometrySettling { pendingRenderFrames -= 1 }
-        if needsDraw || blinkChanged || geometrySettling {
+        if needsDraw || cursorRenderWakeDue || geometrySettling {
             needsDraw = false
-            requestRender()
-            updateCursorOverlay()
+            // Keep the dirty bit when the surface cannot accept a submission.
+            // A replay can hold the presentation gate while a scroll or output
+            // update arrives. Clearing this bit before the gate accepts work
+            // loses that update until an unrelated event requests a frame.
+            if !requestRender() {
+                needsDraw = true
+            }
         }
 
         // Report the settled natural grid to the Mac once it has stopped
@@ -2713,16 +4637,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // "bad intermediate state". Zoom is a LOCAL font change; the shared
         // grid should renegotiate exactly once, after the user settles.
         if let pending = pendingViewportReport {
-            if zoomSettleFrames != nil {
+            if zoomSettleFrames != nil || (alternateScreenSizingEnabled
+                && (alternateScreenGeometryTransitionActive || needsGeometrySync)) {
                 viewportReportSettleFrames = 0
             } else {
                 viewportReportSettleFrames += 1
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
-                    pendingViewportReport = nil
-                    viewportReportSettleFrames = 0
-                    viewportReportID &+= 1
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
-                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
+                    publishViewportReport(pending, reason: "settled")
                 }
             }
         }
@@ -2756,8 +4677,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
-    /// to the off-main surface queue.
+    /// Drive one render through the surface's presentation gate.
     ///
     /// On iOS libghostty's renderer-thread event loop does not pump frames
     /// (it's a platform-display-driven embedder), so `ghostty_surface_refresh`
@@ -2772,7 +4692,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// still hops to main inside libghostty (`setSurface`). The display link
     /// gates this on `needsDraw`/`pendingRenderFrames`, so it is not a
     /// per-frame loop that would flood the main queue with present blocks.
-    private func requestRender() {
+    @discardableResult
+    private func requestRender(
+        presentationRetryCount: UInt8 = 0
+    ) -> Bool {
         // Never dispatch a render into the background: a backgrounded
         // `render_now` can stall acquiring a swap-chain frame slot from
         // libghostty, leaving the serial output queue undrained. The acquire is
@@ -2782,39 +4705,426 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !renderPipelineRecoveryPaused,
               !renderingSuspended,
               !isRenderDispatchSuppressed,
-              !verifiedReplayRenderSuppressed,
               let surface,
-              !isDismantled else { return }
-        // Coalesce: never let more than one render_now sit on the serial queue.
-        // (Called on main from the display link.)
-        if renderInFlight {
-            needsAnotherRender = true
-            return
+              !isDismantled else { return false }
+        // Replay suppression is enforced by the presentation gate, not by
+        // dropping the request here. Ordinary and local-scroll submissions
+        // remain pending and become eligible when the frozen replay is
+        // revealed.
+        let outputPresentation = onOutputPresentation
+        onOutputPresentation = nil
+        return enqueueRenderSubmission(
+            RenderSubmission(
+                token: makeSurfaceOperationID(),
+                generation: surfaceGeneration,
+                kind: .ordinary,
+                surface: surface,
+                verifiedReplayRead: nil,
+                presentationRetryCount: presentationRetryCount,
+                outputPresentation: outputPresentation
+            )
+        )
+    }
+
+    /// Queues a frame behind the currently presented frame. Every producer uses
+    /// this path, so a model update and a local scroll cannot publish separate
+    /// layer assignments in the same presentation window.
+    @discardableResult
+    func enqueueRenderSubmission(_ submission: RenderSubmission) -> Bool {
+        guard surface == submission.surface,
+              surfaceGeneration == submission.generation,
+              !isDismantled else { return false }
+        let action = renderPresentationGate.enqueue(submission.ticket)
+        switch action {
+        case .started:
+            guard startRenderSubmission(submission) else {
+                repairRenderAdmissionAfterFailedStart()
+                return false
+            }
+            return true
+        case .queued:
+            if shouldReplacePendingRenderSubmission(with: submission) {
+                pendingRenderSubmission = submission
+            }
+            // Queue admission, including an ordinary frame coalesced behind a
+            // pending replay, is successful. The gate transition that removes
+            // suppression will promote retained work; returning false here
+            // would keep `needsDraw` hot and retry this request every frame.
+            return true
+        case .ignored, .idle:
+            return false
         }
+    }
+
+    private func shouldReplacePendingRenderSubmission(
+        with submission: RenderSubmission
+    ) -> Bool {
+        guard let pendingRenderSubmission else { return true }
+        return pendingRenderSubmission.kind != .verifiedReplay
+            || submission.kind == .verifiedReplay
+    }
+
+    /// Replaces the current token when a geometry pass invalidates its
+    /// IOSurface target. Ghostty serializes the replacement behind the old
+    /// render on `outputQueue`; the old callback is stale by token and cannot
+    /// release the replacement gate.
+    @discardableResult
+    func replaceInFlightRenderSubmission(
+        with replacement: RenderSubmission
+    ) -> Bool {
+        guard let current = renderSubmission,
+              current.generation == replacement.generation,
+              current.surface == replacement.surface,
+              renderPresentationGate.inFlight == current.ticket,
+              renderPresentationGate.replaceInFlight(with: replacement.ticket)
+                == .started(replacement.ticket) else {
+            return false
+        }
+        renderSubmission = nil
+        renderInFlight = false
+        renderInFlightSince = nil
+        guard startRenderSubmission(replacement) else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    private func startRenderSubmission(_ submission: RenderSubmission) -> Bool {
+        guard renderSubmission == nil,
+              renderPresentationGate.inFlight == submission.ticket,
+              surface == submission.surface,
+              surfaceGeneration == submission.generation,
+              !isDismantled else { return false }
+        // A verified replay's callback is only meaningful after its exact
+        // readback/presentation fence has been registered on MainActor. Keep
+        // this admission edge next to the output-queue dispatch so a replay
+        // can never submit a token that has no fence waiting for it.
+        if submission.kind == .verifiedReplay,
+           pendingVerifiedReplayPresentation?.id != submission.token {
+            MobileDebugLog.anchormux(
+                "verified_replay.admission_rejected reason=fence_missing"
+            )
+            return false
+        }
+        renderSubmission = submission
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
-        let generation = surfaceGeneration
         let enqueuedAt = CACurrentMediaTime()
-        outputQueue.async { [weak self] in
-            // Queue LAG = how long this render waited behind other ops. If this
-            // climbs into hundreds of ms the queue is backlogged (the freeze).
+        let workQueue = outputQueue
+        // Ordinary steady-state frames are intentionally uninstrumented.
+        let phaseLog = submission.kind == .verifiedReplay || pendingRenderFrames > 0 ? diagnosticLog : nil
+        let phaseContext = terminalWorkSnapshot(transition: .unknown)
+        let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
-            ghostty_surface_render_now(surface)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard self.surfaceGeneration == generation else { return }
-                self.renderInFlight = false
-                self.renderInFlightSince = nil
-                guard !self.isDismantled else {
-                    self.needsAnotherRender = false
+            let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
+            defer { work?.end() }
+            switch submission.kind {
+            case .ordinary, .localScroll:
+                #if DEBUG
+                let renderStartedAt = CACurrentMediaTime()
+                #endif
+                ghostty_surface_render_now_with_token(submission.surface, submission.token)
+                #if DEBUG
+                // Scroll-smoothness audit: the draw shares this serial queue
+                // with VT applies and scroll batches, so a slow frame
+                // stretches everything behind it.
+                let renderMs = (CACurrentMediaTime() - renderStartedAt) * 1000
+                if renderMs > 8 {
+                    let perfNow = CACurrentMediaTime()
+                    if perfNow - workQueue.lastRenderPerfLogTime >= 0.25 {
+                        workQueue.lastRenderPerfLogTime = perfNow
+                        MobileDebugLog.anchormux(
+                            "perf.render_now ms=\(Int(renderMs)) kind=\(String(describing: submission.kind))"
+                        )
+                    }
+                }
+                #endif
+            case .verifiedReplay:
+                guard let read = submission.verifiedReplayRead else {
+                    ghostty_surface_render_now_with_token(
+                        submission.surface,
+                        submission.token
+                    )
                     return
                 }
-                if self.needsAnotherRender {
-                    self.needsAnotherRender = false
-                    self.requestRender()
+                // Register the exported grid on MainActor before submitting
+                // the token. The Ghostty callback may be synchronous, so do
+                // not submit until the observation task has installed the
+                // readback on the exact pending fence. Otherwise a callback
+                // can win the race and release a token whose verification has
+                // not been registered yet.
+                let observed = read.exportGridSynchronously()
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard self.acceptVerifiedReplayObservedFrame(
+                        observed,
+                        submission: VerifiedReplayRenderSubmission(
+                            surface: submission.surface,
+                            token: submission.token
+                        ),
+                        generation: submission.generation
+                    ) else {
+                        self.cancelRenderSubmission(token: submission.token)
+                        return
+                    }
+                    // The read-back is now installed on the pending fence.
+                    // Keep the gate occupied until Ghostty presents this
+                    // exact token and the callback verifies its layer.
+                    guard self.renderSubmission?.token == submission.token,
+                          self.surface == submission.surface,
+                          self.surfaceGeneration == submission.generation,
+                          !self.isDismantled else { return }
+                    self.outputQueue.async { [weak self] in
+                        guard self != nil else { return }
+                        let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
+                        defer { work?.end() }
+                        ghostty_surface_render_now_with_token(
+                            submission.surface,
+                            submission.token
+                        )
+                    }
                 }
             }
+        }, priority: submission.kind == .localScroll)
+        guard accepted else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
+        }
+        return true
+    }
+
+    /// Repairs the admission edge when the reducer accepted a ticket but the
+    /// matching UIKit payload could not be started. Leaving that ticket in the
+    /// reducer would make every later render queue behind a frame that can no
+    /// longer produce a callback.
+    private func repairRenderAdmissionAfterFailedStart() {
+        resetRenderAdmissionStatePreservingSuppression()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
+        renderInFlight = false
+        renderInFlightSince = nil
+        renderReplacementInFlight = false
+        needsAnotherRender = false
+        pendingRenderRetryCount = 0
+        needsDraw = true
+        MobileDebugLog.anchormux("render.gate.admission_repaired")
+    }
+
+    /// Clears an invalid token without accidentally thawing a verified replay
+    /// that is still holding the last-good presentation above the live layer.
+    func resetRenderAdmissionStatePreservingSuppression() {
+        let preserveSuppression = verifiedReplayRenderSuppressed
+            || renderPresentationGate.isSuppressed
+        renderPresentationGate.reset()
+        renderReplacementInFlight = false
+        if preserveSuppression {
+            _ = renderPresentationGate.setSuppressed(true)
+        }
+    }
+
+    /// Called only from the render-presented bridge callback. A stale callback
+    /// cannot release the gate or advance fallback visibility.
+    func finishRenderSubmission(token: UInt64) {
+        releaseRenderSubmission(token: token, presented: true)
+    }
+
+    /// Called when Ghostty can prove that a tokened target was discarded or
+    /// failed before reaching the host layer. Resolve the token immediately so
+    /// one bad IOSurface cannot hold every later output frame behind a timeout.
+    func handleRenderSubmissionFailure(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        guard let submission = renderSubmission,
+              submission.token == token,
+              submission.generation == surfaceGeneration else {
+            return
+        }
+        MobileDebugLog.anchormux(
+            "render.submission.failed token=\(token) kind=\(submission.kind) "
+            + "status=\(status.rawValue)"
+        )
+
+        if submission.kind == .verifiedReplay,
+           handleVerifiedReplayRenderFailure(token: token, status: status) {
+            // A discarded replay was replaced with a fresh token while the
+            // presentation gate stayed occupied. The stale callback cannot
+            // release the replacement because its token no longer matches.
+            return
+        }
+        if status == GHOSTTY_RENDER_PRESENTATION_DISCARDED,
+           restartInFlightRenderSubmissionForCurrentGeometry(countsAsRetry: true) {
+            return
+        }
+
+        let nextRetryCount = submission.presentationRetryCount &+ 1
+        guard nextRetryCount <= Self.maximumRenderPresentationRetries else {
+            // A persistent renderer rejection needs a fresh surface and
+            // authoritative replay, not another ordinary token with a reset
+            // counter. This is the terminal recovery edge for the episode.
+            needsAnotherRender = false
+            pendingRenderRetryCount = 0
+            let stalledMs = renderInFlightSince.map {
+                Int((CACurrentMediaTime() - $0) * 1000)
+            } ?? 0
+            let recovered = recoverRenderPipeline(
+                reason: "render_submission_retry_exhausted",
+                stalledMs: stalledMs,
+                replay: .callerWillRequestReplay
+            )
+            if recovered {
+                delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
+            } else {
+                cancelRenderSubmission(token: token)
+            }
+            return
+        }
+
+        // Carry the failure episode into the one follow-up submission. The
+        // pending replay continuation, if any, has already been completed
+        // above.
+        pendingRenderRetryCount = nextRetryCount
+        needsDraw = true
+        needsAnotherRender = true
+        pendingRenderFrames = max(pendingRenderFrames, 1)
+        cancelRenderSubmission(token: token)
+    }
+
+    /// Releases a submission that failed before Ghostty could present it.
+    func cancelRenderSubmission(token: UInt64) {
+        releaseRenderSubmission(token: token, presented: false)
+    }
+
+    private func releaseRenderSubmission(token: UInt64, presented: Bool) {
+        guard let submission = renderSubmission,
+              submission.token == token,
+              submission.generation == surfaceGeneration else { return }
+        // The disposition for a replacement is now authoritative. Any
+        // geometry changes coalesced while it was in flight can request one
+        // follow-up frame below, after this operation has left the queue.
+        renderReplacementInFlight = false
+        let action = presented
+            ? renderPresentationGate.complete(
+                token: token,
+                generation: submission.generation
+            )
+            : renderPresentationGate.cancel(
+                token: token,
+                generation: submission.generation
+            )
+        guard action != .ignored else { return }
+        if presented { submission.outputPresentation?() }
+        renderSubmission = nil
+        renderInFlight = false
+        renderInFlightSince = nil
+        // A verified replay can be the first frame on a cold mount. It carries
+        // valid terminal pixels even when no raw output chunk has arrived, so
+        // it must also retire the snapshot fallback overlay.
+        if presented && (hasAppliedOutput || submission.kind == .verifiedReplay) {
+            surfaceHasReceivedOutput = true
+            snapshotFallbackView.isHidden = true
+            noteKeyboardTransitionPresentationPresented(token: token)
+        }
+        #if DEBUG
+        if let surfaceID = hostSurfaceID {
+            if let sequence = latencyLastAppliedSequence {
+                MobileLatencyTrace.stamp(
+                    presented ? "rd.present" : "rd.cancel",
+                    "s=\(surfaceID.prefix(8).lowercased()) seq=\(sequence)"
+                )
+            } else {
+                MobileLatencyTrace.stamp(
+                    presented ? "rd.present" : "rd.cancel",
+                    "s=\(surfaceID.prefix(8).lowercased())"
+                )
+            }
+        }
+        #endif
+        guard !isDismantled else {
+            pendingRenderSubmission = nil
+            needsAnotherRender = false
+            pendingRenderRetryCount = 0
+            return
+        }
+        if case .started(_) = action {
+            if startPromotedRenderSubmission(action) {
+                pendingRenderRetryCount = 0
+                return
+            }
+        }
+        if needsAnotherRender {
+            let retryCount = pendingRenderRetryCount
+            pendingRenderRetryCount = 0
+            needsAnotherRender = false
+            if !requestRender(presentationRetryCount: retryCount) {
+                needsDraw = true
+            }
+        }
+    }
+
+    /// Starts the payload corresponding to a gate promotion, or repairs the
+    /// gate if its metadata outlived the UIKit payload. The latter is a
+    /// defensive boundary: leaving a promoted ticket in flight without a
+    /// ``RenderSubmission`` makes every later frame queue forever.
+    @discardableResult
+    private func startPromotedRenderSubmission(
+        _ action: TerminalRenderPresentationGateAction
+    ) -> Bool {
+        guard case .started(let ticket) = action else { return false }
+        guard let pending = pendingRenderSubmission,
+              pending.ticket == ticket else {
+            MobileDebugLog.anchormux(
+                "render.gate.promotion_payload_missing token=\(ticket.token)"
+            )
+            pendingRenderSubmission = nil
+            resetRenderAdmissionStatePreservingSuppression()
+            needsAnotherRender = false
+            pendingRenderRetryCount = 0
+            needsDraw = true
+            return false
+        }
+        // A failed in-flight ordinary frame may have left its retry episode in
+        // pendingRenderRetryCount. Carry that episode into a promoted ordinary
+        // or local-scroll frame instead of silently restarting at zero. Replay
+        // submissions have their own bounded retry accounting and should not
+        // inherit an ordinary-frame count.
+        let promoted: RenderSubmission
+        if pending.kind == .verifiedReplay {
+            promoted = pending
+        } else {
+            promoted = pending.withPresentationRetryCount(
+                max(pending.presentationRetryCount, pendingRenderRetryCount)
+            )
+        }
+        pendingRenderSubmission = nil
+        pendingRenderRetryCount = 0
+        guard startRenderSubmission(promoted) else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
+        }
+        return true
+    }
+
+    /// Restarts the queued non-replay frame once the frozen presentation is
+    /// removed. This is also used when a replay completion resumes an output
+    /// frame that arrived while suppression was active.
+    func resumeQueuedRenderAfterReplaySuppression() {
+        guard !verifiedReplayRenderSuppressed else { return }
+        let action = renderPresentationGate.setSuppressed(false)
+        if case .started(_) = action,
+           startPromotedRenderSubmission(action) {
+            return
+        }
+        // A request can arrive while a replay token is still completing. If
+        // it was intentionally retained as dirty work rather than a gate
+        // entry, give it one immediate chance after suppression is lifted.
+        guard needsDraw else { return }
+        needsDraw = false
+        if !requestRender() {
+            needsDraw = true
         }
     }
 
@@ -2827,7 +5137,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsDraw = true
         // A geometry sync (for any reason) satisfies a pending post-zoom resync.
         zoomSettleFrames = nil
-        if displayLink == nil, window != nil {
+        if displayLink == nil, window != nil, !alternateScreenSizingEnabled {
             // No frame pump while detached/backgrounded; apply directly so the
             // surface still gets sized before the next render path resumes.
             needsGeometrySync = false
@@ -2836,69 +5146,48 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
     }
-    func updateCursorOverlay() {
-        guard terminalTheme.cursorColorSemantic == nil else {
-            cursorOverlayLayer?.isHidden = true
-            return
-        }
-        guard let surface,
-              hostCursorVisible,
-              verifiedReplayFrozenPresentationLayer == nil,
-              window != nil,
-              !isHidden,
-              alpha > 0.01,
-              !lastRenderRect.isEmpty,
-              cellPixelSize.width > 0,
-              cellPixelSize.height > 0 else {
-            cursorOverlayLayer?.isHidden = true
-            return
-        }
-        let overlay = ensureCursorOverlayLayer()
-        var x: Double = 0
-        var y: Double = 0
-        var width: Double = 0
-        var height: Double = 0
-        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
 
-        let scale = max(preferredScreenScale, 1)
-        overlay.contentsScale = scale
-        let cellWidth = max(cellPixelSize.width / scale, 1)
-        let cellHeight = max(CGFloat(height), cellPixelSize.height / scale, 1)
-        let cursorWidth = max(1.0 / scale, min(CGFloat(1.5), cellWidth))
-        let cursorX = lastRenderRect.minX + CGFloat(x) - (cellWidth / 2)
-        let cursorY = lastRenderRect.minY + CGFloat(y) - cellHeight
-        overlay.frame = CGRect(
-            x: floor(cursorX),
-            y: floor(cursorY),
-            width: cursorWidth,
-            height: ceil(cellHeight)
-        )
-        overlay.backgroundColor = cursorBlinkState.isVisible
-            ? (configCursorColor ?? terminalTheme.terminalCursorUIColor).cgColor
-            : (configBackgroundColor ?? terminalTheme.terminalBackgroundUIColor).cgColor
-        overlay.isHidden = false
+    private var alternateScreenGeometryTransitionActive: Bool {
+        keyboardTransitionActiveForGeometry || hostedInterfaceTransitionActive || dockReflowActive
     }
 
-    private func ensureCursorOverlayLayer() -> CALayer {
-        if let cursorOverlayLayer {
-            return cursorOverlayLayer
+    private func shouldDeferAlternateScreenGeometry() -> Bool {
+        guard alternateScreenSizingEnabled else { return false }
+        if keyboardTransitionActiveForGeometry, keyboardGeometryTargetPrepared {
+            return false
         }
-        let layer = CALayer()
-        layer.name = "cmux.cursorOverlay"
-        layer.zPosition = 1001
-        layer.actions = [
-            "backgroundColor": NSNull(),
-            "bounds": NSNull(),
-            "frame": NSNull(),
-            "position": NSNull(),
-        ]
-        self.layer.addSublayer(layer)
-        cursorOverlayLayer = layer
-        return layer
+        return !alternateScreenGeometryFence.sample(
+            viewportSnapshot(),
+            transitionActive: alternateScreenGeometryTransitionActive
+        )
+    }
+
+    private func resetAlternateScreenGeometryFence() {
+        alternateScreenGeometryFence.invalidateCandidate()
+    }
+
+    func setHostedInterfaceTransitionActive(_ active: Bool) {
+        let wasActive = hostedInterfaceTransitionActive
+        hostedInterfaceTransitionActive = active
+        resetAlternateScreenGeometryFence()
+        if active, !wasActive, alternateScreenSizingEnabled {
+            // Rotation changes the grid only after UIKit finishes, so the
+            // same frozen-frame handoff as a keyboard leg applies.
+            installKeyboardTransitionPresentationOverlayIfNeeded()
+        }
+        if !active {
+            if wasActive, keyboardTransitionPresentationFreeze != nil {
+                // Publish the settled grid from the first measuring pass
+                // instead of the generic quiet-frame debounce.
+                publishSettledKeyboardViewportImmediately = true
+                keyboardTargetGeometryReportPending = true
+                noteKeyboardTransitionPresentationLegEnded()
+            }
+            setNeedsGeometrySync()
+        }
     }
 
     private(set) var configBackgroundColor: UIColor?
-    private(set) var configCursorColor: UIColor?
 
     /// Recolors the surface, fallback, cursor, and input accessory in place.
     @MainActor
@@ -2908,9 +5197,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.backgroundColor = themeBackground
         snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
         configBackgroundColor = themeBackground
-        configCursorColor = terminalTheme.terminalCursorUIColor
+        (bottomDockHostView as? GhosttySurfaceHostView)?.updateTerminalBackground(themeBackground)
         inputProxy.terminalTheme = terminalTheme
-        updateCursorOverlay()
         needsDraw = true
     }
 
@@ -2937,18 +5225,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             bounds.height > 0
         MobileDebugLog.anchormux("surface.occlusion visible=\(visible) window=\(window != nil) hidden=\(isHidden) alpha=\(alpha)")
         ghostty_surface_set_occlusion(surface, visible)
-        if visible {
-            updateCursorOverlay()
-        } else {
-            cursorOverlayLayer?.isHidden = true
-        }
     }
 
     /// Require a fresh settled viewport report whenever this view mounts.
     /// Reuses the last measured grid as a candidate, while later layout passes
     /// may supersede it before the debounce finishes.
-    public func requestViewportReportForMount() {
-        viewportReportRetries = 0
+    @discardableResult
+    public func requestViewportReportForMount(
+        invalidatingPendingReports: Bool = true
+    ) -> UInt64 {
+        if invalidatingPendingReports {
+            // A report callback can outlive the mount that emitted it. Move
+            // the report sequence past every callback already in flight so a
+            // retired mount cannot be accepted by the new coordinator.
+            viewportReportID &+= 1
+        }
+        if invalidatingPendingReports {
+            viewportReportRetries = 0
+        }
         if let pending = lastReportedSize,
            pending.columns > 0,
            pending.rows > 0 {
@@ -2957,6 +5251,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         } else {
             setNeedsGeometrySync(reassertNaturalSize: true)
         }
+        return viewportReportID
     }
 
     /// Re-arm the debounced viewport report after a round-trip returned no
@@ -2966,7 +5261,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
     public func retryViewportReport() {
         guard viewportReportRetries < Self.maxViewportReportRetries,
-              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else {
+            // Round-trip permanently failed (or nothing to retry): stop
+            // treating the negotiation as unsettled so layout converges on
+            // the best-known (stale) grant instead of staying parked until
+            // some future confirmation that may never come.
+            if awaitingViewportEcho {
+                awaitingViewportEcho = false
+                setNeedsGeometrySync(reassertNaturalSize: false)
+            }
+            return
+        }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
@@ -2974,6 +5279,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         pendingViewportReport = pending
         viewportReportSettleFrames = 0
+    }
+
+    /// Retire an unresolved negotiation after the coordinator's relay retry
+    /// budget is exhausted. This leaves the last confirmed grant visible and
+    /// marks the current natural grid exhausted so stale replay frames cannot
+    /// restart the same negotiation.
+    public func markViewportReportRetryExhausted() {
+        viewportReportRetries = Self.maxViewportReportRetries
+        guard awaitingViewportEcho else { return }
+        awaitingViewportEcho = false
+        setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
     public func applyViewSize(cols: Int, rows: Int) {
@@ -3017,6 +5333,66 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public func markViewportReportConfirmed() {
         viewportReportRetries = 0
+    }
+
+    /// Mark the round-trip for `reportID` as resolved. Only the NEWEST
+    /// report's confirmation settles the negotiation: an out-of-order reply
+    /// for an older report means the grant answering the current capacity is
+    /// still in flight.
+    public func markViewportReportConfirmed(reportID: UInt64) {
+        viewportReportRetries = 0
+        guard reportID == viewportReportID else { return }
+        noteKeyboardTransitionPresentationReportConfirmed(id: reportID)
+        if awaitingViewportEcho {
+            awaitingViewportEcho = false
+            // The geometry pass that emitted this report already rendered the
+            // current local viewport. `applyViewSize` schedules the only
+            // follow-up pass needed when the daemon grants a different grid.
+            // An unchanged echo only settles the handshake; queuing another
+            // pass here made a keyboard or rotation transition visibly resize
+            // twice even though the rendered grid never changed.
+        }
+    }
+
+    /// Start a fresh viewport negotiation even though the phone's capacity is
+    /// unchanged: re-queue the current capacity report so the display link
+    /// hands it to the delegate with a NEW report ID. Used when a replay
+    /// frame arrives sized for a grid that does not match this phone's
+    /// capacity (stale daemon state after a transport drop), so the daemon
+    /// relearns the phone's grid immediately instead of waiting for the next
+    /// natural-size change.
+    public func reassertViewportCapacityReport() {
+        guard let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+        guard viewportReportRetries < Self.maxViewportReportRetries else {
+            MobileDebugLog.anchormux(
+                "zoom.viewport.reassert_exhausted retries=\(viewportReportRetries) " +
+                "grid=\(pending.columns)x\(pending.rows)"
+            )
+            return
+        }
+        guard !awaitingViewportEcho, pendingViewportReport == nil else {
+            // A late/stale replay often arrives while the dedicated viewport
+            // RPC is still in flight or waiting for its scheduled retry. That
+            // replay is evidence about the same negotiation, not permission to
+            // mint another report ID and reset the retry budget.
+            MobileDebugLog.anchormux(
+                "zoom.viewport.reassert_coalesced retries=\(viewportReportRetries) " +
+                "grid=\(pending.columns)x\(pending.rows)"
+            )
+            return
+        }
+        pendingViewportReport = pending
+        viewportReportSettleFrames = 0
+        MobileDebugLog.anchormux(
+            "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows) " +
+            "retries=\(viewportReportRetries)"
+        )
+        // The report is serviced by the display link, and this method is
+        // called from the replay consumer where the link can be idle or torn
+        // down; without a wake the queued report would wait for unrelated UI
+        // activity while the caller keeps the presentation frozen.
+        needsDraw = true
+        startDisplayLink()
     }
 
     private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
@@ -3065,52 +5441,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
-    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
-    /// off-main surface queue (it touches only the passed surface pointer).
-    nonisolated private static func fitSurfaceToGrid(
-        _ surface: ghostty_surface_t,
-        cols: Int,
-        rows: Int,
-        cellPixelSize: CGSize
-    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
-        var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
-        var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
-
-        ghostty_surface_set_size(surface, requestedW, requestedH)
-        var actual = ghostty_surface_size(surface)
-
-        // Ghostty's grid calculation subtracts padding and floors partial cells,
-        // so the reverse mapping has to be confirmed against Ghostty itself.
-        // This keeps the iOS mirror on the exact daemon grid instead of
-        // occasionally rendering one column short.
-        var steps = 0
-        // Bounded refinement: a few single-pixel nudges are enough to land on
-        // the exact grid. A high cap let a fast-zoom storm run this loop tens
-        // of thousands of times across frames and burn the main thread.
-        while steps < 8,
-              Int(actual.columns) < cols || Int(actual.rows) < rows {
-            if Int(actual.columns) < cols {
-                requestedW += 1
-            }
-            if Int(actual.rows) < rows {
-                requestedH += 1
-            }
-            ghostty_surface_set_size(surface, requestedW, requestedH)
-            actual = ghostty_surface_size(surface)
-            steps += 1
-        }
-
-        return (requestedW, requestedH, actual)
-    }
-
     /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
+        /// The viewport snapshot used to size libghostty for this pass. The
+        /// render layer must use this same snapshot so a keyboard or rotation
+        /// update cannot move the layer a second time before the pass settles.
+        let viewportSnapshot: TerminalViewportSnapshot
         let cellPixelSize: CGSize
         let naturalSize: TerminalGridSize
-        let sourceLayoutViewportHeight: CGFloat
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
+        /// The font size the surface was rendering at when `cellPixelSize`
+        /// was measured. Capacity reports must normalize with THIS font, not
+        /// the main-actor `liveFontSize` read at apply time: a zoom queued
+        /// between the measurement and the apply makes the pair incoherent
+        /// and the base-font normalization off by the zoom ratio — the phone
+        /// then reports a grid several times too small (or too large) and
+        /// the daemon grants a bogus shared PTY size (the
+        /// keyboard-transition font-oscillation bug).
+        let measuredFontSize: Float32
+        /// The pixel-aligned scroll-edge bands applied to the surface by
+        /// this pass, in points. The render layer must grow by exactly
+        /// these: the drawable is this much taller than the grid box.
+        let appliedTopInsetPts: CGFloat
+        let appliedBottomInsetPts: CGFloat
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
@@ -3146,43 +5501,67 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The main thread only applies the UIKit result. This is the single
         // off-main surface owner: main never calls a blocking libghostty API.
         let scale = preferredScreenScale
-        // Reserve, from the bottom up, the keyboard/safe-area inset (keyboard
-        // height when up, else the bottom safe area so the always-visible toolbar
-        // clears the home indicator), the open composer band, and the persistent
-        // toolbar: the surface owns the whole bottom dock in one coordinate system,
-        // so the grid shrinks by all three. The order is immaterial to the reserved
-        // total; only the frame positions in `bottomDockFrames()` encode the
-        // `terminal / toolbar / composer / keyboard` stack. While the HIDE button
-        // has suppressed the chrome (`chromeHidden`) the toolbar is off screen and
-        // reserves nothing and the composer band is hidden, so the grid reclaims the
-        // whole height including the bottom safe area, matching `bottomDockFrames()`
-        // pinning the dock to `bounds.height`; only an actual keyboard is reserved
-        // then if one is somehow still up.
-        //
-        // The reservation + container math is the host-tested
-        // `TerminalLetterboxGeometry.terminalContainerSize` (the same arithmetic
-        // that was inlined here), so the keyboard open/closed full-height contract
-        // is locked by a unit test and the surface cannot drift from it. Passing
-        // the CURRENT `keyboardHeight` means a keyboard-down sync never inherits a
-        // stale keyboard value (the "terminal not full height when keyboard closed"
-        // bug); the safe-area inset is resolved from the window when the view inset
-        // is a stale 0 right after the keyboard hides (see `safeAreaInsetsBottom`).
-        let snapshot = viewportSnapshot()
-        let container = snapshot.containerSize
-        let containerW = container.width
-        let containerH = container.height
+        // The font the surface will measure with. Font pushes and geometry
+        // passes share the serial `outputQueue`, and `liveFontSize` is
+        // written on the main thread at the moment the font push is
+        // enqueued, so capturing it here (at this pass's enqueue) pairs it
+        // with exactly the cell size this pass measures.
+        let measuredFontSize = liveFontSize
+        // Reserve, from the bottom up, the steady-state chrome: the bottom
+        // safe area (the always-visible toolbar clears the home indicator),
+        // the open composer band, and the persistent toolbar. Alternate-screen
+        // snapshots add the keyboard height only after the UIKit transition
+        // commits; primary-screen snapshots keep the keyboard-independent grid.
+        // While the HIDE button has suppressed the chrome (`chromeHidden`) the
+        // grid reclaims the whole height apart from a settled alternate-screen
+        // keyboard.
+        let liveSnapshot = viewportSnapshot()
+        if !alternateScreenSizingEnabled {
+            alternateScreenGeometryFence.commitUnfenced(liveSnapshot)
+        }
+        let snapshot = alternateScreenSizingEnabled
+            ? alternateScreenGeometryFence.snapshotForApply(liveSnapshot)
+            : liveSnapshot
+        if alternateScreenSizingEnabled, snapshot != liveSnapshot {
+            // A replay may apply its authoritative grid immediately, but it
+            // must leave the final UI capacity queued for the frame fence.
+            needsGeometrySync = true
+        }
+        let containerW = snapshot.containerSize.width
+        let containerH = snapshot.containerSize.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
+        // The scroll-edge bands above and below the grid, pixel-aligned at
+        // the captured scale. Applied to the surface before set_size so the
+        // drawable grows while the app-facing size (and therefore the grid)
+        // stays container-sized. The bottom band spans the bottom chrome
+        // reservation (dock seam + toolbar + composer + safe area), whose
+        // rows only exist when scrolled into scrollback; it is gated on the
+        // same feature signal as the top band (a nonzero top inset).
+        let topInsetPx = UInt32(max(0, Int((snapshot.renderTopInset * scale).rounded(.down))))
+        let appliedTopInsetPts = CGFloat(topInsetPx) / scale
+        let bottomInsetPts = snapshot.renderTopInset > 0
+            ? max(0, snapshot.bounds.height - snapshot.layoutViewportRect.maxY)
+            : 0
+        let bottomInsetPx = UInt32(max(0, Int((bottomInsetPts * scale).rounded(.down))))
+        let appliedBottomInsetPts = CGFloat(bottomInsetPx) / scale
         let eff = effectiveGrid
-        let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
+        let workQueue = outputQueue
+        let phaseLog = diagnosticLog
+        let phaseContext = terminalWorkSnapshot(transition: .resize)
 
-        outputQueue.async { [weak self] in
+        let queued = phaseLog?.beginTerminalWork(.geometryQueue, context: phaseContext, onMainThread: false)
+        let accepted = workQueue.async { [weak self] in
+            queued?.end()
+            let work = phaseLog?.beginTerminalWork(.resizePublication, context: phaseContext)
+            defer { work?.end() }
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
+            ghostty_surface_set_render_insets(surface, topInsetPx, bottomInsetPx)
             ghostty_surface_set_size(surface, containerPxW, containerPxH)
             let measured = ghostty_surface_size(surface)
 
@@ -3197,13 +5576,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var pinnedSize: CGSize?
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
                 let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
                     && eff.rows <= Int(measured.rows)
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale
                 let pinnedH = CGFloat(eff.rows) * cell.height / scale
+                // The producer's effective grid is the contract for every
+                // authoritative render-grid replay. Even a one-row/column
+                // difference must be fitted locally, otherwise the apply
+                // fence rejects every replay and the lane keeps reopening
+                // behind a fresh recovery cycle. Keep the fit bounded to
+                // grids that actually fit inside the measured surface; a
+                // larger effective grid still needs a normal geometry pass.
                 let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && (!withinOneCell || requiresExactEffectiveGrid && exactGridFitsInsideNatural)
+                    && exactGridFitsInsideNatural
                 if shouldFitEffectiveGrid,
                    pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
                     let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
@@ -3216,6 +5601,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
 
+            // Record the pass's FINAL grid (the letterbox fit above may have
+            // resized again) so render-grid applies can fence on any grid
+            // change this pass caused.
+            let finalMeasured = pinnedSize == nil ? measured : ghostty_surface_size(surface)
+            workQueue.noteObservedGrid(
+                columns: Int(finalMeasured.columns),
+                rows: Int(finalMeasured.rows)
+            )
             let natural = TerminalGridSize(
                 columns: Int(measured.columns),
                 rows: Int(measured.rows),
@@ -3223,10 +5616,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 pixelHeight: Int(measured.height_px)
             )
             let result = GeometryResult(
+                viewportSnapshot: snapshot,
                 cellPixelSize: cell,
                 naturalSize: natural,
-                sourceLayoutViewportHeight: snapshot.layoutViewportRect.height,
-                pinnedSize: pinnedSize
+                pinnedSize: pinnedSize,
+                measuredFontSize: measuredFontSize,
+                appliedTopInsetPts: appliedTopInsetPts,
+                appliedBottomInsetPts: appliedBottomInsetPts
             )
             Task { @MainActor in
                 guard let self else {
@@ -3247,6 +5643,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 completion?(true)
             }
         }
+        if !accepted { queued?.end(); completion?(false) } // Rejection never retains or executes the closure.
     }
 
     /// Apply an off-main geometry pass on the main actor: only UIKit layer /
@@ -3277,32 +5674,39 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
-        let snapshot = viewportSnapshot()
+        let snapshot = result.viewportSnapshot
         layoutBottomDock(using: snapshot)
-        lastRenderLayoutViewportHeight = result.sourceLayoutViewportHeight
-        lastRenderHasSourceLayoutViewport = true
-        let renderRect = snapshot.renderRect(
-            forRenderSize: measuredRenderRect.size,
-            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
-        )
+        let renderRect = snapshot.renderRect(forRenderSize: measuredRenderRect.size)
         lastRenderRect = renderRect
-        #if DEBUG
-        recordBottomViewportMismatchIfNeeded()
-        #endif
+        // The drawable this pass produced includes the scroll-edge bands;
+        // the layer must grow by exactly that much or every present is
+        // discarded on the size check.
+        appliedRenderTopInsetPts = result.appliedTopInsetPts
+        appliedRenderBottomInsetPts = result.appliedBottomInsetPts
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
-            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY))"
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY)) "
+            + "topInset=\(Int(result.appliedTopInsetPts))"
         )
-        syncRendererLayerFrame(scale: scale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: scale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
         )
-        updateCursorOverlay()
+        // UIKit may have delivered another layout pass while libghostty was
+        // measuring off-main. Keep this pass internally consistent, then let
+        // the display link apply the newer snapshot as one follow-up pass.
+        if viewportSnapshot() != snapshot {
+            needsGeometrySync = true
+            needsDraw = true
+        }
         needsDraw = true
         // Keep drawing for several frames so a frame lands at the final settled
         // layer size after CoreAnimation commits the bounds change. libghostty
@@ -3316,41 +5720,89 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         let naturalSize = result.naturalSize
         let reportContainerWidth = columnReportContainerWidth(currentWidth: containerW)
-        // Report capacity at the user's base font, not the rendered font: a
-        // report derived from the fitted font would ratchet the negotiated
-        // minimum down and the phone could never learn when the constraining
-        // device grew back. Columns use the same base-font normalization as
-        // rows so a row-stretched font cannot under-report the phone's width.
+        // Report capacity at the user's base font, not whatever font was
+        // rendering when the cell was measured (a coalescing pinch step can
+        // make them differ for a frame): a report derived from a transient
+        // rendered font would ratchet the negotiated minimum down and the
+        // phone could never learn when the constraining device grew back.
         let reportGrid = capacityReportGrid(
             for: naturalSize,
             containerPixelWidth: reportContainerWidth * scale,
             containerPixelHeight: containerH * scale,
             cellPixelWidth: result.cellPixelSize.width,
-            cellPixelHeight: result.cellPixelSize.height
+            cellPixelHeight: result.cellPixelSize.height,
+            measuredFontSize: result.measuredFontSize
         )
-        // Stretch-to-fill: keep the RENDERED font tracking only real row
-        // constraints. When the daemon grants the base-font natural grid back,
-        // decay to the user's base font so the full-width grid can render
-        // without horizontal overflow.
-        autoFitFontToEffectiveRows(
-            renderedRows: naturalSize.rows,
-            containerPixelWidth: reportContainerWidth * scale,
-            containerPixelHeight: containerH * scale,
-            cellPixelWidth: result.cellPixelSize.width,
-            cellPixelHeight: result.cellPixelSize.height
-        )
+        // The rendered font is always the user's explicit choice. A grant with
+        // fewer rows or columns than the phone's capacity letterboxes inside
+        // the render rect (with the border); it never rescales text. The old
+        // stretch-to-fill auto-fit re-derived the rendered font from the
+        // granted grid, and any window where the grant was stale (reconnect
+        // replays, keyboard transitions, lost echoes) momentarily zoomed the
+        // terminal past the screen edges until the next negotiation
+        // round-trip. Converge any residual drift back to the base size; with
+        // no auto-fit, `liveFontSize` can differ from `userBaseFontSize` only
+        // while an explicit font change is still coalescing.
+        if pendingFontSize == nil, abs(liveFontSize - userBaseFontSize) >= 0.25 {
+            MobileDebugLog.anchormux(
+                "zoom.converge live=\(liveFontSize) base=\(userBaseFontSize)"
+            )
+            applyAbsoluteFontSize(userBaseFontSize)
+        }
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = reportGrid != lastReportedSize ||
+        let naturalGridChanged = reportGrid != lastReportedSize
+        let shouldReportNaturalSize = naturalGridChanged ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
-        guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        let canPublishSettledKeyboardViewport =
+            publishSettledKeyboardViewportImmediately
+            && alternateScreenSizingEnabled
+            && (!keyboardTransitionActiveForGeometry || keyboardTargetGeometryReportPending)
+            && viewportSnapshot() == snapshot
+        guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else {
+            if canPublishSettledKeyboardViewport, !shouldReportNaturalSize {
+                publishSettledKeyboardViewportImmediately = false
+                keyboardTargetGeometryReportPending = false
+                noteKeyboardTransitionPresentationReportUnneeded()
+            }
+            return
+        }
+        if naturalGridChanged {
+            // Retry exhaustion belongs to one natural grid. Rotation, zoom
+            // settle, composer-height changes, and other real capacity changes
+            // get a fresh bounded recovery budget.
+            viewportReportRetries = 0
+        }
         lastReportedSize = reportGrid
+        if canPublishSettledKeyboardViewport {
+            publishSettledKeyboardViewportImmediately = false
+            keyboardTargetGeometryReportPending = false
+            scheduleVisibleArtifactCountUpdate()
+            publishViewportReport(reportGrid, reason: "keyboard_settled")
+            return
+        }
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = reportGrid
         viewportReportSettleFrames = 0
         scheduleVisibleArtifactCountUpdate()
+    }
+
+    /// Publishes a natural-grid report with a fresh sequence stamp. Keyboard
+    /// completion uses this immediately after its final geometry measurement;
+    /// other geometry changes continue through the quiet-frame debounce.
+    private func publishViewportReport(_ report: TerminalGridSize, reason: String) {
+        pendingViewportReport = nil
+        viewportReportSettleFrames = 0
+        viewportReportID &+= 1
+        awaitingViewportEcho = true
+        noteKeyboardTransitionPresentationReportPublished(id: viewportReportID)
+        MobileDebugLog.anchormux(
+            "viewport.report grid=\(report.columns)x\(report.rows) id=\(viewportReportID) "
+                + "retry=\(viewportReportRetries) reason=\(reason)"
+        )
+        delegate?.ghosttySurfaceView(self, didResize: report, reportID: viewportReportID)
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
@@ -3390,8 +5842,67 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayGeometryRevision &+= 1
             verifiedReplayReadyFence = nil
             verifiedReplayReadyTransactionID = nil
-            restartPendingVerifiedReplayPresentationForCurrentGeometry()
+            if pendingVerifiedReplayPresentation != nil {
+                restartPendingVerifiedReplayPresentationForCurrentGeometry()
+            } else {
+                restartInFlightRenderSubmissionForCurrentGeometry()
+            }
         }
+    }
+
+    /// Reissues an ordinary or local-scroll submission after a layer resize.
+    /// `IOSurfaceLayer` intentionally discards a target whose extent no longer
+    /// matches the live layer, so waiting for that callback would otherwise
+    /// leave the presentation gate blocked until surface recovery.
+    @discardableResult
+    private func restartInFlightRenderSubmissionForCurrentGeometry(
+        countsAsRetry: Bool = false
+    ) -> Bool {
+        if !countsAsRetry, renderReplacementInFlight {
+            // The prior replacement is still queued or running on the serial
+            // output queue. Coalesce this geometry revision behind its
+            // disposition instead of enqueueing another overlapping render.
+            needsAnotherRender = true
+            needsDraw = true
+            return true
+        }
+        guard let current = renderSubmission,
+              current.kind != .verifiedReplay,
+              let surface,
+              current.surface == surface,
+              current.generation == surfaceGeneration else {
+            return false
+        }
+        guard !countsAsRetry
+                || current.presentationRetryCount < Self.maximumRenderPresentationRetries else {
+            MobileDebugLog.anchormux(
+                "render.submission.retry_drop reason=retry_limit"
+            )
+            return false
+        }
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        guard let renderer,
+              renderer.bounds.width > 0,
+              renderer.bounds.height > 0,
+              renderer.contentsScale > 0 else {
+            return false
+        }
+        let replacement = RenderSubmission(
+            token: makeSurfaceOperationID(),
+            generation: surfaceGeneration,
+            kind: current.kind,
+            surface: surface,
+            verifiedReplayRead: current.verifiedReplayRead,
+            presentationRetryCount: countsAsRetry
+                ? current.presentationRetryCount &+ 1
+                : current.presentationRetryCount,
+            outputPresentation: current.outputPresentation
+        )
+        let replaced = replaceInFlightRenderSubmission(with: replacement)
+        if replaced {
+            renderReplacementInFlight = true
+        }
+        return replaced
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
@@ -3465,7 +5976,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func makeSurface(app: ghostty_app_t) -> ghostty_surface_t? {
         var surfaceConfig = ghostty_surface_config_new()
-        let bridgePointer = Unmanaged.passUnretained(bridge).toOpaque()
+        let retainedBridge = Unmanaged.passRetained(bridge)
+        let bridgePointer = retainedBridge.toOpaque()
         surfaceConfig.userdata = bridgePointer
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_IOS
         surfaceConfig.platform = ghostty_platform_u(
@@ -3475,26 +5987,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceConfig.font_size = liveFontSize
         surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
-        surfaceConfig.io_write_cb = { userdata, buf, len in
-            guard let userdata, let buf, len > 0 else { return }
-            let data = Data(bytes: buf, count: Int(len))
-            let bridge = Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                bridge.surfaceView?.handleOutboundBytes(data)
-            }
-        }
+        surfaceConfig.io_write_cb = GhosttySurfaceBridge.ioWriteCallback
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
+            retainedBridge.release()
             return nil
         }
         guard ghostty_surface_set_render_presented_callback(
             createdSurface,
-            { userdata, token in
-                GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
-            },
+            GhosttySurfaceBridge.renderPresentedCallback,
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)
+            retainedBridge.release()
+            return nil
+        }
+        guard ghostty_surface_set_render_failed_callback(
+            createdSurface,
+            GhosttySurfaceBridge.renderFailedCallback,
+            bridgePointer
+        ) else {
+            ghostty_surface_free(createdSurface)
+            retainedBridge.release()
             return nil
         }
         return createdSurface
@@ -3542,13 +6056,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // Once the Metal renderer is active (surface has received output),
         // keep the fallback hidden so the IOSurfaceLayer is visible.
         if surfaceHasReceivedOutput {
-            snapshotFallbackView.isHidden = true
-            return
-        }
-
-        let rendererHasContents = !prefersSnapshotFallbackRendering &&
-            (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
-        if rendererHasContents {
             snapshotFallbackView.isHidden = true
             return
         }
@@ -3646,10 +6153,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         return 0
-    }
-
-    private func isGhosttyRendererLayerVisible(_ layer: CALayer) -> Bool {
-        isGhosttyRendererLayer(layer) && layer.contents != nil
     }
 
     nonisolated private static func handleWrite(
@@ -3759,10 +6262,33 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
         enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
         recenterScrollMechanicsViewIfNeeded()
     }
+
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView else { return }
+        // Reveal on touch-down and hold the chip (no linger) while the finger
+        // is down; the end/deceleration callbacks arm the fade-out. Recorded
+        // even before any chip content mounts (see noteArtifactChipScrollActivity).
+        revealArtifactChipForScroll()
+    }
+
+    public func scrollViewDidEndDragging(
+        _ scrollView: UIScrollView,
+        willDecelerate decelerate: Bool
+    ) {
+        guard scrollView === scrollMechanicsView, !decelerate,
+              artifactChipScrollRevealed else { return }
+        armArtifactChipRevealLinger()
+    }
+
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView,
+              artifactChipScrollRevealed else { return }
+        armArtifactChipRevealLinger()
+    }
 }
 
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` replay decisions.
-nonisolated enum RenderPipelineRecoveryReplay {
+enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
@@ -3770,7 +6296,7 @@ nonisolated enum RenderPipelineRecoveryReplay {
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingSurfaceOperation {
+struct PendingSurfaceOperation {
     let id: UInt64
     let startedAt: CFTimeInterval
     let byteCount: Int?
@@ -3780,15 +6306,31 @@ nonisolated struct PendingSurfaceOperation {
 /// One visible-terminal snapshot read awaiting output-queue completion or its
 /// display-link deadline. A timeout skips only the pending text snapshot.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingVisibleSnapshot {
+struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
 }
 
+/// One verified-replay viewport-anchor capture awaiting output-queue completion
+/// or its skip-only display-link deadline.
+struct PendingVerifiedReplayViewportAnchorCapture {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
+}
+
+/// One verified-replay viewport-anchor restore awaiting output-queue completion
+/// or its skip-only display-link deadline.
+struct PendingVerifiedReplayViewportAnchorRestore {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<Bool, Never>
+}
+
 /// One "View as Text" read awaiting output-queue completion or deadline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingCopyableTextRead {
+struct PendingCopyableTextRead {
     let id: UInt64
     let startedAt: CFTimeInterval
     fileprivate let cancellation: SurfaceOperationCancellationToken
@@ -3804,26 +6346,10 @@ nonisolated struct PendingCopyableTextRead {
 ///
 /// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
 /// which is the same FIFO queue that owns `process_output` and surface free.
-nonisolated private struct CopyableTextRead: @unchecked Sendable {
+private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
-}
-
-nonisolated private final class SurfaceOperationCancellationToken: Sendable {
-    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
-    // libghostty work; actor hops would put the serial surface queue back behind
-    // the main actor and defeat the stale-read fast path.
-    private let cancelled: Mutex
-        <Bool> = .init(false)
-
-    var isCancelled: Bool {
-        cancelled.withLock { $0 }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-    }
 }
 
 private class DisplayLinkProxy {

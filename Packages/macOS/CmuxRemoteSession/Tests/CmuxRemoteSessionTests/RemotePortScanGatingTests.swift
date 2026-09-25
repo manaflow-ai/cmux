@@ -51,6 +51,27 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("vm-baked Cloud VMs never run the ssh port scan, so connected is not held behind its timeout")
+    func vmBakedConfigurationSkipsSSHPortScan() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            terminalStartupCommand: "true",
+            skipDaemonBootstrap: true
+        )
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortPollingStateLocked()
+        }
+
+        // No ssh-exec channel exists on these machines: a scan could only time out,
+        // and the first poll runs synchronously ahead of publishState(.connected).
+        #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == false)
+        #expect(runner.runCount == 0)
+        coordinator.stop()
+    }
+
     @Test("Enabled keeps the host-wide poll timer running and scans (sanity)")
     func enabledStartsPollTimer() {
         let runner = SpyProcessRunner()
@@ -291,6 +312,7 @@ struct RemotePortScanGatingTests {
             "pty.session.token",
             "pty.write.notification",
             "pty.resize.notification",
+            "pty.attach.cancel",
             "pty.session.persistent_daemon",
         ])
         #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
@@ -337,11 +359,17 @@ struct RemotePortScanGatingTests {
             buildInfo: StubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }
@@ -445,6 +473,15 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
         lifecycleID: String
     ) throws {}
     func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool { false }
+    func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? { nil }
+    func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? { nil }
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,

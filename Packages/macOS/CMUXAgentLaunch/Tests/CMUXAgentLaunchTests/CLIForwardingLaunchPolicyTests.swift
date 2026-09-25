@@ -48,6 +48,12 @@ struct CLIForwardingLaunchPolicyTests {
                 forwardingGuardIsSet: true
             ) == .launchGUI
         )
+        #expect(
+            CLIForwardingLaunchPolicy.decision(
+                arguments: ["cmux RC", "RC"],
+                forwardingGuardIsSet: true
+            ) == .launchGUI
+        )
     }
 
     /// CLI-style subcommands forward to the bundled CLI on the first pass.

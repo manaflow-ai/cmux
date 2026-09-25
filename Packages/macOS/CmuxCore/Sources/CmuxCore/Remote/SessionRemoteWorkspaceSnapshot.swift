@@ -6,12 +6,17 @@ public import CmuxFoundation
 /// Wire/persistence shape: field names are encoded by `Codable`; do not rename
 /// stored properties without a migration.
 public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
+    /// Explicit persistent SSH owner; absent in legacy daemon snapshots.
+    public var sshSessionOwner: String? = nil
+
     /// The transport the workspace used when the snapshot was taken.
     public var transport: WorkspaceRemoteTransport
     /// The interactive terminal protocol, absent in snapshots written before Mosh support.
     public var terminalTransport: WorkspaceRemoteTerminalTransport? = nil
     /// Durable terminal program intent, absent in snapshots written before terminal profiles.
     public var terminalProfile: WorkspaceRemoteTerminalProfile? = nil
+    /// Effective host-configured command for the managed interactive shell.
+    public var configuredRemoteCommand: String? = nil
     /// SSH destination (`user@host` or `host`).
     public var destination: String
     /// Explicit SSH port, when one was configured.
@@ -36,6 +41,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         transport: WorkspaceRemoteTransport,
         terminalTransport: WorkspaceRemoteTerminalTransport? = nil,
         terminalProfile: WorkspaceRemoteTerminalProfile? = nil,
+        configuredRemoteCommand: String? = nil,
         destination: String,
         port: Int? = nil,
         identityFile: String? = nil,
@@ -49,6 +55,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         self.transport = transport
         self.terminalTransport = terminalTransport
         self.terminalProfile = terminalProfile
+        self.configuredRemoteCommand = configuredRemoteCommand
         self.destination = destination
         self.port = port
         self.identityFile = identityFile

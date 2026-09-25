@@ -6,7 +6,7 @@ let package = Package(
     name: "CmuxAgentChatUI",
     defaultLocalization: "en",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -16,6 +16,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
         .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileToast"),
@@ -28,6 +29,7 @@ let package = Package(
         .target(
             name: "CmuxAgentChatUI",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxAgentChat",
                 "CmuxMobileSupport",
                 "CmuxMobileToast",

@@ -11,16 +11,12 @@ struct TaskComposerMachineMenu: View, Equatable {
         lhs.value == rhs.value
     }
 
-    private var selectedMachine: MobilePairedMac? {
-        value.machines.first { $0.macDeviceID == value.selectedMacDeviceID }
-    }
-
     var body: some View {
         ZStack {
             TaskComposerRouteLabel(
-                icon: selectedMachine.map(routeIconContent(for:)) ?? .symbol("desktopcomputer"),
+                icon: value.selectedMachine.map(routeIconContent(for:)) ?? .symbol("desktopcomputer"),
                 title: L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"),
-                value: selectedMachine?.resolvedName ?? value.selectedMacDeviceID,
+                value: value.selectedMachine?.resolvedName ?? value.selectedMacPairingID,
                 valueFont: .caption.weight(.semibold),
                 valueTruncationMode: .tail,
                 chevronSystemName: "chevron.up.chevron.down"
@@ -30,11 +26,23 @@ struct TaskComposerMachineMenu: View, Equatable {
             Menu {
                 ForEach(value.machines) { mac in
                     Button {
-                        actions.selectMachine(mac.macDeviceID)
+                        actions.selectMachine(mac.macDeviceID, mac.instanceTag)
                     } label: {
-                        Label(mac.resolvedName, systemImage: "desktopcomputer")
+                        // Bare Text/Text/Image tuple: UIMenu bridging reads the
+                        // first Text as title, the second as subtitle, and the
+                        // Image as the item icon. A stack or Label drops the
+                        // subtitle entirely.
+                        Text(mac.resolvedName)
+                        if let buildLabel = value.buildLabelsByID[mac.id] {
+                            Text(buildLabel)
+                        }
+                        if value.isSelected(mac) {
+                            Image(systemName: "checkmark")
+                        } else {
+                            Image(systemName: "desktopcomputer")
+                        }
                     }
-                    .accessibilityAddTraits(mac.macDeviceID == value.selectedMacDeviceID ? .isSelected : [])
+                    .accessibilityAddTraits(value.isSelected(mac) ? .isSelected : [])
                 }
             } label: {
                 Color.clear
@@ -46,7 +54,7 @@ struct TaskComposerMachineMenu: View, Equatable {
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .disabled(value.isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
-        .accessibilityValue(selectedMachine?.resolvedName ?? value.selectedMacDeviceID)
+        .accessibilityValue(value.selectedMachine?.resolvedName ?? value.selectedMacPairingID)
         .accessibilityHint(TaskComposerSheet.machineAccessibilityHint)
         .accessibilityIdentifier("MobileTaskComposerMachineMenu")
     }
