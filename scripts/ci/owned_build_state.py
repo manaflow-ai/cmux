@@ -72,8 +72,8 @@ renaming the new copy into place after the old one is out of the way, so an
 interrupted job leaves either the old state, the new one, or none, never one
 inside the other. One job at a time touches a slot's STORE, because glaeda
 grants a slot's compile token to one job. Two slots can clone PACKAGE_STORE
-while one saves; a clone that loses that race is a package miss, never a
-failed step. Nothing here uploads anything: a pull request run on an owned Mac never
+while one saves; a clone that loses that race is usually a package miss, and
+at worst hands the resolve an incomplete checkout that it fetches again. Nothing here uploads anything: a pull request run on an owned Mac never
 writes a shared cache or seed, only this Mac's own state, and fork pull
 requests never reach an owned pool.
 """
@@ -277,6 +277,12 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
 def save(store: Path, source_packages: Path, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     package_store = package_store or store
     package_store.mkdir(parents=True, exist_ok=True)
+    # Leftovers of a save that was cancelled or lost a rename race to
+    # another slot, and a slot's own packages from before PACKAGE_STORE.
+    for stale in package_store.glob(f".{PACKAGES}.*"):
+        remove(stale)
+    if package_store != store:
+        remove(store / PACKAGES)
     # The resolve moved the packages into the canonical tree; a job that
     # stopped before it left them where check put them. A job with neither
     # leaves the kept packages as they are.
@@ -284,8 +290,13 @@ def save(store: Path, source_packages: Path, workspace: Path, package_store: Pat
         if packages.is_dir():
             incoming = package_store / f".{PACKAGES}.incoming-{os.getpid()}"
             move(packages, incoming)
-            clear(package_store / PACKAGES)
-            incoming.rename(package_store / PACKAGES)
+            try:
+                clear(package_store / PACKAGES)
+                incoming.rename(package_store / PACKAGES)
+            except (OSError, RuntimeError):
+                # Another slot saved first; its packages are as good.
+                remove(incoming)
+                return {"packages": "false", "reason": "another slot saved at the same time"}
             return {"packages": "true"}
     return {"packages": "false"}
 

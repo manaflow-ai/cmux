@@ -155,6 +155,22 @@ class AdoptAndSave(Fixture):
         self.assertTrue((shared / "source-packages" / "slot2").is_file())
         self.assertFalse((slot / "source-packages").exists())
 
+    def test_a_save_that_loses_a_race_leaves_nothing_behind(self):
+        self.keep()
+        (self.store / ".source-packages.incoming-1").mkdir()  # a cancelled save
+        (self.store / "cmux-ci-2" / "source-packages").mkdir(parents=True)  # pre-shared slot copy
+        self.packages.mkdir(parents=True)
+        real = Path.rename
+        def racing(path, target):
+            if Path(target).name == "source-packages":
+                raise OSError(66, "Directory not empty")
+            return real(path, target)
+        with unittest.mock.patch.object(Path, "rename", racing):
+            result = run(state.save, self.store / "cmux-ci-2", self.packages, self.workspace, self.store)
+        self.assertEqual(result["packages"], "false")
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertFalse((self.store / "cmux-ci-2" / "source-packages").exists())
+
     def test_a_package_clone_that_loses_a_race_is_a_miss(self):
         self.keep()
         with unittest.mock.patch.object(state, "clone", side_effect=OSError("gone")):
