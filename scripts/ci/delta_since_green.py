@@ -87,6 +87,8 @@ class Git:
     def __init__(self, cwd: Path, remote: str = "origin") -> None:
         self.cwd = cwd
         self.remote = remote
+        # Fetches that needed a fallback, for the step summary.
+        self.notes: list[str] = []
 
     def run(self, *args: str) -> str:
         return subprocess.run(
@@ -99,8 +101,27 @@ class Git:
             ["git", *args], cwd=self.cwd, capture_output=True, text=True,
         ).returncode == 0
 
-    def fetch(self, *args: str) -> None:
-        self.run("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *args)
+    def fetch(self, object_filter: str, *args: str) -> None:
+        """Fetch with a partial-clone filter, or without one if that fails.
+
+        The filter keeps the fetch small; without it the same objects arrive
+        with their contents, which is slower but routes the same. When both
+        fail the delta does not apply, and the reason carries git's stderr.
+        """
+        attempts = ((object_filter, *args), args)
+        for index, attempt in enumerate(attempts):
+            try:
+                self.run("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *attempt)
+                return
+            except subprocess.CalledProcessError as error:
+                stderr = " ".join((error.stderr or "").split())[-300:] or f"exit {error.returncode}"
+                if index + 1 < len(attempts):
+                    self.notes.append(f"fetch {' '.join(args[:1])} with {object_filter} failed ({stderr}); retried without it")
+                else:
+                    raise Skip(f"git fetch {' '.join(args[:1])} failed: {stderr}") from error
+
+    def is_shallow(self) -> bool:
+        return self.run("rev-parse", "--is-shallow-repository").strip() == "true"
 
     def first_parent_chain(self, head: str, count: int) -> list[Commit]:
         # rev-list honours the shallow boundary: a boundary commit lists no
@@ -202,7 +223,10 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
     green, merges = find_green_head(chain, verdicts)
 
     # The merge base and "each merge brought in main" need main's history.
-    git.fetch("--filter=tree:0", f"--deepen={HISTORY_DEPTH}", git.remote, head_sha, onto)
+    # Only while the checkout is still shallow: the fetch above can complete
+    # a short history, and some git versions refuse --deepen on a complete one.
+    if git.is_shallow():
+        git.fetch("--filter=tree:0", f"--deepen={HISTORY_DEPTH}", git.remote, head_sha, onto)
     for merge in merges:
         if not git.is_ancestor(merge.parents[1], onto):
             raise Skip(f"merge {short(merge.oid)} brings in {short(merge.parents[1])}, which is not on main")
@@ -352,10 +376,12 @@ def main(argv: list[str]) -> int:
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     api_url = os.environ.get("GITHUB_GRAPHQL_URL") or "https://api.github.com/graphql"
+    git: Optional[Git] = None
     try:
         if not token or "/" not in args.repository:
             raise Skip("no token or repository to read CI verdicts with")
-        decision = decide(Git(Path.cwd()), args.merge_sha, args.head_sha,
+        git = Git(Path.cwd())
+        decision = decide(git, args.merge_sha, args.head_sha,
                           github_verdicts(args.repository, token, api_url, args.pull_request, args.base_ref))
     except Skip as skip:
         decision = Decision(None, f"pull request diff: {skip}")
@@ -363,13 +389,20 @@ def main(argv: list[str]) -> int:
         detail = getattr(error, "stderr", "") or ""
         decision = Decision(None, f"pull request diff: the delta check failed ({error} {detail.strip()})".strip())
 
+    notes = git.notes if git is not None else []
     print(f"CI diff base: {decision.reason}")
+    for note in notes:
+        print(f"CI diff base note: {note}")
     if args.github_output:
         with open(args.github_output, "a", encoding="utf-8") as handle:
             handle.write(f"base_sha={decision.base or ''}\n")
     if args.summary:
         with open(args.summary, "a", encoding="utf-8") as handle:
             handle.write(f"**CI diff base:** {decision.reason}\n\n")
+            for note in notes:
+                handle.write(f"- {note}\n")
+            if notes:
+                handle.write("\n")
     return 0
 
 

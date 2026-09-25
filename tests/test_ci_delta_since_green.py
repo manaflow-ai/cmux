@@ -247,6 +247,62 @@ class DecideTests(Case):
         self.assertEqual(git(self.work, "diff", "--name-only", h1, "HEAD"),
                          "scripts/ci/detect_ci_change_areas.py")
 
+    def test_complete_history_is_not_deepened(self) -> None:
+        # The chain fetch completes this short history; some git versions
+        # (2.52 on the Linux runners) refuse --deepen on a complete repository.
+        h1 = self.pr_head()
+        self.origin.commit("main", {"web/w.txt": "w1\n"})
+        self.origin.merge_main_into_pr()
+        self.origin.commit("main", {"docs/d.txt": "d1\n"})
+        self.origin.merge_main_into_pr()
+        fetched: list[tuple[str, ...]] = []
+        original = delta.Git.fetch
+
+        def record(git_self, object_filter, *args):
+            fetched.append(args)
+            return original(git_self, object_filter, *args)
+
+        delta.Git.fetch = record
+        self.addCleanup(setattr, delta.Git, "fetch", original)
+        self.assertEqual(self.decide({h1: "success"}).base, h1)
+        self.assertFalse([args for args in fetched if args[0].startswith("--deepen")], fetched)
+
+    def test_a_refused_filter_falls_back_to_a_plain_fetch_and_says_so(self) -> None:
+        h1 = self.pr_head()
+        self.origin.commit("main", {"web/w.txt": "w1\n"})
+        self.origin.merge_main_into_pr()
+        original = delta.Git.run
+
+        def refuse_filters(git_self, *args):
+            if args[0] == "fetch" and any(arg.startswith("--filter=") for arg in args):
+                raise subprocess.CalledProcessError(128, ["git", *args], stderr="fatal: filter refused\n")
+            return original(git_self, *args)
+
+        delta.Git.run = refuse_filters
+        self.addCleanup(setattr, delta.Git, "run", original)
+        merge, head = self.origin.tested_merge()
+        git_checkout = delta.Git(self.origin.checkout(merge))
+        decision = delta.decide(git_checkout, merge, head, lambda oids: {oid: "success" for oid in oids if oid == h1})
+        self.assertEqual(decision.base, h1)
+        self.assertTrue(git_checkout.notes)
+        self.assertIn("fatal: filter refused", git_checkout.notes[0])
+        self.assertIn("retried without it", git_checkout.notes[0])
+
+    def test_a_fetch_that_fails_both_ways_skips_with_git_stderr(self) -> None:
+        self.pr_head()
+        self.origin.commit("main", {"web/w.txt": "w1\n"})
+        self.origin.merge_main_into_pr()
+        original = delta.Git.run
+
+        def refuse_fetch(git_self, *args):
+            if args[0] == "fetch":
+                raise subprocess.CalledProcessError(128, ["git", *args], stderr="fatal: remote hung up\n")
+            return original(git_self, *args)
+
+        delta.Git.run = refuse_fetch
+        self.addCleanup(setattr, delta.Git, "run", original)
+        self.assertIn("fatal: remote hung up", self.skip_reason({}))
+
     def test_head_that_is_not_the_tested_merge_parent_does_not_apply(self) -> None:
         self.pr_head()
         merge, _ = self.origin.tested_merge()
