@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
       "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
+    },
+    "cloud": {
+      "title": "Cloud-Maschinen und Mac-Zugriff",
+      "description": "Lege für jede Maschine das ausgehende Netzwerk fest und prüfe die Macs mit WireGuard-Zugriff auf dein privates Cloud-VM-Netzwerk. iPhone- und Iroh-Kopplungen werden separat verwaltet.",
+      "macAccessTitle": "Mac-Zugriff",
+      "machines": {
+        "title": "Maschinen",
+        "empty": "Du hast keine Cloud-Maschinen.",
+        "personal": "persönlich",
+        "team": "Team",
+        "status": {
+          "provisioning": "wird gestartet",
+          "running": "läuft",
+          "failed": "fehlgeschlagen",
+          "paused": "pausiert",
+          "destroyed": "gelöscht"
+        }
+      },
+      "network": {
+        "open": "Netzwerk",
+        "title": "Ausgehendes Netzwerk für {name}",
+        "description": "Wähle, was diese Maschine erreichen kann. Änderungen gelten sofort, ohne Neustart.",
+        "loading": "Netzwerkrichtlinie wird geladen…",
+        "loadError": "Die Netzwerkrichtlinie für diese Maschine konnte nicht geladen werden.",
+        "saveError": "Diese Netzwerkrichtlinie konnte nicht angewendet werden.",
+        "unsupported": "Diese Maschine unterstützt keine Steuerung des ausgehenden Netzwerks.",
+        "retry": "Erneut versuchen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "angewendet",
+          "pending": "wird angewendet",
+          "failed": "Anwenden fehlgeschlagen"
+        },
+        "unsaved": "ungespeicherte Änderungen",
+        "refresh": "Aktualisieren",
+        "modeLabel": "Ausgehender Zugriff",
+        "mode": {
+          "full": {
+            "label": "Volles Internet",
+            "description": "Jede öffentliche Adresse."
+          },
+          "allowlist": {
+            "label": "Zulassungsliste",
+            "description": "Nur die Vorlagen, Domains und IP-Bereiche, die du angibst."
+          },
+          "none": {
+            "label": "Kein Internet",
+            "description": "Nur die unten aufgeführten cmux-Hosts."
+          }
+        },
+        "presetsTitle": "Vorlagen",
+        "presetsNote": "Jede Vorlage fügt exakte Hostnamen hinzu. Ein Dienst, der weitere Subdomains nutzt, kann zusätzliche Domains benötigen.",
+        "domainsTitle": "Domains",
+        "domainsNote": "Nur exakte Hostnamen, nur HTTPS auf Port 443. Platzhalter werden noch nicht unterstützt.",
+        "domainInput": "Domain",
+        "rangesTitle": "IP-Bereiche",
+        "rangesNote": "Die Firewall des Anbieters setzt diese außerhalb der Maschine durch. Lass den Port leer, um alle Ports zuzulassen. Ein Port erfordert ein Protokoll.",
+        "cidrInput": "IP-Bereich (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokoll",
+        "anyProtocol": "beliebig",
+        "noteInput": "Notiz (optional)",
+        "allPorts": "alle Ports",
+        "dnsLabel": "DNS zulassen",
+        "dnsNote": "Ermöglicht Tools, die Namen aufzulösen, auf die deine IP-Bereiche verweisen. Domains benötigen kein DNS. Offenes DNS ist ein ausgehender Kanal: Ein Prozess kann Daten in den abgefragten Namen nach außen senden.",
+        "requiredTitle": "Immer zugelassen",
+        "requiredNote": "cmux benötigt diese Hosts in jedem Modus, um die CLI auf der Maschine zu installieren und zu aktualisieren.",
+        "add": "Hinzufügen",
+        "remove": "Entfernen",
+        "discard": "Änderungen verwerfen",
+        "close": "Schließen",
+        "apply": "Anwenden"
+      }
     }
   },
   "community": {

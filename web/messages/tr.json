@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
       "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
+    },
+    "cloud": {
+      "title": "Cloud makineleri ve Mac erişimi",
+      "description": "Her makinenin giden ağını ayarlayın ve özel Cloud VM ağınıza WireGuard erişimi olan Mac'leri inceleyin. iPhone ve Iroh eşleştirme kayıtları ayrı tutulur.",
+      "macAccessTitle": "Mac erişimi",
+      "machines": {
+        "title": "Makineler",
+        "empty": "Cloud makineniz yok.",
+        "personal": "kişisel",
+        "team": "ekip",
+        "status": {
+          "provisioning": "başlatılıyor",
+          "running": "çalışıyor",
+          "failed": "başarısız",
+          "paused": "duraklatıldı",
+          "destroyed": "silindi"
+        }
+      },
+      "network": {
+        "open": "Ağ",
+        "title": "{name} için giden ağ",
+        "description": "Bu makinenin nelere erişebileceğini seçin. Değişiklikler yeniden başlatmadan hemen uygulanır.",
+        "loading": "Ağ politikası yükleniyor…",
+        "loadError": "Bu makinenin ağ politikası yüklenemedi.",
+        "saveError": "Bu ağ politikası uygulanamadı.",
+        "unsupported": "Bu makine giden ağ denetimini desteklemiyor.",
+        "retry": "Tekrar dene",
+        "appliedLabel": "Durum:",
+        "applied": {
+          "applied": "uygulandı",
+          "pending": "uygulanıyor",
+          "failed": "uygulanamadı"
+        },
+        "unsaved": "kaydedilmemiş değişiklikler",
+        "refresh": "Yenile",
+        "modeLabel": "Giden erişim",
+        "mode": {
+          "full": {
+            "label": "Tam internet",
+            "description": "Herhangi bir genel adres."
+          },
+          "allowlist": {
+            "label": "İzin listesi",
+            "description": "Yalnızca belirttiğiniz ön ayarlar, alan adları ve IP aralıkları."
+          },
+          "none": {
+            "label": "İnternet yok",
+            "description": "Yalnızca aşağıda listelenen cmux ana makineleri."
+          }
+        },
+        "presetsTitle": "Ön ayarlar",
+        "presetsNote": "Her ön ayar tam ana makine adları ekler. Başka alt alan adları kullanan bir hizmet için ek alan adları gerekebilir.",
+        "domainsTitle": "Alan adları",
+        "domainsNote": "Yalnızca tam ana makine adları, yalnızca 443 numaralı bağlantı noktasında HTTPS. Joker karakterler henüz desteklenmiyor.",
+        "domainInput": "Alan adı",
+        "rangesTitle": "IP aralıkları",
+        "rangesNote": "Sağlayıcı güvenlik duvarı bunları makinenin dışında uygular. Tüm bağlantı noktalarına izin vermek için bağlantı noktasını boş bırakın. Bağlantı noktası için protokol gerekir.",
+        "cidrInput": "IP aralığı (CIDR)",
+        "portInput": "Bağlantı noktası",
+        "protocolInput": "Protokol",
+        "anyProtocol": "herhangi",
+        "noteInput": "Not (isteğe bağlı)",
+        "allPorts": "tüm bağlantı noktaları",
+        "dnsLabel": "DNS'e izin ver",
+        "dnsNote": "Araçların IP aralıklarınızın işaret ettiği adları çözümlemesini sağlar. Alan adları DNS gerektirmez. Açık DNS bir giden kanaldır: bir süreç sorguladığı adların içinde veri gönderebilir.",
+        "requiredTitle": "Her zaman izinli",
+        "requiredNote": "cmux, makinede CLI'yi yüklemek ve güncellemek için her modda bu ana makinelere ihtiyaç duyar.",
+        "add": "Ekle",
+        "remove": "Kaldır",
+        "discard": "Değişiklikleri at",
+        "close": "Kapat",
+        "apply": "Uygula"
+      }
     }
   },
   "community": {

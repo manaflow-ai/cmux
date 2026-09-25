@@ -13,6 +13,7 @@ import {
   jobsContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
@@ -220,6 +221,11 @@ export const agentReadablePages = [
     path: "/docs/managed-policies",
     title: "Managed Policies (MDM)",
     locales: managedPoliciesDocsLocales,
+  },
+  {
+    path: "/docs/cloud-security",
+    title: "Cloud Security",
+    locales: cloudSecurityDocsLocales,
   },
   { path: "/docs/ios", title: "iOS App" },
   {

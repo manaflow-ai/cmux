@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
       "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju."
+    },
+    "cloud": {
+      "title": "Cloud mašine i pristup s Maca",
+      "description": "Postavite odlaznu mrežu za svaku mašinu i pregledajte Mac računare s WireGuard pristupom vašoj privatnoj Cloud VM mreži. Uparivanja za iPhone i Iroh vode se odvojeno.",
+      "macAccessTitle": "Pristup s Maca",
+      "machines": {
+        "title": "Mašine",
+        "empty": "Nemate Cloud mašina.",
+        "personal": "lično",
+        "team": "tim",
+        "status": {
+          "provisioning": "pokreće se",
+          "running": "radi",
+          "failed": "neuspjelo",
+          "paused": "pauzirano",
+          "destroyed": "izbrisano"
+        }
+      },
+      "network": {
+        "open": "Mreža",
+        "title": "Odlazna mreža za {name}",
+        "description": "Odaberite šta ova mašina može dosegnuti. Promjene se primjenjuju odmah, bez ponovnog pokretanja.",
+        "loading": "Učitavanje mrežne politike…",
+        "loadError": "Mrežnu politiku za ovu mašinu nije moguće učitati.",
+        "saveError": "Ovu mrežnu politiku nije moguće primijeniti.",
+        "unsupported": "Ova mašina ne podržava kontrolu odlazne mreže.",
+        "retry": "Pokušaj ponovo",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "primijenjeno",
+          "pending": "primjenjuje se",
+          "failed": "primjena nije uspjela"
+        },
+        "unsaved": "nesačuvane promjene",
+        "refresh": "Osvježi",
+        "modeLabel": "Odlazni pristup",
+        "mode": {
+          "full": {
+            "label": "Puni internet",
+            "description": "Bilo koja javna adresa."
+          },
+          "allowlist": {
+            "label": "Lista dozvoljenih",
+            "description": "Samo predlošci, domene i IP rasponi koje navedete."
+          },
+          "none": {
+            "label": "Bez interneta",
+            "description": "Samo cmux hostovi navedeni ispod."
+          }
+        },
+        "presetsTitle": "Predlošci",
+        "presetsNote": "Svaki predložak dodaje tačne nazive hostova. Usluga koja koristi druge poddomene može trebati dodatne domene.",
+        "domainsTitle": "Domene",
+        "domainsNote": "Samo tačni nazivi hostova, samo HTTPS na portu 443. Zamjenski znakovi još nisu podržani.",
+        "domainInput": "Domena",
+        "rangesTitle": "IP rasponi",
+        "rangesNote": "Zaštitni zid provajdera ih provodi izvan mašine. Ostavite port prazan da dozvolite sve portove. Port zahtijeva protokol.",
+        "cidrInput": "IP raspon (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokol",
+        "anyProtocol": "bilo koji",
+        "noteInput": "Napomena (opcionalno)",
+        "allPorts": "svi portovi",
+        "dnsLabel": "Dozvoli DNS",
+        "dnsNote": "Omogućava alatima da razriješe nazive na koje upućuju vaši IP rasponi. Domenama DNS nije potreban. Otvoreni DNS je odlazni kanal: proces može slati podatke u nazivima koje traži.",
+        "requiredTitle": "Uvijek dozvoljeno",
+        "requiredNote": "cmux treba ove hostove u svakom načinu rada da instalira i ažurira CLI na mašini.",
+        "add": "Dodaj",
+        "remove": "Ukloni",
+        "discard": "Odbaci promjene",
+        "close": "Zatvori",
+        "apply": "Primijeni"
+      }
     }
   },
   "community": {

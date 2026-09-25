@@ -3,10 +3,11 @@ import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { loadDashboardSection } from "@/app/lib/dashboard-auth";
 import { isStackConfigured } from "@/app/lib/stack";
-import { listVmAccessGrants, runVmWorkflow } from "@/services/vms/workflows";
+import { listUserVms, listVmAccessGrants, runVmWorkflow, type VmEntry } from "@/services/vms/workflows";
 import { DashboardAuthRecovery } from "../components/dashboard-auth-recovery";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { CloudDeviceActions } from "./device-actions";
+import { MachineNetworkControl } from "./network-policy-editor";
 
 const RETURN_PATH = "/dashboard/cloud";
 
@@ -29,6 +30,11 @@ export default async function CloudDevicesPage({
         <h1 className="text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
+      <h2 className="mb-2 text-xs font-medium text-muted">{t("machines.title")}</h2>
+      <Suspense fallback={<DashboardSectionSkeleton variant="rows" />}>
+        <CloudMachinesSection locale={locale} />
+      </Suspense>
+      <h2 className="mb-2 mt-6 text-xs font-medium text-muted">{t("macAccessTitle")}</h2>
       <Suspense fallback={<DashboardSectionSkeleton variant="rows" />}>
         <CloudDevicesSection locale={locale} />
       </Suspense>
@@ -72,6 +78,51 @@ export async function CloudDevicesSection({ locale }: { readonly locale: string 
           </dl>
         </section>
       ))}
+    </div>
+  );
+}
+
+type ListedMachine = { readonly vm: VmEntry; readonly teamId: string | null };
+
+/**
+ * The caller's Cloud machines: personal machines plus the selected team's.
+ * Team machines carry the team id so the network API resolves the same scope.
+ */
+export async function CloudMachinesSection({ locale }: { readonly locale: string }) {
+  const section = await loadDashboardSection(locale, RETURN_PATH);
+  if (section.kind === "unavailable") {
+    return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
+  }
+  const { user } = section;
+  const teamId = user.selectedTeamId && user.selectedTeamId !== user.id ? user.selectedTeamId : null;
+  const [t, personal, team] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.cloud.machines" }),
+    runVmWorkflow(listUserVms(user.id)),
+    teamId ? runVmWorkflow(listUserVms(user.id, teamId)) : Promise.resolve([]),
+  ]);
+  const machines: ListedMachine[] = [
+    ...personal.map((vm) => ({ vm, teamId: null })),
+    ...team.map((vm) => ({ vm, teamId })),
+  ];
+  if (machines.length === 0) {
+    return <p className="border border-border p-3 text-muted">{t("empty")}</p>;
+  }
+  return (
+    <div className="divide-y divide-border border border-border">
+      {machines.map(({ vm, teamId: owner }) => {
+        const name = vm.displayName ?? vm.slug ?? vm.providerVmId;
+        return (
+          <div key={vm.providerVmId} className="flex flex-wrap items-center justify-between gap-3 p-3">
+            <div className="min-w-0">
+              <p className="truncate font-medium">{name}</p>
+              <p className="mt-1 text-xs text-muted">
+                {[t(owner ? "team" : "personal"), t(`status.${vm.status}`), vm.providerVmId].join(" · ")}
+              </p>
+            </div>
+            <MachineNetworkControl vmId={vm.providerVmId} teamId={owner} name={name} />
+          </div>
+        );
+      })}
     </div>
   );
 }

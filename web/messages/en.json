@@ -372,8 +372,8 @@
       "iosLink": "open iOS app"
     },
     "cloud": {
-      "title": "Cloud Mac access",
-      "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
+      "title": "Cloud machines and Mac access",
+      "description": "Set each machine's outbound network, and review the Macs with WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
       "empty": "No Mac has enrolled for Cloud VM access.",
       "cmux": "cmux build",
       "access": "network access",
@@ -394,7 +394,76 @@
       "renameError": "Could not rename this Mac.",
       "revokeTitle": "Revoke {name}?",
       "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
-      "revokeError": "Could not revoke this Mac."
+      "revokeError": "Could not revoke this Mac.",
+      "macAccessTitle": "Mac access",
+      "machines": {
+        "title": "Machines",
+        "empty": "You have no Cloud machines.",
+        "personal": "personal",
+        "team": "team",
+        "status": {
+          "provisioning": "starting",
+          "running": "running",
+          "failed": "failed",
+          "paused": "paused",
+          "destroyed": "deleted"
+        }
+      },
+      "network": {
+        "open": "Network",
+        "title": "Outbound network for {name}",
+        "description": "Choose what this machine can reach. Changes apply live, with no restart.",
+        "loading": "Loading the network policy…",
+        "loadError": "Could not load the network policy for this machine.",
+        "saveError": "Could not apply this network policy.",
+        "unsupported": "This machine does not support outbound network control.",
+        "retry": "Try again",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "applied",
+          "pending": "applying",
+          "failed": "failed to apply"
+        },
+        "unsaved": "unsaved changes",
+        "refresh": "Refresh",
+        "modeLabel": "Outbound access",
+        "mode": {
+          "full": {
+            "label": "Full internet",
+            "description": "Any public address."
+          },
+          "allowlist": {
+            "label": "Allowlist",
+            "description": "Only the presets, domains, and IP ranges you list."
+          },
+          "none": {
+            "label": "No internet",
+            "description": "Only the cmux hosts listed below."
+          }
+        },
+        "presetsTitle": "Presets",
+        "presetsNote": "Each preset adds exact host names. A service that uses other subdomains can need more domains.",
+        "domainsTitle": "Domains",
+        "domainsNote": "Exact host names, HTTPS on port 443 only. Wildcards are not supported yet.",
+        "domainInput": "Domain",
+        "rangesTitle": "IP ranges",
+        "rangesNote": "The provider firewall enforces these outside the machine. Leave the port empty to allow all ports. A port needs a protocol.",
+        "cidrInput": "IP range (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protocol",
+        "anyProtocol": "any",
+        "noteInput": "Note (optional)",
+        "allPorts": "all ports",
+        "dnsLabel": "Allow DNS",
+        "dnsNote": "Lets tools resolve the names that your IP ranges point at. Domains do not need DNS. Open DNS is an outbound channel: a process can send data out in the names it looks up.",
+        "requiredTitle": "Always allowed",
+        "requiredNote": "cmux needs these hosts in every mode to install and update the CLI in the machine.",
+        "add": "Add",
+        "remove": "Remove",
+        "discard": "Discard changes",
+        "close": "Close",
+        "apply": "Apply"
+      }
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -3437,7 +3506,8 @@
       "textBox": "TextBox (Beta)",
       "ios": "iOS App",
       "vault": "Vault",
-      "taskManager": "Task Manager"
+      "taskManager": "Task Manager",
+      "cloudSecurity": "Cloud Security"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -3568,6 +3638,56 @@
       "useTitle": "When to use it",
       "useDesc": "Use Task Manager when Activity Monitor shows load from cmux but does not identify the responsible workspace, agent, or browser pane.",
       "blogCta": "Read the <link>Task Manager feature story</link> for the workflow and launch context."
+    },
+    "cloudSecurity": {
+      "title": "Cloud security",
+      "metaTitle": "cmux Cloud security",
+      "metaDescription": "How cmux Cloud machines are isolated, where credentials live, and how to limit what a machine can reach with an outbound network policy.",
+      "intro": "This page describes the security model of cmux Cloud machines: what isolates a machine, where credentials live, and how to limit what a machine can reach on the network.",
+      "isolationTitle": "Isolation",
+      "isolationVm": "Each machine is a Freestyle microVM with its own Linux kernel. It is not a container on a shared kernel.",
+      "isolationRoot": "You have passwordless root in the machine by design. The VM is the security boundary, not the user account in it. Every process in the machine, including an agent, can do what root can do there.",
+      "isolationHome": "Recreating a machine resets its home directory. Recreate a machine to return it to a known state.",
+      "credentialsTitle": "Credentials",
+      "credentialsModel": "Model credentials for CodeRouter never enter the machine. The Freestyle TLS edge adds them to requests after the requests leave the machine. The provider stores these header values write-only, so nobody can read them back after cmux sets them.",
+      "credentialsAttach": "Attach credentials, which let a client open a session on the machine, are short-lived and scoped to one machine and one session.",
+      "previewsTitle": "Port previews",
+      "previewsDesc": "Port previews go over your private WireGuard network. They have no public URL. Only devices on your private network can open them.",
+      "networkTitle": "Outbound network policy",
+      "networkIntro": "Each machine has an outbound network policy. Set it with the Network control on the <link>Cloud dashboard</link>. Changes apply to a running machine live, with no restart.",
+      "modesTitle": "Modes",
+      "modeFull": "<b>Full internet</b>: the machine can reach any public address. This is the default.",
+      "modeAllowlist": "<b>Allowlist</b>: the machine can reach only the presets, domains, and IP ranges you list, plus the always-allowed cmux hosts.",
+      "modeNone": "<b>No internet</b>: the machine can reach only the always-allowed cmux hosts.",
+      "domainsTitle": "Domain rules",
+      "domainsExact": "A domain rule matches one exact host name. api.example.com does not match example.com or other subdomains. Wildcards are not supported yet.",
+      "domainsHttps": "Domain rules allow HTTPS on port 443 only.",
+      "domainsSteer": "The platform steers each allowed name to the provider's TLS edge through the machine's /etc/hosts file. A domain rule works with no DNS and no IP range.",
+      "domainsBypass": "Traffic that does not use /etc/hosts is not steered. Examples are containers with their own DNS resolver and tools that pin TLS certificates. That traffic cannot reach the domain unless an IP range allows it.",
+      "presetsDesc": "Presets add groups of exact names for common services: Anthropic, OpenAI, OpenRouter, OpenCode, GitHub, npm, PyPI, and Rust. cmux keeps the name lists current, and an update reaches every machine that uses the preset. Review what a preset adds before you turn it on.",
+      "rangesTitle": "IP ranges",
+      "rangesDesc": "An IP range is an IPv4 or IPv6 CIDR block, optionally narrowed to one port and protocol. The provider firewall enforces IP ranges outside the machine, so root in the machine cannot remove them.",
+      "dnsTitle": "DNS",
+      "dnsDesc": "In Allowlist mode, you can allow DNS so that tools can resolve the names that your IP ranges point at. Domain rules do not need DNS.",
+      "dnsRisk": "Open DNS is an outbound channel. A process can put data in the names it looks up, and resolvers forward those lookups to the servers for that domain. Turn DNS off when the machine runs code you do not trust.",
+      "mailTitle": "Mail ports",
+      "mailDesc": "The platform always blocks outbound mail ports 25, 465, and 587, in every mode.",
+      "requiredTitle": "Always-allowed hosts",
+      "requiredDesc": "Every mode allows the hosts that cmux needs to install and update the CLI in the machine:",
+      "requiredWhy": "Without these hosts, a machine in Allowlist or No internet mode could not get its cmux tools.",
+      "hardeningTitle": "Hardening checklist",
+      "hardeningAllowlist": "Use Allowlist mode for repositories you do not trust. Add only the presets and domains the work needs.",
+      "hardeningSecrets": "Keep secrets out of the repository and out of the machine. Every process in the machine can read what is in it.",
+      "hardeningEdge": "Prefer edge-injected credentials, such as CodeRouter, to API keys stored in the machine.",
+      "hardeningPresets": "Review presets before you turn them on, and remove presets that a machine no longer needs.",
+      "hardeningDns": "In Allowlist mode, keep DNS off unless an IP range needs it.",
+      "hardeningRecreate": "Recreate a machine to reset its state after it runs code you do not trust.",
+      "limitsTitle": "Limits",
+      "limitsLogs": "There are no egress logs yet. You cannot see which connections a machine made or which connections the policy blocked.",
+      "limitsWildcards": "Wildcard domains are not supported yet. List each exact name.",
+      "limitsTeam": "There is no team-wide enforced policy yet. Each machine has its own policy.",
+      "limitsGithub": "The always-allowed hosts include github.com, so No internet mode does not block HTTPS to github.com.",
+      "limitsBypass": "Domain rules do not cover traffic that bypasses /etc/hosts or pins certificates."
     }
   },
   "deeplink": {

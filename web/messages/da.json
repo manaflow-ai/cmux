@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+    },
+    "cloud": {
+      "title": "Cloud-maskiner og Mac-adgang",
+      "description": "Angiv hver maskines udgående netværk, og gennemse de Mac-computere, der har WireGuard-adgang til dit private Cloud VM-netværk. Parringer af iPhone og Iroh administreres separat.",
+      "macAccessTitle": "Mac-adgang",
+      "machines": {
+        "title": "Maskiner",
+        "empty": "Du har ingen Cloud-maskiner.",
+        "personal": "personlig",
+        "team": "team",
+        "status": {
+          "provisioning": "starter",
+          "running": "kører",
+          "failed": "mislykkedes",
+          "paused": "sat på pause",
+          "destroyed": "slettet"
+        }
+      },
+      "network": {
+        "open": "Netværk",
+        "title": "Udgående netværk for {name}",
+        "description": "Vælg, hvad denne maskine kan nå. Ændringer træder i kraft med det samme uden genstart.",
+        "loading": "Indlæser netværkspolitikken…",
+        "loadError": "Netværkspolitikken for denne maskine kunne ikke indlæses.",
+        "saveError": "Denne netværkspolitik kunne ikke anvendes.",
+        "unsupported": "Denne maskine understøtter ikke styring af udgående netværk.",
+        "retry": "Prøv igen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "anvendt",
+          "pending": "anvendes",
+          "failed": "kunne ikke anvendes"
+        },
+        "unsaved": "ikke-gemte ændringer",
+        "refresh": "Opdater",
+        "modeLabel": "Udgående adgang",
+        "mode": {
+          "full": {
+            "label": "Fuld internetadgang",
+            "description": "Enhver offentlig adresse."
+          },
+          "allowlist": {
+            "label": "Tilladelsesliste",
+            "description": "Kun de forudindstillinger, domæner og IP-intervaller, du angiver."
+          },
+          "none": {
+            "label": "Intet internet",
+            "description": "Kun cmux-værterne herunder."
+          }
+        },
+        "presetsTitle": "Forudindstillinger",
+        "presetsNote": "Hver forudindstilling tilføjer præcise værtsnavne. En tjeneste, der bruger andre underdomæner, kan kræve flere domæner.",
+        "domainsTitle": "Domæner",
+        "domainsNote": "Kun præcise værtsnavne, kun HTTPS på port 443. Jokertegn understøttes endnu ikke.",
+        "domainInput": "Domæne",
+        "rangesTitle": "IP-intervaller",
+        "rangesNote": "Udbyderens firewall håndhæver disse uden for maskinen. Lad porten være tom for at tillade alle porte. En port kræver en protokol.",
+        "cidrInput": "IP-interval (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokol",
+        "anyProtocol": "alle",
+        "noteInput": "Note (valgfri)",
+        "allPorts": "alle porte",
+        "dnsLabel": "Tillad DNS",
+        "dnsNote": "Lader værktøjer slå de navne op, som dine IP-intervaller peger på. Domæner kræver ikke DNS. Åben DNS er en udgående kanal: En proces kan sende data ud i de navne, den slår op.",
+        "requiredTitle": "Altid tilladt",
+        "requiredNote": "cmux skal bruge disse værter i alle tilstande for at installere og opdatere CLI'en på maskinen.",
+        "add": "Tilføj",
+        "remove": "Fjern",
+        "discard": "Kassér ændringer",
+        "close": "Luk",
+        "apply": "Anvend"
+      }
     }
   },
   "community": {

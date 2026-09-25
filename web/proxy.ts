@@ -9,6 +9,7 @@ import {
   featureWorkflowDocRequestForPathname,
   hasFallbackContent,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -461,6 +462,25 @@ function handleLegalAndDocsRoutes(
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/en/docs/managed-policies";
+    return NextResponse.rewrite(url);
+  }
+
+  const cloudSecurityMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/cloud-security\/?$/,
+  );
+  if (
+    cloudSecurityMatch &&
+    !cloudSecurityDocsLocales.includes(
+      cloudSecurityMatch[1] as (typeof cloudSecurityDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/cloud-security";
+    return NextResponse.redirect(url, 301);
+  }
+  if (pathname === "/docs/cloud-security" || pathname === "/docs/cloud-security/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/cloud-security";
     return NextResponse.rewrite(url);
   }
   return undefined;

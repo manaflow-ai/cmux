@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "過去 30 天：{completions} 次完成 · {tokens} 個權杖（輸入 {input} / 輸出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用量不可用",
       "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。"
+    },
+    "cloud": {
+      "title": "Cloud 機器與 Mac 存取",
+      "description": "設定每台機器的輸出網路，並檢視可透過 WireGuard 存取你的私人 Cloud VM 網路的 Mac。iPhone 和 Iroh 配對記錄另行管理。",
+      "macAccessTitle": "Mac 存取",
+      "machines": {
+        "title": "機器",
+        "empty": "你沒有 Cloud 機器。",
+        "personal": "個人",
+        "team": "團隊",
+        "status": {
+          "provisioning": "啟動中",
+          "running": "執行中",
+          "failed": "失敗",
+          "paused": "已暫停",
+          "destroyed": "已刪除"
+        }
+      },
+      "network": {
+        "open": "網路",
+        "title": "{name} 的輸出網路",
+        "description": "選擇這台機器可以連線的目標。變更會立即套用，不需重新啟動。",
+        "loading": "正在載入網路政策…",
+        "loadError": "無法載入這台機器的網路政策。",
+        "saveError": "無法套用這項網路政策。",
+        "unsupported": "這台機器不支援輸出網路控制。",
+        "retry": "重試",
+        "appliedLabel": "狀態：",
+        "applied": {
+          "applied": "已套用",
+          "pending": "套用中",
+          "failed": "套用失敗"
+        },
+        "unsaved": "有未儲存的變更",
+        "refresh": "重新整理",
+        "modeLabel": "輸出存取",
+        "mode": {
+          "full": {
+            "label": "完整網際網路",
+            "description": "任何公用位址。"
+          },
+          "allowlist": {
+            "label": "允許清單",
+            "description": "僅限你列出的預設、網域和 IP 範圍。"
+          },
+          "none": {
+            "label": "無網際網路",
+            "description": "僅限下方列出的 cmux 主機。"
+          }
+        },
+        "presetsTitle": "預設",
+        "presetsNote": "每個預設會加入完全相符的主機名稱。使用其他子網域的服務可能需要更多網域。",
+        "domainsTitle": "網域",
+        "domainsNote": "僅限完全相符的主機名稱，且僅限連接埠 443 上的 HTTPS。尚不支援萬用字元。",
+        "domainInput": "網域",
+        "rangesTitle": "IP 範圍",
+        "rangesNote": "供應商防火牆會在機器外部強制執行這些規則。連接埠留空即允許所有連接埠。指定連接埠時需要選擇通訊協定。",
+        "cidrInput": "IP 範圍 (CIDR)",
+        "portInput": "連接埠",
+        "protocolInput": "通訊協定",
+        "anyProtocol": "任何",
+        "noteInput": "備註（選填）",
+        "allPorts": "所有連接埠",
+        "dnsLabel": "允許 DNS",
+        "dnsNote": "讓工具解析你的 IP 範圍所指向的名稱。網域不需要 DNS。開放的 DNS 是一個輸出通道：程序可以把資料放在它查詢的名稱中傳送出去。",
+        "requiredTitle": "一律允許",
+        "requiredNote": "cmux 在所有模式下都需要這些主機，才能在機器中安裝和更新 CLI。",
+        "add": "新增",
+        "remove": "移除",
+        "discard": "捨棄變更",
+        "close": "關閉",
+        "apply": "套用"
+      }
     }
   },
   "community": {
