@@ -129,11 +129,24 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         self.pairingEnabled = pairingEnabled
     }
 
-    private var deviceCapabilities: [String] {
-        guard DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess() else { return [] }
-        var result = ["cmux.mac-devices.v1"]
-        if MobileRemoteControlPolicy.allowsIncomingAccess() { result.append("cmux.mac-host.v1") }
+    /// Projects the two Mac-only capabilities independently. Incoming access
+    /// must never implicitly advertise outbound Mac discovery: iOS pairing and
+    /// Mac hosting share this endpoint but are separate authorization routes.
+    nonisolated static func macDeviceCapabilities(
+        discoveryEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> [String] {
+        var result: [String] = []
+        if discoveryEnabled { result.append("cmux.mac-devices.v1") }
+        if incomingAccessEnabled { result.append("cmux.mac-host.v1") }
         return result
+    }
+
+    private var deviceCapabilities: [String] {
+        Self.macDeviceCapabilities(
+            discoveryEnabled: DevicesFeature.isEnabled,
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
+        )
     }
 
     /// ALPNs the single v2 endpoint serves beside irx. Shipped iOS builds dial
@@ -150,7 +163,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     var isNetworkingAllowed: Bool {
-        (pairingEnabled() || DevicesFeature.isEnabled)
+        (pairingEnabled() || DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess())
             && !managedDevicePolicy.isEnforced(.disableIrohNetworking)
             && !managedDevicePolicy.isEnforced(.disableRemoteControl)
     }
