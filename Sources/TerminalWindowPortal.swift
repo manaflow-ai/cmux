@@ -1394,15 +1394,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func ensureDividerOverlayOnTop() {
-        if dividerOverlayView.superview !== hostView {
-            dividerOverlayView.frame = hostView.bounds
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-        }
-
-        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
-            dividerOverlayView.frame = hostView.bounds
-        }
-        dividerOverlayView.needsDisplay = true
+        dividerOverlayView.ensurePlacement(in: hostView, below: paneSwapOverlayView)
 
         if paneSwapOverlayView.superview !== hostView {
             paneSwapOverlayView.frame = hostView.bounds
@@ -1674,6 +1666,7 @@ final class WindowTerminalPortal: NSObject {
             }
             if hostedView.superview === hostView {
                 hostedView.removeFromSuperview()
+                dividerOverlayView.refreshIfGeometryChanged()
             }
         } else {
             preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId)
@@ -1697,6 +1690,7 @@ final class WindowTerminalPortal: NSObject {
         if let hostedView = entry.hostedView, hostedView.superview === hostView {
             hostedView.removeFromSuperview()
         }
+        dividerOverlayView.refreshIfGeometryChanged()
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
@@ -2085,6 +2079,7 @@ final class WindowTerminalPortal: NSObject {
             )
         }
         ensureDividerOverlayOnTop()
+        dividerOverlayView.refreshIfGeometryChanged()
     }
 
     private func resetTransientRecoveryRetryIfNeeded(forHostedId hostedId: ObjectIdentifier, entry: inout Entry) {
@@ -2136,6 +2131,13 @@ final class WindowTerminalPortal: NSObject {
         deferDividerOverlay: Bool = false
     ) {
         guard portalIsPrepared || ensureInstalled(syncLayout: syncLayout) else { return }
+        // Compare once after a batch, or after every direct-sync exit (including hides).
+        defer {
+            if !deferDividerOverlay {
+                ensureDividerOverlayOnTop()
+                dividerOverlayView.refreshIfGeometryChanged()
+            }
+        }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2515,8 +2517,6 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-
-        if !deferDividerOverlay { ensureDividerOverlayOnTop() }
     }
 
     private func updatePresentationState(

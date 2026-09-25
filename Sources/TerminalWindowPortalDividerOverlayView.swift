@@ -13,7 +13,44 @@ final class SplitDividerOverlayView: NSView {
         let isVertical: Bool
     }
 
-    deinit {}
+    private struct ObservedDivider {
+        weak var view: NSSplitView?
+        var color: NSColor
+    }
+
+    private var observedDividers: [ObservedDivider] = []
+    private var windowUpdateObserver: NSObjectProtocol?
+
+    deinit {
+        if let windowUpdateObserver { NotificationCenter.default.removeObserver(windowUpdateObserver) }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let windowUpdateObserver { NotificationCenter.default.removeObserver(windowUpdateObserver) }
+        windowUpdateObserver = nil
+        observedDividers.removeAll()
+        guard let window else { return }
+        windowUpdateObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didUpdateNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshDividerColors() }
+        }
+    }
+
+    /// Theme updates can repaint native split views without a portal geometry change.
+    /// Reuse the weak references from the last draw; never rediscover the window tree here.
+    private func refreshDividerColors() {
+        var changed = false
+        for index in observedDividers.indices {
+            guard let split = observedDividers[index].view, split.window === window else { continue }
+            let color = overlayDividerColor(for: split)
+            guard color != observedDividers[index].color else { continue }
+            observedDividers[index].color = color
+            changed = true
+        }
+        if changed { invalidateRendering() }
+    }
 
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { false }
@@ -24,6 +61,7 @@ final class SplitDividerOverlayView: NSView {
         super.draw(dirtyRect)
         guard let window, let rootView = window.contentView else { return }
 
+        observedDividers.removeAll(keepingCapacity: true)
         var dividerSegments: [DividerSegment] = []
         collectDividerSegments(in: rootView, into: &dividerSegments)
         guard !dividerSegments.isEmpty else { return }
@@ -55,6 +93,7 @@ final class SplitDividerOverlayView: NSView {
         if let splitView = view as? NSSplitView {
             let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
             let dividerColor = overlayDividerColor(for: splitView)
+            observedDividers.append(ObservedDivider(view: splitView, color: dividerColor))
             for dividerIndex in 0..<dividerCount {
                 let first = splitView.arrangedSubviews[dividerIndex].frame
                 let thickness = max(splitView.dividerThickness, 1)
@@ -125,7 +164,64 @@ final class SplitDividerOverlayView: NSView {
         return false
     }
 
+    /// Geometry used to decide whether portal surfaces occlude a divider.
+    /// Hidden surfaces deliberately do not participate, even if their frame is unchanged.
+    private struct RenderInputs: Equatable {
+        let bounds: NSRect
+        let occludingHostedFrames: [NSRect]
+    }
+
+    private var lastRenderInputs: RenderInputs?
+    /// Window-scoped invalidation count for checking idle rendering work.
+    private(set) var repaintRequestCount = 0
+
+    /// Repair stacking only when necessary; pane-swap remains above the divider.
+    func ensurePlacement(in hostView: NSView, below topOverlay: NSView) {
+        let siblings = hostView.subviews
+        let dividerIsAboveHostedViews = siblings.last === self ||
+            (siblings.last === topOverlay && siblings.dropLast().last === self)
+        if self.superview !== hostView || !dividerIsAboveHostedViews {
+            hostView.addSubview(self, positioned: .above, relativeTo: nil)
+            invalidateRendering()
+        }
+        if !NSEqualRects(frame, hostView.bounds) {
+            self.frame = hostView.bounds
+            invalidateRendering()
+        }
+    }
+
+    /// Compare at the end of a sync, once per batch, without traversing the window tree.
+    func refreshIfGeometryChanged() {
+        let inputs = RenderInputs(
+            bounds: bounds,
+            occludingHostedFrames: hostedFramesLikelyToOccludeDividers()
+        )
+        guard lastRenderInputs != inputs else { return }
+        lastRenderInputs = inputs
+        invalidateRendering()
+    }
+
+    func invalidateRendering() {
+        repaintRequestCount += 1
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        invalidateRendering()
+    }
+
     private func overlayDividerColor(for splitView: NSSplitView) -> NSColor {
+        // Window updates arrive outside draw(_:); resolve dynamic colors in the
+        // same appearance as drawing or a window override can repeatedly invalidate.
+        var color = NSColor.clear
+        splitView.effectiveAppearance.performAsCurrentDrawingAppearance {
+            color = resolvedOverlayDividerColor(for: splitView)
+        }
+        return color
+    }
+
+    private func resolvedOverlayDividerColor(for splitView: NSSplitView) -> NSColor {
         let divider = splitView.dividerColor.usingColorSpace(.deviceRGB) ?? splitView.dividerColor
         let alpha = divider.alphaComponent
         guard alpha < 0.999 else { return divider }
