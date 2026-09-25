@@ -25,8 +25,10 @@ record = {
     "r2_result": os.environ.get("CMUX_ARTIFACT_R2_RESULT") or "disabled",
     "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
     "repository": os.environ["GITHUB_REPOSITORY"],
-    "artifact_id": int(os.environ["ARTIFACT_ID"]),
-    "provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"],
+    # test-e2e.yml's build job on an owned Mac restores its own archive
+    # before it uploads it, so there is no artifact yet.
+    "artifact_id": int(os.environ["ARTIFACT_ID"]) if os.environ.get("ARTIFACT_ID") else None,
+    "provider_digest": os.environ.get("ARTIFACT_PROVIDER_DIGEST") or None,
     "archive_sha256": os.environ["EXPECTED_SHA256"],
     "product_contract": os.environ["CMUX_PRODUCT_CONTRACT"],
     "source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"],

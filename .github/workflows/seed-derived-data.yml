@@ -207,7 +207,7 @@ jobs:
             root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"
             echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
           fi
-          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas" >> "$GITHUB_ENV"
 
