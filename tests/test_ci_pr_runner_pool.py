@@ -2021,6 +2021,15 @@ class Wiring(unittest.TestCase):
         self.assertEqual(steps["route-token"]["with"]["permission-administration"], "write")
         # The minis are org runners (glaeda-minis): their labels need the org permission.
         self.assertEqual(steps["route-token"]["with"]["permission-organization-self-hosted-runners"], "write")
+        # All or nothing: without the org permission granted, the repository one alone.
+        fallback = steps["route-token-repo"]
+        self.assertEqual(fallback["if"], "steps.route-token.outcome == 'failure'")
+        self.assertIs(fallback["continue-on-error"], True)
+        self.assertEqual(fallback["with"], {key: value for key, value in steps["route-token"]["with"].items()
+                                            if key != "permission-organization-self-hosted-runners"})
+        both = "steps.route-token.outputs.token || steps.route-token-repo.outputs.token"
+        self.assertEqual(steps["Label the runner"]["env"]["ROUTE_TOKEN"], "${{ %s }}" % both)
+        self.assertIn(f"({both}) != ''", steps["Label the runner"]["if"])
         self.assertEqual(steps["Label the runner"]["run"], "python3 scripts/ci/owned_warm_labels.py")
 
     def test_package_tests_take_an_owned_mac_only_where_the_picker_placed_them(self):
