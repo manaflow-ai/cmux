@@ -891,10 +891,11 @@ def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
         gh = root / "gh"
         gh.write_text('#!/bin/sh\n[ "$CURRENT_HEAD" != unavailable ] || exit 1\nprintf "%s\\n" "$CURRENT_HEAD"\n')
         gh.chmod(0o755)
-        for current, expected in (("head", 0), ("newer-head", 1), ("unavailable", 0)):
+        head, newer = "a" * 40, "b" * 40
+        for current, expected in ((head, 0), (newer, 1), ("unavailable", 0)):
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                    "GITHUB_REPOSITORY": "example/repo", "PR_NUMBER": "1",
-                   "RUN_HEAD_SHA": "head", "CURRENT_HEAD": current}
+                   "RUN_HEAD_SHA": head, "CURRENT_HEAD": current}
             result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
             assert result.returncode == expected, (current, result.stderr)
 
