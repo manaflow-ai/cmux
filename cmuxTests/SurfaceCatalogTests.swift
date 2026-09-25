@@ -1084,6 +1084,39 @@ struct SurfaceCatalogTests {
         #expect(secondLaunch.projectionRecords(forWorkspace: workspace) == [record])
     }
 
+    @Test("A disconnected Mac keeps the left-sidebar computer provenance until the projection is removed")
+    func disconnectedMacKeepsSidebarComputerBadge() throws {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "disconnect-badge"))
+        let provider = FakeProvider(machine: machine)
+        let workspace = live.add()
+        defer { live.tearDown() }
+        let workspaceID = workspace.id
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(
+            environment: CloudWorkspaceRenameEnvironment(
+                workspace: { $0 == workspace.id ? workspace : nil }, workspaces: { [workspace] }
+            )
+        ))
+        catalog.register(provider)
+        let resource = terminal(machine, "term-disconnect")
+        catalog.replaceResources([resource], on: machine, info: provider.info, from: provider)
+        catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspaceID, panelID: panelID,
+            remoteWorkspaceID: "remote", remoteTabID: "term-disconnect"))
+        catalog.updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
+
+        // A transport loss removes live resources but leaves the projection and
+        // registered provider in place, so the row remains identified as a Mac.
+        catalog.replaceResources([], on: machine, info: provider.info, from: provider)
+        catalog.updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
+        let disconnected = CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
+        #expect(disconnected?.contains(provider.info.name) == true)
+
+        // Access removal is different from a disconnect: unregistering drops the
+        // projection and clears the computer badge.
+        catalog.unregister(machine: machine)
+        #expect(CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace) == nil)
+    }
+
     @Test("A restored Mac terminal never becomes a local process while discovery reconnects")
     func restoredMacTerminalHasNoLocalProcess() throws {
         let original = Workspace()

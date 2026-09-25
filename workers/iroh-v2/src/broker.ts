@@ -44,12 +44,22 @@ export interface BrokerResult {
 export class TeamBroker {
   constructor(readonly dependencies: BrokerDependencies) {}
 
+  /** Mac discovery and Mac hosting may each use control without enabling phone pairing. */
+  private assertControlEnabled(device: DeviceDescriptor): void {
+    const metadata = device.metadata;
+    if (metadata.platform === "mac" && !metadata.pairingEnabled
+      && !metadata.capabilities.includes("cmux.mac-devices.v1")
+      && !metadata.capabilities.includes("cmux.mac-host.v1")) {
+      throw new OperationError("permission_denied", 403);
+    }
+  }
+
   /** Auth has been verified by the Worker, including selected team membership. */
   async open(setup: SocketSetup, authority: VerifiedAuthority, expiresAt: number, issueTicket: boolean): Promise<BrokerResult> {
     this.assertAuthority(authority, setup.device.identity);
     const now = this.dependencies.now();
     if (expiresAt <= now) throw new OperationError("ticket_expired", 401, true);
-    if (setup.device.metadata.platform === "mac" && !setup.device.metadata.pairingEnabled && !setup.device.metadata.capabilities.includes("cmux.mac-devices.v1")) throw new OperationError("permission_denied", 403);
+    this.assertControlEnabled(setup.device);
     let existing = this.dependencies.store.getDevice(setup.device.identity);
     const recoveringRevoked = existing?.revoked === true && this.dependencies.store.canRecoverRevokedDevice(existing.deviceRecordId);
     if (existing) {
@@ -322,7 +332,7 @@ export class TeamBroker {
 
   private async register(session: BrokerSession, request: Extract<ControlRequest, { schemaId: "device.register.v1" }>): Promise<BrokerResult> {
     this.assertSessionDevice(session, request.device);
-    if (request.device.metadata.platform === "mac" && !request.device.metadata.pairingEnabled && !request.device.metadata.capabilities.includes("cmux.mac-devices.v1")) throw new OperationError("permission_denied", 403);
+    this.assertControlEnabled(request.device);
     await verifyDeviceSignature(request.device.endpointId, challengeSigningInput(request.device, request.challengeId, request.nonce), request.signature);
     const commit = {
       descriptor: request.device, challengeId: request.challengeId, nonceHash: await hash(request.nonce),
