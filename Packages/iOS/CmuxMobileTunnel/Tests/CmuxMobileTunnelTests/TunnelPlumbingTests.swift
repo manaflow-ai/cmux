@@ -90,16 +90,6 @@ import Testing
             #expect(!TunnelLoopbackHost.isLoopback(host), "\(host)")
         }
     }
-
-    @Test func splitBackendRoutesByDestination() async throws {
-        let exit = ScriptedBackend()
-        let direct = ScriptedBackend()
-        let split = SplitConnectBackend(exit: exit, direct: direct, sendsThroughExit: TunnelLoopbackHost.isLoopback)
-        _ = try await split.open(host: "app.localhost", port: 3000)
-        _ = try await split.open(host: "example.com", port: 443)
-        #expect(exit.opens.map(\.0) == ["app.localhost"])
-        #expect(direct.opens.map(\.0) == ["example.com"])
-    }
 }
 
 @Suite struct TunnelConcurrencyLimitTests {

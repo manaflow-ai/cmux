@@ -40,6 +40,60 @@ struct MobileMacBrowserNetworkTests {
         await network.stop()
     }
 
+    @Test func routeIsDecidedPerDestination() {
+        for host in ["localhost", "app.localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"] {
+            #expect(MacBrowserRoute.of(host: host, macAllowsNonLoopbackHosts: false) == .mac, "\(host)")
+            #expect(MacBrowserRoute.of(host: host, macAllowsNonLoopbackHosts: true) == .mac, "\(host)")
+        }
+        for host in ["example.com", "10.0.0.1", "169.254.169.254", "fe80::1", "localhost.example.com"] {
+            #expect(MacBrowserRoute.of(host: host, macAllowsNonLoopbackHosts: false) == .direct, "\(host)")
+            #expect(MacBrowserRoute.of(host: host, macAllowsNonLoopbackHosts: true) == .macThenDirect, "\(host)")
+        }
+    }
+
+    /// Decision 3a: a destination the Mac is not allowed to dial loads over
+    /// the phone's own network instead of failing.
+    @Test(.timeLimit(.minutes(1))) func destinationsTheMacRefusesLoadDirectly() async throws {
+        let mac = FakeMac(listing: MobileTunnelListeningPorts(ports: [:], allowsNonLoopbackHosts: true))
+        mac.deniedHosts = ["169.254.169.254", "metadata.internal"]
+        let direct = RecordingDirect()
+        let network = makeNetwork(mac: mac, direct: direct, registry: LoopbackPortRegistry())
+        let proxyPort = try await network.prepare(loopbackPort: nil)
+
+        let literal = try await socksExchange(proxyPort: proxyPort, host: "169.254.169.254", port: 80, payload: nil)
+        #expect(literal.reply == 0x00)
+        let name = try await socksExchange(proxyPort: proxyPort, host: "metadata.internal", port: 80, payload: nil)
+        #expect(name.reply == 0x00)
+        let allowed = try await socksExchange(proxyPort: proxyPort, host: "intranet.example", port: 8080, payload: nil)
+        #expect(allowed.reply == 0x00)
+
+        #expect(direct.opens == ["169.254.169.254:80", "metadata.internal:80"])
+        #expect(mac.opens == ["intranet.example:8080"])
+        await network.stop()
+    }
+
+    /// Only a policy refusal falls back: the Mac's loopback never loads from
+    /// the phone, and a host the Mac may dial but cannot reach stays a
+    /// failure (it may be a LAN or VPN host only the Mac can see).
+    @Test(.timeLimit(.minutes(1))) func loopbackAndReachabilityFailuresDoNotFallBack() async throws {
+        let mac = FakeMac(listing: MobileTunnelListeningPorts(ports: [:], allowsNonLoopbackHosts: true))
+        let direct = RecordingDirect()
+        let network = makeNetwork(mac: mac, direct: direct, registry: LoopbackPortRegistry())
+        let proxyPort = try await network.prepare(loopbackPort: nil)
+
+        mac.deniedHosts = ["localhost"]
+        let loopback = try await socksExchange(proxyPort: proxyPort, host: "localhost", port: 3000, payload: nil)
+        #expect(loopback.reply == 0x02)
+
+        mac.deniedHosts = []
+        mac.failure = .hostUnreachable
+        let lan = try await socksExchange(proxyPort: proxyPort, host: "build.lan", port: 22, payload: nil)
+        #expect(lan.reply == 0x04)
+
+        #expect(direct.opens.isEmpty)
+        await network.stop()
+    }
+
     @Test(.timeLimit(.minutes(1))) func macRefusalsBecomeSocksReplies() async throws {
         let mac = FakeMac(listing: MobileTunnelListeningPorts(ports: [:], allowsNonLoopbackHosts: true))
         let network = makeNetwork(mac: mac, direct: RecordingDirect(), registry: LoopbackPortRegistry())
@@ -166,6 +220,7 @@ final class FakeMac: @unchecked Sendable {
     private var _listing: MobileTunnelListeningPorts
     private var _opens: [String] = []
     private var _failure: MobileTunnelOpenFailure?
+    private var _deniedHosts: Set<String> = []
 
     init(listing: MobileTunnelListeningPorts) {
         _listing = listing
@@ -181,10 +236,17 @@ final class FakeMac: @unchecked Sendable {
         set { lock.withLock { _failure = newValue } }
     }
 
+    /// Hosts this Mac's destination policy refuses.
+    var deniedHosts: Set<String> {
+        get { lock.withLock { _deniedHosts } }
+        set { lock.withLock { _deniedHosts = newValue } }
+    }
+
     var opens: [String] { lock.withLock { _opens } }
 
     func open(host: String, port: Int) throws -> any MobileTunnelLaneConnection {
         try lock.withLock {
+            if _deniedHosts.contains(host) { throw MobileTunnelOpenFailure.denied }
             if let _failure { throw _failure }
             _opens.append("\(host):\(port)")
             return EchoLane()

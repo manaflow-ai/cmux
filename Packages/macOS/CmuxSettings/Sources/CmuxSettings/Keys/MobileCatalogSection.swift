@@ -34,7 +34,7 @@ public struct MobileCatalogSection: SettingCatalogSection {
     /// own loopback through this Mac (LAN, VPN, and internet hosts, resolved
     /// on this Mac). Off by default: the tunnel reaches only `localhost`, and
     /// the phone loads other sites over its own network. Link-local and cloud
-    /// metadata addresses are refused either way.
+    /// metadata addresses are refused either way (the phone loads those itself).
     public let browserTunnelAllowOtherHosts = DefaultsKey<Bool>(
         id: "mobile.browserTunnel.allowOtherHosts",
         defaultValue: false,

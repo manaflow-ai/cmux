@@ -4,7 +4,7 @@ import NIOTransportServices
 import Network
 
 /// Opens connections from the phone itself, for hosts an exit will not
-/// serve (a paired Mac that only exposes its own loopback).
+/// serve (a paired Mac that is not allowed to dial them).
 public struct DirectConnectBackend: SocksConnectBackend {
     public let connectTimeout: TimeAmount
 
@@ -40,28 +40,6 @@ public struct DirectConnectBackend: SocksConnectBackend {
         if let error = error as? ChannelError, case .connectTimeout = error { return .timedOut }
         if case .dns = error as? NWError { return .hostUnreachable }
         return .generalFailure
-    }
-}
-
-/// Sends each connection to one of two backends by destination: through
-/// the exit when `sendsThroughExit(host)` holds, directly otherwise.
-public struct SplitConnectBackend: SocksConnectBackend {
-    public let exit: any SocksConnectBackend
-    public let direct: any SocksConnectBackend
-    public let sendsThroughExit: @Sendable (String) -> Bool
-
-    public init(
-        exit: any SocksConnectBackend,
-        direct: any SocksConnectBackend,
-        sendsThroughExit: @escaping @Sendable (String) -> Bool
-    ) {
-        self.exit = exit
-        self.direct = direct
-        self.sendsThroughExit = sendsThroughExit
-    }
-
-    public func open(host: String, port: Int) async throws -> any TunnelByteStream {
-        try await (sendsThroughExit(host) ? exit : direct).open(host: host, port: port)
     }
 }
 
