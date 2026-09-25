@@ -173,6 +173,9 @@ extension TerminalSurface {
         if let customClaudePath = spawnPolicy.customClaudePath {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
+        // The saved setting controls automatic helper startup. An explicit
+        // `$cmux-cua` request can opt into first-use setup; MDM policy remains
+        // the hard gate in the host runtime.
         setManagedEnvironmentValue(
             spawnPolicy.subagentNotificationEnvironmentKey,
             spawnPolicy.suppressSubagentNotifications ? "1" : "0"

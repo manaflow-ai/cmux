@@ -21,6 +21,8 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # glaeda-side-* label, which their light jobs then take on attempt 1.
 # test-e2e.yml dispatches are watched the same way: e2e_runner_pool.py may put
 # an E2E run on an owned pool too, and its runner job uploads the same marker.
+# So are test-ios.yml and ios-screenshots.yml dispatches, whose runner job runs
+# ios_runner_pool.py.
 # It runs whenever owned pools are on (CI_PR_POOL_OWNED is 1), because a run on
 # an owned pool has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off.
 # The switch gets its default before the comparison: an unset variable is
@@ -31,6 +33,8 @@ on:
     workflows:
       - CI
       - E2E test with video recording
+      - iOS simulator tests
+      - iOS App Store screenshots
       # Side lanes (owned_pool_rescue.SIDE_WORKFLOW_PATHS): watched only while
       # vars.CI_SIDE_LANE_RUNNER routes them to the fleet.
       - Auth and session lifecycle
@@ -50,6 +54,7 @@ env:
   # this path. The script confirms the run's own `path` again before acting.
   SOURCE_WORKFLOW_PATHS: >-
     .github/workflows/ci.yml .github/workflows/test-e2e.yml
+    .github/workflows/test-ios.yml .github/workflows/ios-screenshots.yml
     .github/workflows/auth-refresh-tests.yml .github/workflows/cloud-command-deadlines.yml
     .github/workflows/cloud-machine-tests.yml .github/workflows/cloud-task-local-tests.yml
     .github/workflows/iroh-v2.yml .github/workflows/relay-tls.yml
@@ -62,7 +67,7 @@ concurrency:
 jobs:
   rescue:
     name: Rescue a run stuck on a persistent pool
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.path == '.github/workflows/test-e2e.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 && (github.event.workflow_run.path == '.github/workflows/ci.yml' || github.event.workflow_run.path == '.github/workflows/test-e2e.yml' || startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-')) }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.path == '.github/workflows/test-e2e.yml' || github.event.workflow_run.path == '.github/workflows/test-ios.yml' || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml') && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 && (github.event.workflow_run.event != 'pull_request' || github.event.workflow_run.path == '.github/workflows/ci.yml' || startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-')) }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
     # The watch limit is 60 minutes (150 for an E2E run), reads may retry, and
     # a rescue may run 25 more for a cancel to settle and the re-run

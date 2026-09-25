@@ -65,6 +65,14 @@ cancelled it) is not re-run, since that would cancel the newer one. Its
 watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a
 sibling wait and a build.
 
+Dispatches of test-ios.yml and ios-screenshots.yml are watched exactly like an
+E2E run (DISPATCH_WORKFLOW_PATHS). Their `runner` job runs ios_runner_pool.py,
+which may put the iOS jobs on an owned pool with the glaeda-ios-sim capability
+label, and uploads the same marker; from attempt 2 on every macOS job takes
+its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
+idle mini carries waits like any other queued owned job, so it is moved after
+the same budget.
+
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
 same-repository pull request run, their light macOS jobs take
 vars.CI_SIDE_LANE_RUNNER, a glaeda-side-* label that only the minis' non-root
@@ -122,6 +130,11 @@ from pr_runner_pool import persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
+IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
+IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
+# workflow_dispatch runs watched like an E2E run: each has a `runner` job that
+# picks the pool and uploads the marker.
+DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH)
 # Side-lane workflows: no picker job. Their light macOS jobs take
 # vars.CI_SIDE_LANE_RUNNER (a glaeda-side-* label) on attempt 1 of a same-repo
 # pull request run, and every later attempt takes their Blacksmith default.
@@ -134,7 +147,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/relay-tls.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
 })
-# test-e2e.yml's job that runs e2e_runner_pool.py.
+# test-e2e.yml's job that runs e2e_runner_pool.py (and the iOS workflows' job
+# that runs ios_runner_pool.py).
 E2E_PICKER_JOB = "runner"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
@@ -349,7 +363,8 @@ class Target:
     attempt: int
     head_sha: str
     pr_number: int  # 0 for an E2E dispatch, which has no pull request
-    e2e: bool = False
+    e2e: bool = False  # a dispatch of DISPATCH_WORKFLOW_PATHS, watched as an E2E run
+    path: str = CI_WORKFLOW_PATH
     side: bool = False  # a side-lane workflow (SIDE_WORKFLOW_PATHS): no picker job
 
     @property
@@ -364,14 +379,14 @@ class Target:
 
 
 def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str:
-    """The CI or E2E run to watch, or why this event is not one."""
+    """The CI, E2E or iOS run to watch, or why this event is not one."""
     run = event.get("workflow_run") or {}
     path = run.get("path")
     side = path in SIDE_WORKFLOW_PATHS
-    if path not in (CI_WORKFLOW_PATH, E2E_WORKFLOW_PATH) and not side:
-        return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, {E2E_WORKFLOW_PATH} "
-                "or a side-lane workflow")
-    e2e = path == E2E_WORKFLOW_PATH
+    if path != CI_WORKFLOW_PATH and path not in DISPATCH_WORKFLOW_PATHS and not side:
+        return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, a side-lane workflow "
+                f"or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
+    e2e = path in DISPATCH_WORKFLOW_PATHS
     expected = "workflow_dispatch" if e2e else "pull_request"
     if run.get("event") != expected:
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {expected}"
@@ -382,11 +397,12 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e:
-        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True)
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True, path=str(path))
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
-    return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]), side=side)
+    return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
+                  side=side, path=str(path))
 
 
 def marker_name(target: Target) -> str:
@@ -602,7 +618,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if isinstance(target, str):
         return finish(f"not watched: {target}")
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
-    subject = "an E2E dispatch" if target.e2e else f"pull request #{target.pr_number}"
+    subject = ("an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
+        if target.e2e else f"pull request #{target.pr_number}"
     if target.side:
         subject += " (side lane)"
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")

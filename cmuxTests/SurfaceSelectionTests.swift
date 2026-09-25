@@ -12,6 +12,7 @@ import WebKit
 @MainActor
 @Suite("Surface selection", .serialized)
 struct SurfaceSelectionTests {
+    // A pull request that edits this suite runs it in CI (choose_ci_suite.py).
     @Test func selectionValueTypesRejectInvalidPayloadStates() {
         #expect(SurfaceSelectionLineRange(start: 0, end: 1) == nil)
         #expect(SurfaceSelectionLineRange(start: 3, end: 2) == nil)
