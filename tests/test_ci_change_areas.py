@@ -4809,6 +4809,49 @@ def test_a_test_only_diff_runs_every_suite_it_edits() -> None:
         assert result["unit_in_admission"] == "false", result
 
 
+def test_an_app_source_diff_runs_the_suites_that_mention_what_it_changed() -> None:
+    """#12822 changed AgentQuitProcessOwnership in Sources/ and main broke.
+
+    A pull request that changes app code runs the suites whose tests mention
+    the changed declaration, on the changed-suites run, instead of no behavior
+    test at all. Without a readable app diff it adds nothing.
+    """
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    path = "Sources/App/AgentQuitProcessOwnership.swift"
+    declaration = next(
+        number for number, line in enumerate((ROOT / path).read_text(encoding="utf-8").splitlines(), 1)
+        if line.startswith("struct AgentQuitProcessOwnership")
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        changed.write_text(f"{path}\n")
+        labels = Path(directory) / "labels.txt"
+        labels.write_text("")
+        app_diff = Path(directory) / "app.diff"
+
+        def outputs(hunks: str | None) -> dict[str, str]:
+            extra = []
+            if hunks is not None:
+                app_diff.write_text(hunks)
+                extra = ["--app-diff-from", str(app_diff)]
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+                 "--files-from", str(changed), "--root", str(ROOT), *extra],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines())
+
+        result = outputs(f"--- a/{path}\n+++ b/{path}\n@@ -{declaration},1 +{declaration},1 @@\n")
+        assert result["unit_suite"] == "true", result
+        assert result["unit_canary"] == "false", result
+        assert "cmuxTests/AgentQuitOwnershipTests" in result["unit_selectors"].split(), result
+
+        for unreadable in (None, ""):
+            result = outputs(unreadable)
+            assert "cmuxTests/AgentQuitOwnershipTests" not in result["unit_selectors"].split(), result
+
+
 def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     """A few changed suites run on the runner that compiled them.
 
