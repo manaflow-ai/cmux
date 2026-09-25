@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -11,7 +12,7 @@ import Testing
 
 @MainActor
 @Suite struct CloudWorkspaceRenameRefreshTests {
-    @Test("Terminal output at an equal cursor does not block the forced refresh before rename")
+    @Test("Terminal output at an equal cursor does not block the forced refresh before rename", .timeLimit(.minutes(1)))
     func renameAfterTerminalOutput() async throws {
         let root = URL(fileURLWithPath: "/tmp/cmux-rename-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -42,6 +43,12 @@ import Testing
             connection: connection, clientURL: client,
             paths: CloudTuiClientPaths(home: root), isEnabled: { true }
         )
+        _ = try await links.connected(machineID: connection.id)
+        let link = try #require(await links.link(machineID: connection.id))
+        // Drain the connection edge before the provider subscribes. Otherwise
+        // its unrelated initial refresh can race the rename's forced read.
+        var changes = link.changes.makeAsyncIterator()
+        #expect(await changes.next() == .connected)
         let catalog = SurfaceCatalog()
         let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
         catalog.register(provider)
