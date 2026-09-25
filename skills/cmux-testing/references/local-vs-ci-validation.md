@@ -22,10 +22,8 @@ For docs or portable tooling, validate links/commands and run the affected porta
 tests. An app build is needed when native build or runtime behavior changes, not
 for every instruction edit. Web changes need their package's checks and live preview.
 
-Native work follows the [current build/test capacity owner](../../../AGENTS.md).
-The dev-build fleet does not imply XCTest, simulator or GUI support. Use an
-available supported recipe or the existing CI lane; report missing support
-instead of bypassing scheduling with an old SSH/VM command.
+Native work uses a [tagged build](../../cmux-dev-workflow/references/tagged-builds.md)
+or the existing CI lane. Team members: shared build fleet rules are in cmuxterm-hq.
 
 ## Native app versus test compilation
 

@@ -6,55 +6,18 @@
 
 Before committing, setup or a native build, [choose verification for the changed area](skills/cmux-testing/references/local-vs-ci-validation.md). `python3 scripts/verify-local.py` runs fast static checks; docs and portable-tooling changes do not automatically require an app build. Run it only on code you trust: the checker executes repository scripts, including those in a `--repo` target. There is no automatic candidate-code execution on push; see the [trust boundary](docs/contributor-verification.md#trust-boundary).
 
-## Dev builds on the Mac mini fleet
-
-For team dev builds, use the controller client `~/.local/bin/cmux-ci`. Owned
-minis also take pull request CI jobs (compile admission, app-host shards, side
-lanes) through the pool picker (`scripts/ci/pr_runner_pool.py`), with Blacksmith
-as overflow; see [CI runners](docs/ci-runners.md). Release, signing,
-notarization, nightly and TestFlight stay on Blacksmith. A successful dev build
-never replaces a required check.
-
-Before submitting, read the current [HQ AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md)
-and [agent build contract](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/AGENT-BUILDS.md).
-These are the authoritative fleet instructions even when an old PR worktree has
-copied instructions. `AGENTS.md` in this repository is a symlink to this file.
-
-Commit and push first: the recipe builds the exact pushed SHA
-(`cmux-ci build cmux --ref "$SHA" --tag <descriptive-tag-vN> --workspace <PR URL> --receipt ...`,
-then `wait` with a separate terminal receipt, then `publish-hq` after `wait` succeeds; keep both receipts; full commands in
-the contract above). `--tag` is required; the submitter comes from your client
-token. Return the job ID right away. If `wait` times out, wait again on the same
-ID; never resubmit. Never print the private credential file or copy secrets into
-PR evidence.
-
-Use the client's disk defaults (**80 GiB for CMUX**, 180 GiB cold Chromium); do
-not carry the retired 120 or 250 GiB CMUX floors or bypass a rejection with a
-lower floor. Queueing is not permission to build over SSH. The disk daemon owns
-cleanup: do not remove shared caches, active workspaces, or other agents'
-builds. A cached artifact replay is not a changed-source warm compile benchmark.
-
-The macfleet skill and new maclease allocations (`reload-cloud`, `tsadmin
-builder`, `verify-remote`) are retired; direct SSH and `tsadmin` stay for
-administration and diagnostics; do not change SSH keys, Tailscale, or host
-access. Report missing controller recipe support rather than bypassing
-scheduling. A busy/idle guess or process check never grants a machine; host
-refusal flows back to the caller, not around it
-([shared-host rules](docs/ci-runners.md#shared-physical-host-interoperability)).
-
-### Tagged builds
+## Tagged builds
 
 Always build with a tag. **Never run bare `xcodebuild` or open an untagged
 `cmux DEV.app`**: untagged builds share the default debug socket and bundle ID
-with other agents. Report the `publish-hq` URL as a Markdown link; never a raw
-`.app` path or a `file://` URL.
+with other agents. Never report a raw `.app` path or a `file://` URL.
 
-Standalone contributors without the team controller use
-`./scripts/reload.sh --tag <branch-slug>` (add `--launch` to open it). In a
-checkout not created through cmuxterm-hq, set `CMUX_DEV_BACKEND_MODE=local`. This is not a queue-bypass fallback for team agents. Reuse
+Build with `./scripts/reload.sh --tag <branch-slug>` (add `--launch` to open it).
+In a checkout not created through cmuxterm-hq, set `CMUX_DEV_BACKEND_MODE=local`. Reuse
 the tag's DerivedData and prebuilt GhosttyKit before a cold build, and clean up
 only tags you own; the compile-only command, reload variants and GhosttyKit
 rebuild are in [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md).
+Team members: the shared build fleet and its rules are in cmuxterm-hq.
 
 ### Intel Macs, Xcode 16.2, Swift 6.0
 
@@ -68,7 +31,7 @@ For CLI or socket dogfood against a tagged Debug app, use `CMUX_TAG=<tag> script
 
 Rules that only matter in one part of the tree live next to that code. Read the file before working there; not every agent loads a nested file on its own when launched from the repository root.
 
-- `ios/`, `Packages/iOS/`: `ios/AGENTS.md` (Apple HIG rule, iPhone install and auth gates, iOS and verification capacity on the controller, cross-tag Mac access, dev auth profiles).
+- `ios/`, `Packages/iOS/`: `ios/AGENTS.md` (Apple HIG rule, iPhone install and auth gates, local simulators, cross-tag Mac access, dev auth profiles).
 - `web/` and any cmux Cloud database work: `web/AGENTS.md` (database provider).
 - `cmux-tui/`: `cmux-tui/AGENTS.md` (hosted verification, Blacksmith Testbox).
 
@@ -76,52 +39,7 @@ Rules that only matter in one part of the tree live next to that code. Read the 
 
 Before drafting or revising a top-level issue or PR description, read [STYLE.md](STYLE.md). It also covers RFCs and progress updates.
 
-## Parallel sessions
-
-Several agent sessions work this repo at once and cannot see each other. They push through one GitHub account, so `author` and `mergedBy` name the account, never which session acted. Do not infer from them that a particular session opened, merged, or reviewed something, and do not report that to the user as fact.
-
-The failure mode is duplicate work, not merge conflicts. A shared observable — a red `main`, a failing required check — reaches every session at once, and each independently diagnoses it and opens a PR.
-
-Before `gh pr create`:
-
-1. `git fetch upstream` and re-check the defect against current `upstream/main`, not the commit in the report. Main moves several commits an hour, so a reported SHA is usually stale and often already fixed.
-2. `gh search prs --repo manaflow-ai/cmux --state open '<failing test or file>'`. Search the failing symbol, not your own PR title: sessions converge on the symbol and diverge on titles.
-3. Check for a session already on it (Claude Code: `ListAgents`) and message it before you push.
-4. Run `git worktree list` and inspect the branches in other local worktrees for an existing fix before starting a duplicate.
-5. Run `git for-each-ref --sort=-committerdate --count=20 --format='%(committerdate:iso8601) %(refname:short) %(subject)' refs/remotes/` after fetching. Inspect recent remote branches for a fix that has not reached an open PR yet; commit dates indicate recent work, not when a branch was pushed.
-
-Query `state` before acting on any PR. GitHub keeps serving `mergeable` and `mergeStateStatus` on closed and merged PRs, where they mean nothing.
-
-If the fix already exists, say so and stop. When a duplicate is already open, close yours in favour of the earlier one and move any genuine improvement to a comment on it — that costs less review attention than a second PR carrying one extra idea.
-
-Overlapping files are not evidence of a duplicate (#13754 and #13797 changed the same two files, fixed different bugs, and both merged). Read what each PR asserts, and if they look compatible, merge one into the other locally and run the shared test before proposing that either close.
-
-### Callsigns
-
-A callsign names the worker session behind a piece of work, because `author` and `mergedBy` only ever name the shared push account. Reserve one before your first substantive publication, then sign what you produce with it.
-
-The registry is `teamleaderleo/stensibly` issue #454, driven by a `github-actions[bot]` registrar; the worker quickstart is `docs/callsign-registry-dogfood.md` in that repo. Reserve with a name not in active or recent history:
-
-```text
-/callsign reserve <Callsign>
-run: run_<unique-run-id>
-session: <unique-worker-session-id>
-ttl: 24h
-```
-
-The bot answers in seconds with a `callsign-receipt/v0` carrying the accepted `generation`, a derived `sigil`, and an `expires-at`. Release the exact generation when the session ends. Sign substantive comments, reviews, PR descriptions and handoffs as `— <Callsign> g<generation> <sigil>`, with the run id and current intention beneath when the context is not obvious.
-
-Three things about it are easy to get wrong:
-
-- **The sigil is derived, not chosen.** The registrar computes it from the callsign; picking your own emoji produces a sigil that does not match your receipt. `Teakettle` derives `💾`.
-- **Names are leased, not self-assigned.** Collision keys ignore case and separators, so `Rook`, `rook` and `r-o_o k` are one name. Do not reuse a prior worker's callsign without a fresh accepted generation; a matching name never proves continuity.
-- **Show a generation only from an accepted receipt.** If registration is pending or the registrar is unavailable, say `pending` or `unregistered` and keep the exact run and session values rather than inventing a number.
-
-A callsign is attribution, never authority. The worker attempt is identified by `callsign + run ID + session ID + lease generation`; that tuple records who acted and grants nothing. Do not gate an action on a callsign, and do not treat a comment bearing one as authenticated — marker text is not an authenticated principal, which is the defect `teamleaderleo/quarry` #1103 tracks.
-
 ## Outside contributors
-
-Most outside PRs never got a human reply, and some were fixed on `main` by a maintainer PR while theirs sat open.
 
 Before fixing a bug or building a feature, run `gh search prs --repo manaflow-ai/cmux --state open '<symptom or issue number>'` and look for an outside PR (author not on the team). If one exists:
 
@@ -174,16 +92,6 @@ A first pass ends when the change is implemented, [scoped verification](skills/c
 
 The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood or a direct merge directive that names the merge action (`merge`, `merge it`, `auto-merge`; `finish`, `lgtm`, and `ship it` are not); if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested. After a merge directive, re-dogfood (rebuild the tag and re-notify with the checklist) when a later fix changes user-visible behavior beyond what was dogfooded; skip it for internal, test-only, or tightly scoped fixes; either way, say on the PR which you did and why.
 
-Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
-
-## Reading CI cost
-
-Measured on `test-e2e.yml`, 2026-09-23 (#13971):
-
-- **A cancelled job's duration is usually queue, not spend.** A queued job's `started_at` is when it entered the queue. Empty `runner_name` and `steps` mean no runner was assigned and nothing was spent.
-- **Compiling fewer schemes saves almost nothing.** The `cmux` app scheme is about 94% of `build-for-testing` and is the host every app-host test needs.
-- **"Small diff" does not mean "short build".** One changed `Sources/` file took 737 s against 280 s for none, on the same cache. Prefer adopting an already-compiled product over reasoning about cache warmth.
-
 ## Pitfalls
 
 Each of these has full detail in the skill named in parentheses.
@@ -200,7 +108,7 @@ Each of these has full detail in the skill named in parentheses.
 - **SPM package groups** (`cmux-architecture`): packages live under `Packages/{Shared,iOS,macOS}/<pkg>` and the workspace mirrors that folder shape. To move one, `git mv` the directory then `python3 scripts/check-workspace-package-groups.py --write`. Never hand-edit workspace group membership.
 - **Do not gitignore cmux-owned `Package.resolved`.** SwiftPM resolution changes must show in PR diffs; package-local lockfiles are not replaced by the root one. `python3 scripts/check-package-resolved-policy.py` fails on drift.
 - **"Feature flag" means a remote PostHog runtime flag.** Implement through `CmuxFeatureFlags` with a PostHog key, explicit unavailable fallback, registry metadata, live update behavior, and focused tests. A local override may support dogfood but must not be the production control plane.
-- **Foundation, SwiftUI, AttributeGraph, and WebKit semantics change between macOS major versions.** `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26 (https://github.com/manaflow-ai/cmux/issues/4529); CI and maintainer machines were all on the fixed side while every reporter was on the broken side. Test on the reporter's macOS before declaring a repro disproven. CI's `blacksmith-6vcpu-macos-15` pool runs macOS 15; the AWS M4 Pro Tart hosts were retired in #14427.
+- **Foundation, SwiftUI, AttributeGraph, and WebKit semantics change between macOS major versions.** `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26 (https://github.com/manaflow-ai/cmux/issues/4529); CI and maintainer machines were all on the fixed side while every reporter was on the broken side. Test on the reporter's macOS before declaring a repro disproven. CI's `blacksmith-6vcpu-macos-15` pool runs macOS 15.
 
 ## Shared behavior policy
 
@@ -226,5 +134,3 @@ Rules when adding a v2 method or a remote CLI command (`daemon/remote/cmd/cmuxd-
 ## Skills
 
 The [skill index](skills/README.md) lists contributor and installed-app skills. Load the task's skill before changing that area, then only the references you need. Start with [cmux-dev-workflow](skills/cmux-dev-workflow/SKILL.md) for setup/builds or [cmux-testing](skills/cmux-testing/SKILL.md) for verification.
-
-Blacksmith Testbox (remote Linux builds for cmux-tui): warm your own box before any cmux-tui Rust or Zig build, and never compile cmux-tui on the Mac. The skill lives in cmuxterm-hq at `skills/infra/blacksmith-testbox/SKILL.md`; the workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards stay here. Quickest path: `./scripts/blacksmith-testbox-demo.sh`.
