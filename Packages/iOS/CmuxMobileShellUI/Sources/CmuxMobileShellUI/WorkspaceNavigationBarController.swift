@@ -58,13 +58,16 @@ final class WorkspaceNavigationBarController: UIViewController {
             let itemWidth = WorkspaceNavigationControlView.width(for: value.id)
             let content = AnyView(WorkspaceNavigationControlContent(
                 content: value.content,
-                width: itemWidth,
-                centersRegularMenu: value.id == .terminals
+                width: itemWidth
             ).environment(\.self, environment))
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {
-                let customView = WorkspaceNavigationControlView(content: content, width: itemWidth)
+                let customView = WorkspaceNavigationControlView(
+                    content: content,
+                    width: itemWidth,
+                    centersLandscapeMenu: value.id == .terminals
+                )
                 controls[value.id] = HostedControl(
                     button: UIBarButtonItem(customView: customView), view: customView
                 )
@@ -206,8 +209,6 @@ final class WorkspaceNavigationBarController: UIViewController {
 private struct WorkspaceNavigationControlContent: View {
     let content: AnyView
     let width: CGFloat
-    let centersRegularMenu: Bool
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         ZStack {
@@ -216,10 +217,6 @@ private struct WorkspaceNavigationControlContent: View {
         .buttonStyle(.plain)
         .imageScale(.large)
         .frame(width: width, height: 36)
-        // UIKit gives regular-width navigation bars a ten-point content
-        // inset around SwiftUI Menu labels. Keep the fixed item rectangle
-        // centered in that slot without estimating available title space.
-        .offset(x: centersRegularMenu && horizontalSizeClass == .regular ? 10 : 0)
     }
 }
 #endif

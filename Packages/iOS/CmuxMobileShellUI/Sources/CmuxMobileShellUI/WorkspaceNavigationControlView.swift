@@ -8,6 +8,7 @@ import UIKit
 @MainActor
 final class WorkspaceNavigationControlView: UIView {
     private let contentView: UIView & UIContentView
+    private let centersLandscapeMenu: Bool
     private var contentWidth: NSLayoutConstraint!
     private var itemWidth: NSLayoutConstraint!
 
@@ -24,7 +25,8 @@ final class WorkspaceNavigationControlView: UIView {
         }
     }
 
-    init(content: AnyView, width: CGFloat) {
+    init(content: AnyView, width: CGFloat, centersLandscapeMenu: Bool) {
+        self.centersLandscapeMenu = centersLandscapeMenu
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }
             .margins(.all, 0)
             .minSize(width: 0, height: 0)
@@ -60,6 +62,14 @@ final class WorkspaceNavigationControlView: UIView {
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         intrinsicContentSize
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let isLandscape = window.map { $0.bounds.width > $0.bounds.height } ?? false
+        contentView.transform = centersLandscapeMenu && isLandscape
+            ? CGAffineTransform(translationX: 10, y: 0)
+            : .identity
     }
 
     func update(content: AnyView) {
