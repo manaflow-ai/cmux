@@ -34,7 +34,7 @@ esac
         encoding: "utf8", timeout: 5_000,
       });
       if (capable) {
-        expect(result.status, result.stderr).toBe(0);
+        expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
         expect(result.stdout).toContain("first-workspace-reserved");
         expect(readFileSync(join(root, "calls"), "utf8")).toBe("closed\n");
       } else {
