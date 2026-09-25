@@ -118,8 +118,10 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
                 self.assertIn(resolved_ref, job_block(job))
 
         # The routing job checks out the workflow revision itself; every other
-        # checkout is pinned to the one resolved 40-character commit SHA.
-        self.assertEqual(workflow.count(resolved_ref), 4)
+        # checkout is pinned to the one resolved 40-character commit SHA. The
+        # two jobs that restore the git object seed (#14669) also retry their
+        # checkout without it, at the same SHA.
+        self.assertEqual(workflow.count(resolved_ref), 6)
 
 
 def job_admitted(jobs, name, results, outputs, inputs, *, cancelled=False):
