@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -65,7 +65,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `pairing-resolved` | trusted Unix subscribe | `request` | protocol 7 |
 | `status` | subscribe | session | protocol 5 internal status line |
 | `empty` | subscribe | session | protocol 5 |
-| `agent-state-changed` | subscribe | `surface` | proposed vNext |
+| `agent-changed` | subscribe | `surface` | protocol 11; `agent` is optional since protocol 12 |
 | `vt-state` | byte attach | `surface` | protocol 5 |
 | `resized` | byte attach | `surface` | protocol 6 |
 | `output` | byte attach | `surface` | protocol 5 |
@@ -917,6 +917,7 @@ object{
     fg:ColorHex|null,
     bg:ColorHex|null,
     cursor:ColorHex|null,
+    overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
     selection_bg:ColorHex|null,
     selection_fg:ColorHex|null,
     palette?:object{[index:string]:ColorHex},
@@ -927,6 +928,21 @@ object{
 ```
 
 Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. Protocol v9 clients restore `kitty_image_aliases` after `data`. Protocol v10 clients apply the limits, consume `data` through `replay_cursor_offset`, install the `*_replay_next_image_id` cursors, consume the remaining `data`, restore aliases, then install the `*_next_image_id` cursors before live output. The primary and alternate cursor values are independent. `colors` is captured with the replay and reports effective foreground, background, cursor, and selection colors, including authored defaults and active OSC overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session defaults. A field is `null` when no value is authored or available. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+
+The additive `overrides` object distinguishes application-authored OSC 10/11/12
+state from the effective `fg`, `bg`, and `cursor` fields. A viewer with its own
+theme uses `overrides` for those three colors and the existing sparse `palette`
+for OSC 4. Each is a full replacement: null special colors and absent palette
+indexes reset to that viewer's configured defaults. An override equal to a
+shared default remains authored until OSC 104/110/111/112 or RIS resets it.
+Shared session-default changes never populate `overrides`. Older servers omit
+the object; their effective special colors do not expose this distinction.
+The same object travels on resize, output sidecars, and colors-changed events.
+It is emitted only for byte attachments whose connection advertised
+`terminal-color-overrides-v1` through `set-client-info` before attaching. The
+choice is captured for that attachment's lifetime. Other clients retain the
+previous exact color-object shape, including clients with strict SDK decoders.
+Older servers safely ignore the unknown client capability and omit the object.
 
 Example:
 
@@ -996,6 +1012,7 @@ object{
   fg:ColorHex|null,
   bg:ColorHex|null,
   cursor?:ColorHex|null,
+  overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
   selection_bg:ColorHex|null,
   selection_fg:ColorHex|null,
   palette?:object{[index:string]:ColorHex},
@@ -1073,37 +1090,42 @@ Example:
 {"event":"detached","surface":1}
 ```
 
-## Proposed Events
-
-### agent-state-changed
+### agent-changed
 
 | Field | Value |
 | --- | --- |
-| event | `agent-state-changed` |
-| status | proposed |
-| since | proposed protocol 10 |
+| event | `agent-changed` |
+| status | implemented |
+| since | protocol 11; `agent` is optional since protocol 12 |
 
 Payload:
 
 ```text
 object{
-  event:"agent-state-changed",
+  event:"agent-changed",
   surface:Id,
-  previous:"working"|"blocked"|"idle"|"done"|"unknown"|null,
   state:"working"|"blocked"|"idle"|"done"|"unknown",
-  source:"detected"|"socket"|"hook",
+  source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
+  agent?:string|null,
   updated_at_ms:uint64
 }
 ```
 
-Meaning: The authoritative agent state for a surface changed. Hook-authority and socket reports override detection as described in `commands.md`.
+Meaning: The current agent state for a surface changed. `agent` is the
+adapter identity when the producer knows it. Hook authority and source
+precedence follow `commands.md`.
 
 Example:
 
 ```json
-{"event":"agent-state-changed","surface":1,"previous":"working","state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}
+{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000}
 ```
+
+The earlier draft name `agent-state-changed` is not emitted. Clients must
+subscribe to `agent-changed`.
+
+## Proposed Events
 
 ### notification vNext extension
 
@@ -1151,7 +1173,7 @@ Params:
 Request:
 
 ```json
-{"id":1,"cmd":"subscribe","events":["bell","agent-state-changed"],"surfaces":[1,"a8f3k2"]}
+{"id":1,"cmd":"subscribe","events":["bell","agent-changed"],"surfaces":[1,"a8f3k2"]}
 ```
 
 Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.

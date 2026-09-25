@@ -1,19 +1,17 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Combine
 import Bonsplit
 import OSLog
-
 private let closedItemHistoryLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "ClosedItemHistory"
 )
-
 struct ClosedPanelSplitPlacement: Codable, Sendable {
     let orientation: SplitOrientation
     let insertFirst: Bool
     let anchorPanelId: UUID?
 }
-
 struct ClosedPanelHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let paneId: UUID
@@ -29,7 +27,8 @@ struct ClosedPanelHistoryEntry: Codable, Sendable {
     /// Workspace identity encoded into the panel snapshot. This can differ
     /// from `sourceWorkspaceId` after a session restore.
     let sourceSnapshotWorkspaceId: UUID?
-
+    let layout: SessionWorkspaceLayoutSnapshot?
+    let projection: SurfaceProjectionRecord?
     init(
         workspaceId: UUID,
         paneId: UUID,
@@ -39,7 +38,9 @@ struct ClosedPanelHistoryEntry: Codable, Sendable {
         snapshot: SessionPanelSnapshot,
         fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil,
         sourceWorkspaceId: UUID? = nil,
-        sourceSnapshotWorkspaceId: UUID? = nil
+        sourceSnapshotWorkspaceId: UUID? = nil,
+        layout: SessionWorkspaceLayoutSnapshot? = nil,
+        projection: SurfaceProjectionRecord? = nil
     ) {
         self.workspaceId = workspaceId
         self.paneId = paneId
@@ -50,53 +51,46 @@ struct ClosedPanelHistoryEntry: Codable, Sendable {
         self.fallbackSplitPlacement = fallbackSplitPlacement
         self.sourceWorkspaceId = sourceWorkspaceId
         self.sourceSnapshotWorkspaceId = sourceSnapshotWorkspaceId
+        self.layout = layout
+        self.projection = projection
     }
 }
-
 struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let windowId: UUID?
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
-
 struct ClosedWindowHistoryEntry: Codable, Sendable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot
-
     let workspaceIds: [UUID]
-
     init(windowId: UUID? = nil, snapshot: SessionWindowSnapshot, workspaceIds: [UUID] = []) {
         self.windowId = windowId
         self.snapshot = snapshot
         self.workspaceIds = workspaceIds
     }
 }
-
 enum ClosedItemHistoryEntry: Codable, Sendable {
     case panel(ClosedPanelHistoryEntry)
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
 }
-
 struct ClosedItemHistoryRecord: Identifiable, Codable, Sendable {
     let id: UUID
     let closedAt: Date
     var entry: ClosedItemHistoryEntry
-
     init(id: UUID = UUID(), closedAt: Date = Date(), entry: ClosedItemHistoryEntry) {
         self.id = id
         self.closedAt = closedAt
         self.entry = entry
     }
 }
-
 struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
     let id: UUID
     let title: String
     let detail: String
     let closedAt: Date
-
     var menuSubtitle: String {
         let closed = String(
             format: String(localized: "historyPane.closedAtFormat", defaultValue: "Closed %@"),
@@ -108,7 +102,6 @@ struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
             closed
         )
     }
-
     var menuTitle: String {
         HistoryMenuLineFormatter.titleWithSubtitle(
             title: title,
@@ -116,13 +109,11 @@ struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
         )
     }
 }
-
 struct ClosedItemHistoryMenuSnapshot: Equatable {
     let items: [ClosedItemHistoryMenuItem]
     let totalItemCount: Int
     let isLimited: Bool
 }
-
 enum ClosedWindowRestoreValidation {
     static func hasUsableRestoredContent(
         snapshot: SessionWindowSnapshot,
@@ -134,7 +125,6 @@ enum ClosedWindowRestoreValidation {
         return restoredPanelIdsByWorkspaceIndex.contains { !$0.isEmpty }
     }
 }
-
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
     /// Bounds the shared reopen history to a useful recency window without
@@ -146,7 +136,6 @@ final class ClosedItemHistoryStore: ObservableObject {
         workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )
-
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
     private let notificationCenter: NotificationCenter
@@ -157,7 +146,6 @@ final class ClosedItemHistoryStore: ObservableObject {
     private var needsPersistenceAfterPersistedRecordsLoad = false
     private var shouldDiscardPersistedRecordsOnLoad = false
     private var pendingPersistedRecordMutations: [PendingPersistedRecordMutation] = []
-
     private enum PendingPersistedRecordMutation {
         case remapPanelWorkspaceIds(
             oldWorkspaceId: UUID,
@@ -389,17 +377,26 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
-    private static func recordContainsManagedCloudVM(_ record: ClosedItemHistoryRecord) -> Bool {
+    static func recordContainsManagedCloudVM(_ record: ClosedItemHistoryRecord) -> Bool {
         switch record.entry {
         case .panel:
             return false
         case .workspace(let entry):
-            return entry.snapshot.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            return workspaceSnapshotHostsCloudVM(entry.snapshot)
         case .window(let entry):
-            return entry.snapshot.tabManager.workspaces.contains { workspace in
-                workspace.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            }
+            return entry.snapshot.tabManager.workspaces.contains(where: workspaceSnapshotHostsCloudVM)
         }
+    }
+
+    /// A Cloud workspace through either transport — the legacy managed remote
+    /// (`managedCloudVMID`) or the cmux-tui binding (`cloudVM`) — the same
+    /// definition session restore uses under `DisableCloud`, so a purge and a
+    /// blocked restore agree on what a Cloud record is.
+    static func workspaceSnapshotHostsCloudVM(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
+        if snapshot.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return true
+        }
+        return snapshot.cloudVM != nil
     }
 
     @discardableResult private func trimToCapacityIfNeeded() -> Bool {
@@ -575,7 +572,9 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement: fallbackSplitPlacement,
                 sourceWorkspaceId: panelEntry.sourceWorkspaceId,
                 sourceSnapshotWorkspaceId:
-                    panelEntry.sourceSnapshotWorkspaceId
+                    panelEntry.sourceSnapshotWorkspaceId,
+                layout: panelEntry.layout?.remappingPanelIDs(panelIdMap),
+                projection: panelEntry.projection
             )))
         }
         return (remappedRecords, didUpdate)
@@ -589,6 +588,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         var didUpdate = false
         let remappedRecords = records.map { record in
             guard case .panel(let panelEntry) = record.entry else { return record }
+            let layout = panelEntry.layout?.remappingPanelIDs([oldPanelId: newPanelId])
             let paneAnchorPanelId = panelEntry.paneAnchorPanelId == oldPanelId
                 ? newPanelId
                 : panelEntry.paneAnchorPanelId
@@ -603,7 +603,8 @@ final class ClosedItemHistoryStore: ObservableObject {
                 )
             }
             if paneAnchorPanelId != panelEntry.paneAnchorPanelId ||
-                fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
+                fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId ||
+                layout != panelEntry.layout {
                 didUpdate = true
             }
             return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
@@ -616,7 +617,9 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement: fallbackSplitPlacement,
                 sourceWorkspaceId: panelEntry.sourceWorkspaceId,
                 sourceSnapshotWorkspaceId:
-                    panelEntry.sourceSnapshotWorkspaceId
+                    panelEntry.sourceSnapshotWorkspaceId,
+                layout: layout,
+                projection: panelEntry.projection
             )))
         }
         return (remappedRecords, didUpdate)

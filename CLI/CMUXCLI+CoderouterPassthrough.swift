@@ -55,10 +55,18 @@ extension CMUXCLI {
         try execCoderouter(at: executablePath, commandArgs: commandArgs, environment: environment)
     }
 
-    /// PATH first (`coderouter`, then `cr`), exactly as before, then the
+    /// The app-bundled core first, then PATH (`coderouter`, then `cr`), then the
     /// installer's bin directory, so an install whose shell-profile line has
     /// not reached this process still runs. No hit involves the network.
     func resolveCoderouterExecutable(environment: [String: String]) -> String? {
+        // Tagged builds carry their tested core. All CodeRouter command names
+        // then use the same version, including interactive provider setup.
+        if let bundle = CLIExecutableLocator.enclosingAppBundle() {
+            let binary = bundle.bundleURL.appendingPathComponent("Contents/Resources/bin/coderouter")
+            if FileManager.default.isExecutableFile(atPath: binary.path) {
+                return binary.path
+            }
+        }
         for name in Self.coderouterExecutableNames {
             if let path = resolveExecutableInPath(name, searchPath: environment["PATH"]) {
                 return path
@@ -140,7 +148,7 @@ extension CMUXCLI {
             throw Self.coderouterUnavailable(String(
                 format: Self.localizedPassthroughString(
                     "cli.coderouter.bootstrap.installedNotFound",
-                    defaultValue: "The CodeRouter installer finished, but no CodeRouter CLI was found in %@. Add its bin directory to PATH and retry."
+                    defaultValue: "The CodeRouter installer finished, but its command could not be found in %@. Check the installation and try again."
                 ),
                 binDirectory.path
             ))

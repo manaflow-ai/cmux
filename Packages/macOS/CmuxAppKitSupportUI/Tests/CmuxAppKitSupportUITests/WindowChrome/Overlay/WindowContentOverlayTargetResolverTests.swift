@@ -22,16 +22,75 @@ import Testing
         #expect(target?.reference === reference)
     }
 
-    @Test func resolverFallsBackToThemeFrameAndContentView() {
+    @Test func resolverDoesNotReplaceWindowContentViewWithoutGlass() throws {
+        let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
+        let window = makeWindow()
+        let originalContentView = try #require(window.contentView)
+
+        _ = try #require(resolver.installationTarget(for: window))
+
+        #expect(window.contentView === originalContentView)
+    }
+
+    @Test func browserResolverKeepsOverlayInsideExistingContentHierarchy() throws {
         let glass = FakeOverlayGlassEffect()
         let resolver = WindowContentOverlayTargetResolver(glassEffect: glass)
         let window = makeWindow()
-        let contentView = window.contentView
+        let contentView = try #require(window.contentView)
+        let browserHost = WindowContentOverlayBrowserHostView(frame: contentView.bounds)
+        contentView.addSubview(browserHost)
 
-        let target = resolver.installationTarget(for: window)
+        let target = try #require(resolver.browserInstallationTarget(for: window))
+        let overlay = NSView(frame: target.reference.bounds)
+        target.container.addSubview(overlay, positioned: .above, relativeTo: nil)
 
-        #expect(target?.container === contentView?.superview)
-        #expect(target?.reference === contentView)
+        #expect(target.reference === browserHost)
+        #expect(overlay.isDescendant(of: browserHost))
+        #expect(window.contentView === contentView)
+        #expect(target.container === browserHost)
+        #expect(target.container.subviews.last === overlay)
+    }
+
+    @Test func resolvingAgainPreservesContentAndOverlayIdentity() throws {
+        let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
+        let window = makeWindow()
+        let first = try #require(resolver.installationTarget(for: window))
+        let overlay = NSView(frame: first.reference.bounds)
+        first.container.addSubview(overlay, positioned: .above, relativeTo: first.reference)
+
+        let second = try #require(resolver.installationTarget(for: window))
+
+        #expect(second.container === first.container)
+        #expect(second.reference === first.reference)
+        #expect(overlay.superview === second.container)
+    }
+
+    @Test func resolvingPreservesContentLayoutDuringResize() throws {
+        let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
+        let window = makeWindow()
+        let target = try #require(resolver.installationTarget(for: window))
+        let translates = target.reference.translatesAutoresizingMaskIntoConstraints
+        let autoresizing = target.reference.autoresizingMask
+
+        window.setContentSize(NSSize(width: 360, height: 240))
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        #expect(window.contentView === target.reference)
+        #expect(target.reference.translatesAutoresizingMaskIntoConstraints == translates)
+        #expect(target.reference.autoresizingMask == autoresizing)
+        #expect(target.reference.frame.size == NSSize(width: 360, height: 240))
+    }
+
+    @Test func resolvingPreservesFocusedContent() throws {
+        let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
+        let window = makeWindow()
+        let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 60))
+        window.contentView?.addSubview(field)
+        #expect(window.makeFirstResponder(field))
+
+        _ = try #require(resolver.installationTarget(for: window))
+
+        #expect(window.firstResponder === field)
     }
 
     private func makeWindow() -> NSWindow {

@@ -7,5 +7,71 @@ Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/OnboardingMacDiscove
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered
 tests/test_ci_sparkle_build_monotonic.sh	live-network-host	release pretag guard intentionally probes the published appcast and soft-passes offline
-Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTests.swift	sleep-then-assert	upstream retry policy timing assertions
+Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTests.swift	sleep-then-assert	virtual-clock injection makes these large delays non-blocking and deterministic
 Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileTerminalLaneCoordinatorTests.swift	sleep-then-assert	upstream coordinator readiness timing assertion
+web/tests/vm-publication-pool-db.test.ts	sleep-then-assert	deadline-bounded database pool wait has no fixed sleep
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift	sleep-then-assert	bounded QUIC reconnect and retirement readiness probe from main
+cmuxTests/DeviceTerminalMirrorTests.swift	sleep-then-assert	deliberately hung transport cancellation test; completion is driven by cancellation stream
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLivenessTests.swift	sleep-then-assert	upstream IROH liveness timing test; replace with event-driven readiness
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxRelayCredentialInstallerTests.swift	sleep-then-assert	upstream credential rotation timing test; replace with event-driven readiness
+cmuxTests/MobileHostConnectionEventLaneTests.swift	sleep-then-assert	upstream event-lane timing tests; replace with event-driven readiness
+cmuxTests/MobileHostConnectionLifecycleTests.swift	sleep-then-assert	upstream connection lifecycle timing tests; replace with event-driven readiness
+web/tests/iroh-dashboard-controller.test.ts	sleep-then-assert	upstream dashboard render timing tests; replace with event-driven readiness
+Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/DiagnosticLogTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/TerminalWorkIntervalTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorPostSignInTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignInExchangePreflightTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignInPreflightTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTokenTouchingPhaseCancellationTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityEngineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityPeerSessionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohClientRuntimeTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohEndpointServerTests+Capacity.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimeFailedRestartTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimePolicyTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohOnlineAdmissionRegistryOfflineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohRegistryContextProviderStalenessTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohServerSessionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryReportingTests/TransportSentryReporterTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/CancellationIgnoringTokenProvider.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCSessionPipelinedTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTokenTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileTaskModelCatalogClientTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalLaneReplayBarrierTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalRawInputOrderingTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxMobileToast/Tests/CmuxMobileToastTests/ToastCenterTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlPlaneConcurrencyTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/Concurrency/MainActorCoalescingDeadlineTimerTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSidebarGit/Tests/CmuxSidebarGitTests/ProbeSchedulingTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorCameraCleanupDeadlineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientCameraCleanupTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientContainmentTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientLifecycleTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientQueueTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientRecoveryTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientStagedReplayTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientWheelRecoveryTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorAccessibilityPresentationTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorLiveStatusWatcherTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorPaneCoordinatorCancellationTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorPaneCoordinatorLocationLifecycleTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorPaneCoordinatorOverflowTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorPaneCoordinatorTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorProcessSessionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorWebInspectorCoordinatorTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorWorkerTests/SimulatorToolOperationSchedulingTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorWorkerTests/SimulatorWebInspectorServiceFailureTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/macOS/CmuxSudoBroker/Tests/CmuxSudoBrokerTests/SudoReviewRegressionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/CloudWireGuardHubTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/DockShortcutRoutingTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/FilePreviewKindResolverTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/MobileHostAuthorizationTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/MobileHostConnectionEventLaneTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/MobileHostOrderedInputTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/RemoteTmuxPaneSeedTransportTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/SidebarScrollViewConfiguratorTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/SidebarWorkspaceTableTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/TextBoxInlineAttachmentRenderingTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+cmuxTests/WindowAndDragTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)

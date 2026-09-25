@@ -116,6 +116,14 @@ struct TerminalSurfaceMountOwnershipTests {
             store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil
         }
         #expect(unmounted)
+        // Losing a UIKit window stops the output consumer but keeps the sticky
+        // viewport lease. Releasing it here manufactured clear→apply resize
+        // pairs during transient SwiftUI remounts and fed #13474's SIGWINCH
+        // replay loop.
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
+        #expect(store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
 
         host.view.addSubview(surfaceView)
         for _ in 0..<20 {
@@ -138,6 +146,13 @@ struct TerminalSurfaceMountOwnershipTests {
             return token != firstToken
         }
         #expect(remounted)
+
+        // Presentation ownership, unlike temporary window attachment, releases
+        // the sticky viewport lease and its generation-fenced Mac report.
+        coordinator.setTerminalPresentationActive(false)
+        #expect(!store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
     }
 
     @MainActor

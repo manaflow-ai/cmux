@@ -15,7 +15,8 @@ extension CMUXCLI {
         record: RestoreRecord,
         recordSessionID: String?,
         restorePayload: [String: Any],
-        client: SocketClient
+        client: SocketClient,
+        effectiveCodexHome: String? = nil
     ) throws -> RestoreLaunchAdmissionClaim? {
         guard record.mode == AgentRestoreRequestMode.resumeAgent.rawValue ||
             record.mode == AgentRestoreRequestMode.relaunchAgent.rawValue else {
@@ -54,16 +55,24 @@ extension CMUXCLI {
                 )
             )
         }
-        let response = try client.sendV2(
-            method: "agent.restore.admit",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "kind": record.kind,
-                "session_id": sessionID,
-                "record_session_id": recordSessionID ?? sessionID,
-            ]
-        )
+        var params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+            "kind": record.kind,
+            "session_id": sessionID,
+            "record_session_id": recordSessionID ?? sessionID
+        ]
+        if let effectiveCodexHome { params["codex_home"] = effectiveCodexHome }
+        var response: [String: Any]
+        repeat {
+            response = try RestoreAdmissionRetryPolicy.response {
+                try sendRestoreAdmission(params: &params, restorePayload: restorePayload, client: client)
+            }
+            // The server waits on process/file events before answering another
+            // recovery request. Keep this CLI (and its saved cwd) alive until
+            // admission succeeds; never return the user to a manual-retry shell.
+            params["wait_for_change"] = true
+        } while response["recovering"] as? Bool == true
         guard response["admitted"] as? Bool == true else {
             if let processID = (response["live_owner_pid"] as? NSNumber)?.int64Value,
                processID > 0 {
@@ -104,12 +113,41 @@ extension CMUXCLI {
             )
         }
         return RestoreLaunchAdmissionClaim(
-            workspaceID: workspaceID,
+            workspaceID: (params["workspace_id"] as? String) ?? workspaceID,
             surfaceID: surfaceID,
             kind: record.kind,
             sessionID: sessionID,
             claimID: claimID
         )
+    }
+
+    /// Bounded retry for a retryable `busy` admission answer.
+    ///
+    /// The app refuses admission when its ownership-sensitive process scan
+    /// cannot settle. Right after a relaunch several restored panes fire their
+    /// session-start hooks at once, so that churn is routine for a few
+    /// seconds. Giving up immediately left a bare shell whose binding then
+    /// retired, and the next relaunch had nothing to resume (#12084).
+    enum RestoreAdmissionRetryPolicy {
+        /// A structured v2 `busy` answer that the app marked retryable.
+        static func isRetryable(_ error: Error) -> Bool {
+            guard let error = error as? CLIError else { return false }
+            return error.isStructuredProtocolResponse
+                && error.v2Code == "busy"
+                && error.v2Retryable
+        }
+
+        /// `AgentRestoreAdmissionRetry().response` with the CLI's error classifier.
+        static func response(
+            onRetry: (Int) -> Void = { _ in },
+            sending send: () throws -> [String: Any]
+        ) throws -> [String: Any] {
+            try AgentRestoreAdmissionRetry().response(
+                onRetry: onRetry,
+                isRetryable: isRetryable,
+                sending: send
+            )
+        }
     }
 
     /// Best-effort rollback when preflight or `execve` fails after admission.

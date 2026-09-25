@@ -79,7 +79,8 @@ LEGACY_B4D3_CLA_REFRESH_DIGEST = "580ea1130f9745be686e428e45aa39c93ad290ca487363
 LEGACY_B4D3_CLA_HELPER_PATH = ".github/scripts/refresh-cla-check.sh".freeze
 # origin/main currently carries the f567 workflow and intentionally has no
 # rerun helper. This is a bounded one-time bridge to the final v3 workflow.
-CURRENT_MAIN_CLA_WORKFLOW_DIGEST = "eb7b2307430453b4b7067fa0b20394b4ead6e9356b9668f1d198be6acb9623e1".freeze
+# The digest is the #14668 revision, which pins runs-on to ubuntu-24.04.
+CURRENT_MAIN_CLA_WORKFLOW_DIGEST = "ce0112907844270c70c5e2cc235e20f8a45eb7a0ef42a88f054ceb6dc0198a64".freeze
 REVIEWED_CLA_BASES = {
   CLA_ACTION_LEGACY_REFS.fetch(0) => {
     workflow_digest: LEGACY_CLA_WORKFLOW_DIGEST,
@@ -214,6 +215,11 @@ GUARD_HOSTED_TRIGGER = {
 }.freeze
 GUARD_WORKFLOW_NAME = "CLA policy guard"
 GUARD_TIMEOUT_MINUTES = 10
+# Metadata-only skips must never publish a successful skipped required check.
+# Admit the condition and alternate name only as one exact reviewed contract.
+GUARD_METADATA_ONLY = "github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)".freeze
+GUARD_VALIDATE_IF = "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}".freeze
+GUARD_VALIDATE_NAME = "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'CLA policy guard metadata (ignored)' || 'CLA policy guard' }}".freeze
 GUARD_VERIFY_ENV = {
   "WORKFLOW_SHA" => "${{ github.workflow_sha }}"
 }.freeze
@@ -1161,13 +1167,14 @@ def assert_exact_secret_paths(document, allowed_paths: ALLOWED_SECRET_PATHS)
   fail!("workflow token references are not the reviewed contract") unless actual == expected
 end
 
-def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_SECRET_PATHS)
+def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_SECRET_PATHS, reviewed_guard_name: false)
   walk_paths(document) do |path, value|
     next unless value.is_a?(String) && value.match?(EXPRESSION_MARKER)
 
     joined_path = path.map(&:to_s).join(".")
     fail!("#{name} has an expression in an unreviewed field") unless
-      ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) }
+      ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) } ||
+      (reviewed_guard_name && joined_path == "jobs.validate.name" && value == GUARD_VALIDATE_NAME)
     if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
@@ -1310,6 +1317,61 @@ def run_guard_contract_regression_matrix!
       "regression guard validation run"
     )
   end
+  # The guard job's condition is the one place where this workflow can decline
+  # to run, so admission of that key is exercised against whole documents.
+  guard_document = lambda do |condition, name = GUARD_WORKFLOW_NAME|
+    job = {
+      "name" => name,
+      "runs-on" => "ubuntu-24.04",
+      "timeout-minutes" => GUARD_TIMEOUT_MINUTES,
+      "permissions" => { "contents" => "read", "pull-requests" => "read" },
+      "steps" => [
+        {
+          "name" => "Checkout immutable guard revision",
+          "uses" => "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with" => Marshal.load(Marshal.dump(GUARD_CHECKOUT_WITH))
+        },
+        { "name" => "Verify trusted checkout", "env" => GUARD_VERIFY_ENV.dup, "run" => "#{GUARD_VERIFY_RUN}\n" },
+        {
+          "name" => "Run trusted CLA regression matrix and validate policy as data",
+          "env" => GUARD_VALIDATE_ENV.dup,
+          "run" => "#{GUARD_VALIDATE_RUN}\n"
+        }
+      ]
+    }
+    job = { "name" => job["name"], "if" => condition }.merge(job) unless condition.nil?
+    YAML.dump(
+      "name" => GUARD_WORKFLOW_NAME,
+      "on" => { "pull_request_target" => Marshal.load(Marshal.dump(GUARD_TRIGGER)) },
+      "permissions" => {},
+      "jobs" => { "validate" => job }
+    )
+  end
+
+  safe_if = "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}"
+  safe_name = "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'CLA policy guard metadata (ignored)' || 'CLA policy guard' }}"
+  validate_guard_workflow(guard_document.call(nil), authorize: false)
+  checks += 1
+  validate_guard_workflow(guard_document.call(safe_if, safe_name), authorize: false)
+  checks += 1
+  validate_guard_workflow(guard_document.call(safe_if.gsub(" && ", "\n  && "), safe_name), authorize: false)
+  checks += 1
+  [
+    [safe_if, GUARD_WORKFLOW_NAME],
+    [nil, safe_name],
+    ["github.event.action != 'edited' || github.event.changes.base.ref.from != '' || github.event.changes.base.sha.from != ''", GUARD_WORKFLOW_NAME],
+    ["false", safe_name],
+    [safe_if, safe_name.sub("metadata (ignored)", "metadata")],
+    [safe_if, "${{ github.actor }}"],
+    [nil, "Wrong required check"],
+    [safe_if.sub(" && !github.event.changes.base", ""), safe_name],
+    [safe_if, safe_name.sub("!github.event.changes.base", "true")]
+  ].each do |condition, name|
+    expect_failure.call("guard condition/name pair #{condition.inspect}, #{name.inspect}") do
+      validate_guard_workflow(guard_document.call(condition, name), authorize: false)
+    end
+  end
+
   puts "PASS: guard workflow contract regression matrix (#{checks} cases)"
 end
 
@@ -2250,8 +2312,18 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   fail!("guard workflow has an unexpected job") unless jobs.keys == ["validate"]
   guard_job = document.dig("jobs", "validate")
   fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)
-  assert_exact_keys(guard_job, %w[name runs-on timeout-minutes permissions steps], "guard workflow validate job")
+  guard_job_keys = %w[name runs-on timeout-minutes permissions steps]
+  guard_job_keys += ["if"] if guard_job.key?("if")
+  assert_exact_keys(guard_job, guard_job_keys, "guard workflow validate job")
   assert_string(guard_job["name"], "guard workflow validate job name")
+  if guard_job.key?("if")
+    fail!("guard workflow validate condition/name is not the reviewed pair") unless
+      guard_job["if"].to_s.gsub(/\s+/, " ").strip == GUARD_VALIDATE_IF &&
+      guard_job["name"] == GUARD_VALIDATE_NAME
+  else
+    fail!("unconditional guard must report the required check name") unless
+      guard_job["name"] == GUARD_WORKFLOW_NAME
+  end
   assert_positive_integer(guard_job["timeout-minutes"], "guard workflow validate timeout")
   fail!("guard workflow validate timeout is not the reviewed value") unless
     guard_job["timeout-minutes"] == GUARD_TIMEOUT_MINUTES
@@ -2291,7 +2363,7 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
     "guard validation step run"
   )
   assert_exact_secret_paths(document, allowed_paths: layout[:allowed_secret_paths])
-  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: layout[:allowed_secret_paths])
+  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: layout[:allowed_secret_paths], reviewed_guard_name: true)
   assert_safe_run_values(document)
   uses = []
   walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }

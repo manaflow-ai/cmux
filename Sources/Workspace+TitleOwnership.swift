@@ -1,4 +1,6 @@
+import CmuxCloud
 import Foundation
+import CmuxTerminalCore
 
 /// Title and description ownership: which of the process title, the custom
 /// title, and the custom description a workspace presents, who set them, and
@@ -52,11 +54,15 @@ extension Workspace {
     }
 
     func applyProcessTitle(_ title: String) {
-        if processTitle != title {
-            processTitle = title
+        guard let stableTitle = AutomaticTerminalTitle(title)?.value else {
+            return
         }
-        guard customTitle == nil else { return }
-        guard self.title != title else { return }
+        applyResolvedProcessTitle(stableTitle)
+    }
+
+    private func applyResolvedProcessTitle(_ title: String) {
+        if processTitle != title { processTitle = title }
+        guard customTitle == nil, self.title != title else { return }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
@@ -100,7 +106,13 @@ extension Workspace {
         }
         let previousProcessTitle = processTitle
         let previousTitle = title
-        applyProcessTitle(resolvedTitle)
+        // A custom panel name is authored metadata even when it supplies the
+        // workspace's automatic display tier. Preserve it and non-terminal titles.
+        if panelCustomTitles[panelId] != nil || panels[panelId]?.panelType != .terminal {
+            applyResolvedProcessTitle(resolvedTitle)
+        } else {
+            applyProcessTitle(resolvedTitle)
+        }
         return processTitle != previousProcessTitle || title != previousTitle
     }
 
@@ -118,9 +130,14 @@ extension Workspace {
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remote = cloudProjectedResource(forPanel: panelId).flatMap { $0.kind == .terminal ? $0 : nil }
+        let candidate = remote?.cloudProcessDisplayTitle ?? title
+        let admitted = panels[panelId]?.panelType == .terminal
+            ? AutomaticTerminalTitle(candidate)?.value : candidate
+        guard let admitted else { return false }
+        let trimmed = admitted.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
-        guard shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
+        guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
             return false
         }
         var didMutate = false
@@ -149,6 +166,10 @@ extension Workspace {
                 )
                 didMutate = true
             }
+        }
+
+        if !isRemoteTmuxMirror {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
         }
 
         let previousWorkspaceTitle = self.title

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Bonsplit
 import CmuxSettings
 import CmuxCore
@@ -196,6 +197,9 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
+        for changedPanelID in Set([previous.panelId, panelId].compactMap { $0 }) {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelID)
+        }
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -342,12 +346,16 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
+        if didChange, let changedPanelId = ownedPanelId ?? panelId {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelId)
+        }
         return didChange
     }
 
     /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -360,6 +368,14 @@ extension Workspace {
                 processIdentity: agentPIDProcessIdentitiesByKey[key]
             )
         })
+        if remainingAgentRoots.isEmpty, !agentListeningPorts.isEmpty {
+            // No agent is left to own a port, so there is no later scan result
+            // to flicker against: drop the panel-owned ports now instead of
+            // waiting for the scanner's asynchronous empty publication, which
+            // is what pane close and detach promise (#3744).
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+        }
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
@@ -434,8 +450,11 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        clearCloudMaterializationFailure(surfaceID: panelId)
+        cancelReservedCloudTerminalPane(panelID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -467,6 +486,9 @@ extension Workspace {
         let shouldPreserveRemoteDisconnectOnClose =
             origin == "tab_close" ||
             origin == "pane_close"
+        // Retire work belonging to the old surface before the last-session
+        // close records a fresh disconnected replacement intent.
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldPreserveRemoteDisconnectOnClose,
            panel is TerminalPanel {
             markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
@@ -475,7 +497,6 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
-        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
             rememberPendingRemoteDisconnectReplacement(
@@ -501,12 +522,11 @@ extension Workspace {
                         preservesTerminalForTransfer
                 )
         }
-        untrackRemoteTerminalSurface(panelId)
-        if closePanel {
-            endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: panelId)
-        }
-        discardRemoteDirectoryTrustState(panelId: panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        retireRemoteTerminalLifecycle(
+            panelId: panelId,
+            preservesRemoteTerminalTracking: preservesRemoteTerminalTracking,
+            closesPanel: closePanel
+        )
         removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)

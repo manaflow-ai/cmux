@@ -102,9 +102,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        private var lastContentRevision: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        private var needsReloadAfterContextMenu = false
         // Keep one coordinator-level record for the promoted native source.
         // The source view can be replaced during SwiftUI reconstruction, so
         // view-local markers alone cannot reclaim a lost endedAt callback.
@@ -196,13 +198,24 @@ struct FileExplorerPanelView: NSViewRepresentable {
             containerView?.updateVisibility(
                 hasContent: !store.rootPath.isEmpty,
                 isLoading: store.isRootLoading,
-                statusMessage: store.rootStatusMessage
+                statusMessage: store.rootStatusMessage,
+                showsRemoteTarget: store.provider is any RemoteFileExplorerProvider
             )
 
+            // Reloading rows under an open context menu crashes AppKit's
+            // highlight drawing (#12914). Catch up once the menu closes.
+            if (outlineView as? FileExplorerNSOutlineView)?.isContextMenuOpen == true {
+                needsReloadAfterContextMenu = true
+                return
+            }
+            needsReloadAfterContextMenu = false
+
             let newCount = store.rootNodes.count
+            let newContentRevision = store.contentRevision
             withProgrammaticOutlineUpdate {
-                if newCount != lastRootNodeCount {
+                if newCount != lastRootNodeCount || newContentRevision != lastContentRevision {
                     lastRootNodeCount = newCount
+                    lastContentRevision = newContentRevision
                     let expandedPaths = store.expandedPaths
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
@@ -213,12 +226,26 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        @MainActor
+        func contextMenuDidClose() {
+            guard needsReloadAfterContextMenu else { return }
+            // Let AppKit finish tearing down the menu highlight first.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.needsReloadAfterContextMenu else { return }
+                self.reloadIfNeeded()
+            }
+        }
+
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
+            // Expanding a row can reveal descendants, so re-read the row count each iteration.
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   expandedPaths.contains(node.path),
+                   outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
@@ -905,7 +932,8 @@ final class FileExplorerContainerView: NSView {
     private var searchFieldHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
-    private var currentProviderIsLocal = false
+    private var currentSearchScope: FileSearchScope = .unsupported
+    var currentResourceContextID: UUID?
     private var currentWorkspaceRootIdentity: UUID?
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
@@ -921,7 +949,7 @@ final class FileExplorerContainerView: NSView {
         }
     }
     private var presentation: FileExplorerPanelPresentation
-    private let coordinator: FileExplorerPanelView.Coordinator
+    let coordinator: FileExplorerPanelView.Coordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private lazy var pendingPreviewDrag = FilePreviewNativeDragPendingOwnership { [weak self] tokenID in
         self?.previewWriterDidDeallocate(tokenID: tokenID)
@@ -951,7 +979,7 @@ final class FileExplorerContainerView: NSView {
         outlineView = FileExplorerNSOutlineView()
         searchScrollView = NSScrollView()
         searchResultsView = FileExplorerSearchResultsTableView()
-        emptyLabel = NSTextField(labelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
+        emptyLabel = NSTextField(wrappingLabelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
         loadingIndicator = NSProgressIndicator()
         self.searchController = searchController ?? FileSearchController()
         self.presentation = presentation
@@ -1008,6 +1036,7 @@ final class FileExplorerContainerView: NSView {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
+        emptyLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
 
@@ -1056,6 +1085,9 @@ final class FileExplorerContainerView: NSView {
         outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         coordinator.outlineView = outlineView
+        outlineView.onContextMenuDidClose = { [weak coordinator] in
+            coordinator?.contextMenuDidClose()
+        }
 
         // Context menu
         let menu = NSMenu()
@@ -1161,7 +1193,8 @@ final class FileExplorerContainerView: NSView {
             searchScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            emptyLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            emptyLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -1225,13 +1258,15 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateHeader(store: FileExplorerStore) {
-        let nextRootPath = store.rootPath, nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextRootPath = store.rootPath, nextSearchScope = FileSearchScope(provider: store.provider)
         let nextWorkspaceRootIdentity = store.workspaceRootIdentity, nextContentRevision = store.contentRevision
-        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity, contentRevisionChanged = nextContentRevision != currentContentRevision
-        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextProviderIsLocal != currentProviderIsLocal
-        currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
+        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity || currentResourceContextID != store.resourceContextID, contentRevisionChanged = nextContentRevision != currentContentRevision
+        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextSearchScope != currentSearchScope
+        currentRootPath = nextRootPath; currentSearchScope = nextSearchScope
+        currentResourceContextID = store.resourceContextID
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
-        headerView.update(displayPath: store.displayRootPath)
+        headerView.update(displayPath: store.displayRootPath,
+            retry: store.provider is CloudVMFileExplorerProvider ? { [weak store] in store?.retryRemoteRoot() } : nil)
         if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
@@ -1274,11 +1309,16 @@ final class FileExplorerContainerView: NSView {
         registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
-    func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
+    func updateVisibility(
+        hasContent: Bool,
+        isLoading: Bool,
+        statusMessage: String?,
+        showsRemoteTarget: Bool = false
+    ) {
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
         let canShowTree = hasContent && !hasStatus
-        applyHidden(headerView, !hasContent && !hasStatus)
+        applyHidden(headerView, !hasContent && !hasStatus && !showsRemoteTarget)
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
         let searchCanShow = isSearchVisible && canShowTree && !isLoading
         let nextEmptyText = hasStatus
@@ -1388,7 +1428,7 @@ final class FileExplorerContainerView: NSView {
 #if DEBUG
         dlog(
             "file.search.request queryLen=\(searchField.stringValue.count) " +
-            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) local=\(currentProviderIsLocal ? 1 : 0) " +
+            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) scope=\(currentSearchScope.debugName) " +
             "revision=\(currentContentRevision) results=\(searchSnapshot.results.count) " +
             "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width))"
         )
@@ -1396,7 +1436,7 @@ final class FileExplorerContainerView: NSView {
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
-            isLocal: currentProviderIsLocal,
+            scope: currentSearchScope,
             contentRevision: currentContentRevision
         )
     }
@@ -1550,36 +1590,6 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.reloadData()
     }
 
-    private func statusText(for snapshot: FileSearchSnapshot) -> String {
-        switch snapshot.status {
-        case .idle:
-            return ""
-        case .unsupported:
-            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Local folders only")
-        case .searching:
-            return String(
-                format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
-                snapshot.results.count
-            )
-        case .noMatches:
-            return String(localized: "fileExplorer.search.noMatches", defaultValue: "No matches")
-        case .matches:
-            return String(
-                format: String(localized: "fileExplorer.search.matches", defaultValue: "%d matches"),
-                snapshot.results.count
-            )
-        case .limited(let limit):
-            return String(
-                format: String(localized: "fileExplorer.search.limit", defaultValue: "First %d matches"),
-                limit
-            )
-        case .failed(let message):
-            return String(
-                format: String(localized: "fileExplorer.search.failed", defaultValue: "Search failed: %@"),
-                message
-            )
-        }
-    }
 
 #if DEBUG
     private func debugSearchNumber(_ value: CGFloat) -> String {
@@ -1717,7 +1727,8 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func searchResult(forMenuItem sender: NSMenuItem) -> FileSearchResult? {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue,
+        guard currentResourceContextID == coordinator.store.resourceContextID,
+              let row = (sender.representedObject as? NSNumber)?.intValue,
               row >= 0,
               row < searchSnapshot.results.count else {
             return nil
@@ -1728,7 +1739,7 @@ final class FileExplorerContainerView: NSView {
     @MainActor
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID, row >= 0, row < searchSnapshot.results.count else { return }
         let path = searchSnapshot.results[row].path
         // Editor/preferred-editor actions operate on local file paths via
         // NSWorkspace; for non-local providers fall back to the cmux preview.
@@ -1749,15 +1760,15 @@ final class FileExplorerContainerView: NSView {
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
-        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+        guard coordinator.store.provider is LocalFileExplorerProvider,
+              let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
         FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
-
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
+        guard coordinator.store.provider is LocalFileExplorerProvider,
+              let result = searchResult(forMenuItem: sender) else { return }
         FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: result.path))
     }
-
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
         GhosttyApp.terminalPasteboard.writeString(
@@ -1853,7 +1864,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard tableView === searchResultsView,
+        guard tableView === searchResultsView, coordinator.store.provider is LocalFileExplorerProvider,
               row >= 0,
               row < searchSnapshot.results.count else {
             return nil
@@ -2014,7 +2025,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         menu.removeAllItems()
         let clickedRow = searchResultsView.clickedRow
         let row = clickedRow >= 0 ? clickedRow : searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID, row >= 0, row < searchSnapshot.results.count else { return }
         if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
@@ -2028,21 +2039,21 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        FileExplorerExternalOpenMenuItems(
-            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
-            target: self,
-            action: #selector(contextMenuOpenSearchResultExternally(_:))
-        ).add(to: menu)
-
-        let revealItem = NSMenuItem(
-            title: FileExternalOpenText.revealInFinder,
-            action: #selector(contextMenuRevealSearchResultInFinder(_:)),
-            keyEquivalent: ""
-        )
-        revealItem.target = self
-        revealItem.representedObject = NSNumber(value: row)
-        menu.addItem(revealItem)
-
+        if coordinator.store.provider is LocalFileExplorerProvider {
+            FileExplorerExternalOpenMenuItems(
+                fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+                target: self,
+                action: #selector(contextMenuOpenSearchResultExternally(_:))
+            ).add(to: menu)
+            let revealItem = NSMenuItem(
+                title: FileExternalOpenText.revealInFinder,
+                action: #selector(contextMenuRevealSearchResultInFinder(_:)),
+                keyEquivalent: ""
+            )
+            revealItem.target = self
+            revealItem.representedObject = NSNumber(value: row)
+            menu.addItem(revealItem)
+        }
         menu.addItem(.separator())
 
         menu.addFileExplorerInsertPathItems(target: self, representedObject: NSNumber(value: row), insertAction: #selector(contextMenuInsertSearchResultPath(_:)), insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:)))

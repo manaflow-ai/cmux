@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
@@ -10,7 +11,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let timedOut: Bool
     }
 
-    private final class MockSocketServerState: @unchecked Sendable {
+    final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private(set) var commands: [String] = []
 
@@ -682,7 +683,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.hasPrefix("OK surface=surface-id pane=pane-id path="), result.stdout)
+        XCTAssertEqual(result.stdout, "OK surface=surface-id pane=pane-id\n")
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
 
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
@@ -726,13 +727,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">") && html.contains("background: transparent;"), html)
         XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
-        XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
+        let appModuleRequestPath = try diffViewerAppModuleRequestPath(from: html)
+        XCTAssertTrue(appModuleRequestPath.hasPrefix("/assets/cmux-webviews-app-"), appModuleRequestPath)
+        XCTAssertTrue(appModuleRequestPath.hasSuffix("/main.mjs"), appModuleRequestPath)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
-            .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
+            .appendingPathComponent(String(appModuleRequestPath.dropFirst()))
+            .deletingLastPathComponent()
         XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
         XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
@@ -757,7 +760,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 file["mime_type"] as? String == "text/x-diff"
         })
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
+            file["request_path"] as? String == appModuleRequestPath &&
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertTrue(files.contains { file in
@@ -870,8 +873,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         let params = try XCTUnwrap(payload["params"] as? [String: Any])
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
+        let htmlURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let html = try String(contentsOf: htmlURL, encoding: .utf8)
+        let appModuleRequestPath = try diffViewerAppModuleRequestPath(from: html)
         let appEntry = try XCTUnwrap(files.first { file in
-            (file["request_path"] as? String)?.hasSuffix("/assets/cmux-diff-viewer-app/main.mjs") == true
+            file["request_path"] as? String == appModuleRequestPath
         })
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         XCTAssertTrue(appFilePath.hasSuffix("main.mjs.deflate"), appFilePath)
@@ -908,9 +914,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         })
         XCTAssertFalse((patchFile["file_path"] as? String ?? "").isEmpty)
         XCTAssertNil(patchFile["remote_url"])
-        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
-        let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+        // The reader removes its temporary sidecar after capturing its bytes.
+        XCTAssertTrue(result.patch.contains("diff --git a/file.txt b/file.txt"), result.patch)
+        XCTAssertTrue(result.patch.contains("+new"), result.patch)
     }
 
     func testDiffViewerServerBoundsDeferredWaitRequests() throws {
@@ -1107,10 +1113,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(stagedOption["selected"] as? Bool, false)
         XCTAssertEqual(unstagedOption["selected"] as? Bool, true)
         XCTAssertEqual(payload["emptyMessage"] as? String, "No unstaged changes to diff.")
-        let stagedURLString = try diffViewerOptionURL(value: "staged", in: sourceOptions)
-        let stagedFileURL = try diffViewerHTMLFileURL(for: stagedURLString, from: unstagedResult.params)
-        let stagedHTML = try String(contentsOf: stagedFileURL, encoding: .utf8)
-        let stagedPayload = try diffViewerPayload(from: stagedHTML)
+        let stagedPayload = try diffViewerOptionPayload(value: "staged", in: sourceOptions, from: payload)
+        XCTAssertNil(stagedOption["url"], "Source selection should open a typed session in the current document")
         XCTAssertEqual((stagedPayload["sessionSource"] as? [String: Any])?["kind"] as? String, "staged")
         XCTAssertTrue(try openTypedDiffSession(payload: stagedPayload, cliPath: cliPath).contains("+two"))
         let gitLog = try String(contentsOf: gitLogURL, encoding: .utf8)
@@ -1303,43 +1307,86 @@ final class CMUXOpenCommandTests: XCTestCase {
             XCTAssertFalse(html.contains("\\u001b"), html, file: file, line: line)
         }
 
-        try runGit(["init"], in: repoURL)
-        try runGit(["checkout", "-b", "main"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try runGit(["config", "color.ui", "always"], in: repoURL)
-        try runGit(["config", "color.diff", "always"], in: repoURL)
-        try runGit(["remote", "add", "origin", rootURL.appendingPathComponent("origin.git").path], in: repoURL)
+        // The fixture writes config, refs and branch heads directly instead of
+        // spawning one git process per setting: identical on-disk state, and
+        // the git subprocesses that remain are the ones that must be real
+        // (object creation and commits). Those handwritten loose refs and the
+        // in-process SHA-1 blob ids assume the classic repository layout, so
+        // pin it: a user's `init.defaultObjectFormat=sha256` or
+        // `init.defaultRefFormat=reftable` must not change what the fixture is.
+        try runGit(Self.classicLayoutGitInitArguments, in: repoURL)
+        // Same unborn-branch state `git checkout -b main` leaves behind.
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/main", in: repoURL)
+        try appendGitConfig(
+            """
+            [user]
+            \tname = cmux tests
+            \temail = cmux@example.invalid
+            [color]
+            \tui = always
+            \tdiff = always
+            [remote "origin"]
+            \turl = \(rootURL.appendingPathComponent("origin.git").path)
+            \tfetch = +refs/heads/*:refs/remotes/origin/*
+
+            """,
+            in: repoURL
+        )
         try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
         try runGit(["commit", "-m", "initial"], in: repoURL)
         let initialCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        try runGit(["update-ref", "refs/remotes/origin/main", initialCommit], in: repoURL)
-        try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: repoURL)
+        try writeGitRef("refs/remotes/origin/main", commit: initialCommit, in: repoURL)
+        try writeGitSymbolicRef("refs/remotes/origin/HEAD", target: "refs/remotes/origin/main", in: repoURL)
 
         let siblingRepoURL = rootURL.appendingPathComponent("other-repo", isDirectory: true)
         let siblingFileURL = siblingRepoURL.appendingPathComponent("other.txt")
         try FileManager.default.createDirectory(at: siblingRepoURL, withIntermediateDirectories: true)
-        try runGit(["init"], in: siblingRepoURL)
-        try runGit(["checkout", "-b", "main"], in: siblingRepoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: siblingRepoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: siblingRepoURL)
+        try runGit(Self.classicLayoutGitInitArguments, in: siblingRepoURL)
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/main", in: siblingRepoURL)
+        try appendGitConfig(
+            """
+            [user]
+            \tname = cmux tests
+            \temail = cmux@example.invalid
+
+            """,
+            in: siblingRepoURL
+        )
         try "base\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "other.txt"], in: siblingRepoURL)
         try runGit(["commit", "-m", "initial"], in: siblingRepoURL)
         let siblingInitialCommit = try runGitStdout(["rev-parse", "HEAD"], in: siblingRepoURL)
-        try runGit(["update-ref", "refs/remotes/origin/main", siblingInitialCommit], in: siblingRepoURL)
-        try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: siblingRepoURL)
-        try runGit(["checkout", "-b", "feature/other"], in: siblingRepoURL)
+        try writeGitRef("refs/remotes/origin/main", commit: siblingInitialCommit, in: siblingRepoURL)
+        try writeGitSymbolicRef(
+            "refs/remotes/origin/HEAD",
+            target: "refs/remotes/origin/main",
+            in: siblingRepoURL
+        )
+        // Same state `git checkout -b feature/other` leaves behind: the new
+        // head points at the current commit and the worktree is untouched.
+        try writeGitRef("refs/heads/feature/other", commit: siblingInitialCommit, in: siblingRepoURL)
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/feature/other", in: siblingRepoURL)
         try "base\nchanged\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
 
-        try runGit(["checkout", "-b", "feature/diff-source"], in: repoURL)
+        try writeGitRef("refs/heads/feature/diff-source", commit: initialCommit, in: repoURL)
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/feature/diff-source", in: repoURL)
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
         try runGit(["commit", "-m", "add two"], in: repoURL)
         let featureCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        try runGit(["update-ref", "refs/remotes/origin/feature/diff-source", featureCommit], in: repoURL)
-        try runGit(["branch", "--set-upstream-to=origin/feature/diff-source"], in: repoURL)
+        try writeGitRef("refs/remotes/origin/feature/diff-source", commit: featureCommit, in: repoURL)
+        // Same upstream `git branch --set-upstream-to=origin/feature/diff-source`
+        // records; the CLI reads it back through `@{upstream}`.
+        try appendGitConfig(
+            """
+            [branch "feature/diff-source"]
+            \tremote = origin
+            \tmerge = refs/heads/feature/diff-source
+
+            """,
+            in: repoURL
+        )
         try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
         let branch = try runDiffCLIAndReadHTML(
@@ -1350,12 +1397,20 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.html.contains("Branch source"), branch.html)
         XCTAssertTrue(branch.patch.contains("+two"), branch.patch)
         XCTAssertTrue(branch.patch.contains("+three"), branch.patch)
-        XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch origin/main\""), branch.html)
+        XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"sourceOptions\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"repoOptions\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"baseOptions\""), branch.html)
-        XCTAssertTrue(branch.html.contains("\"repoRoot\":\"\(repoURL.path)\""), branch.html)
-        XCTAssertTrue(branch.html.contains("\"branchBaseRef\":\"origin/main\""), branch.html)
+        // The sidecar resolves the default base; +two above proves it used
+        // origin/main instead of the feature branch's own upstream.
+        let branchPayload = try diffViewerPayload(from: branch.html)
+        let branchSource = try XCTUnwrap(branchPayload["sessionSource"] as? [String: Any])
+        XCTAssertEqual(branchSource["kind"] as? String, "branch")
+        XCTAssertNil(branchSource["baseRef"])
+        XCTAssertEqual(
+            URL(fileURLWithPath: try XCTUnwrap(branchSource["repoRoot"] as? String)).resolvingSymlinksInPath(),
+            repoURL.resolvingSymlinksInPath()
+        )
         XCTAssertTrue(branch.html.contains("other-repo"), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Unstaged\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"label\":\"Staged\""), branch.html)
@@ -1363,55 +1418,39 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.html.contains("\"label\":\"Last turn\""), branch.html)
         assertNoANSIEscape(branch.html)
 
-        let branchPayload = try diffViewerPayload(from: branch.html)
         let branchSourceOptions = try XCTUnwrap(branchPayload["sourceOptions"] as? [[String: Any]])
-        let selectedRepoUnstagedURLString = try diffViewerOptionURL(value: "unstaged", in: branchSourceOptions)
-        let selectedRepoUnstagedFileURL = try diffViewerHTMLFileURL(
-            for: selectedRepoUnstagedURLString,
-            from: branch.params
+        let selectedRepoUnstagedPayload = try diffViewerOptionPayload(
+            value: "unstaged", in: branchSourceOptions, from: branchPayload
         )
-        let selectedRepoUnstagedHTML = try String(contentsOf: selectedRepoUnstagedFileURL, encoding: .utf8)
-        let selectedRepoUnstagedPayload = try diffViewerPayload(from: selectedRepoUnstagedHTML)
-        let unstagedRepoOptions = try XCTUnwrap(selectedRepoUnstagedPayload["repoOptions"] as? [[String: Any]])
-        let siblingRepoUnstagedURLString = try diffViewerOptionURL(value: siblingRepoURL.path, in: unstagedRepoOptions)
-        XCTAssertTrue(siblingRepoUnstagedURLString.contains("-unstaged.html"), siblingRepoUnstagedURLString)
-        let siblingRepoUnstagedFileURL = try diffViewerHTMLFileURL(
-            for: siblingRepoUnstagedURLString,
-            from: branch.params
+        XCTAssertTrue(try openTypedDiffSession(payload: selectedRepoUnstagedPayload, cliPath: cliPath).contains("+three"))
+        let repoOptions = try XCTUnwrap(branchPayload["repoOptions"] as? [[String: Any]])
+        var siblingRepoUnstagedPayload = try diffViewerOptionPayload(
+            value: siblingRepoURL.path, in: repoOptions, from: branchPayload
         )
-        let siblingRepoUnstagedHTML = try String(contentsOf: siblingRepoUnstagedFileURL, encoding: .utf8)
-        let siblingRepoUnstagedPatch = try String(
-            contentsOf: siblingRepoUnstagedFileURL.deletingPathExtension().appendingPathExtension("patch"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(siblingRepoUnstagedHTML.contains("\"sourceLabel\":\"git unstaged\""), siblingRepoUnstagedHTML)
-        XCTAssertTrue(siblingRepoUnstagedHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoUnstagedHTML)
+        var siblingUnstagedSource = try XCTUnwrap(siblingRepoUnstagedPayload["sessionSource"] as? [String: Any])
+        siblingUnstagedSource["kind"] = "unstaged"
+        siblingUnstagedSource.removeValue(forKey: "baseRef")
+        siblingRepoUnstagedPayload["sessionSource"] = siblingUnstagedSource
+        let siblingRepoUnstagedPatch = try openTypedDiffSession(payload: siblingRepoUnstagedPayload, cliPath: cliPath)
         XCTAssertTrue(siblingRepoUnstagedPatch.contains("+changed"), siblingRepoUnstagedPatch)
-        XCTAssertFalse(siblingRepoUnstagedHTML.contains("\"sourceLabel\":\"git branch"), siblingRepoUnstagedHTML)
 
         let branchWithBase = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--branch", "--base", "main"],
             currentDirectoryURL: repoURL
         )
-        XCTAssertTrue(branchWithBase.html.contains("\"sourceLabel\":\"git branch main\""), branchWithBase.html)
+        XCTAssertTrue(branchWithBase.html.contains("\"sourceLabel\":\"git branch\""), branchWithBase.html)
         XCTAssertTrue(branchWithBase.html.contains("\"branchBaseRef\":\"main\""), branchWithBase.html)
         XCTAssertTrue(branchWithBase.patch.contains("+two"), branchWithBase.patch)
         let branchWithBasePayload = try diffViewerPayload(from: branchWithBase.html)
         let branchWithBaseRepoOptions = try XCTUnwrap(branchWithBasePayload["repoOptions"] as? [[String: Any]])
-        let siblingRepoBranchURLString = try diffViewerOptionURL(value: siblingRepoURL.path, in: branchWithBaseRepoOptions)
-        let siblingRepoBranchFileURL = try diffViewerHTMLFileURL(
-            for: siblingRepoBranchURLString,
-            from: branchWithBase.params
+        let siblingRepoBranchPayload = try diffViewerOptionPayload(
+            value: siblingRepoURL.path, in: branchWithBaseRepoOptions, from: branchWithBasePayload
         )
-        let siblingRepoBranchHTML = try String(contentsOf: siblingRepoBranchFileURL, encoding: .utf8)
-        let siblingRepoBranchPatch = try String(
-            contentsOf: siblingRepoBranchFileURL.deletingPathExtension().appendingPathExtension("patch"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(siblingRepoBranchHTML.contains("\"sourceLabel\":\"git branch main\""), siblingRepoBranchHTML)
-        XCTAssertTrue(siblingRepoBranchHTML.contains("\"branchBaseRef\":\"main\""), siblingRepoBranchHTML)
-        XCTAssertTrue(siblingRepoBranchHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoBranchHTML)
+        let siblingBranchSource = try XCTUnwrap(siblingRepoBranchPayload["sessionSource"] as? [String: Any])
+        XCTAssertEqual(siblingBranchSource["kind"] as? String, "branch")
+        XCTAssertNil(siblingBranchSource["baseRef"], "An explicit base for the selected repo must not leak into sibling repos")
+        let siblingRepoBranchPatch = try openTypedDiffSession(payload: siblingRepoBranchPayload, cliPath: cliPath)
         XCTAssertTrue(siblingRepoBranchPatch.contains("+changed"), siblingRepoBranchPatch)
 
         let repoOverride = try runDiffCLIAndReadHTML(
@@ -2075,7 +2114,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
             openedURLBox.set(rawURL)
-            if let htmlURL = Self.diffViewerHTMLFileURLFromHTTPManifest(for: rawURL) {
+            if let htmlURL = try? self.diffViewerHTMLFileURL(for: rawURL, from: params) {
                 openedHTMLURLBox.set(htmlURL)
             }
             return Self.v2Response(
@@ -2485,7 +2524,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
-    private func runCLI(
+    func runCLI(
         cliPath: String,
         socketPath: String,
         arguments: [String],
@@ -2689,6 +2728,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         return "/" + pathParts.dropFirst().joined(separator: "/")
     }
 
+    private func diffViewerAppModuleRequestPath(from html: String) throws -> String {
+        let marker = "<script type=\"module\" src=\""
+        let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
+        let tail = html[start...]
+        let end = try XCTUnwrap(tail.firstIndex(of: "\""))
+        let baseURL = try XCTUnwrap(URL(string: "cmux-diff-viewer://fixture/"))
+        return try XCTUnwrap(URL(string: String(tail[..<end]), relativeTo: baseURL)).path
+    }
+
     private func diffViewerConfig(from html: String) throws -> [String: Any] {
         let marker = "<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"
         let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
@@ -2716,12 +2764,23 @@ final class CMUXOpenCommandTests: XCTestCase {
         return result
     }
 
-    private func diffViewerOptionURL(value: String, in options: [[String: Any]]) throws -> String {
+    private func diffViewerOptionPayload(
+        value: String,
+        in options: [[String: Any]],
+        from payload: [String: Any]
+    ) throws -> [String: Any] {
         let option = try XCTUnwrap(options.first { option in
-            option["value"] as? String == value
+            guard let optionValue = option["value"] as? String else { return false }
+            if optionValue == value { return true }
+            guard value.hasPrefix("/"), optionValue.hasPrefix("/") else { return false }
+            return URL(fileURLWithPath: value).resolvingSymlinksInPath()
+                == URL(fileURLWithPath: optionValue).resolvingSymlinksInPath()
         })
         XCTAssertEqual(option["disabled"] as? Bool, false)
-        return try XCTUnwrap(option["url"] as? String)
+        let source = try XCTUnwrap(option["sessionSource"] as? [String: Any])
+        var selectedPayload = payload
+        selectedPayload["sessionSource"] = source
+        return selectedPayload
     }
 
     private func runDiffCLIExpectingNoOpen(
@@ -2781,11 +2840,69 @@ final class CMUXOpenCommandTests: XCTestCase {
         return (try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue) & 0o777
     }
 
+    /// `git init` for fixtures whose refs and object ids are written by hand:
+    /// SHA-1 objects and loose-file refs. The ref format goes through `-c`
+    /// rather than `--ref-format`, which git releases before 2.45 reject; those
+    /// releases only know loose-file refs anyway. `GIT_DEFAULT_REF_FORMAT` and
+    /// `GIT_DEFAULT_HASH` would override both choices, so `runGitProcess` drops
+    /// them from the inherited environment.
+    private static let classicLayoutGitInitArguments = [
+        "-c", "init.defaultRefFormat=files",
+        "init", "-q", "--object-format=sha1"
+    ]
+
+    /// Appends config text to a fixture repository's `.git/config`, producing
+    /// the same on-disk state as the equivalent `git config` / `git remote add`
+    /// invocations without a git subprocess per setting.
+    private func appendGitConfig(_ text: String, in directory: URL) throws {
+        let configURL = directory.appendingPathComponent(".git/config", isDirectory: false)
+        let existing = try String(contentsOf: configURL, encoding: .utf8)
+        let separator = existing.hasSuffix("\n") || existing.isEmpty ? "" : "\n"
+        try (existing + separator + text).write(to: configURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes the loose ref file `git update-ref` would write for a fixture
+    /// repository (no packed refs exist in these freshly created repos).
+    private func writeGitRef(_ ref: String, commit: String, in directory: URL) throws {
+        let refURL = directory.appendingPathComponent(".git", isDirectory: true)
+            .appendingPathComponent(ref, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: refURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "\(commit)\n".write(to: refURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes the symbolic ref file `git symbolic-ref` would write.
+    private func writeGitSymbolicRef(_ ref: String, target: String, in directory: URL) throws {
+        let refURL = directory.appendingPathComponent(".git", isDirectory: true)
+            .appendingPathComponent(ref, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: refURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "ref: \(target)\n".write(to: refURL, atomically: true, encoding: .utf8)
+    }
+
+    /// The blob object id `git hash-object --no-filters` prints for a file,
+    /// computed in process (`sha1("blob <size>\0" + contents)`) so baseline
+    /// fixtures do not pay a git subprocess per recorded untracked path.
+    private func gitBlobObjectID(forFileAt url: URL) throws -> String {
+        let contents = try Data(contentsOf: url)
+        var payload = Data("blob \(contents.count)\0".utf8)
+        payload.append(contents)
+        return Insecure.SHA1.hash(data: payload)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private func runGitProcess(_ arguments: [String], in directory: URL) -> ProcessRunResult {
         runProcess(
             executablePath: "/usr/bin/env",
             arguments: ["git"] + arguments,
-            environment: ProcessInfo.processInfo.environment,
+            environment: ProcessInfo.processInfo.environment.filter { key, _ in
+                key != "GIT_DEFAULT_REF_FORMAT" && key != "GIT_DEFAULT_HASH"
+            },
             timeout: 30,
             currentDirectoryURL: directory
         )
@@ -2818,7 +2935,9 @@ final class CMUXOpenCommandTests: XCTestCase {
                 .appendingPathComponent(snapshotId, isDirectory: true)
                 .appendingPathComponent("files", isDirectory: true)
             for path in untrackedPaths {
-                let hash = try runGitStdout(["hash-object", "--no-filters", "--", path], in: repoURL)
+                let hash = try gitBlobObjectID(
+                    forFileAt: repoURL.appendingPathComponent(path, isDirectory: false)
+                )
                 let snapshotURL = snapshotRoot.appendingPathComponent(path, isDirectory: false)
                 try FileManager.default.createDirectory(
                     at: snapshotURL.deletingLastPathComponent(),
@@ -2841,7 +2960,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
     }
 
-    private func bundledCLIPath() throws -> String {
+    func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
@@ -2851,7 +2970,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             .appendingPathComponent("diff-viewer", isDirectory: true)
         let appURL = resourcesURL
             .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("diff-viewer-app", isDirectory: true)
+            .appendingPathComponent("webviews-app", isDirectory: true)
         let workerPoolURL = diffViewerURL.appendingPathComponent("worker-pool", isDirectory: true)
         try FileManager.default.createDirectory(at: workerPoolURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: appURL, withIntermediateDirectories: true)
@@ -2915,22 +3034,17 @@ final class CMUXOpenCommandTests: XCTestCase {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
         if let stdinText, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(stdinText.utf8))
             stdinPipe.fileHandleForWriting.closeFile()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+            if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
 
@@ -2996,14 +3110,9 @@ final class CMUXOpenCommandTests: XCTestCase {
     private func terminateProcess(_ process: Process) {
         guard process.isRunning else { return }
         process.terminate()
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
-        if finished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+        if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
             kill(process.processIdentifier, SIGKILL)
-            _ = finished.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
     }
 
@@ -3018,7 +3127,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return condition()
     }
 
-    private func bindUnixSocket(at path: String) throws -> Int32 {
+    func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -3050,14 +3159,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         return fd
     }
 
-    private func makeSocketPath(_ name: String) -> String {
+    func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
     }
 
-    private func startMockServer(
+    func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
         handler: @escaping @Sendable (String) -> String
@@ -3159,12 +3268,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         output.split(separator: "\n").map(String.init)
     }
 
-    private static func v2Payload(from line: String) -> [String: Any]? {
+    static func v2Payload(from line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,

@@ -6,7 +6,12 @@ import WebKit
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
+    /// The focused text file preview's editor owns the responder. Preview zoom
+    /// and Canvas zoom routing use this narrow scope.
     let filePreviewTextEditorFocused: Bool
+    /// Any file editor owns the responder, including editors in the Dock and
+    /// Markdown text mode. File-editor actions such as word wrap use it.
+    let fileEditorFocused: Bool
     let simulatorFocused: Bool
     let simulatorPanel: SimulatorPanel?
     let simulatorTextEditorFocused: Bool
@@ -18,6 +23,7 @@ struct ShortcutEventFocusContext {
         browserPanel: BrowserPanel?,
         markdownPanel: MarkdownPanel?,
         filePreviewTextEditorFocused: Bool,
+        fileEditorFocused: Bool = false,
         simulatorFocused: Bool,
         simulatorPanel: SimulatorPanel? = nil,
         simulatorTextEditorFocused: Bool = false,
@@ -27,6 +33,7 @@ struct ShortcutEventFocusContext {
         self.browserPanel = browserPanel
         self.markdownPanel = markdownPanel
         self.filePreviewTextEditorFocused = filePreviewTextEditorFocused
+        self.fileEditorFocused = fileEditorFocused || filePreviewTextEditorFocused
         self.simulatorFocused = simulatorFocused
         self.simulatorPanel = simulatorPanel
         self.simulatorTextEditorFocused = simulatorTextEditorFocused
@@ -48,6 +55,23 @@ struct ShortcutEventFocusContext {
             filePreviewTextEditor: filePreviewTextEditorFocused,
             simulator: simulatorFocused
         )
+    }
+
+    /// ``shortcutContext`` with any focused file editor projected onto the
+    /// file-editor atom, so a file-editor action's `when` clause holds in
+    /// editors outside a text file preview.
+    var fileEditorShortcutContext: ShortcutContext {
+        guard fileEditorFocused, !filePreviewTextEditorFocused else { return shortcutContext }
+        var context = shortcutContext
+        context.setBool(ShortcutFocusAtom.filePreviewTextEditorFocus.rawValue, true)
+        context.setBool(ShortcutFocusAtom.terminalFocus.rawValue, false)
+        return context
+    }
+
+    /// The context `action`'s `when` clause evaluates against: file-editor
+    /// actions see every file editor, everything else the narrow preview scope.
+    func whenClauseContext(for action: KeyboardShortcutSettings.Action) -> ShortcutContext {
+        action.shortcutContext == .filePreviewTextEditor ? fileEditorShortcutContext : shortcutContext
     }
 }
 
@@ -110,9 +134,11 @@ extension AppDelegate {
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
-        let filePreviewTextEditorFocused = browserPanel == nil && markdownPanel == nil
-            ? shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
+        let fileEditorFocused = browserPanel == nil && markdownPanel == nil
+            ? shortcutFocusedSavingTextView(in: shortcutWindow) != nil
             : false
+        let filePreviewTextEditorFocused = fileEditorFocused
+            && shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
         let rightSidebarFocused = !simulatorFocused
             && (shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false)
         let focusState = ShortcutFocusState(
@@ -126,6 +152,7 @@ extension AppDelegate {
             browserPanel: browserPanel,
             markdownPanel: markdownPanel,
             filePreviewTextEditorFocused: filePreviewTextEditorFocused,
+            fileEditorFocused: fileEditorFocused,
             simulatorFocused: simulatorFocused,
             simulatorPanel: simulatorPanel,
             simulatorTextEditorFocused: simulatorTextEditorFocused,
@@ -191,6 +218,10 @@ extension AppDelegate {
         return tabManager?.focusedMarkdownPanel
     }
 
+    /// Matches only the focused text file preview's editor, the same scope as the
+    /// command palette's `panelIsFilePreviewTextEditor`. Editors in the Dock and
+    /// Markdown text mode are file editors but not previews, so preview zoom and
+    /// Canvas zoom routing leave them alone.
     private func shortcutFocusedFilePreviewTextEditor(in window: NSWindow?) -> Bool {
         guard let focusedFilePreviewPanel = shortcutContextTabManager(in: window)?.focusedTextFilePreviewPanel,
               let textView = shortcutFocusedSavingTextView(in: window),
@@ -198,11 +229,11 @@ extension AppDelegate {
               owningFilePreviewPanel === focusedFilePreviewPanel else {
             return false
         }
-
         return true
     }
 
-    private func shortcutFocusedSavingTextView(in window: NSWindow?) -> SavingTextView? {
+    /// Resolves the editor that owns the requested window’s keyboard responder.
+    func shortcutFocusedSavingTextView(in window: NSWindow?) -> SavingTextView? {
         guard let responder = window?.firstResponder ?? NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder else {
             return nil
         }

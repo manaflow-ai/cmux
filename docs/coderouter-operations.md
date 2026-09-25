@@ -227,8 +227,8 @@ add, enable/disable, and remove. Rows migrated from the single-upstream table ke
 ## Verifying the edge model plane locally
 
 `web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a
-private CA, TLS termination on `127.0.0.1:8443`, the two edge headers overwritten on every
-request (the real edge does the same), and re-origination to any coderouter origin. Real
+private CA, TLS termination on `127.0.0.1:8443`, the bearer plus the two edge headers
+overwritten on every request (the real edge does the same), and re-origination to any coderouter origin. Real
 agent CLIs then run with placeholder keys exactly as a Cloud machine does, against a local
 `bun dev` with a scratch Postgres and the `coderouter_dev` ClickHouse database:
 
