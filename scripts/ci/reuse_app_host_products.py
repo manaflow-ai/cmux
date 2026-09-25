@@ -116,14 +116,33 @@ def names_compile_job(name: object, compile_name: str) -> bool:
 GATE_DECLINE_STEP = "Hold consumers behind the fast Linux gate"
 
 
-def compile_job_admitted(job: object) -> bool:
-    """Whether a completed compile job produced its product: it succeeded, or
-    failed only because the fast Linux gate declined its consumers."""
-    if not isinstance(job, dict) or job.get("status", "completed") != "completed":
+# test-e2e.yml's build job uploads its product with this step and then runs
+# the tests on the same runner. Once the step has succeeded the product is
+# complete, so a later dispatch may adopt it while those tests still run, or
+# after they fail.
+PUBLISH_STEPS = {
+    ".github/workflows/test-e2e.yml": "Upload the compiled test product",
+}
+
+
+def compile_job_admitted(job: object, publish_step: str | None = None) -> bool:
+    """Whether a compile job produced its product: its `publish_step`
+    succeeded, or it completed and succeeded, or it failed only because the
+    fast Linux gate declined its consumers."""
+    if not isinstance(job, dict):
+        return False
+    steps = job.get("steps")
+    if publish_step and isinstance(steps, list) and any(
+        isinstance(step, dict)
+        and step.get("name") == publish_step
+        and step.get("conclusion") == "success"
+        for step in steps
+    ):
+        return True
+    if job.get("status", "completed") != "completed":
         return False
     if job.get("conclusion") == "success":
         return True
-    steps = job.get("steps")
     return job.get("conclusion") == "failure" and isinstance(steps, list) and any(
         isinstance(step, dict)
         and step.get("name") == GATE_DECLINE_STEP
@@ -594,8 +613,9 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 jobs.extend(batch)
                 if len(batch) < 100:
                     break
-            # The compile job must finish successfully, or be declined by the
-            # fast Linux gate after publishing; unrelated producer tests may
+            # The compile job must finish successfully, be declined by the
+            # fast Linux gate after publishing, or (test-e2e.yml) have
+            # published before running its tests; unrelated producer tests may
             # still be running because no test result is reused here.
             # A reusable workflow reports "<caller job> / <job name>", so this
             # is "macos / macOS compile admission" when ci.yml reaches the job
@@ -605,8 +625,7 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             compile_name, compile_step = COMPILE_JOBS[run["path"]]
             compile_job = next((job for job in jobs
                                 if names_compile_job(job.get("name"), compile_name)
-                                and job.get("status") == "completed"
-                                and compile_job_admitted(job)), None)
+                                and compile_job_admitted(job, PUBLISH_STEPS.get(run["path"]))), None)
             if compile_job is None:
                 record_reason(reasons, "producer_compile_unsuccessful")
                 continue
