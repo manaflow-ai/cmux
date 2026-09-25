@@ -2091,10 +2091,11 @@ class IOSRouting(unittest.TestCase):
         # One family needs one.
         self.assertTrue(ios_route(sim_fleet(running=1), device_family="iphone")[0].persistent)
         self.assertFalse(ios_route(sim_fleet(running=2), device_family="ipad")[0].persistent)
-        # Every iOS run since the snapshot is charged two simulators, wherever it went.
-        self.assertFalse(ios_route(sim_fleet(), device_family="iphone", ios_since=1)[0].persistent)
+        # Simulator jobs charged to iOS runs since the snapshot (charged_sim_jobs()).
+        self.assertFalse(ios_route(sim_fleet(), device_family="iphone", ios_since=2)[0].persistent)
+        self.assertTrue(ios_route(sim_fleet(), device_family="iphone", ios_since=1)[0].persistent)
         self.assertTrue(ios_route(sim_fleet(), device_family="iphone",
-                                  slots={**IOS_SLOTS, IOS_SIM: 3}, ios_since=1)[0].persistent)
+                                  slots={**IOS_SLOTS, IOS_SIM: 3}, ios_since=2)[0].persistent)
 
     def test_no_simulator_slots_entry_never_routes_or_reads(self):
         route, calls = ios_route(sim_fleet(), slots={MINI: 40, ROOT_MINI: 10})
@@ -2191,7 +2192,22 @@ class IOSRouting(unittest.TestCase):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
                         "ios-screenshots.yml": [{"id": 3, "status": "queued"}]}[workflow]
-        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 2)
+        # Untitled runs are charged in full: two in flight, two simulators each.
+        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
+
+    def test_in_flight_ios_runs_are_charged_what_their_title_needs(self):
+        def title(package="simulator", family="both", runner="auto"):
+            return {"display_title": f"iOS tests · main · {package} · full suite · {family} · iOS default · on {runner}"}
+        charged = ios_pool.charged_sim_jobs
+        self.assertEqual(charged(title()), 2)
+        self.assertEqual(charged(title(family="iphone")), 1)
+        self.assertEqual(charged(title(runner="owned")), 2)
+        self.assertEqual(charged(title(package="CmuxMobileShell")), 0)
+        self.assertEqual(charged(title(runner="blacksmith-6vcpu-macos-26")), 0)
+        # A title from before the runner field, or another workflow's, is charged in full.
+        self.assertEqual(charged({"display_title": "iOS tests · main · simulator · full suite · iphone · iOS default"}), 2)
+        self.assertEqual(charged({"display_title": "iOS screenshots"}), 2)
+        self.assertEqual(charged({}), 2)
 
     def test_the_simulator_count_is_a_capability_not_a_pool(self):
         raw = json.dumps(IOS_SLOTS)
