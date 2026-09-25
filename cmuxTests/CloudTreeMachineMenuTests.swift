@@ -1,5 +1,8 @@
+import CmuxCloud
 import AppKit
+import SwiftUI
 import CmuxCloudMachines
+import CmuxSurfaceCatalogModel
 import Testing
 import Observation
 
@@ -80,7 +83,6 @@ struct CloudTreeMachineMenuTests {
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles == [
             Self.title("machines.row.pin", "Pin Machine"),
-            Self.title("machines.menu.setDefaultMachine", "Set as Default Machine"),
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
@@ -219,6 +221,53 @@ struct CloudTreeMachineMenuTests {
         })
         #expect(recorder.projectRemoteViewCount == 0)
         _ = container
+    }
+
+    @Test("Double-clicking machines and remote workspaces routes to their rename actions")
+    func doubleClickRenamesCloudRows() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-double-click-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+
+        let machineNode = Self.machineNode()
+        let workspace = SurfaceRemoteWorkspace(id: "workspace-1", name: "Build", index: 0, focused: true)
+        let workspaceNode = CloudTreeNode(
+            id: "workspace-row",
+            kind: .workspace(
+                machine: .cloud(Self.machineID), workspace,
+                terminalCount: 0, hiddenTabCount: 0, openIn: nil
+            )
+        )
+        coordinator.apply(nodes: [machineNode, workspaceNode])
+        let outline = try #require(coordinator.outlineView)
+        #expect(outline.doubleAction == #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:)))
+
+        outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: machineNode)), byExtendingSelection: false)
+        coordinator.handleDoubleClick(nil)
+        #expect(recorder.renamedMachines.count == 1)
+        #expect(recorder.renamedMachines.first?.0 == Self.machineID)
+        #expect(recorder.renamedMachines.first?.1 == "Big Machine")
+
+        let workspaceRow = outline.row(forItem: workspaceNode)
+        outline.selectRowIndexes(IndexSet(integer: workspaceRow), byExtendingSelection: false)
+        coordinator.handleDoubleClick(nil)
+        #expect(recorder.renamedWorkspaces.count == 1)
+        #expect(recorder.renamedWorkspaces.first?.0 == .cloud(Self.machineID))
+        #expect(recorder.renamedWorkspaces.first?.1.0 == "workspace-1")
+        #expect(recorder.renamedWorkspaces.first?.1.1 == "Build")
     }
 
     @Test("Repeated navigation activation shares one keyed Cloud operation")
@@ -361,6 +410,29 @@ struct CloudTreeMachineMenuTests {
         #expect(store.isPinned("old-machine"))
     }
 
+    @Test("A Cloud refresh does not hide independently discovered Macs")
+    func failedCloudScopeRefreshKeepsDeviceRows() async {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: "other-mac", tag: "default"))
+        let info = SurfaceMachineInfo(
+            id: machine, name: "Other Mac", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        var snapshot = Self.catalog(["retired-cloud-machine"])
+        snapshot.machines.append(info)
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            catalogProvider: { snapshot }
+        )
+        model.localWorkspacesProvider = { [] }
+        await model.refreshAccountScope(refreshCatalog: { false }).value
+        #expect(model.catalog.machines.map(\.id) == [machine])
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: model.catalog, localWorkspaces: [], source: .cloudWithDevicesSection
+        )
+        #expect(nodes.last?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
+    }
+
     private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
         SurfaceCatalogSnapshot(machines: ids.map { id in
             SurfaceMachineInfo(
@@ -391,6 +463,44 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.pinChanges.count == 1)
         #expect(recorder.pinChanges.first?.0 == Self.machineID)
         #expect(recorder.pinChanges.first?.1 == true)
+    }
+
+    /// The machine row's hover trash is SwiftUI inside an NSTableView row.
+    /// NSTableView forwards a click only to subviews it validates, so a click
+    /// on the trash used to run the row's click action (toggle) and never
+    /// reached `confirmDelete`. Synthetic events do not drive SwiftUI buttons
+    /// in an offscreen test window, so this checks AppKit's routing decision.
+    @Test("The outline hands a click on the machine row's hover trash to the button")
+    func hoverTrashClickRoutesToButton() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-hover-trash-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [Self.machineNode()])
+        container.layoutSubtreeIfNeeded()
+
+        let outline = try #require(coordinator.outlineView)
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+        cell.setHovered(true)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        let center = buttons.convert(NSPoint(x: buttons.bounds.midX, y: buttons.bounds.midY), to: nil)
+
+        // AppKit's own routing question: may the table hand this click to the view under it?
+        let hit = try #require(outline.hitTest(outline.superview!.convert(center, from: nil)))
+        #expect(hit.isDescendant(of: buttons))
+        #expect(outline.validateProposedFirstResponder(hit, for: nil))
     }
 
     private static func machineNode(expired: Bool = false) -> CloudTreeNode {
@@ -425,7 +535,7 @@ struct CloudTreeMachineMenuTests {
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
             confirmDelete: { recorder.deletions.append($0) },
-            promptRename: { _, _ in },
+            promptRename: { id, label in recorder.renamedMachines.append((id, label ?? "")) },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
@@ -446,7 +556,9 @@ struct CloudTreeMachineMenuTests {
             newWorkspace: { _ in },
             closeTerminal: { _ in },
             closeWorkspace: { _, _ in },
-            renameWorkspace: { _, _ in },
+            renameWorkspace: { machine, workspace in
+                recorder.renamedWorkspaces.append((machine, (workspace.id, workspace.name)))
+            },
             renameTerminal: { _, _ in },
             selectLocalWorkspace: { _ in },
             copyToPasteboard: { _ in },
@@ -472,4 +584,6 @@ private final class CloudTreeMenuVerbRecorder {
     var cpuResizes: [(String, Int)] = []
     var memoryResizes: [(String, Int)] = []
     var pinChanges: [(String, Bool)] = []
+    var renamedMachines: [(String, String)] = []
+    var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
 }

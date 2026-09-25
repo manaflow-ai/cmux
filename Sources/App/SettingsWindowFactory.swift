@@ -37,7 +37,14 @@ enum SettingsWindowFactory {
         }
         let hostingController = NSHostingController(
             rootView: SettingsWindowHostRoot(
-                initialSection: initialNavigationTarget.flatMap { SettingsSectionID(rawValue: $0.rawValue) },
+                initialSection: initialNavigationTarget.flatMap {
+                    switch $0 {
+                    case .computers:
+                        return SettingsSectionID.mobile
+                    default:
+                        return SettingsSectionID(rawValue: $0.rawValue)
+                    }
+                },
                 onContentAppear: onContentAppear
             )
         )

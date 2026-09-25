@@ -9,8 +9,9 @@
     "contracts:check": "bun scripts/generate-contracts.ts --check",
     "types:generate": "wrangler types",
     "dev": "wrangler dev --env development",
-    "deploy:staging": "bun run check && bun run test:runtime && wrangler deploy --env staging",
+    "deploy:staging": "bash scripts/deploy-staging.sh",
     "deploy:production": "bash scripts/deploy-production.sh",
+    "drift:check": "bun scripts/check-production-drift.ts",
     "boundary:check": "bun scripts/check-boundary.ts",
     "types:check": "wrangler types --check",
     "test:runtime": "bash scripts/test-runtime.sh",
@@ -20,6 +21,9 @@
     "drizzle-orm": "0.45.2",
     "postgres": "3.4.9",
     "zod": "4.6.2"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

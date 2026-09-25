@@ -1,7 +1,9 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import Foundation
 import Observation
 
-/// One shared service route. In-app browsers use an authenticated CONNECT proxy
+/// One shared service route. In-app browsers use an authenticated proxy
 /// through userspace WireGuard while retaining the VM address and port.
 @MainActor
 @Observable
@@ -182,8 +184,8 @@ final class CloudPortAccessModel {
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
-        case .direct, .proxied: return CloudPortRoutePlan.privateURL(remoteURL.absoluteString, address: target.host)
-        case .forwarded(let port): return CloudPortRoutePlan.localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
+        case .direct, .proxied: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
+        case .forwarded(let port): return CloudPortRoutePolicy().localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
         default: return nil
         }
     }

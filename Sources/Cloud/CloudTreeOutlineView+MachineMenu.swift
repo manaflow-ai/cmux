@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
     func machineMenuItems(_ machine: MachineSnapshot) -> [NSMenuItem] {
@@ -13,20 +15,13 @@ extension CloudTreeOutlineView.Coordinator {
                 ? String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
                 : String(localized: "machines.row.pin", defaultValue: "Pin Machine")
         ) { [weak self] in
-            self?.setMachinePinned(!machine.isPinned, id: id)
+            guard let machines = actions.setPinned(id, !machine.isPinned) else { return }
+            self?.applyMachineOrder(machines)
         })
+        items.append(contentsOf: machineReorderMenuItems(id: id))
         if machine.freeAccess == .expired {
             items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
         } else {
-            if machine.isDefault {
-                let defaultItem = item(String(localized: "machines.menu.defaultMachine", defaultValue: "Default Machine")) { }
-                defaultItem.isEnabled = false
-                items.append(defaultItem)
-            } else {
-                items.append(item(String(localized: "machines.menu.setDefaultMachine", defaultValue: "Set as Default Machine")) {
-                    actions.setDefault(id)
-                })
-            }
             items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
             items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
             if machine.isDesktop {
@@ -56,30 +51,6 @@ extension CloudTreeOutlineView.Coordinator {
         items.append(.separator())
         items.append(item(String(localized: "machines.menu.delete", defaultValue: "Delete…")) { actions.confirmDelete(id) })
         return items
-    }
-
-    /// Native menu actions apply the persisted result before returning to AppKit.
-    /// Waiting for the enclosing SwiftUI panel can leave the old cell visible
-    /// until a later catalog refresh, especially when pinning does not reorder.
-    private func setMachinePinned(_ pinned: Bool, id: String) {
-        guard let machines = machineActions.setPinned(id, pinned) else { return }
-        let current = organizationNodes
-        let roots = Dictionary(current.compactMap { node -> (String, CloudTreeNode)? in
-            guard case .machine(let machine, _) = node.kind else { return nil }
-            return (machine.id, node)
-        }, uniquingKeysWith: { first, _ in first })
-        var updated = machines.compactMap { machine -> CloudTreeNode? in
-            guard let node = roots[machine.id], case .machine(_, let info) = node.kind else { return nil }
-            return CloudTreeNode(
-                id: node.id, kind: .machine(machine, info), children: node.children, isPinned: machine.isPinned
-            )
-        }.makeIterator()
-        // Local/pending rows keep their slots; only accepted cloud machines
-        // take the store's order, retaining adopted creation IDs and children.
-        applyOrganization(nodes: current.compactMap { node in
-            if case .machine = node.kind { return updated.next() }
-            return node
-        })
     }
 
     /// A running create can be cancelled immediately; a failed one offers

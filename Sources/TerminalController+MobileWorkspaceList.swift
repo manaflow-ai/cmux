@@ -230,12 +230,15 @@ extension TerminalController {
                 panelId: terminal.id,
                 localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
             )
+            let agent = workspace.mobileAgentStatus(forPanel: terminal.id)
             return [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
-                "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
+                "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id),
+                "agent_source": v2OrNull(agent?.source),
+                "agent_state": v2OrNull(agent?.state)
             ]
         }
         let simulatorEncoder = MobileSimulatorWireEncoder()

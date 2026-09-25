@@ -22,19 +22,32 @@ import Testing
         #expect(target?.reference === reference)
     }
 
-    @Test func resolverKeepsOverlayInsideWindowContentHierarchy() throws {
+    @Test func resolverDoesNotReplaceWindowContentViewWithoutGlass() throws {
+        let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
+        let window = makeWindow()
+        let originalContentView = try #require(window.contentView)
+
+        _ = try #require(resolver.installationTarget(for: window))
+
+        #expect(window.contentView === originalContentView)
+    }
+
+    @Test func browserResolverKeepsOverlayInsideExistingContentHierarchy() throws {
         let glass = FakeOverlayGlassEffect()
         let resolver = WindowContentOverlayTargetResolver(glassEffect: glass)
         let window = makeWindow()
-        let contentView = window.contentView
+        let contentView = try #require(window.contentView)
+        let browserHost = WindowContentOverlayBrowserHostView(frame: contentView.bounds)
+        contentView.addSubview(browserHost)
 
-        let target = try #require(resolver.installationTarget(for: window))
+        let target = try #require(resolver.browserInstallationTarget(for: window))
         let overlay = NSView(frame: target.reference.bounds)
-        target.container.addSubview(overlay, positioned: .above, relativeTo: target.reference)
+        target.container.addSubview(overlay, positioned: .above, relativeTo: nil)
 
-        #expect(target.reference === contentView)
-        #expect(overlay.isDescendant(of: try #require(window.contentView)))
-        #expect(target.reference.superview === target.container)
+        #expect(target.reference === browserHost)
+        #expect(overlay.isDescendant(of: browserHost))
+        #expect(window.contentView === contentView)
+        #expect(target.container === browserHost)
         #expect(target.container.subviews.last === overlay)
     }
 
@@ -52,19 +65,23 @@ import Testing
         #expect(overlay.superview === second.container)
     }
 
-    @Test func wrappedContentTracksWindowResize() throws {
+    @Test func resolvingPreservesContentLayoutDuringResize() throws {
         let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
         let window = makeWindow()
         let target = try #require(resolver.installationTarget(for: window))
+        let translates = target.reference.translatesAutoresizingMaskIntoConstraints
+        let autoresizing = target.reference.autoresizingMask
 
         window.setContentSize(NSSize(width: 360, height: 240))
         window.contentView?.layoutSubtreeIfNeeded()
 
-        #expect(target.reference.frame == target.container.bounds)
+        #expect(window.contentView === target.reference)
+        #expect(target.reference.translatesAutoresizingMaskIntoConstraints == translates)
+        #expect(target.reference.autoresizingMask == autoresizing)
         #expect(target.reference.frame.size == NSSize(width: 360, height: 240))
     }
 
-    @Test func wrappingPreservesFocusedContent() throws {
+    @Test func resolvingPreservesFocusedContent() throws {
         let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
         let window = makeWindow()
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 60))

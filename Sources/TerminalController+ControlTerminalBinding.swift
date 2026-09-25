@@ -35,10 +35,14 @@ struct ControlTerminalSocketTarget {
 
     /// Sends a bracketed-paste payload through the canonical surface.
     func sendText(_ text: String) -> Bool {
+        sendTextResult(text).accepted
+    }
+
+    func sendTextResult(_ text: String) -> TerminalSurface.TextSendResult {
         if surface === panel.surface {
-            return panel.sendText(text)
+            return panel.sendTextResult(text)
         }
-        return surface.sendText(text)
+        return surface.sendTextResult(text)
     }
 
     /// Sends a named key through the canonical surface, retaining the panel's

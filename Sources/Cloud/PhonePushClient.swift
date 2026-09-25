@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxAuthRuntime
 import CmuxPhonePush
 import Foundation
@@ -100,7 +101,7 @@ final class PhonePushClient {
     private struct PendingRecipientPayload {
         let payload: PhonePushPayload
         let identity: AuthenticatedSessionIdentity
-        let targetBundleIdentifier: String
+        let targetBundleIdentifier: String?
         let expirationEpochSeconds: Int
         let discoveryAttempts: Int
     }
@@ -330,10 +331,6 @@ final class PhonePushClient {
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
         }
-        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
-            .pushTargetNamespace?.bundleIdentifier else {
-            return .encodingFailed
-        }
         scheduleRecipientRefresh()
         guard hasTrustedRecipient(
             payload: payload,
@@ -342,13 +339,13 @@ final class PhonePushClient {
             return retainUntilRecipientRefresh(
                 payload: payload,
                 identity: identity,
-                targetBundleIdentifier: targetBundleIdentifier
+                targetBundleIdentifier: nil
             )
         }
         guard let envelope = makeEncryptedEnvelope(
             payload: payload,
             identity: identity,
-            targetBundleIdentifier: targetBundleIdentifier
+            targetBundleIdentifier: nil
         ) else { return .encodingFailed }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
@@ -370,10 +367,6 @@ final class PhonePushClient {
         guard !ids.isEmpty else { return .queued }
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
-        }
-        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
-            .pushTargetNamespace?.bundleIdentifier else {
-            return .encodingFailed
         }
         scheduleRecipientRefresh()
         guard let macDeviceID = identityPrewarm.deviceIDIfReady() else {
@@ -418,14 +411,14 @@ final class PhonePushClient {
                 admission = retainUntilRecipientRefresh(
                     payload: payload,
                     identity: identity,
-                    targetBundleIdentifier: targetBundleIdentifier
+                    targetBundleIdentifier: nil
                 )
                 continue
             }
             guard let envelope = makeEncryptedEnvelope(
                 payload: payload,
                 identity: identity,
-                targetBundleIdentifier: targetBundleIdentifier
+                targetBundleIdentifier: nil
             ) else {
                 logQueueStage("dismiss_encoding_failed", correlationID: UUID().uuidString.lowercased())
                 continue
@@ -471,21 +464,18 @@ final class PhonePushClient {
         }
     }
     private func refreshPushRecipients(auth: AuthCoordinator) async {
-        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
-            .pushTargetNamespace?.bundleIdentifier,
-              let snapshot = try? await auth.authenticatedSessionSnapshot(),
+        guard let snapshot = try? await auth.authenticatedSessionSnapshot(),
               var components = URLComponents(url: AuthEnvironment.pushAPIBaseURL, resolvingAgainstBaseURL: false)
         else { return }
         components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path)
             + "/api/device-tokens"
-        components.queryItems = [URLQueryItem(name: "bundleId", value: targetBundleIdentifier)]
+        components.queryItems = [URLQueryItem(name: "all", value: "true")]
         guard let url = components.url else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 10
         request.setValue("Bearer \(snapshot.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(snapshot.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        request.setValue(targetBundleIdentifier, forHTTPHeaderField: "X-Cmux-App-Namespace")
         guard let (data, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
@@ -518,7 +508,7 @@ final class PhonePushClient {
     private func retainUntilRecipientRefresh(
         payload: PhonePushPayload,
         identity: AuthenticatedSessionIdentity,
-        targetBundleIdentifier: String
+        targetBundleIdentifier: String?
     ) -> PhonePushForwardAdmission {
         guard pendingRecipientPayloads.count < Self.maxPendingRecipientPayloads else {
             reportEncryptionUnavailable()
@@ -610,13 +600,13 @@ final class PhonePushClient {
     private func makeEncryptedEnvelope(
         payload: PhonePushPayload,
         identity: AuthenticatedSessionIdentity,
-        targetBundleIdentifier: String,
+        targetBundleIdentifier: String?,
         expirationEpochSeconds: Int? = nil
     ) -> PhonePushRequestEnvelope? {
         guard !identity.accountID.isEmpty,
               let macDeviceID = payload.macDeviceId,
               let macBuildID = Bundle.main.bundleIdentifier,
-              let macKey = try? PhonePushKeyStore.current(
+              let macKey = try? PhonePushKeyMaterial.current(
                   bundleID: Bundle.main.bundleIdentifier ?? "cmux"
               ) else { return nil }
         let recipients = trustedRecipients(
@@ -642,7 +632,7 @@ final class PhonePushClient {
                 macBuildID: macBuildID
             ).body
             let encrypted = try recipients.map { recipient in
-                try PhonePushCrypto.encrypt(
+                try PhonePushCrypto().encrypt(
                     plaintext: plaintext,
                     tuple: PhonePushDeviceTuple(
                         accountID: identity.accountID,
@@ -705,7 +695,7 @@ final class PhonePushClient {
                 macInstanceTag: payload.macInstanceTag,
                 macBuildID: macBuildID
             )
-            guard let pinned = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple) else {
+            guard let pinned = PhonePushPeerKeyStore().pinnedDescriptor(for: tuple) else {
                 return false
             }
             return pinned.keyID == recipient.keyID
@@ -919,11 +909,10 @@ final class PhonePushClient {
                       let identity = auth.authenticatedSessionIdentity,
                       identity.accountID == envelope.expectedAccountID,
                       identity.generation == envelope.expectedSessionGeneration,
-                      let targetBundleIdentifier = envelope.targetBundleIdentifier,
                       let reencrypted = makeEncryptedEnvelope(
                           payload: payload,
                           identity: identity,
-                          targetBundleIdentifier: targetBundleIdentifier,
+                          targetBundleIdentifier: envelope.targetBundleIdentifier,
                           expirationEpochSeconds: envelope.expirationEpochSeconds
                       ) else {
                     logQueueStage(
@@ -1020,10 +1009,6 @@ final class PhonePushClient {
         guard current, accountMatches, generationMatches else {
             return (.staleSession, nil)
         }
-        guard let targetBundleIdentifier = envelope.targetBundleIdentifier,
-              !targetBundleIdentifier.isEmpty else {
-            return (.invalidResponse, nil)
-        }
         guard let url = pushURL() else { return (.invalidResponse, nil) }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1037,13 +1022,17 @@ final class PhonePushClient {
             sessionSnapshot.refreshToken,
             forHTTPHeaderField: "X-Stack-Refresh-Token"
         )
-        request.setValue(
-            targetBundleIdentifier,
-            forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
-        )
-        // Intentionally omit X-Cmux-Team-Id. The push route fans out by the
-        // authenticated Stack user id, so a team-picker change cannot retarget
-        // an already-created or in-flight notification request.
+        if let targetBundleIdentifier = envelope.targetBundleIdentifier,
+           !targetBundleIdentifier.isEmpty {
+            request.setValue(
+                targetBundleIdentifier,
+                forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
+            )
+        }
+        // An omitted target requests account-wide fanout. The server still
+        // selects each device's APNs topic and matching encrypted payload.
+        // Intentionally omit X-Cmux-Team-Id because push ownership is scoped
+        // to the authenticated Stack user id.
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let redirectDelegate = RedirectMethodPreservingDelegate()

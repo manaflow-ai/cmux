@@ -248,11 +248,15 @@ mock.module("../app/[locale]/dashboard/components/coderouter-accounts", () => ({
     claude,
     native,
     canManage,
+    teamName,
+    transferTeams,
   }: {
     shared: { kind: string };
     claude: { kind: string };
     native: { kind: string };
     canManage: boolean;
+    teamName?: string;
+    transferTeams?: readonly { id: string; name: string }[];
   }) => (
     <div
       data-testid="coderouter-accounts"
@@ -260,6 +264,10 @@ mock.module("../app/[locale]/dashboard/components/coderouter-accounts", () => ({
       data-claude={claude.kind}
       data-native={native.kind}
       data-can-manage={String(canManage)}
+      data-team-name={teamName}
+      // Ids only: the switcher test asserts other team names never render.
+      data-transfer-teams={(transferTeams ?? []).map((team) => team.id).join(",")}
+      data-transfer-names={String((transferTeams ?? []).every((team) => team.name.length > 0))}
     />
   ),
 }));
@@ -408,6 +416,22 @@ describe("coderouter dashboard", () => {
     expect(html).not.toContain("Team One");
   });
 
+  test("offers the viewer's other account-managing teams as transfer destinations", async () => {
+    authorizationAvailable = true;
+    authorizedTeams = [
+      { teamId: "team-1", teamName: "Team One", use: true, manageAccounts: true },
+      { teamId: "team-2", teamName: "Team Two", use: true, manageAccounts: true },
+      { teamId: "team-3", teamName: "Team Three", use: true, manageAccounts: false },
+    ];
+
+    const page = await CoderouterOverviewContent({ locale: "en", team: "team-1" });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain('data-team-name="Team One"');
+    expect(html).toContain('data-transfer-teams="team-2"');
+    expect(html).toContain('data-transfer-names="true"');
+  });
+
   test("renders the Machines card for owned machines only", async () => {
     authorizationAvailable = true;
 
@@ -465,7 +489,7 @@ describe("coderouter dashboard", () => {
     expect(metricsTeamIds).toEqual(["team-2"]);
   });
 
-  test("uses the persisted CodeRouter scope before the Stack default", async () => {
+  test("uses the Stack selected team before the legacy cookie", async () => {
     authorizationAvailable = true;
     selectedTeamId = "team-1";
     scopedTeamId = "team-2";
@@ -488,7 +512,7 @@ describe("coderouter dashboard", () => {
       locale: "en",
     });
 
-    expect(metricsTeamIds).toEqual(["team-2"]);
+    expect(metricsTeamIds).toEqual(["team-1"]);
   });
 
   test("normalizes a null Stack selection to the personal organization", async () => {

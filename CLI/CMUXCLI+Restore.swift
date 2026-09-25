@@ -10,34 +10,6 @@ extension CMUXCLI {
         )
     }
 
-    func controlAgentLaunchCommandPayload(
-        _ command: AgentLaunchCommand
-    ) -> [String: Any] {
-        var payload: [String: Any] = ["arguments": command.arguments]
-        if let launcher = command.launcher {
-            payload["launcher"] = launcher
-        }
-        if let executablePath = command.executablePath {
-            payload["executable_path"] = executablePath
-        }
-        if let workingDirectory = command.workingDirectory {
-            payload["working_directory"] = workingDirectory
-        }
-        if let environment = command.environment {
-            payload["environment"] = environment
-        }
-        if let verificationHome = command.verificationHome {
-            payload["verification_home"] = verificationHome
-        }
-        if let capturedAt = command.capturedAt {
-            payload["captured_at"] = capturedAt
-        }
-        if let source = command.source {
-            payload["source"] = source
-        }
-        return payload
-    }
-
     func runRestoreCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -107,7 +79,18 @@ extension CMUXCLI {
             switch codexValidation {
             case .allowed:
                 shouldContinue = true
-            case .missing, .unavailable, .rejectedChild, .bindingChanged:
+            case .unavailable:
+                // The standalone verifier is deliberately conservative: a
+                // transient SQLite/read failure is not proof that the
+                // conversation is missing. Same-build apps expose the shared
+                // admission boundary, which can combine the provider lock,
+                // hook identity, PID generation, and live-owner evidence and
+                // wait for that evidence to settle. Keep this restore intent
+                // alive instead of turning an unknown result into a shell
+                // error. Older apps have no admission RPC, so retain their
+                // conservative compatibility behavior.
+                shouldContinue = payload["agent_restore_admission_supported"] as? Bool == true
+            case .missing, .rejectedChild, .bindingChanged:
                 shouldContinue = false
             }
             if !shouldContinue {
@@ -125,61 +108,6 @@ extension CMUXCLI {
             }
         }
 
-        let environment = processEnvironment.merging(record.environment) { _, restored in
-            restored
-        }
-        if record.launchCommand == nil,
-           record.preparedArguments == nil,
-           let legacyCommand = record.legacyCommand {
-            let admissionClaim = try requireRestoreLaunchAdmission(
-                record: record,
-                recordSessionID: surfaceRecordCheckpointID,
-                restorePayload: payload,
-                client: client
-            )
-            if codexRestoreBindingRequiresClaim(record),
-               !claimCodexRestoreBinding(
-                   record: record,
-                   bindingPayload: bindingPayload,
-                   surfaceID: params["surface_id"] as? String,
-                   client: client
-               ) {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                try handleRejectedCodexRestore(
-                    .bindingChanged,
-                    record: record,
-                    bindingPayload: bindingPayload,
-                    surfaceID: params["surface_id"] as? String,
-                    workspaceID: payload["workspace_id"] as? String
-                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                    client: client,
-                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                )
-                return
-            }
-            do {
-                try execLegacyRestoreRecord(
-                    legacyCommand,
-                    record: record,
-                    environment: environment,
-                    client: client
-                )
-            } catch {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                throw error
-            }
-        }
-
-        guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
-            throw loggedRestoreError(
-                stage: "record.mode",
-                detail: record.mode,
-                message: String(
-                    localized: "cli.restore.error.unsupportedMode",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
-            )
-        }
         let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
@@ -190,117 +118,55 @@ extension CMUXCLI {
             } else {
                 nil
             }
-        let request = AgentRestoreRequest(
-            mode: mode,
-            kind: record.kind,
-            checkpointID: record.checkpointID,
-            source: record.source,
-            workingDirectory: effectiveWorkingDirectory,
-            environment: record.environment,
-            launchCommand: record.launchCommand,
-            preparedArguments: record.preparedArguments,
-            preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
-                record.preparedArgumentsWorkingDirectory
-            ),
-            observedPermissionMode: record.permissionMode
-        )
-        guard let invocation = AgentRestorePlanner(
-            executableFileResolver: AgentRestoreExecutableFileResolver()
-        ).invocation(
-            for: request,
-            ambientEnvironment: processEnvironment
-        ) else {
-            if let legacyCommand = record.legacyCommand {
-                let admissionClaim = try requireRestoreLaunchAdmission(
-                    record: record,
-                    recordSessionID: surfaceRecordCheckpointID,
-                    restorePayload: payload,
-                    client: client
+        let legacyOnly = record.launchCommand == nil && record.preparedArguments == nil && record.legacyCommand != nil
+        let invocation: AgentRestoreInvocation?
+        if legacyOnly {
+            invocation = nil
+        } else {
+            guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
+                throw loggedRestoreError(
+                    stage: "record.mode",
+                    detail: record.mode,
+                    message: String(
+                        localized: "cli.restore.error.unsupportedMode",
+                        defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+                    )
                 )
-                if codexRestoreBindingRequiresClaim(record),
-                   !claimCodexRestoreBinding(
-                       record: record,
-                       bindingPayload: bindingPayload,
-                       surfaceID: params["surface_id"] as? String,
-                       client: client
-                   ) {
-                    releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                    try handleRejectedCodexRestore(
-                        .bindingChanged,
-                        record: record,
-                        bindingPayload: bindingPayload,
-                        surfaceID: params["surface_id"] as? String,
-                        workspaceID: payload["workspace_id"] as? String
-                            ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                        client: client,
-                        workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                    )
-                    return
-                }
-                do {
-                    try execLegacyRestoreRecord(
-                        legacyCommand,
-                        record: record,
-                        environment: environment,
-                        client: client
-                    )
-                } catch {
-                    releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                    throw error
-                }
             }
-            throw loggedRestoreError(
-                stage: "record.incomplete",
-                detail: "mode=\(record.mode) kind=\(record.kind)",
-                message: String(
-                    localized: "cli.restore.error.incompleteData",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
+            let request = AgentRestoreRequest(
+                mode: mode,
+                kind: record.kind,
+                checkpointID: record.checkpointID,
+                source: record.source,
+                workingDirectory: effectiveWorkingDirectory,
+                environment: record.environment,
+                launchCommand: record.launchCommand,
+                preparedArguments: record.preparedArguments,
+                preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
+                    record.preparedArgumentsWorkingDirectory
+                ),
+                observedPermissionMode: record.permissionMode
+            )
+            invocation = AgentRestorePlanner(
+                executableFileResolver: AgentRestoreExecutableFileResolver()
+            ).invocation(for: request, ambientEnvironment: processEnvironment)
+        }
+        let execution: RestoreExecution
+        if let invocation {
+            execution = .invocation(invocation)
+        } else {
+            execution = try legacyRestoreExecution(
+                record: record, processEnvironment: processEnvironment,
+                workingDirectory: effectiveWorkingDirectory
             )
         }
-
-        let admissionClaim = try requireRestoreLaunchAdmission(
-            record: record,
-            recordSessionID: surfaceRecordCheckpointID,
-            restorePayload: payload,
-            client: client
+        try runAdmittedRestore(
+            execution: execution, record: record, recordSessionID: surfaceRecordCheckpointID,
+            payload: payload, bindingPayload: bindingPayload, client: client,
+            surfaceID: surfaceID, workspaceID: payload["workspace_id"] as? String ?? processEnvironment["CMUX_WORKSPACE_ID"],
+            effectiveWorkingDirectory: effectiveWorkingDirectory,
+            workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
         )
-        do {
-            for preflight in invocation.preflightInvocations {
-                try runRestorePreflight(
-                    preflight,
-                    appliedWorkingDirectory: effectiveWorkingDirectory
-                )
-            }
-            if codexRestoreBindingRequiresClaim(record),
-               !claimCodexRestoreBinding(
-                   record: record,
-                   bindingPayload: bindingPayload,
-                   surfaceID: params["surface_id"] as? String,
-                   client: client
-               ) {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                try handleRejectedCodexRestore(
-                    .bindingChanged,
-                    record: record,
-                    bindingPayload: bindingPayload,
-                    surfaceID: params["surface_id"] as? String,
-                    workspaceID: payload["workspace_id"] as? String
-                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                    client: client,
-                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                )
-                return
-            }
-            client.close()
-            try execRestoreInvocation(
-                invocation,
-                appliedWorkingDirectory: effectiveWorkingDirectory
-            )
-        } catch {
-            releaseRestoreLaunchAdmission(admissionClaim, client: client)
-            throw error
-        }
     }
 
     func currentRestoreSurfaceID(

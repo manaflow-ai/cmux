@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import CmuxNotifications
 import AppKit
@@ -301,6 +302,7 @@ final class TerminalNotificationStore: ObservableObject {
     let userNotificationCenter: UserNotificationCenterService
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
+    private var hasUpgradedBadgeAuthorization = false
     private var hasPromptedForSettings = false
     private var userDefaultsObserver: NSObjectProtocol?
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
@@ -677,6 +679,14 @@ final class TerminalNotificationStore: ObservableObject {
                 logAuthorization(
                     "refresh status=\(Self.authorizationStatusLabel(status)) mapped=\(authorizationState.statusLabel)"
                 )
+                // Installs authorized before `.badge` was requested have no Dock badge
+                // setting, so macOS drops `badgeLabel`. Re-requesting while authorized
+                // adds the setting without a prompt. Once per launch: the request
+                // callback refreshes status again.
+                if status == .authorized, !hasUpgradedBadgeAuthorization {
+                    hasUpgradedBadgeAuthorization = true
+                    _ = await userNotificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
+                }
             case .failure(let error):
                 authorizationState = .unknown
                 logAuthorization("refresh failed error=\(String(describing: error))")
@@ -2673,7 +2683,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
         Task { @MainActor [weak self, userNotificationCenter] in
             let result = await userNotificationCenter.requestAuthorization(
-                options: [.alert, .sound]
+                options: [.alert, .sound, .badge]
             )
             guard let self else {
                 completion(false, .unknown)

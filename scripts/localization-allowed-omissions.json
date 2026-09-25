@@ -1,4 +1,18 @@
 {
+  "mobile.ios106PairingUpdate.releaseLabel": {
+    "source": "1.0.6 · September 2026",
+    "identityLocales": {
+      "de": "September has the same spelling in German; the version and date are invariant."
+    }
+  },
+  "cloudTree.resources.provisionedCPU": {
+    "source": "%@ vCPU · %@",
+    "identityLocales": {
+      "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
+    }
+  },
   "cli.socketControlStatus.command": {
     "source": "socket-status [--json]",
     "identityLocales": {
@@ -3130,5 +3144,251 @@
       "es": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
       "ja": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder."
     }
+  },
+  "sidebar.account.teamWithPlan": {
+    "source": "%1$@ · Pro",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      }
+    }
+  },
+  "sidebar.account.headerLabel": {
+    "source": "%1$@, %2$@",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamRowLabel": {
+    "source": "%1$@%2$@",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      }
+    }
+  },
+  "sidebar.account.activeSuffix": {
+    "source": ", active",
+    "identityLocales": {
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          ", active"
+        ]
+      }
+    }
+  },
+  "cli.workflow.literal.codex": {
+    "source": "codex",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.claude": {
+    "source": "claude",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal..cmux/cmux.json": {
+    "source": ".cmux/cmux.json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.~/.config/cmux/cmux.json": {
+    "source": "~/.config/cmux/cmux.json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal..cmux/dock.json": {
+    "source": ".cmux/dock.json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.actions.workspaceCommand": {
+    "source": "actions.workspaceCommand",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.ui.newWorkspace.action": {
+    "source": "ui.newWorkspace.action",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.ui.newWorkspace.contextMenu": {
+    "source": "ui.newWorkspace.contextMenu",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.commands[].workspace.layout": {
+    "source": "commands[].workspace.layout",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.actions.agent": {
+    "source": "actions.agent",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.ui.surfaceTabBar.buttons": {
+    "source": "ui.surfaceTabBar.buttons",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux markdown": {
+    "source": "cmux markdown",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux feed tui --opentui": {
+    "source": "cmux feed tui --opentui",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux reload-config": {
+    "source": "cmux reload-config",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux docs workflows --json": {
+    "source": "cmux docs workflows --json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout list --json": {
+    "source": "cmux layout list --json",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout get <name>": {
+    "source": "cmux layout get <name>",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout open <name> --cwd <project>": {
+    "source": "cmux layout open <name> --cwd <project>",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout save <name> --description \"<what this creates>\"": {
+    "source": "cmux layout save <name> --description \"<what this creates>\"",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "cli.workflow.literal.cmux layout delete <name>": {
+    "source": "cmux layout delete <name>",
+    "class": "syntax",
+    "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
   }
 }

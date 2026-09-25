@@ -142,6 +142,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
         ),
         .init(
+            jsonKey: "equalizeSplitsOnCreate",
+            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
@@ -179,6 +183,7 @@ enum AppSettingsFileMapping {
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
+        .init(jsonKey: "defaultWorkspacePath", defaultsKey: app.defaultWorkspacePath.userDefaultsKey),
     ]
 }
 
@@ -235,6 +240,11 @@ enum TerminalSettingsFileMapping {
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
+        ),
+        .init(
+            jsonKey: "textEditingGestures",
+            defaultsKey: terminal.textEditingGestures.userDefaultsKey,
+            invalidPath: terminal.textEditingGestures.id
         ),
     ]
 }

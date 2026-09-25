@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAgentChat
+import CmuxCloudMachines
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -222,6 +223,7 @@ class TabManager: ObservableObject {
         (windowDockTitleRoutingStores.objectEnumerator()?.allObjects as? [DockSplitStore]) ?? []
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
+    let cloudWorkspaceSelection: CloudWorkspaceSelectionState
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -285,6 +287,7 @@ class TabManager: ObservableObject {
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
+        recordCloudWorkspaceSelection()
         if !isRestoringSessionSnapshot {
             let terminalTarget = newValue
                 .flatMap { workspacesById[$0] }
@@ -335,6 +338,7 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            recordCloudWorkspaceSelection()
             defer {
                 workspaceSwitchCoordinator.selectionDidCommit(
                     from: oldValue,
@@ -565,10 +569,12 @@ class TabManager: ObservableObject {
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
-        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
+        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.managedDevicePolicy = managedDevicePolicy
+        self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
@@ -740,22 +746,6 @@ class TabManager: ObservableObject {
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
-    }
-
-    /// Creates the process-level command-routing fallback used before AppKit
-    /// registers a real per-window manager.
-    ///
-    /// This bootstrap owner must remain terminal-free because SwiftUI may
-    /// initialize the app value more than once during launch.
-    static func makeAppBootstrap(
-        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
-    ) -> TabManager {
-        TabManager(
-            createInitialWorkspace: false,
-            workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
-        )
     }
 
     deinit {
@@ -3583,12 +3573,12 @@ class TabManager: ObservableObject {
     }
 
     func applyWindowBackdropModeForAllTabs(reason: String) {
-        let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
-        let backgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
+        let config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            reason: reason
+        )
         for tab in tabs {
             tab.applyGhosttyChrome(
-                backgroundColor: backgroundColor,
-                backgroundOpacity: backgroundOpacity,
+                from: config,
                 reason: reason
             )
         }
@@ -3806,8 +3796,8 @@ class TabManager: ObservableObject {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
     private func enqueuePanelTitleUpdate(_ change: GhosttyTitleChange, sourceSurface: TerminalSurface) {
-        let trimmed = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let trimmed = AutomaticTerminalTitle(change.title)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
         guard workspacesById[change.tabId]?.terminalPanel(for: change.surfaceId)?.surface === sourceSurface else { return }
 #if DEBUG
         if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
@@ -4338,6 +4328,12 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.navigateForward()
     }
 
+    /// Toggles focus back to the position it most recently left.
+    @discardableResult
+    func navigateToLastFocused() -> Bool {
+        focusHistoryNavigation.navigateToLastFocused()
+    }
+
     var canNavigateBack: Bool {
         focusHistoryNavigation.canNavigateBack
     }
@@ -4375,7 +4371,7 @@ class TabManager: ObservableObject {
         remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newTerminalSplit(
+        guard let panel = tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
@@ -4386,7 +4382,12 @@ class TabManager: ObservableObject {
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Move focus in the specified direction
@@ -4464,7 +4465,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(
+        guard let panel = tab.newBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -4472,7 +4473,12 @@ class TabManager: ObservableObject {
             preferredProfileID: preferredProfileID,
             focus: focus,
             initialDividerPosition: initialDividerPosition
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Create a new browser surface in a pane
@@ -6917,14 +6923,14 @@ extension Notification.Name {
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
-    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
+    static let browserDidBecomeFirstResponderWebView = CmuxWebView.didBecomeFirstResponderNotification
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
     static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
-    static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
+    static let webViewDidReceiveClick = CmuxWebView.didReceiveClickNotification
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
@@ -6941,5 +6947,5 @@ extension Notification.Name {
 }
 
 enum BrowserFirstResponderNotificationUserInfoKey {
-    static let pointerInitiated = "pointerInitiated"
+    static let pointerInitiated = CmuxWebView.firstResponderPointerInitiatedUserInfoKey
 }

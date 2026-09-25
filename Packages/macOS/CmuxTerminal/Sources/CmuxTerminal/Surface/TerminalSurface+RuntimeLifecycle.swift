@@ -526,19 +526,6 @@ extension TerminalSurface {
         return true
     }
 
-    /// Sets the transport-only command used when a deferred restore is cancelled.
-    ///
-    /// Persistent SSH restores keep their PTY attached after cancellation, but
-    /// must omit the embedded agent-resume payload. The value is captured when
-    /// admission is cancelled and remains in force for later runtime retries.
-    ///
-    /// - Parameter command: The transport-only command to run after cancellation.
-    @MainActor
-    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
-        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
-        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
-    }
-
     /// Primes the initial input for the next runtime spawn only.
     public func prepareNextRuntimeInitialInput(_ input: String?) {
         let trimmedInput = input?.isEmpty == false ? input : nil
@@ -736,8 +723,14 @@ extension TerminalSurface {
         ) {
             return
         }
-        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        let requestedSpawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        let agentShimState = agentCommandShimStateForSurface(
+            view: view,
+            source: source,
+            spawnPolicy: requestedSpawnPolicy
+        )
         guard agentShimState.isReady else { return }
+        let spawnPolicy = agentCommandShimSpawnPolicy ?? requestedSpawnPolicy
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
@@ -771,7 +764,8 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            agentCommandShims: agentCommandShims
+            agentCommandShims: agentCommandShims,
+            spawnPolicy: spawnPolicy
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
