@@ -134,7 +134,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('LATE_MARKER_PREFIX = "macos-pool-late"', rescue)
         self.assertEqual(marker["with"]["name"], "macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}")
         self.assertIn('LATE_JOB = "macos / late-placement"', rescue)
-        # It starts nothing itself: ci.yml's owned-pool-watch holds the only actions: write.
+        # It starts nothing itself: the rescue sweeper finds the run by its marker.
         self.assertEqual(self.jobs["late-placement"]["permissions"], {"contents": "read"})
 
 
