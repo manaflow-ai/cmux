@@ -3458,5 +3458,11 @@
       "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
     }
+  },
+  "fileExplorer.sort.key.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "\"Name\" is the standard German word for a file name column; a translated entry is still required."
+    }
   }
 }
