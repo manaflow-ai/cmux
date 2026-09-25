@@ -326,7 +326,7 @@ def ci_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
 
     A plainly Linux job selects nothing, including the gates that decide
     whether macOS runs without running Mac work (`macos-admission-gate`). A job that
-    calls ci-macos.yml, ci-web.yml or the CLI lane selects that area. Routing
+    calls ci-macos.yml or ci-web.yml selects that area. Routing
     jobs, the preamble, and any other job run every area.
     """
     diff = _changed_workflow_jobs(base, head)
