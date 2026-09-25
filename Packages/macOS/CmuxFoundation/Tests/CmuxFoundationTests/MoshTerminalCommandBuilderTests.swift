@@ -201,17 +201,19 @@ struct MoshTerminalCommandBuilderTests {
     @Test("externalizes a large double-quoted POSIX shell command")
     func largeDoubleQuotedCommandUsesExternalLauncher() throws {
         let command = "/bin/sh -c \"printf '%s' \\\"" + String(repeating: "bootstrap", count: 120_000) + "\\\"\""
-        var writtenCommand: String?
+        let writtenCommandURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-double-quoted-launcher-(UUID().uuidString)", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: writtenCommandURL) }
         let externalCommand = try #require(LocalCommandArgumentLimitPolicy().commandForSpawn(
             command: command,
             workingDirectory: nil
         ) { commandToExternalize, _ in
-            writtenCommand = commandToExternalize
+            try? commandToExternalize.write(to: writtenCommandURL, atomically: true, encoding: .utf8)
             return "/bin/sh /tmp/cmux-launcher"
         })
 
         #expect(externalCommand == "/bin/sh /tmp/cmux-launcher")
-        #expect(writtenCommand == "printf '%s' \"" + String(repeating: "bootstrap", count: 120_000) + "\"")
+        #expect(try String(contentsOf: writtenCommandURL, encoding: .utf8) == "printf '%s' \"" + String(repeating: "bootstrap", count: 120_000) + "\"")
     }
 
     @Test("keeps a large SSH fallback within the local launcher argument budget")
