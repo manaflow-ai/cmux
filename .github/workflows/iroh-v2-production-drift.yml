@@ -1,0 +1,89 @@
+name: IROH v2 production drift
+
+# The shipped Mac app depends on directory rules the IROH v2 Worker implements
+# (workers/iroh-v2/src/rules.ts). Production is deployed by hand, so this check
+# compares the deployed Worker with main and files an issue when a rule on main
+# is not live (https://github.com/manaflow-ai/cmux/issues/13458). It never
+# deploys anything.
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - workers/iroh-v2/src/**
+      - workers/iroh-v2/scripts/check-production-drift.ts
+      - .github/workflows/iroh-v2-production-drift.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iroh-v2-production-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    # Fork pull requests cannot use the private Blacksmith pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        working-directory: workers/iroh-v2
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The deployed revision must be resolvable for the ancestry check.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Compare the production Worker with main
+        id: drift
+        continue-on-error: true
+        run: bun scripts/check-production-drift.ts --base "$GITHUB_SHA" | tee drift-report.txt
+      - name: Open, update, or close the drift issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+          HEAD_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const label = 'iroh-v2-production-drift';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.existsSync('workers/iroh-v2/drift-report.txt') ? fs.readFileSync('workers/iroh-v2/drift-report.txt', 'utf8').trim() : '(no report)';
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            if (process.env.DRIFT_OUTCOME === 'success') {
+              if (open.data.length > 0) {
+                const body = `Production matches main again as of ${process.env.HEAD_SHA} (${runUrl}).\n\n\`\`\`\n${report}\n\`\`\``;
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+                await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, state: 'closed' });
+              }
+              return;
+            }
+            const body = `The production IROH v2 Worker does not match main at ${process.env.HEAD_SHA} (${runUrl}).\n\nMac clients built from main depend on the directory rules in workers/iroh-v2/src/rules.ts; until production is deployed they show "The Devices service is out of date" for other Macs.\n\nDeploy from a clean main checkout: \`cd workers/iroh-v2 && bun install --frozen-lockfile && CLOUDFLARE_ACCOUNT_ID=<account> bun run deploy:production\`, then confirm with \`curl -sS https://cmux-iroh-v2.debussy.workers.dev/v2/health\`. This issue closes itself on the next run that finds no drift.\n\n\`\`\`\n${report}\n\`\`\``;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'Production IROH v2 Worker is behind main' });
+            }
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: 'IROH v2 production Worker is behind main', labels: [label], body });
+            }
+      - name: Fail when production drifted
+        if: steps.drift.outcome != 'success'
+        run: |
+          echo "::error::The production IROH v2 Worker is behind main; see the drift issue for the deploy step."
+          exit 1

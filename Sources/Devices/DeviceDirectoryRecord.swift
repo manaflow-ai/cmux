@@ -16,6 +16,16 @@ enum DeviceDirectoryPresence: Equatable, Sendable {
 /// and live presence, merged. This is the value the provider registry turns
 /// into a `SurfaceProvider` and the panel renders.
 struct DeviceDirectoryRecord: Equatable, Sendable, Identifiable {
+    /// Whether the Devices service that issued this row's directory implements
+    /// the rule Mac-to-Mac admission relies on (``DeviceLinkControlPlaneRules``).
+    enum ControlPlaneSupport: Equatable, Sendable {
+        /// The row is not named by the v2 directory (a paired Tailscale Mac).
+        case notApplicable
+        case supported
+        /// The directory names no such rule: the host cannot have been told to admit this Mac.
+        case outdated
+    }
+
     var id: SurfaceDeviceInstanceID { instance }
 
     let instance: SurfaceDeviceInstanceID
@@ -42,6 +52,7 @@ struct DeviceDirectoryRecord: Equatable, Sendable, Identifiable {
     /// for a row named by its host device id. Remembered across merges so a
     /// briefly stale directory does not split the Mac back into two rows.
     var directoryEndpoint: CmxIrohPeerIdentity? = nil
+    var controlPlaneSupport: ControlPlaneSupport = .notApplicable
 
     var isOnline: Bool { presenceState == .online }
 

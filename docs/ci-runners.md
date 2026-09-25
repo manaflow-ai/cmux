@@ -130,22 +130,22 @@ job picks one pool for the whole pull request run with
 reads it: compile admission and its product consumers, `tests-build-and-lag`,
 `claude-wrapper`, `cli-pipe-regressions.yml` and `remote-daemon.yml`. A run is
 never split across pools, so the app-host product always meets the Xcode that
-linked it. The run takes the first pool in `CI_PR_POOL_ORDER` with fewer than
-`CI_PR_POOL_MAX_QUEUED` (default 3) jobs queued and no queued release or
-nightly job, or else the pool with the fewest queued jobs. The macOS 15 pool
-counts 12 more queued jobs than it has (`COLD_QUEUE_PENALTY`): the DerivedData
-seed exists only for the lane's Xcode, so a run there compiles cold, 10 to 20
-minutes longer, while a queued job on a macOS 26 pool waits about a minute.
-It never has headroom, and it wins the fewest-queued fallback only when both
-macOS 26 pools are queued 12 deeper. From 17:25Z to 18:10Z on 2026-09-24,
-before this rule, every PR admission overflowed there at 3 queued and compiled
-for 17 to 25 minutes against a 321 s seeded median.
+linked it. The run takes the first pool in `CI_PR_POOL_ORDER` that has a
+machine free for it and no queued release or nightly job, so a full pool
+rolls over to the next one every time, the macOS 15 pool included. A pool's
+capacity is what it ran at most while jobs queued behind it
+(`POOL_CAPACITIES`): 4 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
+2026-09-24, counted at 10, 12vcpu ran 3 with 18 queued while macOS 15 ran 1
+of 10. When every pool is full, the run takes the shortest queue in rounds
+(queued jobs over capacity). The macOS 15 pool counts one round more
+(`COLD_ROUNDS`): the DerivedData seed exists only for the lane's Xcode, so a
+run there compiles cold, 10 to 20 minutes longer, about one job's length.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
 | `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
-| `CI_PR_POOL_MAX_QUEUED` | `3` | a pool has headroom below this many queued macOS jobs |
+| `CI_PR_POOL_MAX_QUEUED` | `0` | a pool still takes a run with up to this many macOS jobs queued once it arrives; `0` rolls over as soon as a pool is full |
 
 The two macOS 26 pools share the lane's Xcode. A run on
 `blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
@@ -239,6 +239,16 @@ Blacksmith, which is sound only while both carry the same Xcode build: on
 2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
 reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
 
+A refused job goes back to the fleet once before Blacksmith. Attempt 2 may
+take the owned pool again where a job's `runs-on` reads
+`github.run_attempt == 2 && inputs.pr_refused_retry_runner` first. GitHub
+sends no `requested` event for a re-run, so the watch that re-ran the failed
+jobs follows attempt 2 itself, until its owned jobs have run past the
+120-second refusal window. A job refused, or queued past the budget, on
+attempt 2 gets its failed jobs re-run once more, keeping what passed, and
+attempt 3 and later always take `retry_runner` on Blacksmith, so a busy fleet
+costs at most one extra refusal and never loops.
+
 "Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
 the failed jobs read attempt 1's outputs, owned pool included, with no watcher
 (the rescue follows attempt 1 only). So a persistent choice also names
@@ -247,6 +257,24 @@ Xcode, which is also the Xcode the owned label names. Every pull request macOS
 `runs-on`, and the app-host shards that otherwise inherit compile admission's
 pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
 empty for a run on Blacksmith, so those re-run where they ran.
+
+Compile admission on an owned Mac keeps its build state between jobs
+(`scripts/ci/owned_build_state.py`) under `/Users/Shared/cmux-build-fleet/ci`:
+the admission DerivedData, stamped with the canonical fingerprint (Xcode build,
+canonical paths, file-system mode), and the resolved Swift packages. When the
+kept DerivedData matches, the SwiftPM cache restore and the nightly seed are
+skipped, and the compile, which compares inputs by checksum, rebuilds only what
+changed since the last job on that Mac. The kept packages resolve with a fetch
+of what changed rather than a cache restore. The first run on cmux11s spent 25
+minutes on the ephemeral flow instead (run 36048804178). Any mismatch or miss
+falls back to that flow, and a DerivedData over 40 GB is dropped. Only a
+successful compile's DerivedData is kept, cloned right after the compile,
+before the staging and packaging steps rewrite Build/Products. Only pull
+request runs keep or read this state, so main's full-suite dispatch never
+builds on it. Moves are renames on one volume, glaeda's host lock keeps one job
+per Mac, and nothing is uploaded: an owned run writes only its own Mac's state.
+The four steps are non-product recipe steps (`product_input_identity.py`), so
+no pool's product key changes. Blacksmith and fork runs never take them.
 
 The queue janitor treats an owned label as one more macOS pool. A stale pull
 request run (category b: closed, merged or superseded) is cancelled there on

@@ -3256,7 +3256,7 @@ def test_only_mac_work_waits_for_static_preflight() -> None:
         assert "static-preflight" in _job_needs(jobs, key), key
 
 
-def test_macos_admission_gate_uses_job_dependencies_not_polling() -> None:
+def test_macos_admission_gate_uses_job_results_not_polling() -> None:
     gate = workflow_job_block("macos-admission-gate")
     assert "!cancelled()" in gate
     assert "github.event_name == 'pull_request'" in gate
@@ -3276,17 +3276,135 @@ def test_macos_admission_gate_uses_job_dependencies_not_polling() -> None:
     assert "macos-debounce" not in workflow_text
 
     caller = workflow_job_block("macos")
-    assert "      - macos-admission-gate" in caller
-    assert (
-        "(needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped')"
-        in caller
-    )
-    # A skipped gate admits, so `macos` keeps its own static gate: a failed
-    # static check skips the gate and must still skip macOS.
+    # Compile admission is the run's longest path, so it starts beside the
+    # fast Linux jobs; the gate holds back the product's consumers instead.
+    assert "      - macos-admission-gate" not in caller
+    assert "needs.macos-admission-gate" not in caller
+    # `macos` keeps its own static gate: a failed static check skips the gate
+    # and must still skip macOS.
     assert "needs.static-preflight.result == 'success'" in caller
-    # macOS waits for the fast jobs, not the Linux aggregate verdict.
+    # macOS waits for no Linux verdict beyond the static stage.
     assert "needs.linux-preflight" not in caller
     assert "      - macos-admission-gate" in workflow_job_block("ci-status")
+
+
+CONSUMER_GATE_STEP = "Hold consumers behind the fast Linux gate"
+
+
+def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> None:
+    admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
+    step = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", CONSUMER_GATE_STEP)
+    # It reads the job the caller names, once: no loop and no sleep.
+    assert 'GATE_JOB: "macOS admission gate"' in step
+    assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
+    script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+    for polling in ("sleep", "while ", "for attempt", "range("):
+        assert polling not in script
+    # The gate only judges a pull request's first attempt; a re-run is asking
+    # for the Mac results.
+    assert "github.event_name == 'pull_request' && github.run_attempt == 1" in step
+    # The product is published and a changed-suites run has tested it before
+    # the decision, so a declined job proves what a passed one does and the
+    # reuse lookups can accept it.
+    order = [line.removeprefix("      - name: ") for line in admission.splitlines() if line.startswith("      - name: ")]
+    gate_at = order.index(CONSUMER_GATE_STEP)
+    assert order.index("Seed node-local compiled product cache") < gate_at
+    assert order.index("Run changed app-host suites") < gate_at
+    # No status function: the implicit success() is what makes a failure
+    # here mean every earlier step passed.
+    assert "always()" not in step and "failure()" not in step
+    # A decline is not a test failure: it collects no app-host diagnostics.
+    for name in ("Collect app-host failure diagnostics", "Upload app-host failure diagnostics"):
+        diagnostics = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", name)
+        assert "steps.consumer-gate.outcome != 'failure'" in diagnostics, name
+    # Every Mac job that runs the product needs admission, so a decline
+    # skips it.
+    jobs = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    for key in ("app-host-unit-tests", "cli-product-tests", "tests-build-and-lag", "release-admission", "release-build"):
+        assert "macos-compile-admission" in _job_needs(jobs, key), key
+        assert "needs.macos-compile-admission.result == 'success'" in jobs[key]["if"], key
+
+
+def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -> str:
+    lines = workflow_job_block(job_name, workflow_path).splitlines()
+    start = lines.index(f"      - name: {step_name}")
+    body = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.startswith("      - ") or (line.strip() and not line.startswith("        ")):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def run_consumer_gate(jobs: object, *, status: int = 200) -> subprocess.CompletedProcess:
+    import http.server
+    import threading
+
+    body = json.dumps(jobs).encode()
+    requests: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            requests.append(self.path)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+        result = subprocess.run(
+            ["bash", "-c", script],
+            env={
+                **os.environ,
+                "API_URL": f"http://127.0.0.1:{server.server_port}",
+                "GH_TOKEN": "token",
+                "REPOSITORY": "manaflow-ai/cmux",
+                "RUN_ID": "42",
+                "GATE_JOB": "macOS admission gate",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert requests == ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    return result
+
+
+def _gate_job(status: str, conclusion: object) -> dict:
+    return {"jobs": [
+        {"name": "changes", "status": "completed", "conclusion": "success"},
+        {"name": "macOS admission gate", "status": status, "conclusion": conclusion},
+    ]}
+
+
+def test_consumer_gate_fails_admission_when_the_gate_declined() -> None:
+    result = run_consumer_gate(_gate_job("completed", "failure"))
+    assert result.returncode == 1
+    assert "Not admitting macOS consumers" in result.stdout
+
+
+def test_consumer_gate_admits_whenever_it_cannot_prove_a_decline() -> None:
+    for label, jobs, status in (
+        ("passed", _gate_job("completed", "success"), 200),
+        ("skipped", _gate_job("completed", "skipped"), 200),
+        # Still deciding: ci-status fails the run on a failed Linux job anyway.
+        ("in progress", _gate_job("in_progress", None), 200),
+        ("absent", {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]}, 200),
+        ("unreadable", {"message": "Server Error"}, 500),
+    ):
+        result = run_consumer_gate(jobs, status=status)
+        assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
+        assert "Not admitting" not in result.stdout, label
 
 
 def run_macos_admission_gate(needs: dict, *, attempt: str = "1") -> subprocess.CompletedProcess:
@@ -3317,7 +3435,7 @@ def _gate_needs(**overrides: str) -> dict:
 def test_macos_admission_gate_declines_a_failed_linux_job() -> None:
     declined = run_macos_admission_gate(_gate_needs(guards="failure"))
     # Declining by failing is load-bearing: "Re-run failed jobs" then re-runs
-    # the gate, and a re-run attempt admits macOS.
+    # the gate and compile admission, and a re-run attempt admits macOS.
     assert declined.returncode == 1
     assert "guards already failed" in declined.stdout + declined.stderr
 
@@ -3615,6 +3733,29 @@ def test_admission_counts_only_for_the_inputs_fingerprinted_in_the_same_attempt(
     # A rerun of failed jobs alone reuses the first attempt's fingerprint, which
     # no longer pins the toolchain the rerun compiled with.
     assert find("old", [artifact_name("old", 1)], jobs) is None
+
+
+def test_a_gate_declined_admission_still_admits_its_inputs() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import find_admitted_build
+    import reuse_app_host_products
+    from find_admitted_build import admitted_run, artifact_name
+
+    # The fast Linux gate failed compile admission after it published, so the
+    # push that fixes the Linux job reuses the product instead of compiling.
+    assert find_admitted_build.GATE_DECLINE_STEP == reuse_app_host_products.GATE_DECLINE_STEP
+    declined = {
+        **admission_job("failure"),
+        "steps": [
+            {"name": "Compile app-host test product", "conclusion": "success"},
+            {"name": find_admitted_build.GATE_DECLINE_STEP, "conclusion": "failure"},
+        ],
+    }
+    api = admission_api([admission_run(8)], {8: [artifact_name("abc", 1)]}, {8: [declined]})
+    assert admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9) == "https://example/8"
+    compile_failed = {**declined, "steps": [{"name": "Compile app-host test product", "conclusion": "failure"}]}
+    api = admission_api([admission_run(8)], {8: [artifact_name("abc", 1)]}, {8: [compile_failed]})
+    assert admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9) is None
 
 
 def test_admission_lookup_finds_matching_attempt_beyond_the_first_jobs_page() -> None:
@@ -4309,7 +4450,8 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     for name in names[first_test:]:
         condition = str(by_name[name].get("if", ""))
         assert "inputs.unit_in_admission == 'true'" in condition or "steps.test-derived-data.outcome" in condition \
-            or "steps.run-changed-suites.outcome" in condition or name == "Report evidence collection outcomes", name
+            or "steps.run-changed-suites.outcome" in condition \
+            or name in {"Report evidence collection outcomes", "Hold consumers behind the fast Linux gate"}, name
     # Admission runs the worker's own scripts, not copies of them.
     shared = {
         "Enumerate built app-host tests": "Enumerate built app-host tests",
@@ -4658,7 +4800,28 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
-    assert "for scheme in cmux cmux-unit cmux-numeric-locale cmux-cli-tests; do" in compile_script
+    import product_input_identity as identity
+
+    # The scheme list moved into PRODUCT_PROFILES so the build and the product
+    # identity cannot drift; assert the real invariant rather than the literal
+    # loop. A partial build under a full product's key is the failure this
+    # guards against.
+    assert 'product_input_identity.py" schemes' in compile_script
+    assert 'for scheme in "${schemes[@]}"' in compile_script
+    assert identity.PRODUCT_PROFILES["app-host"] == (
+        "cmux",
+        "cmux-unit",
+        "cmux-numeric-locale",
+        "cmux-cli-tests",
+    )
+    assert identity.PRODUCT_PROFILES["cli"] == ("cmux-cli-tests",)
+    # Every profile must be distinguishable in the identity, or one profile's
+    # product answers another profile's cache lookup.
+    seen = {
+        name: identity.identity_from_tree_lines([], workflow, profile=name)
+        for name in identity.PRODUCT_PROFILES
+    }
+    assert len({json.dumps(v, sort_keys=True) for v in seen.values()}) == len(seen)
     assert "actions/cache@27d5ce7" in admission or "uses: ./.github/actions/cache-restore" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "steps.upload-products.outputs.artifact-digest" in admission
@@ -4746,9 +4909,9 @@ def test_guard_workflow_call_preserves_routes_and_starts_beside_static_checks() 
     block = workflow_job_block("guards")
 
     # Guards are the last job macos-admission-gate waits for. Starting them
-    # beside Fast static checks, not after, opens the gate ~25 s sooner; the
-    # gate itself still requires static-preflight, so macOS never starts on a
-    # diff those checks reject.
+    # beside Fast static checks, not after, lets it decide ~25 s sooner; the
+    # gate and `macos` both still require static-preflight, so macOS never
+    # starts on a diff those checks reject.
     assert "    needs: [changes]" in block
     assert "static-preflight" in workflow_job_block("macos-admission-gate")
     assert "    uses: ./.github/workflows/ci-guards.yml" in block
@@ -5696,13 +5859,19 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     assert not admission_job_name("macos / some other job")
     assert not admission_job_name(None)
 
-    reuse = (ROOT / "scripts/ci/reuse_app_host_products.py").read_text(encoding="utf-8")
-    assert '.rsplit(" / ", 1)[-1] == compile_name' in reuse, (
-        "reuse_app_host_products.py must match the final segment of the job name"
-    )
     # Each trusted producer workflow names the job that has to have compiled.
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     import reuse_app_host_products
+
+    # Match the final segment of the job name, and a matrix job's
+    # "<name> (<values>)", as seed-derived-data.yml's "seed (<pool>)".
+    names = reuse_app_host_products.names_compile_job
+    assert names(composed, ADMISSION_JOB), "reuse_app_host_products.py must match the final segment of the job name"
+    assert names(inner, ADMISSION_JOB)
+    assert names("seed (blacksmith-12vcpu-macos-26)", "seed")
+    assert not names("macos / some other job", ADMISSION_JOB)
+    assert not names("seeder", "seed")
+    assert not names(None, "seed")
 
     assert reuse_app_host_products.COMPILE_JOBS[".github/workflows/ci.yml"][0] == ADMISSION_JOB, (
         "reuse_app_host_products.py must look for ci.yml's admission job by its real name"

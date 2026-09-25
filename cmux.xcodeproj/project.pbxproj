@@ -1233,6 +1233,7 @@
 		C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */; };
 		B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */; };
 		126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */; };
+		A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
 		D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */; };
@@ -1738,6 +1739,7 @@
 				DEC1CE00000000000000000C /* DeviceDirectoryMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000000B /* DeviceDirectoryMerge.swift */; };
 				DEC1CE000000000000000042 /* DeviceDirectoryMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000041 /* DeviceDirectoryMergeTests.swift */; };
 				DEC1CE00000000000000000A /* DeviceDirectoryRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000009 /* DeviceDirectoryRecord.swift */; };
+				DE1345800000000000000008 /* DeviceDirectoryStamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000007 /* DeviceDirectoryStamp.swift */; };
 		25BAC4717E0901C8A510F919 /* DeviceDiscoveredMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06AF0F85D707A431CF2BB770 /* DeviceDiscoveredMac.swift */; };
 		C77BE808713A7FAC21E5DC96 /* DeviceIrxClient+Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B357957683C6E50B1C4263 /* DeviceIrxClient+Discovery.swift */; };
 				DF2CA4E950714E03D73EF850 /* DeviceIrxClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 269118819F1F884672CFA7E4 /* DeviceIrxClient.swift */; };
@@ -1745,6 +1747,13 @@
 				D44F126C5ADC43644BB030D9 /* DeviceIrxPeerTransportProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9CE5C9947FB0EB965C69FE8 /* DeviceIrxPeerTransportProvider.swift */; };
 				DEC1CE000000000000000018 /* DeviceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000017 /* DeviceLink.swift */; };
 				DEC1CE00000000000000001A /* DeviceLinkAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */; };
+				DE1345800000000000000006 /* DeviceLinkControlPlaneRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000005 /* DeviceLinkControlPlaneRules.swift */; };
+				DE1345800000000000000010 /* DeviceLinkControlPlaneRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE134580000000000000000F /* DeviceLinkControlPlaneRulesTests.swift */; };
+				DE134580000000000000000A /* DeviceLinkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000009 /* DeviceLinkDiagnostics.swift */; };
+		DE134580000000000000000C /* DeviceLinkDiagnosticsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE134580000000000000000B /* DeviceLinkDiagnosticsSection.swift */; };
+				DE134580000000000000000E /* DeviceLinkDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE134580000000000000000D /* DeviceLinkDiagnosticsTests.swift */; };
+				DE1345800000000000000002 /* DeviceLinkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000001 /* DeviceLinkFailure.swift */; };
+				DE1345800000000000000004 /* DeviceLinkFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000003 /* DeviceLinkFailureTests.swift */; };
 				DEC1CE000000000000000010 /* DeviceLinkReconnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000000F /* DeviceLinkReconnectPolicy.swift */; };
 				DEC1CE000000000000000046 /* DeviceLinkReconnectPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000045 /* DeviceLinkReconnectPolicyTests.swift */; };
 				DEC1CE000000000000000014 /* DeviceLinkRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000013 /* DeviceLinkRuntime.swift */; };
@@ -2131,6 +2140,7 @@
 		A10348020000000000000001 /* HistoryMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10348020000000000000002 /* HistoryMenuState.swift */; };
 				800100000000000000000101 /* HiveAccountTokenSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000102 /* HiveAccountTokenSource.swift */; };
 				800100000000000000000103 /* HiveComputersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000104 /* HiveComputersService.swift */; };
+		140240000000000000000002 /* HookPromptLengthUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140240000000000000000001 /* HookPromptLengthUITests.swift */; };
 		13019B000000000000000002 /* HostAccountFlow+TeamSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */; };
@@ -5469,6 +5479,7 @@
 		C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart2.swift"; sourceTree = "<group>"; };
 		B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Process.swift"; sourceTree = "<group>"; };
 		126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ProcessSignalState.swift"; sourceTree = "<group>"; };
+		0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PromptSubmit.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
 		D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteWorkingDirectory.swift"; sourceTree = "<group>"; };
@@ -5873,6 +5884,7 @@
 				DEC1CE00000000000000000B /* DeviceDirectoryMerge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceDirectoryMerge.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000041 /* DeviceDirectoryMergeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceDirectoryMergeTests.swift; sourceTree = "<group>"; };
 				DEC1CE000000000000000009 /* DeviceDirectoryRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceDirectoryRecord.swift"; sourceTree = "<group>"; };
+				DE1345800000000000000007 /* DeviceDirectoryStamp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceDirectoryStamp.swift"; sourceTree = "<group>"; };
 		06AF0F85D707A431CF2BB770 /* DeviceDiscoveredMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Devices/DeviceDiscoveredMac.swift"; sourceTree = SOURCE_ROOT; };
 		28B357957683C6E50B1C4263 /* DeviceIrxClient+Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Devices/DeviceIrxClient+Discovery.swift"; sourceTree = SOURCE_ROOT; };
 				269118819F1F884672CFA7E4 /* DeviceIrxClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceIrxClient.swift"; sourceTree = "<group>"; };
@@ -5880,6 +5892,13 @@
 				E9CE5C9947FB0EB965C69FE8 /* DeviceIrxPeerTransportProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceIrxPeerTransportProvider.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000017 /* DeviceLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLink.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkAuthorization.swift"; sourceTree = "<group>"; };
+				DE1345800000000000000005 /* DeviceLinkControlPlaneRules.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkControlPlaneRules.swift"; sourceTree = "<group>"; };
+				DE134580000000000000000F /* DeviceLinkControlPlaneRulesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkControlPlaneRulesTests.swift; sourceTree = "<group>"; };
+				DE1345800000000000000009 /* DeviceLinkDiagnostics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkDiagnostics.swift"; sourceTree = "<group>"; };
+		DE134580000000000000000B /* DeviceLinkDiagnosticsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkDiagnosticsSection.swift; sourceTree = "<group>"; };
+				DE134580000000000000000D /* DeviceLinkDiagnosticsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkDiagnosticsTests.swift; sourceTree = "<group>"; };
+				DE1345800000000000000001 /* DeviceLinkFailure.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkFailure.swift"; sourceTree = "<group>"; };
+				DE1345800000000000000003 /* DeviceLinkFailureTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkFailureTests.swift; sourceTree = "<group>"; };
 				DEC1CE00000000000000000F /* DeviceLinkReconnectPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkReconnectPolicy.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000045 /* DeviceLinkReconnectPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkReconnectPolicyTests.swift; sourceTree = "<group>"; };
 				DEC1CE000000000000000013 /* DeviceLinkRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkRuntime.swift"; sourceTree = "<group>"; };
@@ -6266,6 +6285,7 @@
 		A10348020000000000000002 /* HistoryMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryMenuState.swift; sourceTree = "<group>"; };
 				800100000000000000000102 /* HiveAccountTokenSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveAccountTokenSource.swift"; sourceTree = "<group>"; };
 				800100000000000000000104 /* HiveComputersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveComputersService.swift"; sourceTree = "<group>"; };
+		140240000000000000000001 /* HookPromptLengthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookPromptLengthUITests.swift; sourceTree = "<group>"; };
 		13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+TeamSelection.swift"; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HostedInspectorDockControlScript.swift; sourceTree = "<group>"; };
@@ -8608,6 +8628,7 @@
 			children = (
 				B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
 				FEED0000000000000000F008 /* FeedSidebarUITests.swift */,
+				140240000000000000000001 /* HookPromptLengthUITests.swift */,
 				B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */,
 				B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */,
 				B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */,
@@ -8983,6 +9004,7 @@
 				7FD541FCCB10442050052A1C /* CloudTreeNode+ErrorCopy.swift */,
 				0D0A6FA47518B9D3AF658084 /* AppDelegate+CloudDiagnostics.swift */,
 				E6B0EDC90EFCD3A415400895 /* CloudDiagnosticsView.swift */,
+				DE134580000000000000000B /* DeviceLinkDiagnosticsSection.swift */,
 				F2A67E6985DCC6DB34736D74 /* CloudDiagnosticReport.swift */,
 				B51E0FBEDF07F4E6A6A792F7 /* View+CloudErrorCopy.swift */,
 				B6D7EB470DDDB0411BEE922D /* CloudErrorCopy.swift */,
@@ -11211,6 +11233,10 @@
 				DEC1CE000000000000000013 /* DeviceLinkRuntime.swift */,
 				DEC1CE000000000000000015 /* DeviceLinkTerminalEvents.swift */,
 				DEC1CE000000000000000017 /* DeviceLink.swift */,
+				DE1345800000000000000009 /* DeviceLinkDiagnostics.swift */,
+				DE1345800000000000000007 /* DeviceDirectoryStamp.swift */,
+				DE1345800000000000000005 /* DeviceLinkControlPlaneRules.swift */,
+				DE1345800000000000000001 /* DeviceLinkFailure.swift */,
 				DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */,
 				DEC1CE00000000000000001B /* DeviceWorkspaceProjection.swift */,
 				2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */,
@@ -11393,6 +11419,7 @@
 				7A3D532FF0A00E20DA31667F /* CMUXCLI+KimiHooks.swift */,
 				DF43B7BD28A755A6280428D6 /* CMUXCLI+RovoDevHooks.swift */,
 				5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */,
+				0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */,
 				C79630010000000000000001 /* CMUXCLI+ClaudeHookAck.swift */,
 				4CF59318F1D5B2195AC77C28 /* CMUXCLI+ClaudePushNotificationHook.swift */,
 				C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */,
@@ -11498,6 +11525,9 @@
 				DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */,
 				DEC1CE00000000000000004B /* DevicesSidebarModeTests.swift */,
 				DEC1CE000000000000000045 /* DeviceLinkReconnectPolicyTests.swift */,
+				DE134580000000000000000F /* DeviceLinkControlPlaneRulesTests.swift */,
+				DE134580000000000000000D /* DeviceLinkDiagnosticsTests.swift */,
+				DE1345800000000000000003 /* DeviceLinkFailureTests.swift */,
 				DECE17900000000000000001 /* DeviceDirectoryLifecycleTests.swift */,
 				B6F143F6E02543F3899F1E01 /* CodexAutoresumeChainTests.swift */,
 				A54730000000000000000001 /* AntigravityHookSessionSnapshotRestoreTests.swift */,
@@ -14235,6 +14265,7 @@
 				544A4A15A4FB5A6243834ABB /* DeviceDirectoryIdentityIndex.swift in Sources */,
 				DEC1CE00000000000000000C /* DeviceDirectoryMerge.swift in Sources */,
 				DEC1CE00000000000000000A /* DeviceDirectoryRecord.swift in Sources */,
+				DE1345800000000000000008 /* DeviceDirectoryStamp.swift in Sources */,
 				25BAC4717E0901C8A510F919 /* DeviceDiscoveredMac.swift in Sources */,
 				C77BE808713A7FAC21E5DC96 /* DeviceIrxClient+Discovery.swift in Sources */,
 				DF2CA4E950714E03D73EF850 /* DeviceIrxClient.swift in Sources */,
@@ -14242,6 +14273,10 @@
 				D44F126C5ADC43644BB030D9 /* DeviceIrxPeerTransportProvider.swift in Sources */,
 				DEC1CE000000000000000018 /* DeviceLink.swift in Sources */,
 				DEC1CE00000000000000001A /* DeviceLinkAuthorization.swift in Sources */,
+				DE1345800000000000000006 /* DeviceLinkControlPlaneRules.swift in Sources */,
+				DE134580000000000000000A /* DeviceLinkDiagnostics.swift in Sources */,
+				DE134580000000000000000C /* DeviceLinkDiagnosticsSection.swift in Sources */,
+				DE1345800000000000000002 /* DeviceLinkFailure.swift in Sources */,
 				DEC1CE000000000000000010 /* DeviceLinkReconnectPolicy.swift in Sources */,
 				DEC1CE000000000000000014 /* DeviceLinkRuntime.swift in Sources */,
 				DEC1CE000000000000000016 /* DeviceLinkTerminalEvents.swift in Sources */,
@@ -16068,6 +16103,7 @@
 						C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */,
 					B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
 					126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */,
+				A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
 				D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */,
@@ -16228,6 +16264,7 @@
 				FE00AA10C1B2C3D4E5F60718 /* FocusHistoryShortcutUITests.swift in Sources */,
 				CC000000A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift in Sources */,
 				C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */,
+				140240000000000000000002 /* HookPromptLengthUITests.swift in Sources */,
 				B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
 				E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
 				B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */,
@@ -16735,6 +16772,9 @@
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
 				DECE17900000000000000002 /* DeviceDirectoryLifecycleTests.swift in Sources */,
 				DEC1CE000000000000000042 /* DeviceDirectoryMergeTests.swift in Sources */,
+				DE1345800000000000000010 /* DeviceLinkControlPlaneRulesTests.swift in Sources */,
+				DE134580000000000000000E /* DeviceLinkDiagnosticsTests.swift in Sources */,
+				DE1345800000000000000004 /* DeviceLinkFailureTests.swift in Sources */,
 				DEC1CE000000000000000046 /* DeviceLinkReconnectPolicyTests.swift in Sources */,
 				DEC1CE000000000000000040 /* DevicePresenceWireTests.swift in Sources */,
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,

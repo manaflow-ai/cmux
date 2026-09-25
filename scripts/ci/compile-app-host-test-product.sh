@@ -141,10 +141,15 @@ build() {
     module_cache_setting=("CLANG_MODULE_CACHE_PATH=$CMUX_CI_MODULE_CACHE_PATH")
   fi
 
-  # Build the app/UI scheme first so its warning log retains the old runtime
-  # job warning-budget scope; subsequent schemes reuse the same app objects.
+  # The scheme list and the product identity come from one place, so a build
+  # cannot quietly cover fewer schemes than its key claims. $CMUX_PRODUCT_PROFILE
+  # selects it; see PRODUCT_PROFILES in product_input_identity.py, which also
+  # documents the ordering.
+  local -a schemes=()
+  read -r -a schemes <<<"$(python3 "$SCRIPT_DIR/product_input_identity.py" schemes)"
+  [ "${#schemes[@]}" -gt 0 ] || { echo "empty product profile scheme list" >&2; exit 1; }
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-  for scheme in cmux cmux-unit cmux-numeric-locale cmux-cli-tests; do
+  for scheme in "${schemes[@]}"; do
     FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \

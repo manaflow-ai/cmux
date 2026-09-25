@@ -5,17 +5,36 @@ import { join } from "node:path";
 
 setDefaultTimeout(20_000);
 
-async function probe(scenario: string, options: { missingCurl?: boolean } = {}) {
+/** Inherited repository-selection variables must not reach the deployment script's Git calls. */
+const GIT_SELECTION_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"];
+const cleanEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !GIT_SELECTION_VARIABLES.includes(key)));
+const MOCK_HEAD = "0123456789abcdef0123456789abcdef01234567";
+
+async function probe(scenario: string, options: { missingCurl?: boolean; dirtyTree?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "iroh-deploy-test-"));
   const state = join(directory, "state.json");
   const calls = join(directory, "calls.log");
   try {
     await writeFile(join(directory, "bun"), "#!/bin/sh\nprintf 'bun %s\\n' \"$*\" >> \"$MOCK_CALLS\"\nexit 0\n", { mode: 0o700 });
     await writeFile(join(directory, "python3"), "#!/bin/sh\nexec /usr/bin/python3 \"$@\"\n", { mode: 0o700 });
-    const helperCommands: Array<[string, string]> = [["mktemp", "/usr/bin/mktemp"], ["rm", "/bin/rm"], ["cat", "/bin/cat"]];
+    const helperCommands: Array<[string, string]> = [
+      ["mktemp", "/usr/bin/mktemp"], ["rm", "/bin/rm"], ["cat", "/bin/cat"],
+      // scripts/source-revision-vars.sh runs through bash; git is mocked below.
+      ["bash", "/bin/bash"],
+    ];
     for (const [command, path] of helperCommands) {
       await writeFile(join(directory, command), `#!/bin/sh\nexec ${path} \"$@\"\n`, { mode: 0o700 });
     }
+    // A hermetic Git: one fixed HEAD, and a clean or dirty tree per scenario,
+    // so the published revision is asserted exactly regardless of the developer's checkout.
+    await writeFile(join(directory, "git"), `#!/bin/sh
+case "$*" in
+  "rev-parse --verify HEAD") exit 0 ;;
+  "rev-parse HEAD") printf '%s\\n' "${MOCK_HEAD}" ;;
+  "status --porcelain -- .") ${options.dirtyTree ? "printf ' M src/index.ts\\n'" : "exit 0"} ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o700 });
     await writeFile(join(directory, "wrangler"), `#!/usr/bin/env python3
 import json, os, pathlib, sys
 state_path = pathlib.Path(os.environ['MOCK_STATE'])
@@ -89,7 +108,7 @@ print(status, end='')
     const result = Bun.spawnSync(["/bin/bash", join(import.meta.dir, "../scripts/deploy-production.sh")], {
       cwd: join(import.meta.dir, ".."),
       env: {
-        ...process.env,
+        ...cleanEnvironment,
         PATH: directory,
         CLOUDFLARE_ACCOUNT_ID: "0c1675e0def6de1ab3a50a4e17dc5656",
         PROBE_SCENARIO: scenario,
@@ -111,6 +130,15 @@ test("expected scope failures pass the production configuration check", async ()
   const result = await probe("valid");
   expect(result.exit).toBe(0);
   expect(result.calls).toMatch(/--message cmux-prod-guard-[0-9a-f-]{36}/);
+  // The health route reports this value; the drift check compares it with main.
+  expect(result.calls).toContain(`--var CMUX_SOURCE_REVISION:${MOCK_HEAD}`);
+});
+
+test("a dirty tree publishes an unknown revision instead of a SHA the tree does not match", async () => {
+  const result = await probe("valid", { dirtyTree: true });
+  expect(result.exit).toBe(0);
+  expect(result.calls).toContain("--var CMUX_SOURCE_REVISION:unknown");
+  expect(result.output).toContain("publishing CMUX_SOURCE_REVISION=unknown");
 });
 
 test("matching HTTP status with the wrong error code fails without disclosing the response", async () => {

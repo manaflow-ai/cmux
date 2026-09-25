@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -17,6 +18,37 @@ E2E_WORKFLOW = ".github/workflows/test-e2e.yml"
 IDENTITY_SCHEMA = "cmux-app-host-product-inputs/v2"
 MACOS_ADMISSION_JOB = "macos-compile-admission"
 E2E_BUILD_JOB = "build"
+
+# A product profile is the set of schemes one producer builds. The app-host
+# profile carries the whole app; the cli profile carries only what the host-free
+# CLI lane consumes -- the cmux-cli product and its test bundle.
+#
+# This is the single source of truth. compile-app-host-test-product.sh asks for
+# the scheme list rather than repeating it: if the built schemes and the
+# identity ever disagree, a partial product reuses under a full product's key
+# and a consumer silently tests something that was never built.
+PRODUCT_PROFILES = {
+    # The app/UI scheme builds first so its warning log keeps the runtime
+    # job's warning-budget scope; later schemes reuse the same app objects.
+    "app-host": ("cmux", "cmux-unit", "cmux-numeric-locale", "cmux-cli-tests"),
+    "cli": ("cmux-cli-tests",),
+}
+DEFAULT_PRODUCT_PROFILE = "app-host"
+
+
+def resolve_profile(name: str | None = None) -> str:
+    """Name the product profile, defaulting to the full app-host product."""
+    resolved = name or os.environ.get("CMUX_PRODUCT_PROFILE") or DEFAULT_PRODUCT_PROFILE
+    if resolved not in PRODUCT_PROFILES:
+        raise SystemExit(
+            f"unknown product profile {resolved!r}; "
+            f"expected one of {', '.join(sorted(PRODUCT_PROFILES))}"
+        )
+    return resolved
+
+
+def profile_schemes(name: str | None = None) -> tuple[str, ...]:
+    return PRODUCT_PROFILES[resolve_profile(name)]
 
 # These checked-in CI helpers can change the actual product or its relocation
 # contract. Other scripts/ci files are admission/control-plane implementation,
@@ -71,6 +103,8 @@ E2E_REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
 })
 
 NON_PRODUCT_JOB_ENV_KEYS = frozenset({
+    # Where an owned Mac keeps its build state between jobs (owned_build_state.py).
+    "CMUX_OWNED_STATE_ROOT",
     "CMUX_NODE_PRODUCT_CACHE_ROOT",
     "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES",
     "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS",
@@ -121,6 +155,12 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Start the DerivedData seed download",
     "Adopt the nightly DerivedData seed",
     "Forget the adopted-build inode override",
+    # An owned Mac's kept DerivedData and packages decide how much is rebuilt
+    # and fetched, like the seed above, never what the product is.
+    "Reuse this owned Mac's build state",
+    "Adopt this owned Mac's DerivedData",
+    "Keep this owned Mac's DerivedData",
+    "Keep this owned Mac's build state",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",
@@ -448,13 +488,21 @@ def identity_from_tree_lines(
     tree_lines: Iterable[str],
     workflow: str,
     e2e_workflow: Optional[str] = None,
+    *,
+    profile: str | None = None,
 ) -> dict[str, str]:
     tree_lines = list(tree_lines)
+    resolved = resolve_profile(profile)
     value = {
         "schema": IDENTITY_SCHEMA,
         "algorithm": algorithm_fingerprint(),
         "source": source_fingerprint(tree_lines),
         "recipe": recipe_fingerprint(workflow),
+        # Two profiles over one revision build different products. Keeping the
+        # profile out of the identity would let the cli product answer an
+        # app-host consumer's cache lookup.
+        "profile": resolved,
+        "schemes": " ".join(PRODUCT_PROFILES[resolved]),
     }
     if e2e_workflow is not None:
         value["e2e_recipe"] = e2e_identity_fingerprint(e2e_workflow, tree_lines)
@@ -482,7 +530,7 @@ def e2e_identity_fingerprint(workflow: str, tree_lines: Iterable[str]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def local_identity(revision: str = "HEAD") -> dict[str, str]:
+def local_identity(revision: str = "HEAD", profile: str | None = None) -> dict[str, str]:
     tree_lines = subprocess.check_output(
         ["git", "-c", "core.quotepath=off", "ls-tree", "-r", revision],
         text=True,
@@ -495,14 +543,25 @@ def local_identity(revision: str = "HEAD") -> dict[str, str]:
         ["git", "show", f"{revision}:{E2E_WORKFLOW}"],
         text=True,
     )
-    return identity_from_tree_lines(tree_lines, workflow, e2e_workflow)
+    return identity_from_tree_lines(tree_lines, workflow, e2e_workflow, profile=profile)
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", default="HEAD")
+    parser.add_argument("--profile", default=None)
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("identity", "schemes"),
+        default="identity",
+        help="`schemes` prints the profile's scheme list for the build script.",
+    )
     args = parser.parse_args(argv)
-    print(json.dumps(local_identity(args.revision), sort_keys=True))
+    if args.command == "schemes":
+        print(" ".join(profile_schemes(args.profile)))
+        return 0
+    print(json.dumps(local_identity(args.revision, args.profile), sort_keys=True))
     return 0
 
 
