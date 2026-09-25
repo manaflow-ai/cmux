@@ -164,7 +164,7 @@ jobs:
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           IOS_VERSION: ${{ inputs.ios_version }}
@@ -173,15 +173,10 @@ jobs:
           SEED_CACHE: ${{ inputs.seed_cache }}
         run: |
           set -euo pipefail
-          requested="$REQUESTED_RUNNER"
-          # A fork's pull request names the default pool outright, so it never
-          # takes an owned Mac: those keep build state between jobs.
-          if [ "$FORK_PULL_REQUEST" = true ]; then
-            requested="${RUNNER_VARIABLE:-blacksmith-6vcpu-macos-26}"
-          fi
           route="$(python3 scripts/ci/ios_runner_pool.py \
             --lane test-ios \
-            --requested "$requested" \
+            --fork "$FORK_PULL_REQUEST" \
+            --requested "$REQUESTED_RUNNER" \
             --variable "$RUNNER_VARIABLE" \
             --ios-owned "$IOS_OWNED" \
             --owned "$POOL_OWNED" \
@@ -394,7 +389,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
       # A hung test otherwise runs to the job ceiling, which GitHub reports as
@@ -566,7 +561,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
@@ -945,7 +940,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     strategy:
       fail-fast: false
       matrix:
