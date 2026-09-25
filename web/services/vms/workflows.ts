@@ -157,7 +157,6 @@ export type VmEntry = {
   readonly provider: ProviderId;
   /** Internal ownership metadata used when a response combines billing scopes. */
   readonly ownerTeamId: string;
-  readonly billingPlanId: string | null;
   readonly image: string;
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
@@ -4441,7 +4440,6 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     providerVmId: row.providerVmId,
     provider: row.provider,
     ownerTeamId: row.ownerTeamId,
-    billingPlanId: row.billingPlanId,
     image: row.imageId,
     imageVersion: row.imageVersion,
     status: row.status,
