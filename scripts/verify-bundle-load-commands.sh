@@ -26,11 +26,54 @@ if [[ ! -x "$FILE_TOOL" ]]; then
   exit 1
 fi
 
+relative_load_path_is_inside_bundle() {
+  local binary="$1"
+  local load_path="$2"
+  local base_dir
+  local suffix
+  case "$load_path" in
+    @loader_path|@loader_path/*)
+      base_dir="$(dirname "$binary")"
+      suffix="${load_path#@loader_path}"
+      ;;
+    @executable_path|@executable_path/*)
+      base_dir="$APP_ROOT/Contents/MacOS"
+      suffix="${load_path#@executable_path}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  /usr/bin/python3 - "$base_dir" "$suffix" "$APP_ROOT" <<'PY'
+import os
+import sys
+
+base_dir, suffix, bundle_root = sys.argv[1:]
+candidate = os.path.abspath(os.path.join(base_dir, suffix.lstrip("/")))
+try:
+    inside = os.path.commonpath((bundle_root, candidate)) == bundle_root
+except ValueError:
+    inside = False
+raise SystemExit(0 if inside else 1)
+PY
+}
+
 is_allowed_load_path() {
-  local load_path="$1"
-  if [[ "$load_path" == @* ]]; then
-    return 0
-  fi
+  local binary="$1"
+  local load_path="$2"
+  case "$load_path" in
+    @rpath|@rpath/*)
+      return 0
+      ;;
+    @loader_path|@loader_path/*|@executable_path|@executable_path/*)
+      relative_load_path_is_inside_bundle "$binary" "$load_path"
+      return $?
+      ;;
+    @*)
+      return 1
+      ;;
+  esac
   case "$load_path" in
     ..|../*|*/..|*/../*)
       return 1
@@ -57,7 +100,7 @@ check_macho() {
 
   while IFS=$'\t' read -r command load_path; do
     [[ -n "$load_path" ]] || continue
-    if ! is_allowed_load_path "$load_path"; then
+    if ! is_allowed_load_path "$binary" "$load_path"; then
       echo "error: $binary has $command outside the app/system roots: $load_path" >&2
       echo "  allowed absolute roots: /usr/lib, /System; bundle-internal paths must be @-relative" >&2
       return 1

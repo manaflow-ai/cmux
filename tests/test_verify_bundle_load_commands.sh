@@ -78,6 +78,22 @@ Load command 0
 BAD_SYSTEM_TRAVERSAL
   exit 0
 fi
+if [[ "\${CMUX_FAKE_MODE:-}" == bad-loader-traversal && "\$target" == */nested-macho ]]; then
+  cat <<'BAD_LOADER_TRAVERSAL'
+Load command 0
+      cmd LC_LOAD_DYLIB
+     name @loader_path/../../../../tmp/libexample.dylib (offset 24)
+BAD_LOADER_TRAVERSAL
+  exit 0
+fi
+if [[ "\${CMUX_FAKE_MODE:-}" == bad-executable-traversal && "\$target" == */nested-macho ]]; then
+  cat <<'BAD_EXECUTABLE_TRAVERSAL'
+Load command 0
+      cmd LC_LOAD_DYLIB
+     name @executable_path/../../../../tmp/libexample.dylib (offset 24)
+BAD_EXECUTABLE_TRAVERSAL
+  exit 0
+fi
 cat <<'GOOD'
 Load command 0
       cmd LC_RPATH
@@ -132,5 +148,17 @@ if CMUX_FAKE_MODE=bad-system-traversal run_guard > "$TMP_DIR/bad-system-traversa
   exit 1
 fi
 grep -Fq '/usr/lib/../../tmp/libexample.dylib' "$TMP_DIR/bad-system-traversal.log"
+
+if CMUX_FAKE_MODE=bad-loader-traversal run_guard > "$TMP_DIR/bad-loader-traversal.log" 2>&1; then
+  echo 'FAIL: the guard accepted loader-relative traversal outside the app' >&2
+  exit 1
+fi
+grep -Fq '@loader_path/../../../../tmp/libexample.dylib' "$TMP_DIR/bad-loader-traversal.log"
+
+if CMUX_FAKE_MODE=bad-executable-traversal run_guard > "$TMP_DIR/bad-executable-traversal.log" 2>&1; then
+  echo 'FAIL: the guard accepted executable-relative traversal outside the app' >&2
+  exit 1
+fi
+grep -Fq '@executable_path/../../../../tmp/libexample.dylib' "$TMP_DIR/bad-executable-traversal.log"
 
 echo 'PASS: bundle load-command guard rejects bad rpaths and load paths across nested Mach-O files'
