@@ -1791,8 +1791,26 @@ class WarmAffinity(unittest.TestCase):
     def test_warm_key_takes_twelve_hex_digits(self):
         self.assertEqual(pool.warm_key(MERGE_BASE), KEY)
         self.assertEqual(pool.warm_key(MERGE_BASE.upper()), KEY)
-        for commit in ("", None, "0123456789a", "not-a-commit-sha", "../../etc/passwd"):
-            self.assertEqual(pool.warm_key(commit), "", commit)
+        for commit in ("", None, "0123456789a", "not-a-commit-sha", "../../etc/passwd",
+                       "pr-", "pr-0", "pr-01", "pr-1x", "pr-1234567890", "PR-12 ", "pr-12/.."):
+            self.assertEqual(pool.warm_key(commit), "" if commit != "PR-12 " else "pr-12", commit)
+        self.assertEqual(pool.warm_key("pr-14696"), "pr-14696")
+        self.assertEqual((pool.pr_warm_key("14696"), pool.pr_warm_key(""), pool.pr_warm_key(None)),
+                         ("pr-14696", "", ""))
+
+    def test_a_merge_base_match_beats_a_pull_request_match(self):
+        pr_warm = {"through": 9, "runners": {
+            "cmux1-glaeda": {"keys": ["ffffffffffff", "pr-7"], "at": "2026-09-25T00:00:00Z"},
+            "cmux2-glaeda": {"keys": [KEY, "pr-8"], "at": "2026-09-25T00:00:00Z"}}}
+        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI)]
+        pick = pool.warm_admission_runner
+        self.assertEqual(json.loads(pick(runners, ROOT_MINI, MERGE_BASE, pr_warm, "7"))[1],
+                         "glaeda-runner-cmux2-glaeda")
+        # A re-push onto a new main commit goes where its previous push was kept.
+        self.assertEqual(json.loads(pick(runners, ROOT_MINI, "e" * 40, pr_warm, "7"))[1],
+                         "glaeda-runner-cmux1-glaeda")
+        self.assertEqual(pick(runners, ROOT_MINI, "e" * 40, pr_warm, "9"), "")
+        self.assertEqual(pick(runners, ROOT_MINI, "e" * 40, pr_warm, None), "")
 
     def test_runner_label_matches_glaedas(self):
         self.assertEqual(pool.runner_label("cmux7s-glaeda-1"), "glaeda-runner-cmux7s-glaeda-1")
@@ -2028,8 +2046,9 @@ class Wiring(unittest.TestCase):
         self.assertIs(upload["continue-on-error"], True)
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", listed["if"])
         self.assertIn('owned_build_state.py warm-keys "$CMUX_OWNED_STATE_ROOT" "$RUNNER_NAME"', listed["run"])
-        # The kept build's merge base is what warm-keys lists first.
-        self.assertIn('"$MERGED_ONTO"', steps[keep]["run"])
+        # The kept build's merge base and pull request are what warm-keys lists first.
+        self.assertIn('"$MERGED_ONTO" "$PR_NUMBER"', steps[keep]["run"])
+        self.assertEqual(steps[keep]["env"]["PR_NUMBER"], "${{ github.event.pull_request.number }}")
         # A fixed name, which the janitor can list; a re-run attempt replaces it.
         self.assertEqual(upload["with"]["name"], "owned-warm-keys")
         self.assertIs(upload["with"]["overwrite"], True)
@@ -2040,6 +2059,7 @@ class Wiring(unittest.TestCase):
         step = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
                     if step.get("id") == "macos-pool")
         self.assertEqual(step["env"]["OWNED_WARM"], "${{ vars.CI_OWNED_WARM }}")
+        self.assertEqual(step["env"]["PR_NUMBER"], "${{ github.event.pull_request.number }}")
         sweep = next(step for step in self.workflow("ci-queue-janitor.yml")["jobs"]["sweep"]["steps"]
                      if step.get("name") == "Cancel wasted macOS runs")
         self.assertEqual(sweep["env"]["OWNED_WARM"], "${{ vars.CI_OWNED_WARM }}")
