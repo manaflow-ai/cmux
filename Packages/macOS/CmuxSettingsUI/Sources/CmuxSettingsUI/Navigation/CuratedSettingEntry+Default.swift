@@ -172,6 +172,21 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+            .init(
+                section: .terminal,
+                id: "session-persistence",
+                title: String(
+                    localized: "settings.terminal.localTmux.title",
+                    defaultValue: "Keep Local Sessions Alive",
+                    bundle: .module
+                ),
+                detailText: String(
+                    localized: "settings.terminal.localTmux.subtitle",
+                    defaultValue: "Named local-tmux sessions keep processes and scrollback alive across cmux quit, crashes, and updates. Ordinary terminals keep their current behavior.",
+                    bundle: .module
+                ),
+                synonyms: "session persistence keep local sessions alive local tmux local-tmux tmux detach reattach crash update quit durable terminal process scrollback"
+            ),
             .init(section: .terminal, id: "agent-hibernation", title: String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), synonyms: "Agent Hibernation terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: String(localized: "settings.terminal.agentHibernation.idleSeconds", defaultValue: "Hibernate After Idle Seconds"), synonyms: "Hibernate After Idle Seconds terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
             .init(section: .terminal, id: "agent-hibernation-max", title: String(localized: "settings.terminal.agentHibernation.maxLiveTerminals", defaultValue: "Max Live Agent Terminals"), synonyms: "Max Live Agent Terminals terminal.agentHibernation.maxLiveTerminals max live agent terminals limit count hibernate"),
@@ -349,6 +364,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
             ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
+            .init(section: .betaFeatures, id: "predictedEcho", title: String(localized: "settings.betaFeatures.predictedEcho", defaultValue: "Predictive local echo"), synonyms: "Predictive local echo typing latency lag ssh remote speculative mosh round trip beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
                 section: .betaFeatures,
