@@ -12,13 +12,15 @@ import Testing
 @MainActor
 final class CloudMachineWorkspaceTestProvider: SurfaceProvider {
     let machine: SurfaceMachineID
+    let workspaceName: String
     var info: SurfaceMachineInfo
     var beforeMaterialization: (() async throws -> Void)?
     private(set) var materializations = 0
     var returnMismatchedPlacement = false
 
-    init(id: String = UUID().uuidString) {
+    init(id: String = UUID().uuidString, workspaceName: String = "workspace-1") {
         machine = .cloud(id)
+        self.workspaceName = workspaceName
         info = SurfaceMachineInfo(id: machine, name: "brave-sapphire-lobster", status: "running",
             image: nil, hasDesktop: false, memoryMb: nil, diskMb: nil,
             linkState: .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
@@ -27,7 +29,7 @@ final class CloudMachineWorkspaceTestProvider: SurfaceProvider {
     func install(in catalog: SurfaceCatalog, generation: String = "created") throws {
         let graph = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
             "cursor": ["generation": generation, "revision": "1"],
-            "workspaces": [["id": "ws-first", "name": "workspace-1", "index": 0, "focused": true]],
+            "workspaces": [["id": "ws-first", "name": workspaceName, "index": 0, "focused": true]],
             "screens": [["id": "screen", "workspace_id": "ws-first"]],
             "panes": [["id": "pane", "screen_id": "screen"]],
             "tabs": [["id": "tab-first", "pane_id": "pane", "content_kind": "terminal", "content_id": "term-first"]],
