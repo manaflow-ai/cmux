@@ -306,6 +306,19 @@ struct SSHTuiMigrationTests {
         #expect(result == nil)
     }
 
+    @Test("Reconnect for an unrelated pane cannot restart a native SSH workspace")
+    @MainActor
+    func unrelatedSurfaceReconnectDoesNotRestartSSHWorkspace() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.remoteConfiguration = configuration()
+        let localPanelID = try #require(workspace.focusedPanelId)
+        #expect(workspace.usesSSHTui)
+        #expect(workspace.reconnectRemoteConnection(surfaceId: localPanelID) == false)
+        #expect(workspace.reconnectRemoteConnection(surfaceId: UUID()) == false)
+        #expect(workspace.sshTuiConnectionAttemptID == nil)
+    }
+
     @Test("All sessions includes both owners and preserves partial listing errors")
     func mixedSessionListsPreserveRowsAndErrors() throws {
         let result = TerminalController.shared.mergeRemotePTYSessionLists(
