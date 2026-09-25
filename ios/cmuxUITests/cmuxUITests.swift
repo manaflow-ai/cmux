@@ -8722,6 +8722,16 @@ final class cmuxUITests: XCTestCase {
             XCTFail("A required workspace toolbar control is missing", file: file, line: line)
             return
         }
+        if includesAlternateScreen {
+            let warning = app.buttons["MobileTerminalAltScreenNoticeButton"]
+            XCTAssertLessThanOrEqual(
+                abs(warning.frame.width - warning.frame.height),
+                4,
+                "A single-symbol warning action should retain a circular hit target",
+                file: file,
+                line: line
+            )
+        }
         let fits = NSPredicate { _, _ in
             guard controls.allSatisfy({ $0.exists && $0.isHittable }) else { return false }
             let barFrame = bar.frame.insetBy(dx: -1, dy: -1)
