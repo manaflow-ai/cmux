@@ -21,9 +21,18 @@ public final class MobileNotificationCleanupUITestFixture {
         guard !payloads.isEmpty else { return }
         _ = try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .badge])
+        // Schedule while the app is active. A scene-phase callback can be
+        // suspended as soon as the test presses Home, before the async add
+        // calls reach UserNotifications. The one-second triggers still land
+        // in Notification Center while the app is backgrounded.
+        await scheduleNotifications()
     }
 
     public func scheduleOnBackground() async {
+        await scheduleNotifications()
+    }
+
+    private func scheduleNotifications() async {
         guard !payloads.isEmpty, !scheduled else { return }
         scheduled = true
         for payload in payloads {

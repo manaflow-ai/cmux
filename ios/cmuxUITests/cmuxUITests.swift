@@ -56,7 +56,7 @@ final class cmuxUITests: XCTestCase {
                 NSPredicate(format: "label BEGINSWITH '+' AND label CONTAINS 'from cmux'")
             ).firstMatch
             if summary.waitForExistence(timeout: 3) {
-                summary.tap()
+                summary.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             }
         }
         func title(_ value: String) -> XCUIElement {
