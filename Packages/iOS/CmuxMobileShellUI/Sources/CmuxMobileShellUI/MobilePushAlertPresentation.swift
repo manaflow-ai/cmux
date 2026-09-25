@@ -9,7 +9,7 @@ struct MobilePushAlertPresentationModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: coordinator.tabUnavailableAlert, initial: true) { _, alert in
-                presentedAlert = alert?.kind == .tabUnavailable ? alert : nil
+                presentedAlert = alert
             }
             .alert(item: $presentedAlert) { alert in
                 switch alert.kind {
