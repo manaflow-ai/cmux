@@ -11,6 +11,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalColorSchemeQueryTests {
+    /// Verifies CSI 996 follows runtime appearance changes with a plain config.
     @Test("996 follows the runtime scheme with a nonconditional config", arguments: [true, false])
     func queryTracksRuntimeScheme(initiallyDark: Bool) async throws {
         // Initialize Ghostty's process-wide facilities through the app host.
@@ -78,10 +79,12 @@ struct TerminalColorSchemeQueryTests {
         }
     }
 
+    /// Converts the test's Boolean appearance state to Ghostty's C enum.
     private static func scheme(dark: Bool) -> ghostty_color_scheme_e {
         dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
     }
 
+    /// Returns the CSI 997 reply expected for the supplied appearance state.
     private static func report(dark: Bool) -> Data {
         Data("\u{1b}[?997;\(dark ? 1 : 2)n".utf8)
     }
@@ -96,31 +99,49 @@ struct TerminalColorSchemeQueryTests {
 
     /// The input barrier orders assertions after all protocol replies without
     /// a settling delay. This exercises Ghostty's real parser and write path.
+    /// Sends CSI 996 and a barrier, then returns bytes written before that barrier.
     private func query(_ surface: ghostty_surface_t, inputs: AsyncStream<Data>) async throws -> Data {
         let query = "\u{1b}[?996n"
-        query.withCString { ghostty_surface_process_output(surface, $0, UInt(query.utf8.count)) }
         let marker = "CMUX_996_BARRIER_\(UUID().uuidString)"
-        marker.withCString { ghostty_surface_text(surface, $0, UInt(marker.utf8.count)) }
         let markerBytes = Data(marker.utf8)
-        let response = await withTaskGroup(of: Data?.self) { group in
-            group.addTask {
-                var bytes = Data()
-                for await chunk in inputs {
-                    bytes.append(chunk)
-                    if let range = bytes.range(of: markerBytes) {
-                        return Data(bytes[..<range.lowerBound])
+
+        // Ghostty's parser can wait on the renderer/IO futex. Keep the parser
+        // and barrier write FIFO on a serial queue without blocking MainActor.
+        let responseTask = Task {
+            await withTaskGroup(of: Data?.self) { group in
+                group.addTask {
+                    var bytes = Data()
+                    for await chunk in inputs {
+                        bytes.append(chunk)
+                        if let range = bytes.range(of: markerBytes) {
+                            return Data(bytes[..<range.lowerBound])
+                        }
                     }
+                    return nil
                 }
-                return nil
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(5))
+                    return nil
+                }
+                let result = await group.next() ?? nil
+                group.cancelAll()
+                return result
             }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(5))
-                return nil
-            }
-            let result = await group.next() ?? nil
-            group.cancelAll()
-            return result
         }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            Self.ioQueue.async {
+                query.withCString {
+                    ghostty_surface_process_output(surface, $0, UInt(query.utf8.count))
+                }
+                marker.withCString {
+                    ghostty_surface_text(surface, $0, UInt(marker.utf8.count))
+                }
+                continuation.resume()
+            }
+        }
+        let response = await responseTask.value
         return try #require(response, "The terminal did not return the input barrier")
     }
+
+    private static let ioQueue = DispatchQueue(label: "com.cmux.tests.terminal-color-scheme-query")
 }
