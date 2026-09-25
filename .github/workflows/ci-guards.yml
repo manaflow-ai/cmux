@@ -717,7 +717,13 @@ jobs:
 
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_update_release_tag.py
+        run: |
+          python3 tests/test_update_release_tag.py
+          python3 tests/test_nightly_publication_marker.py
+
+      - name: Validate nightly tag permission probe
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_tag_permission_probe.sh
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}

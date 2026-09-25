@@ -1,0 +1,113 @@
+name: Nightly tag permission probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Commit that directly changes a workflow file (defaults to this dispatch commit)
+        required: false
+        type: string
+      mode:
+        description: Credential path to exercise; run github-token first, then app-token
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - github-token
+          - app-token
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out the probe target
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.target_sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Validate workflow-changing target and choose scratch tag
+        id: probe-inputs
+        env:
+          TARGET_SHA: ${{ inputs.target_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "target_sha must be a full commit SHA" >&2
+            exit 1
+          fi
+          git cat-file -e "$TARGET_SHA^{commit}"
+          if ! git diff-tree --root --no-commit-id --name-only -r "$TARGET_SHA" | grep -q '^\.github/workflows/'; then
+            echo "target_sha must directly change a workflow file" >&2
+            exit 1
+          fi
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "probe_tag=nightly-probe-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Expect github.token to reject the workflow-changing ref
+        id: github-token-probe
+        if: inputs.mode != 'app-token'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.probe-inputs.outputs.probe_tag }}
+          SHA: ${{ steps.probe-inputs.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          error_file="$RUNNER_TEMP/github-token-probe-error.txt"
+          if python3 scripts/ci/update-release-tag.py --repo "$REPO" --tag "$TAG" --sha "$SHA" 2>"$error_file"; then
+            echo "created=true" >> "$GITHUB_OUTPUT"
+            echo "github.token unexpectedly moved a workflow-changing tag" >&2
+            exit 1
+          fi
+          if ! grep -Eq 'HTTP 403|Resource not accessible by integration' "$error_file"; then
+            cat "$error_file" >&2
+            echo "github.token failed for a reason other than the expected workflow permission denial" >&2
+            exit 1
+          fi
+          echo "github.token denied the scratch tag as expected"
+
+      - name: Mint probe tag app token
+        id: probe-tag-token
+        if: inputs.mode != 'github-token'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Verify app token moves the workflow-changing ref
+        if: inputs.mode != 'github-token'
+        env:
+          GH_TOKEN: ${{ steps.probe-tag-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.probe-inputs.outputs.probe_tag }}
+          SHA: ${{ steps.probe-inputs.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/update-release-tag.py --repo "$REPO" --tag "$TAG" --sha "$SHA"
+
+      - name: Delete scratch tag
+        if: always()
+        env:
+          APP_TOKEN: ${{ steps.probe-tag-token.outputs.token }}
+          GH_TOKEN: ${{ steps.probe-tag-token.outputs.token || github.token }}
+          GITHUB_TOKEN_CREATED: ${{ steps.github-token-probe.outputs.created }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.probe-inputs.outputs.probe_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APP_TOKEN:-}" ] || [ "$GITHUB_TOKEN_CREATED" = "true" ]; then
+            gh api --method DELETE "repos/$REPO/git/refs/tags/$TAG"
+          else
+            echo "The expected github.token denial left no scratch ref to delete."
+          fi
