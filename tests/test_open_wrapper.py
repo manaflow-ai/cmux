@@ -39,6 +39,7 @@ def run_wrapper(
     external_patterns: str | None = None,
     fail_urls: list[str] | None = None,
     local_files: list[str] | None = None,
+    cmux_cli_available: bool = True,
     python_bin: str | None = None,
     bash_bin: str = "/bin/bash",
     extra_env: dict[str, str | None] | None = None,
@@ -154,6 +155,8 @@ fi
 exit 0
 """,
         )
+        if not cmux_cli_available:
+            cmux.unlink()
 
         if local_files:
             for relative_path in local_files:
@@ -327,10 +330,43 @@ def test_configured_external_application_is_used(failures: list[str]) -> None:
     expect(code == 0, f"configured external application: wrapper exited {code}: {stderr}", failures)
     expect(cmux_log == [], f"configured external application: cmux should not be called, got {cmux_log}", failures)
     expect(
-        open_log == [f"-a com.google.Chrome {url}"],
+        open_log == [f"-b com.google.Chrome {url}"],
         f"configured external application: expected app-specific open, got {open_log}",
         failures,
     )
+
+
+def test_external_application_preserves_mixed_passthrough_args(failures: list[str]) -> None:
+    url = "https://example.com"
+    file_path = "README.pdf"
+    cases = [
+        (
+            "toggle off",
+            dict(intercept_setting="0"),
+        ),
+        (
+            "browser disabled",
+            dict(intercept_setting="1", browser_disabled_setting="true"),
+        ),
+        (
+            "cmux cli missing",
+            dict(intercept_setting="1", cmux_cli_available=False),
+        ),
+    ]
+    for label, options in cases:
+        open_log, cmux_log, code, stderr = run_wrapper(
+            args=[url, file_path],
+            external_application="com.google.Chrome",
+            whitelist="",
+            **options,
+        )
+        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
+        expect(cmux_log == [], f"{label}: cmux should not be called, got {cmux_log}", failures)
+        expect(
+            open_log == [f"-b com.google.Chrome {url}", file_path],
+            f"{label}: expected browser and passthrough opens, got {open_log}",
+            failures,
+        )
 
 
 def test_whitelist_miss_passthrough(failures: list[str]) -> None:
@@ -1087,6 +1123,7 @@ def main() -> int:
     test_toggle_disabled_case_insensitive_passthrough(failures)
     test_browser_disabled_override_passthrough(failures)
     test_configured_external_application_is_used(failures)
+    test_external_application_preserves_mixed_passthrough_args(failures)
     test_whitelist_miss_passthrough(failures)
     test_whitelist_match_routes_to_cmux(failures)
     test_external_literal_pattern_is_deferred_to_app(failures)
