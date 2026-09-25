@@ -38,10 +38,7 @@ public struct PaneLayoutService {
         in node: ExternalTreeNode,
         controller: BonsplitController
     ) -> SplitEqualizeResult {
-        // The implementation is introduced in the repair commit. Keeping the
-        // first regression commit executable makes its focused test fail on
-        // the behavior rather than only failing to compile.
-        SplitEqualizeResult(foundSplit: false, allSucceeded: false)
+        equalizeSplits(in: node, controller: controller)
     }
 
     /// Resizes the pane's controlling divider by `amountPixels` in

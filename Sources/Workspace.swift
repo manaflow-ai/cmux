@@ -189,6 +189,7 @@ extension Workspace {
             focusedPanelId: focusedPanelId,
             layout: layout,
             layoutMode: layoutMode.rawValue,
+            tilingModeEnabled: isTilingModeEnabled,
             canvasPanes: canvasSessionPaneSnapshots(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
@@ -377,6 +378,7 @@ extension Workspace {
         recomputeListeningPorts()
 
         restoreCanvasState(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
+        isTilingModeEnabled = snapshot.tilingModeEnabled == true
 
         if let focusedOldPanelId = snapshot.focusedPanelId,
            let focusedNewPanelId = oldToNewPanelIds[focusedOldPanelId],
@@ -2808,6 +2810,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
     /// are seeded from the split layout on first entry.
     @Published var layoutMode: WorkspaceLayoutMode = .splits
+
+    /// Whether new splits should be kept evenly sized automatically.
+    @Published private(set) var isTilingModeEnabled = false
 
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
@@ -14400,7 +14405,10 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         guard !isRetiredFromOwningTabManager else { return }
         let finishWork = beginTerminalGeometryTransition(.split)
-        defer { finishWork() }
+        defer {
+            applyTilingModeIfNeeded()
+            finishWork()
+        }
         // Same transaction as the tree update: no commit may show the split
         // pane's terminal over the new pane (#13387).
         applyProvisionalSplitPaneGeometry(originalPane: originalPane, newPane: newPane)
