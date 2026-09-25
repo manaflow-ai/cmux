@@ -541,7 +541,10 @@ extension CMUXCLI {
     private func sessionsListGoalClient(processEnv: [String: String]) -> SocketClient? {
         let path = sessionsListNormalized(processEnv["CMUX_SOCKET_PATH"])
             ?? sessionsListNormalized(processEnv["CMUX_SOCKET"])
-            ?? CLISocketPathResolver.defaultSocketPath(bundleIdentifier: nil, environment: processEnv)
+            ?? CLISocketPathResolver.defaultSocketPath(
+                bundleIdentifier: sessionsListNormalized(processEnv["CMUX_BUNDLE_ID"]),
+                environment: processEnv
+            )
         guard FileManager.default.fileExists(atPath: path) else { return nil }
         return SocketClient(path: path)
     }
