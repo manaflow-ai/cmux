@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAgentChat
 import WebKit
 
 /// Serves the bundled React AgentSession application from a non-file origin.
@@ -36,21 +37,20 @@ final class AgentSessionWebRendererURLSchemeHandler: NSObject, WKURLSchemeHandle
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         do {
             let requestURL = try validatedRequestURL(urlSchemeTask.request.url)
-            let file = try resolvedFile(for: requestURL)
-            let data = try Data(contentsOf: file.url, options: [.mappedIfSafe])
+            let resource = try resourceData(for: requestURL)
             guard let response = HTTPURLResponse(
                 url: requestURL,
                 statusCode: 200,
                 httpVersion: "HTTP/1.1",
                 headerFields: [
-                    "Content-Type": contentType(mimeType: file.mimeType, pathExtension: file.pathExtension),
-                    "Content-Length": String(data.count)
+                    "Content-Type": resource.contentType,
+                    "Content-Length": String(resource.data.count)
                 ]
             ) else {
                 throw URLError(.badServerResponse)
             }
             urlSchemeTask.didReceive(response)
-            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didReceive(resource.data)
             urlSchemeTask.didFinish()
         } catch {
             urlSchemeTask.didFailWithError(error)
@@ -63,6 +63,25 @@ final class AgentSessionWebRendererURLSchemeHandler: NSObject, WKURLSchemeHandle
         let validatedURL = try validatedRequestURL(requestURL)
         let file = try resolvedFile(for: validatedURL)
         return (file.url, file.mimeType)
+    }
+
+    func resourceData(for requestURL: URL) throws -> (data: Data, contentType: String) {
+        let validatedURL = try validatedRequestURL(requestURL)
+        let file = try resolvedFile(for: validatedURL)
+        let storedData = try Data(contentsOf: file.url, options: [.mappedIfSafe])
+        let data: Data
+        if file.isDeflated {
+            guard let inflated = Data.inflateMarkdownViewerAsset(storedData) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            data = inflated
+        } else {
+            data = storedData
+        }
+        return (
+            data: data,
+            contentType: contentType(mimeType: file.mimeType, pathExtension: file.pathExtension)
+        )
     }
 
     private func validatedRequestURL(_ url: URL?) throws -> URL {
@@ -83,26 +102,42 @@ final class AgentSessionWebRendererURLSchemeHandler: NSObject, WKURLSchemeHandle
         return url
     }
 
-    private func resolvedFile(for url: URL) throws -> (url: URL, mimeType: String, pathExtension: String) {
+    private func resolvedFile(for url: URL) throws -> (
+        url: URL,
+        mimeType: String,
+        pathExtension: String,
+        isDeflated: Bool
+    ) {
         let relativePath = String(url.path.dropFirst())
-        let fileURL = rootURL
+        let requestedURL = rootURL
             .appendingPathComponent(relativePath, isDirectory: false)
             .standardizedFileURL
             .resolvingSymlinksInPath()
-        guard isInsideRoot(fileURL) else {
-            throw URLError(.fileDoesNotExist)
-        }
-        let pathExtension = fileURL.pathExtension.lowercased()
+        let pathExtension = requestedURL.pathExtension.lowercased()
         guard let mimeType = Self.mimeType(forExtension: pathExtension) else {
             throw URLError(.fileDoesNotExist)
         }
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue,
-              fileManager.isReadableFile(atPath: fileURL.path) else {
-            throw URLError(.fileDoesNotExist)
+
+        var candidateURLs: [(url: URL, isDeflated: Bool)] = [(requestedURL, false)]
+        if pathExtension == "mjs" || pathExtension == "js" {
+            candidateURLs.append((requestedURL.appendingPathExtension("deflate"), true))
         }
-        return (fileURL, mimeType, pathExtension)
+        candidateURLs = candidateURLs.map { candidate in
+            (candidate.url.standardizedFileURL.resolvingSymlinksInPath(), candidate.isDeflated)
+        }
+        for candidate in candidateURLs {
+            guard isInsideRoot(candidate.url) else {
+                continue
+            }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: candidate.url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  fileManager.isReadableFile(atPath: candidate.url.path) else {
+                continue
+            }
+            return (candidate.url, mimeType, pathExtension, candidate.isDeflated)
+        }
+        throw URLError(.fileDoesNotExist)
     }
 
     private func isInsideRoot(_ fileURL: URL) -> Bool {

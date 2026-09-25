@@ -95,6 +95,19 @@ struct AgentSessionWebRendererTests {
         )
         #expect(resource.url == chunksURL.appendingPathComponent("main.mjs").standardizedFileURL)
         #expect(resource.mimeType == "text/javascript")
+
+        let compressedURL = chunksURL.appendingPathComponent("compressed.mjs")
+        try DeflatedAssetTestSupport.writeText(
+            "export const compressed = true;\n",
+            to: compressedURL,
+            addingDeflateExtension: true
+        )
+        let compressedResource = try handler.resourceData(
+            for: URL(string: "cmux-agent-session://shell/chunks/compressed.mjs")!
+        )
+        #expect(String(data: compressedResource.data, encoding: .utf8) == "export const compressed = true;\n")
+        #expect(compressedResource.contentType == "text/javascript; charset=utf-8")
+
         #expect(throws: URLError.self) {
             _ = try handler.resourceURL(for: URL(string: "cmux-agent-session://shell/../outside.mjs")!)
         }
