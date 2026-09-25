@@ -93,6 +93,8 @@ class SupportedPathsTests(unittest.TestCase):
         result = self.run_helper(script, "list-supported")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("app.workspaceInheritWorkingDirectory", result.stdout.splitlines())
+        self.assertIn("app.openSupportedFilesInCmux", result.stdout.splitlines())
+        self.assertIn("app.preferredEditor", result.stdout.splitlines())
         self.assertIn("markdown.fontSize", result.stdout.splitlines())
         self.assertIn("diffViewer.defaultLayout", result.stdout.splitlines())
         self.assertNotIn("app.notARealSetting", result.stdout.splitlines())
