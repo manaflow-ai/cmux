@@ -4528,6 +4528,26 @@ def admission_route(runs_on: str) -> str:
     """Compile admission's runs-on without its warm labels: the route its consumers restate."""
     return runs_on.replace(WARM_ADMISSION + " || ", "")
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
+# Attempt 1 may take the root label late-placement chose once admission
+# finished (scripts/ci/late_placement.py). That label is derived from the
+# admission's own xcode_app output, so it keeps the consumer on the producer's
+# Xcode; late_placement_route strips it only while that stays true.
+LATE_KEYS = {
+    "app-host-unit-tests": "format('shard-{0}', matrix.shard)",
+    "cli-product-tests": "'cli-product'",
+    "tests-build-and-lag": "'lag'",
+}
+
+
+def late_placement_route(workflow: dict, name: str, runs_on: str) -> str:
+    """The consumer's runs-on without its late-placement branch, when that branch is Xcode-safe."""
+    late = workflow["jobs"].get("late-placement") or {}
+    steps = [step for step in late.get("steps", []) if step.get("id") == "place"]
+    if not steps or (steps[0].get("env") or {}).get("ADMISSION_XCODE_APP") != PRODUCT_XCODE_OUTPUT:
+        return runs_on
+    prefix = ("${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')["
+              + LATE_KEYS.get(name, "") + "] || ")
+    return runs_on.replace(prefix.removeprefix("${{ "), "", 1)
 
 
 def product_consumer_route_violations(workflow: dict) -> list[str]:
@@ -4549,7 +4569,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     if outputs.get("xcode_app") != "${{ env.CMUX_CI_XCODE_APP }}":
         violations.append("macos-compile-admission: missing xcode_app output")
     for name, job in app_host_product_consumers(workflow).items():
-        runs_on = job.get("runs-on", "")
+        runs_on = late_placement_route(workflow, name, job.get("runs-on", ""))
         xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
         if name in PRODUCT_RUNNER_KEYS and runs_on == product_runner_output(PRODUCT_RUNNER_KEYS[name]) \
                 and xcode == PRODUCT_XCODE_OUTPUT:
@@ -4581,8 +4601,20 @@ def test_app_host_product_consumers_run_on_the_producers_pool_and_xcode() -> Non
     # The app-host shards read the outputs, so a route added to the admission
     # moves them without an edit here.
     shards = workflow["jobs"]["app-host-unit-tests"]
-    assert shards["runs-on"] == PRODUCT_RUNNER_OUTPUT
+    assert late_placement_route(workflow, "app-host-unit-tests", shards["runs-on"]) == PRODUCT_RUNNER_OUTPUT
     assert shards["env"]["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
+
+
+def test_late_placement_must_keep_the_admissions_xcode() -> None:
+    # late-placement picks the owned root label for the admission's Xcode. If it
+    # stopped reading that output, its label could name another Xcode, and
+    # every consumer taking it would be reported.
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    assert product_consumer_route_violations(workflow) == []
+    place = next(step for step in workflow["jobs"]["late-placement"]["steps"] if step.get("id") == "place")
+    place["env"]["ADMISSION_XCODE_APP"] = "${{ inputs.pr_xcode_app }}"
+    reported = {line.split(":", 1)[0] for line in product_consumer_route_violations(workflow)}
+    assert {"app-host-unit-tests", "cli-product-tests", "tests-build-and-lag"} <= reported, reported
 
 
 def test_product_consumer_guard_follows_a_new_admission_route() -> None:
