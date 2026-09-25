@@ -2830,7 +2830,7 @@ jobs:
     # macOS-neutral for the app build yet still own tests this lane runs.
     # The job narrows itself to the affected packages in "Select package
     # tests", so the routed case costs one runner and a short build, not the
-    # full 33-package sweep.
+    # full package sweep.
     if: ${{ (inputs.macos == 'true' && inputs.full_suite == 'true') || inputs.swift_packages == 'true' }}
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
@@ -2839,7 +2839,7 @@ jobs:
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       # The owned label's Xcode (the lane pin) exactly when runs-on took it;
       # the pool picker's Wiring tests keep the two conditions equal.
@@ -2904,6 +2904,8 @@ jobs:
           FULL_SUITE: ${{ inputs.full_suite }}
         run: |
           set -euo pipefail
+          # CmuxSidebarGit is left out until its ProbeSchedulingTests agree with
+          # the first-trusted-remote-directory clearing rule (see the PR notes).
           PACKAGES=(
             CMUXAuthCore
             CmuxBrowser
@@ -2944,6 +2946,26 @@ jobs:
             CmuxAgentJournal
             CmuxFilePreviewCore
             CmuxSyntaxHighlighting
+            CmuxAppKitSupportUI
+            CmuxCanvas
+            CmuxCloudBannerCore
+            CmuxCloudImagePaste
+            CmuxCloudTunnelCore
+            CMUXDebugLog
+            CmuxExtensionKit
+            CmuxFeedback
+            CmuxLiveEval
+            CmuxPanes
+            CmuxPhonePush
+            CMUXProjectModel
+            CmuxSidebar
+            CmuxSidebarInterpreterService
+            CmuxSimulator
+            CmuxSwiftRender
+            CmuxSwiftRenderUI
+            CmuxTestSupport
+            CmuxUpdaterUI
+            CmuxWindowing
           )
 
           changed="$RUNNER_TEMP/changed-files.txt"
