@@ -195,6 +195,9 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         run: ./tests/test_ghostty_zig_version_sync.sh
 
+      - name: Validate GhosttyKit source-build Zig requirement
+        run: python3 tests/test_ensure_ghosttykit_zig.py
+
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
 
