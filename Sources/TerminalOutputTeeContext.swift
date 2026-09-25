@@ -10,6 +10,9 @@ import os
 final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked Sendable {
     private let store: AgentFooterStateStore
 
+    @MainActor
+    var stateStore: AgentFooterStateStore { store }
+
     /// Creates a publisher backed by the composition root's state store.
     @MainActor
     init(store: AgentFooterStateStore) {
@@ -22,21 +25,10 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
     }
 
     /// Publishes a PTY snapshot through the main-actor state owner.
-    ///
-    /// The lease check runs before the notification is posted, so an update
-    /// from an old tee cannot restore state after teardown or surface reuse.
     func post(state: AgentFooterState?, for lease: AgentFooterStateStore.Lease) {
         let store = store
         Task { @MainActor in
-            guard store.update(state, for: lease) else { return }
-            NotificationCenter.default.post(
-                name: .terminalAgentFooterDidUpdate(surfaceID: lease.surfaceID),
-                object: nil,
-                userInfo: [
-                    Notification.Name.terminalAgentFooterStateUserInfoKey:
-                        state.map { $0 as Any } ?? NSNull()
-                ]
-            )
+            _ = store.update(state, for: lease)
         }
     }
 
@@ -47,12 +39,7 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
 
     @MainActor
     func retire(surfaceID: UUID) {
-        guard store.retire(surfaceID: surfaceID) else { return }
-        NotificationCenter.default.post(
-            name: .terminalAgentFooterDidUpdate(surfaceID: surfaceID),
-            object: nil,
-            userInfo: [Notification.Name.terminalAgentFooterStateUserInfoKey: NSNull()]
-        )
+        _ = store.retire(surfaceID: surfaceID)
     }
 
     /// Releases a tee lease after its callback context is destroyed.
@@ -60,13 +47,6 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
     func release(_ lease: AgentFooterStateStore.Lease) {
         store.release(lease)
     }
-}
-
-extension Notification.Name {
-    static func terminalAgentFooterDidUpdate(surfaceID: UUID) -> Notification.Name {
-        Notification.Name("cmux.terminalAgentFooterDidUpdate.\(surfaceID.uuidString)")
-    }
-    static let terminalAgentFooterStateUserInfoKey = "state"
 }
 
 /// Per-surface state owned by libghostty's serialized PTY read callback.

@@ -12,7 +12,7 @@ import CmuxSettings
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
-    @State private var agentFooter: AgentFooterState?
+    @ObservedObject var agentFooterStore: AgentFooterStateStore
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
@@ -66,18 +66,6 @@ struct TerminalPanelView: View {
             case .hibernated(let hibernationState):
                 hibernationBody(hibernationState)
             }
-        }
-        .onAppear {
-            agentFooter = panel.surface.agentFooter?.snapshot(for: panel.id)
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: .terminalAgentFooterDidUpdate(surfaceID: panel.id)
-            )
-        ) { notification in
-            agentFooter = notification.userInfo?[
-                Notification.Name.terminalAgentFooterStateUserInfoKey
-            ] as? AgentFooterState
         }
     }
 
@@ -146,7 +134,7 @@ struct TerminalPanelView: View {
 #endif
             .layoutPriority(1)
 
-            if let agentFooter {
+            if let agentFooter = agentFooterStore.snapshot(for: panel.id) {
                 TerminalAgentFooterView(state: agentFooter, appearance: appearance)
             }
 

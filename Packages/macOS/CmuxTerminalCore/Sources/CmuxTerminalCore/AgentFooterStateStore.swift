@@ -1,3 +1,4 @@
+public import Combine
 public import Foundation
 
 /// Main-actor owner for the per-surface agent footer lifecycle.
@@ -6,7 +7,7 @@ public import Foundation
 /// token makes those updates safe across teardown and a later surface reuse:
 /// an old tee can never write into a new surface instance with the same ID.
 @MainActor
-public final class AgentFooterStateStore {
+public final class AgentFooterStateStore: ObservableObject {
     /// Identifies one installed PTY tee for one surface instance.
     public struct Lease: Equatable, Sendable {
         public let surfaceID: UUID
@@ -25,10 +26,16 @@ public final class AgentFooterStateStore {
         var released = false
     }
 
-    private var entries: [UUID: Entry] = [:]
+    /// The live and retiring surface entries. Publishing this dictionary makes
+    /// the store itself the UI observation boundary; snapshots and updates
+    /// cannot diverge through a second mirrored state collection.
+    @Published private var entries: [UUID: Entry] = [:]
 
     /// Creates an empty state store.
     public init() {}
+
+    /// Shared inert store for terminal hosts that do not publish footer data.
+    public static let empty = AgentFooterStateStore()
 
     /// Starts a new surface instance and invalidates any older lease for its ID.
     public func activate(surfaceID: UUID) -> Lease {
@@ -87,6 +94,10 @@ public final class AgentFooterStateStore {
 /// The lifecycle surface used by a terminal runtime to publish pane footer
 /// snapshots without owning the store or its UI delivery mechanism.
 public protocol AgentFooterStatePublishing: AnyObject, Sendable {
+    /// The observable store used by the terminal-pane UI.
+    @MainActor
+    var stateStore: AgentFooterStateStore { get }
+
     /// Starts a new lease for a surface instance.
     @MainActor
     func activate(surfaceID: UUID) -> AgentFooterStateStore.Lease
