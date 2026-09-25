@@ -426,8 +426,8 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
 
-    def request(self, method: str, path: str) -> Any:
-        headers = self.read_headers if method == "GET" else self.headers
+    def request(self, method: str, path: str, *, own_token: bool = False) -> Any:
+        headers = self.read_headers if method == "GET" and not own_token else self.headers
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
@@ -436,8 +436,11 @@ class GitHub:
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
         except urllib.error.HTTPError as error:
-            if error.code != 401 or headers is self.headers:
+            if error.code not in (401, 403) or headers is self.headers:
                 raise
+            if error.code == 403:
+                # The installation lacks this read's permission: this one read goes on GITHUB_TOKEN.
+                return self.request(method, path, own_token=True)
             self.read_headers = self.headers
             return self.request(method, path)
         return json.loads(body) if body else None
