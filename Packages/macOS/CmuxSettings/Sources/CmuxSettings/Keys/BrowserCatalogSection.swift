@@ -45,6 +45,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserHiddenWebViewDiscardEnabled"
     )
 
+    /// Opts all browser profiles out of WebKit tracking prevention after restart.
+    public let disableTrackingPrevention = DefaultsKey<Bool>(
+        id: "browser.disableTrackingPrevention",
+        defaultValue: false,
+        userDefaultsKey: "browserDisableTrackingPrevention"
+    )
+
     public let hiddenWebViewDiscardDelaySeconds = DefaultsKey<Double>(
         id: "browser.hiddenWebViewDiscardDelaySeconds",
         defaultValue: 300,

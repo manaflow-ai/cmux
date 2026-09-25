@@ -1329,6 +1329,7 @@
         },
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
+          "disableTrackingPrevention": "Wyłącza, jeśli jest obsługiwane, ochronę przed śledzeniem WebKit i wygasanie danych z powodu nieaktywności we wszystkich profilach przeglądarki. Zmniejsza ochronę przed śledzeniem między witrynami. Po zmianie uruchom ponownie cmux. Nie zapobiega wygasaniu sesji przez witryny ani nie przywraca usuniętych danych.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
           "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
           "urlAllowlist": "Wzorce hostów lub adresów URL ograniczające nawigację w osadzonej przeglądarce. Ustawienia sugerują lokalne źródła deweloperskie; zapisanie listy włącza opcjonalne ograniczenie. Usuń wpisy, aby je zablokować, albo pozostaw wartość użytkownika pustą bez zarządzanej zasady, aby wyłączyć ograniczenie."

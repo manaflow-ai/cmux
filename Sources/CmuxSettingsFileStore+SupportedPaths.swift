@@ -132,6 +132,7 @@ extension CmuxSettingsFileStore {
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",
+        "browser.disableTrackingPrevention",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",

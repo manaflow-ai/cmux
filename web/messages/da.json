@@ -1328,6 +1328,7 @@
         },
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
+          "disableTrackingPrevention": "Deaktiverer, hvor det understøttes, WebKits sporingsbeskyttelse og udløb af lagrede data ved inaktivitet for alle browserprofiler. Mindsker beskyttelsen mod sporing på tværs af websteder. Genstart cmux efter ændringen. Forhindrer ikke websteder i at udløbe sessioner og gendanner ikke slettede data.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",
           "urlAllowlist": "Værts- eller URL-mønstre, der begrænser navigation i den indlejrede browser. Indstillinger foreslår lokale udviklingsoprindelser; når en liste gemmes, aktiveres den valgfri begrænsning. Fjern poster for at blokere dem, eller lad brugerværdien være tom uden en administreret politik for at deaktivere begrænsningen."
