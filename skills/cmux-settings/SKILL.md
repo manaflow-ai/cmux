@@ -5,7 +5,7 @@ description: "View and edit cmux settings in ~/.config/cmux/cmux.json. Use when 
 
 # cmux-settings
 
-cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). A file watcher applies changes on save, no restart. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys absent from `cmux.json`.
+cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). A file watcher applies most changes on save. `browser.disableTrackingPrevention` requires a restart because it configures browser storage policy. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys absent from `cmux.json`.
 
 Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The helper uses the schema-generated path list in `references/all-keys.md` in both checkouts and installed skills. If that reference is unavailable, it falls back to paths discoverable in `Sources/CmuxSettingsJSONPathSupport.swift`. Settings sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) share the same file.
 
@@ -49,7 +49,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
    cmux-settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
    ```
 3. Read back and `cmux-settings validate`.
-4. Tell the user it auto-reloaded, and that `cmux-settings unset <key>` reverts it.
+4. Tell the user whether the setting reloads on save or requires the restart documented in its schema description, and that `cmux-settings unset <key>` reverts it.
 
 `set` and `unset` print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing. An `invalid_config` refusal adds `issues`, the path and message of each problem the change would add.
 
@@ -84,7 +84,7 @@ Full list of settings, defaults, and descriptions: `cmux-settings list-supported
 ## Rules
 
 - Only edit `cmux.json`. Never `settings.json` unless the user explicitly asks; it is legacy and read only when a key is absent from `cmux.json`.
-- Never tell the user to restart cmux. The file watcher reloads on save.
+- Only request a restart when the setting's schema description requires it, such as `browser.disableTrackingPrevention`. Other settings reload on save.
 - Always `cmux-settings validate` after a bulk edit. Validation errors include the exact config path and violated constraint.
 - Do not blindly overwrite `actions`, `ui`, `commands`, `vault`, or `rightSidebar`; they share the file and hold hand-tuned non-settings config.
 - Shortcut action ids must match the schema enum. Look them up before binding.
