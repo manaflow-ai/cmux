@@ -13,7 +13,7 @@ extension TerminalNotificationStore {
 
     /// Opt-in `notifications.suppressWhenAppFocused` (issue #3126): when on,
     /// any notification that arrives while cmux is the active app skips the
-    /// desktop banner and phone forward, not only one for the focused surface.
+    /// desktop banner, not only one for the focused surface.
     static func isSuppressWhenAppFocusedEnabled(defaults: UserDefaults = .standard) -> Bool {
         notificationsSettings.suppressWhenAppFocused.value(in: defaults)
     }

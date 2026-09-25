@@ -990,7 +990,7 @@
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.notifications.suppressWhenAppFocused",
-          "description": "When enabled, cmux skips the desktop banner and phone push for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, and the sound and custom command still run. Off keeps showing banners for other workspaces and panes while cmux is focused."
+          "description": "When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused."
         },
         "agentPermissionPrompt": {
           "x-cmux-scopes": ["global"],

@@ -1322,7 +1322,7 @@
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。",
-          "suppressWhenAppFocused": "启用后，只要 cmux 是当前活跃的应用，cmux 就会对所有通知跳过桌面横幅和手机推送，而不仅限于获得焦点的窗格。通知仍会显示在侧边栏中，声音和自定义命令也仍会运行。关闭时，即使 cmux 获得焦点，其他 workspace 和窗格的横幅也会继续显示。",
+          "suppressWhenAppFocused": "启用后，只要 cmux 是当前活跃的应用，cmux 就会对所有通知跳过桌面横幅，而不仅限于获得焦点的窗格。通知仍会显示在侧边栏中，声音和自定义命令也仍会运行，转发到手机的行为不变。关闭时，即使 cmux 获得焦点，其他 workspace 和窗格的横幅也会继续显示。",
           "agentIdleReminder": "当代理空闲并等待你的输入时（回合结束后约 60 秒）发送通知。只要上一回合的后台工作仍在等待，就会抑制通知，避免正在运行的构建或监视器触发错误的等待提醒。",
           "soundOverrides": "按代理和提醒类型设置的稀疏通知声音覆盖。缺少的单元格使用 notifications.sound。",
           "soundOverride": "通知声音覆盖。default 使用 notifications.sound，none 禁用播放，其余值选择内置或自定义声音。"

@@ -107,9 +107,13 @@ extension AgentNotificationRegressionTests {
         key.set(enabled, in: defaults)
 
         let backgroundWorkspace = manager.addWorkspace(select: false)
-        _ = manager.addWorkspace(select: true)
+        let selectedWorkspace = manager.addWorkspace(select: true)
 
         defer {
+            for workspace in [backgroundWorkspace, selectedWorkspace]
+            where manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
             store.resetSuppressedNotificationFeedbackHandlerForTesting()

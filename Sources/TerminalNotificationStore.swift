@@ -1512,6 +1512,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         let focusState = notificationFocusState(tabId: request.tabId, surfaceId: request.surfaceId)
         let shouldSuppressExternalDelivery = Self.shouldSuppressExternalDelivery(focusState)
+        let isFocusedSurfaceArrival = focusState.isFocusedSurfaceArrival
         let notification = TerminalNotification(
             id: notificationID,
             tabId: request.tabId,
@@ -1534,7 +1535,7 @@ final class TerminalNotificationStore: ObservableObject {
         if effects.record {
             recordNotification(
                 notification,
-                isFocusedSurfaceArrival: focusState.isFocusedSurfaceArrival,
+                isFocusedSurfaceArrival: isFocusedSurfaceArrival,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
                 effects: effects,
                 now: now,
@@ -1558,6 +1559,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         deliverNotificationSideEffects(
             notification,
+            isFocusedSurfaceArrival: isFocusedSurfaceArrival,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
@@ -1638,6 +1640,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         deliverNotificationSideEffects(
             notification,
+            isFocusedSurfaceArrival: isFocusedSurfaceArrival,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
@@ -1645,6 +1648,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func deliverNotificationSideEffects(
         _ notification: TerminalNotification,
+        isFocusedSurfaceArrival: Bool,
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects
     ) {
@@ -1665,7 +1669,10 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId
         )
-        let shouldAttemptPhone = !shouldSuppressExternalDelivery
+        // `suppressWhenAppFocused` only withholds the desktop banner: the Mac
+        // may be frontmost with nobody at it, so phone forwarding keeps the
+        // exact focused-surface gate.
+        let shouldAttemptPhone = !isFocusedSurfaceArrival
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
                 phoneForwardingEnabled: PhonePushClient.shared
