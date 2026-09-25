@@ -13,9 +13,9 @@ final class WorkspaceNavigationTitleView: UIView {
     // compact SwiftUI title capsule. Keep that native slot, but give the
     // rendered capsule the same 36-point chrome and compact leading/trailing
     // treatment as the original toolbar.
-    private static let capsuleLeadingInset: CGFloat = 4
+    private static let capsuleLeadingInset: CGFloat = 0
     private static let capsuleTrailingInset: CGFloat = 10
-    private static let contentHorizontalInset: CGFloat = 6
+    private static let contentHorizontalInset: CGFloat = 10
     private static let preferredContentWidth: CGFloat = 192
 
     init() {
