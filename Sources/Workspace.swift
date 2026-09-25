@@ -639,11 +639,6 @@ extension Workspace {
                     )
                 }
                 guard let effectiveRestorableAgent else { return nil }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
@@ -655,9 +650,14 @@ extension Workspace {
                 ) {
                     return true
                 }
-                // No hook observation for this agent, or one whose liveness and
-                // shell state are both unknown, is not evidence the agent exited:
-                // fall back to shell activity and keep nil (legacy auto-resume).
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
+                // Unknown liveness stays nil so the shell state and the caller's
+                // default (`agentWasRunning ?? true`) decide. The Computer Use
+                // merge (#13055) had turned it into false.
                 return (matchingObservation?.processLiveness ?? .unknown)
                     .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],

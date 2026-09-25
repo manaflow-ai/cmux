@@ -388,6 +388,11 @@ for arch in "${ARCHS[@]}"; do
   fi
   arch_output="$TMPDIR_BUILD/cmux-cua-$arch"
   cp "$target_dir/$target/release/cmux-cua" "$arch_output"
+  # Cargo's Swift bridge can inherit absolute Xcode toolchain rpaths from the
+  # runner. Strip those from each thin slice before lipo and signing so a
+  # changed upstream build script cannot reintroduce a Gatekeeper-invalid
+  # bundled helper.
+  "$REPO_ROOT/scripts/strip-cmux-cua-rpaths.sh" "$arch_output"
   BUILT+=("$arch_output")
 done
 

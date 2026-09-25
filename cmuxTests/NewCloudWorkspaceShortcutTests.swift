@@ -15,7 +15,7 @@ import Testing
 /// rows with their live shortcut hints, and the shared action every
 /// entrypoint routes through.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 final class NewCloudWorkspaceShortcutTests {
     private final class RecordingSheetPresenter: NewMachineSheetPresenting {
         private(set) var presentCount = 0
