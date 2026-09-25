@@ -4254,7 +4254,9 @@ def app_host_product_consumers(workflow: dict) -> dict[str, dict]:
 # On a run the picker put on an owned pool, a consumer it did not place there
 # (every GUI job), and any re-run of failed jobs, takes the Blacksmith pool it
 # named on the lane's Xcode, which is the Xcode the owned label names
-# (pr_runner_pool.py). Each consumer tests its own owned_jobs key.
+# (pr_runner_pool.py). Each consumer tests its own owned_jobs key. Attempt 2
+# of a consumer the fleet refused takes the owned label once more, which
+# names the same Xcode.
 PRODUCT_RUNNER_KEYS = {
     "app-host-unit-tests": "format(' shard-{0} ', matrix.shard)",
     "cli-product-tests": "' cli-product '",
@@ -4262,7 +4264,9 @@ PRODUCT_RUNNER_KEYS = {
 
 
 def product_runner_output(key: str) -> str:
-    return ("${{ (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
+    return ("${{ github.run_attempt == 2 && contains(inputs.pr_owned_jobs, " + key + ") "
+            "&& inputs.pr_refused_retry_runner "
+            "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}")
 
 
