@@ -1050,7 +1050,7 @@ struct RestorableAgentSessionIndex: Sendable {
         if let stableSurfaceId, let candidates = candidatesByStableSurfaceId[stableSurfaceId] {
             return candidates.count > 1
         }
-        ambiguousPanelIds.contains(panelId)
+        return ambiguousPanelIds.contains(panelId)
     }
 
     /// Whether the durable index is complete for one exact workspace/panel owner.
