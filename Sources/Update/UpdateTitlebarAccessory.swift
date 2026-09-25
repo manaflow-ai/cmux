@@ -280,6 +280,12 @@ final class NotificationsAnchorRegistry {
         anchors.add(view)
     }
 
+    func visibleAnchor(in window: NSWindow) -> NSView? {
+        anchors.allObjects.first { view in
+            view.window === window
+        }
+    }
+
     func closestAnchor(in window: NSWindow, to pointInWindow: NSPoint) -> NSView? {
         anchors.allObjects
             .compactMap { view -> (view: NSView, distance: CGFloat)? in
