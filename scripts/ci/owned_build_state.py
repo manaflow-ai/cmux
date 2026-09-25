@@ -74,9 +74,10 @@ to 160 s from a seed a few commits behind. `prefer` runs on a warm Mac when
 CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
 DerivedData. It digests the workspace once and counts the inputs each would
 rebuild: those whose content differs from the kept RECORD, and from the
-seed's MANIFEST when this Mac keeps that seed (seed_derived_data.py
-CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the one with fewer changed
-inputs wins. A seed this Mac does not keep costs a download of about 190 s,
+MANIFEST of the nearest seed in this commit's history that this Mac keeps
+(seed_derived_data.py CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the
+one with fewer changed inputs wins, and the adopt that follows clones exactly
+that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 190 s,
 so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
 given. A kept DerivedData without a record replays nothing and rebuilds the
 whole `cmux` module, so any seed beats it. Every error keeps the warm path.
@@ -331,33 +332,62 @@ def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
     return sum(1 for path in now.keys() | then.keys() if now.get(path) != then.get(path))
 
 
+def nearest_kept_seed(prefix: str, revision: str) -> tuple[str, int] | None:
+    """The nearest seed in REVISION's history that this Mac keeps, and its distance.
+
+    The nearest seed in the bucket moves with every main push that reseeds, so
+    a warm Mac that never downloads would rarely keep that exact one.
+    """
+    widths = (seed.swift_jobs(), *(width for width in seed.SEEDED_JOB_WIDTHS if width != seed.swift_jobs()))
+    for distance, commit in enumerate(seed.lineage(revision)):
+        for jobs in widths:
+            key = seed.scoped(prefix, jobs) + commit
+            if seed.cached(key):
+                return key, distance
+    return None
+
+
 def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distance: int | None) -> dict[str, str]:
-    """Whether a seed should replace this warm Mac's kept DerivedData."""
-    result = {"prefer": "false"}
-    exact, distance = seed.locate(prefix, revision)
-    if distance is None:
-        result["reason"] = "no seed in this commit's history"
-        return result
-    local = seed.cached(exact)
-    result.update(seed_key=exact, seed_distance=str(distance), local="true" if local else "false")
+    """Whether a seed should replace this warm Mac's kept DerivedData.
+
+    `seed_key` and `local` tell seed_derived_data.py which kept seed to clone
+    (CMUX_SEED_EXACT), so it adopts the seed compared here, not a newer one.
+    """
+    result = {"prefer": "false", "local": "false"}
     manifest = store / DERIVED / RECORD
-    if not manifest.is_file():
-        result.update(prefer="true", reason="kept DerivedData has no input record")
-        return result
-    current = seed.warm.record(workspace)
-    kept_changed = changed_inputs(current, json.loads(manifest.read_text()))
-    result["kept_changed"] = str(kept_changed)
-    if local:
-        seed_changed = changed_inputs(current, json.loads((local / seed.MANIFEST).read_text()))
+    kept_record = json.loads(manifest.read_text()) if manifest.is_file() else None
+    current = seed.warm.record(workspace) if kept_record is not None else {}
+    kept_changed = changed_inputs(current, kept_record) if kept_record is not None else None
+    if kept_changed is not None:
+        result["kept_changed"] = str(kept_changed)
+    kept_seed = nearest_kept_seed(prefix, revision)
+    if kept_seed:
+        key, distance = kept_seed
+        result.update(seed_key=key, seed_distance=str(distance), local="true")
+        if kept_changed is None:
+            result.update(prefer="true", reason="kept DerivedData has no input record")
+            return result
+        seed_changed = changed_inputs(current, json.loads((seed.cached(key) / seed.MANIFEST).read_text()))
         result["seed_changed"] = str(seed_changed)
         if seed_changed < kept_changed:
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
-        else:
-            result["reason"] = "the kept DerivedData has no more changed inputs than the seed"
-    elif max_distance is not None and distance <= max_distance and kept_changed > 0:
-        result.update(prefer="true", reason=f"seed {distance} commits behind, within {max_distance}")
+            return result
+        result["reason"] = "the kept DerivedData has no more changed inputs than the seed this Mac keeps"
+    if max_distance is None:
+        result.setdefault("reason", "this Mac keeps no seed in this commit's history")
+        return result
+    exact, distance = seed.locate(prefix, revision)
+    if distance is None:
+        result.setdefault("reason", "no seed in this commit's history")
+        return result
+    if kept_changed == 0:
+        result["reason"] = "the kept DerivedData has no changed inputs"
+    elif distance <= max_distance:
+        result.update(prefer="true", seed_key=exact, seed_distance=str(distance), local="false",
+                      reason=f"seed {distance} commits behind, within {max_distance}"
+                      + ("" if kept_changed is not None else "; kept DerivedData has no input record"))
     else:
-        result["reason"] = "the seed is not on this Mac and not near enough to download"
+        result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
     return result
 
 

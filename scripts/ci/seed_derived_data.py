@@ -404,6 +404,7 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
             # Nothing was started for it; a leftover ticket is another job's.
             clear_download(derived)
             clone_tree(local, staging)
+            os.utime(local)  # the prune keeps the seeds in use
             key = exact
         else:
             key = await_download(derived, exact, prefix)
@@ -445,6 +446,15 @@ def adopt(source: Path, derived: Path, exact: str, prefix: str) -> dict[str, obj
         clear_download(derived)
 
 
+def chosen() -> tuple[str, int | None] | None:
+    """The kept seed owned_build_state.py `prefer` compared (CMUX_SEED_EXACT), if this Mac still has it."""
+    exact = os.environ.get("CMUX_SEED_EXACT", "")
+    if not cached(exact):
+        return None
+    distance = os.environ.get("CMUX_SEED_DISTANCE", "")
+    return exact, int(distance) if distance.isdigit() else None
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] == "record":
         record(Path(argv[2]).resolve(), Path(argv[3]))
@@ -457,7 +467,7 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) == 5 and argv[1] == "start":
         prefix, revision = argv[3], argv[4]
-        exact, distance = locate(prefix, revision)
+        exact, distance = chosen() or locate(prefix, revision)
         # The newest-pointer fallback stays within this width.
         start(Path(argv[2]), exact, scoped(prefix), revision, distance)
         return 0
@@ -468,7 +478,7 @@ def main(argv: list[str]) -> int:
         source, derived = Path(argv[2]).resolve(), Path(argv[3])
         prefix, revision = argv[4], argv[5]
         try:
-            exact, distance = picked(derived, scoped(prefix), revision) or locate(prefix, revision)
+            exact, distance = chosen() or picked(derived, scoped(prefix), revision) or locate(prefix, revision)
             result = adopt(source, derived, exact, scoped(prefix))
             if result.get("hit") == "true":
                 # Commits between the seed and REVISION; empty means the

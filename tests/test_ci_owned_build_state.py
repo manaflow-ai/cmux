@@ -301,7 +301,8 @@ class Prefer(Fixture):
     def setUp(self):
         super().setUp()
         self.cache = Path(self.tmp.name) / "seeds"
-        self.env = unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.cache)})
+        self.env = unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.cache),
+                                                          "CMUX_SEED_SWIFT_JOBS": "14"})
         self.env.start()
         self.addCleanup(self.env.stop)
         (self.workspace / "Sources").mkdir()
@@ -324,7 +325,8 @@ class Prefer(Fixture):
         (self.cache / key / state.seed.MANIFEST).write_text(json.dumps(self.recorded(changed)))
 
     def prefer(self, located=("p-j14-base", 0), max_distance=None):
-        with unittest.mock.patch.object(state.seed, "locate", return_value=located):
+        with unittest.mock.patch.object(state.seed, "locate", return_value=located), \
+             unittest.mock.patch.object(state.seed, "lineage", return_value=["base", "older", "oldest"]):
             return state.prefer(self.store, self.workspace, "p-", "base", max_distance)
 
     def test_changed_inputs_counts_edits_additions_and_deletions(self):
@@ -356,9 +358,29 @@ class Prefer(Fixture):
 
     def test_no_seed_or_no_record(self):
         self.kept(changed=3)
-        self.assertEqual(self.prefer(("p-j14-base", None))["prefer"], "false")
+        self.assertEqual(self.prefer(("p-j14-base", None), max_distance=5)["prefer"], "false")
         (self.store / "derived-data" / state.RECORD).unlink()
-        self.assertEqual(self.prefer(("p-j14-base", 9))["prefer"], "true")
+        self.assertEqual(self.prefer(("p-j14-base", 9))["prefer"], "false")
+        self.assertEqual(self.prefer(("p-j14-base", 9), max_distance=10)["prefer"], "true")
+        self.kept_seed("p-j12-oldest", changed=4)
+        result = self.prefer(("p-j14-base", None))
+        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j12-oldest"))
+
+    def test_the_nearest_kept_seed_counts_not_only_the_newest_in_the_bucket(self):
+        """The bucket's nearest seed moves with every reseed; a warm Mac that
+        never downloads keeps an older one, which still counts."""
+        self.kept(changed=5)
+        self.kept_seed("p-j14-oldest", changed=4)
+        self.kept_seed("p-j12-older", changed=2)
+        result = self.prefer(("p-j14-base", 0))
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_distance"], result["local"]),
+                         ("true", "p-j12-older", "1", "true"))
+        # The adopt that follows clones exactly that seed, never a newer one.
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": result["seed_key"],
+                                                   "CMUX_SEED_DISTANCE": result["seed_distance"]}):
+            self.assertEqual(state.seed.chosen(), ("p-j12-older", 1))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": "p-j14-gone"}):
+            self.assertIsNone(state.seed.chosen())
 
     def test_any_error_keeps_the_warm_path(self):
         output = Path(self.tmp.name) / "output"
@@ -441,6 +463,7 @@ class Wiring(unittest.TestCase):
         for step in (self.by_id["seed-derived-data"], self.step("Start the DerivedData seed download")):
             self.assertIn("steps.prefer-seed.outputs.prefer == 'true'", step["if"])
             self.assertIn("CMUX_SEED_LOCAL_CACHE", step["env"])
+            self.assertIn("steps.prefer-seed.outputs.seed_key", step["env"]["CMUX_SEED_EXACT"])
         # A preferred seed that misses still leaves the Mac warm.
         self.assertIn("steps.seed-derived-data.outputs.hit != 'true'", self.by_id["owned-adopt"]["if"])
         index = self.names.index
