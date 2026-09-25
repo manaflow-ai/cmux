@@ -9,11 +9,26 @@ final class PullRequestProbeStubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var stubs: [GitHubPullRequestStub] = []
     nonisolated(unsafe) private static var requests: [URLRequest] = []
 
-    static func reset(stubs: [GitHubPullRequestStub]) {
+    nonisolated(unsafe) private static var gatedFinishes: [String: @Sendable () -> Void] = [:]
+    nonisolated(unsafe) private static var requestSignal = GitHubPullRequestTestSignal()
+
+    @discardableResult
+    static func reset(stubs: [GitHubPullRequestStub]) -> GitHubPullRequestTestSignal {
         lock.lock()
         self.stubs = stubs
         requests = []
+        gatedFinishes = [:]
+        let signal = GitHubPullRequestTestSignal()
+        requestSignal = signal
         lock.unlock()
+        return signal
+    }
+
+    static func releaseGate(_ gate: String) {
+        lock.lock()
+        let finish = gatedFinishes.removeValue(forKey: gate)
+        lock.unlock()
+        finish?()
     }
 
     static func capturedRequests() -> [URLRequest] {
@@ -38,18 +53,22 @@ final class PullRequestProbeStubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let stub = Self.stubs.removeFirst()
+        let finish: @Sendable () -> Void = { [self] in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: stub.statusCode,
+                httpVersion: nil, headerFields: stub.headers
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: stub.data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+        if let gate = stub.gate { Self.gatedFinishes[gate] = finish }
         Self.requests.append(request)
+        let requestCount = Self.requests.count
+        let signal = Self.requestSignal
         Self.lock.unlock()
-
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: stub.statusCode,
-            httpVersion: nil,
-            headerFields: stub.headers
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: stub.data)
-        client?.urlProtocolDidFinishLoading(self)
+        Task { await signal.signal(requestCount) }
+        if stub.gate == nil { finish() }
     }
 
     override func stopLoading() {}

@@ -86,6 +86,7 @@ extension CmuxSettingsFileStore {
         "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
+        "sidebar.showPullRequestChecks",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",

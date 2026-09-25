@@ -154,6 +154,7 @@ extension CmuxSettingsFileStore {
                     "notificationMessageLineLimit": SettingCatalog().sidebar.notificationMessageLineLimit.defaultValue,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
                     "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,
+                    "showPullRequestChecks": SidebarWorkspaceDetailDefaults.showPullRequestChecks,
                     "watchGitStatus": SidebarWorkspaceDetailDefaults.watchGitStatus,
                     "makePullRequestsClickable": SettingCatalog().sidebar.makePullRequestsClickable.defaultValue,
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,

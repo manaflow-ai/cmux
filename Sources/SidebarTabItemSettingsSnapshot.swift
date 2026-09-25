@@ -19,6 +19,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let details: SidebarWorkspaceDetailSettings
     let showsGitBranchIcon: Bool
     let makesPullRequestsClickable: Bool
+    let showsPullRequestChecks: Bool
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
@@ -53,6 +54,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         makesPullRequestsClickable = settings.value(for: sidebar.makePullRequestsClickable)
+        showsPullRequestChecks = details.showPullRequestChecks
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
         )

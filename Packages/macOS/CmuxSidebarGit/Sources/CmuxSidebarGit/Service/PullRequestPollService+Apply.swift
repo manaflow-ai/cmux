@@ -109,7 +109,8 @@ extension PullRequestPollService {
                         url: url,
                         status: status,
                         branch: resolvedPullRequest.branch,
-                        isStale: false
+                        isStale: false,
+                        checks: host.pullRequestChecksEnabled && status == .open ? resolvedPullRequest.checks : nil
                     )
                 )
                 let resolvedBranch = GitMetadataService.normalizedBranchName(resolvedPullRequest.branch)
@@ -151,7 +152,7 @@ extension PullRequestPollService {
             case .transientFailure:
                 let nextFailureCount = (workspacePullRequestTransientFailureCountByKey[key] ?? 0) + 1
                 workspacePullRequestTransientFailureCountByKey[key] = nextFailureCount
-                if nextFailureCount >= 3,
+                if nextFailureCount >= 3 || host.pullRequestChecksEnabled,
                    let currentPullRequest = host.panelPullRequestBadge(
                        workspaceId: result.workspaceId,
                        panelId: result.panelId
@@ -165,7 +166,9 @@ extension PullRequestPollService {
                             url: currentPullRequest.url,
                             status: currentPullRequest.status,
                             branch: currentPullRequest.branch,
-                            isStale: true
+                            isStale: nextFailureCount >= 3,
+                            checks: host.pullRequestChecksEnabled
+                                ? PullRequestChecksSummary(status: .unavailable, checks: [], mergeStatus: .unknown) : nil
                         )
                     )
                 }

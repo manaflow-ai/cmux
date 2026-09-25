@@ -11,6 +11,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        var showsPullRequestChecks = false
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -29,6 +30,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let url: URL
         let status: SidebarPullRequestStatus
         let isStale: Bool
+        let checks: SidebarPullRequestChecks?
     }
 
     struct Snapshot: Equatable {

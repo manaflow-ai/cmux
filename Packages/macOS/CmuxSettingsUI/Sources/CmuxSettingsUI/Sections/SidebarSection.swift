@@ -22,6 +22,7 @@ public struct SidebarSection: View {
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
+    @State private var showPRChecks: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
     @State private var prLinks: DefaultsValueModel<Bool>
@@ -53,6 +54,7 @@ public struct SidebarSection: View {
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
+        _showPRChecks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequestChecks))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
         _prLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser))
@@ -82,7 +84,6 @@ public struct SidebarSection: View {
             }
         }
     }
-
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             matchTerminal,
@@ -93,7 +94,7 @@ public struct SidebarSection: View {
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
-            showPR,
+            showPR, showPRChecks,
             watchGit,
             prClickable,
             prLinks,
@@ -402,18 +403,11 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
-            SettingsCardRow(
-                configurationReview: .json("sidebar.showPullRequests"),
-                String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
-                subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status and number.")
-            ) {
-                Toggle("", isOn: Binding(get: { showPR.current }, set: { showPR.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            .disabled(hideAll.current)
-            SettingsCardDivider()
-
+            SidebarPullRequestSettingsRows(
+                showPR: Binding(get: { showPR.current }, set: { showPR.set($0) }),
+                showChecks: Binding(get: { showPRChecks.current }, set: { showPRChecks.set($0) }),
+                hideAll: hideAll.current
+            )
             SettingsCardRow(
                 configurationReview: .json("sidebar.watchGitStatus"),
                 String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"),

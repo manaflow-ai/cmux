@@ -1344,6 +1344,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "showPullRequestChecks": "Vis kompakt GitHub-kontrollstatus og flettekonflikter ved siden av pull requests i sidepanelet.",
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },

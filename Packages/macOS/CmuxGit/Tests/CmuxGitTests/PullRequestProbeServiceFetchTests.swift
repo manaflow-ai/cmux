@@ -174,6 +174,222 @@ struct PullRequestProbeServiceFetchTests {
         #expect(urls.contains { $0.contains("feat/beta") || $0.contains("feat%2Fbeta") })
         #expect(urls.allSatisfy { !hasQueryItem(named: "page", in: $0) })
     }
+
+    private func checkNode(
+        id: String = "run1", name: String = "unit", conclusion: String = "SUCCESS",
+        started: String = "2026-09-16T00:00:00Z", workflow: String = "workflow1"
+    ) -> [String: Any] {
+        ["__typename": "CheckRun", "id": id, "name": name, "status": "COMPLETED", "conclusion": conclusion,
+         "startedAt": started, "checkSuite": ["app": ["id": "app1"], "workflowRun": ["event": "pull_request", "workflow": ["id": workflow]]]]
+    }
+
+    private func checksStub(
+        sha: String = "abc123", conflict: Bool = false, nodes: [[String: Any]], cursor: String? = nil
+    ) throws -> GitHubPullRequestStub {
+        let contexts: [String: Any] = [
+            "nodes": nodes, "pageInfo": ["hasNextPage": cursor != nil, "endCursor": cursor as Any? ?? NSNull()]
+        ]
+        let commit: [String: Any] = ["oid": sha, "statusCheckRollup": ["contexts": contexts]]
+        let pr: [String: Any] = [
+            "mergeable": conflict ? "CONFLICTING" : "MERGEABLE", "mergeStateStatus": conflict ? "DIRTY" : "CLEAN",
+            "commits": ["nodes": [["commit": commit]]]
+        ]
+        return .init(statusCode: 200, data: try JSONSerialization.data(withJSONObject: ["data": ["repository": ["pullRequest": pr]]]))
+    }
+
+    @Test func optionalChecksIncludesLegacyStatusesAndMergeConflicts() async throws {
+        let legacy: [String: Any] = ["__typename": "StatusContext", "id": "status1", "context": "deploy", "state": "PENDING"]
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(conflict: true, nodes: [checkNode(), legacy])])
+        let summary = try #require(await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 8175, headSHA: "abc123"))
+        #expect(summary.status == .pending)
+        #expect(summary.mergeStatus == .conflict)
+        #expect(summary.checks.map(\.name) == ["deploy", "unit"])
+        #expect(summary.checks.map(\.status) == [.pending, .success])
+        let request = try #require(PullRequestProbeStubURLProtocol.capturedRequests().first)
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/graphql")
+    }
+
+    @Test func checksCacheSeparatesPullRequestsAndCommitHeads() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            try checksStub(nodes: [checkNode()]),
+            try checksStub(nodes: [checkNode(conclusion: "FAILURE")]),
+            try checksStub(sha: "def456", nodes: []),
+        ])
+        let service = makeService()
+        let first = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        let cached = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(first?.status == .success)
+        #expect(cached == first)
+        #expect(requestURLStrings().count == 1)
+        let second = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 2, headSHA: "abc123")
+        #expect(second?.status == .failure)
+        let pushed = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "def456")
+        #expect(pushed?.status == .neutral)
+        #expect(requestURLStrings().count == 3)
+    }
+
+    @Test func failedEndpointsNeverBecomePassingOrNoChecks() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 403)])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .unavailable)
+        #expect(summary?.mergeStatus == .unknown)
+    }
+
+    @Test func emptySuccessfulRollupIsNeutral() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: [])])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .neutral)
+        #expect(summary?.checks.isEmpty == true)
+    }
+
+    @Test func failureOnLaterPagePreventsFalseGreen() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            try checksStub(nodes: [checkNode()], cursor: "next"),
+            try checksStub(nodes: [checkNode(id: "run2", name: "integration", conclusion: "FAILURE")])
+        ])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .failure)
+        #expect(summary?.checks.count == 2)
+        #expect(requestURLStrings().count == 2)
+    }
+
+    @Test func rerunsReplaceOldAttemptsWithoutCollapsingOtherWorkflows() async throws {
+        let old = checkNode(id: "old", conclusion: "FAILURE")
+        let new = checkNode(id: "new", started: "2026-09-16T01:00:00Z")
+        let separate = checkNode(id: "other", workflow: "workflow2")
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: [new, old, separate])])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .success)
+        #expect(Set(summary?.checks.map(\.id) ?? []) == ["new", "other"])
+    }
+
+    @Test func queuedRerunSupersedesOlderPassingAttemptBeforeItStarts() async throws {
+        var old = checkNode(id: "old")
+        old["databaseId"] = 1
+        var queued = checkNode(id: "queued")
+        queued["databaseId"] = 2
+        queued["status"] = "QUEUED"
+        queued["conclusion"] = NSNull()
+        queued["startedAt"] = NSNull()
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: [queued, old])])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .pending)
+        #expect(summary?.checks.map(\.id) == ["queued"])
+    }
+
+    @Test func pushBetweenPagesDiscardsMixedCommitResults() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            try checksStub(nodes: [checkNode()], cursor: "next"),
+            try checksStub(sha: "def456", nodes: [])
+        ])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary == nil)
+    }
+
+    @Test func missingOrMismatchedHeadNeverPublishesChecks() async throws {
+        let service = makeService()
+        PullRequestProbeStubURLProtocol.reset(stubs: [])
+        #expect(await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: nil) == nil)
+        #expect(await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "") == nil)
+        #expect(requestURLStrings().isEmpty)
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(sha: "def456", nodes: [checkNode()])])
+        #expect(await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123") == nil)
+    }
+
+    @Test func invalidatedProjectionCannotRestoreCachedPassingChecks() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            try checksStub(nodes: [checkNode()]),
+            try checksStub(sha: "def456", nodes: [])
+        ])
+        let service = makeService()
+        let initial = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(initial?.status == .success)
+        let invalidated = await service.fetchPullRequestChecks(
+            repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123", allowCachedResults: false
+        )
+        #expect(invalidated == nil)
+        #expect(requestURLStrings().count == 2)
+    }
+
+    @Test(arguments: [0, 1, 2, 3, 4, 5])
+    func ambiguousQueuedAttemptNeverBecomesPassing(permutation: Int) async throws {
+        var queued = checkNode(id: "queued")
+        queued["status"] = "QUEUED"
+        queued["startedAt"] = NSNull()
+        queued["conclusion"] = NSNull()
+        let nodes = [queued, checkNode(id: "one"), checkNode(id: "two", started: "2026-09-16T02:00:00Z")]
+        let orders = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]]
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: orders[permutation].map { nodes[$0] })])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .unavailable)
+    }
+
+    @Test func disprovedHeadRejectsAnAlreadyRunningOlderPage() async throws {
+        let secondPage = try checksStub(nodes: [checkNode()])
+        let requestsStarted = PullRequestProbeStubURLProtocol.reset(stubs: [
+            try checksStub(nodes: [], cursor: "next"),
+            .init(statusCode: 200, data: secondPage.data, gate: "old-page"),
+            try checksStub(sha: "def456", nodes: []),
+            try checksStub(sha: "def456", nodes: [])
+        ])
+        defer { PullRequestProbeStubURLProtocol.releaseGate("old-page") }
+        let service = makeService()
+        let older = Task {
+            await service.fetchPullRequestChecks(
+                repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123", allowCachedResults: false
+            )
+        }
+        #expect(await requestsStarted.wait(until: 2))
+        let disproved = await service.fetchPullRequestChecks(
+            repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123", allowCachedResults: false
+        )
+        #expect(disproved == nil)
+        PullRequestProbeStubURLProtocol.releaseGate("old-page")
+        #expect(await older.value == nil)
+        let cached = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(cached == nil)
+        #expect(requestURLStrings().count == 4)
+    }
+
+    @Test(arguments: [false, true])
+    func fullWidthIdentifiersOrderQueuedReruns(reverse: Bool) async throws {
+        var old = checkNode(id: "old")
+        old["fullDatabaseId"] = "108000000001"
+        var queued = checkNode(id: "queued")
+        queued["fullDatabaseId"] = "108000000002"
+        queued["status"] = "QUEUED"
+        queued["conclusion"] = NSNull()
+        queued["startedAt"] = NSNull()
+        let nodes = reverse ? [old, queued] : [queued, old]
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: nodes)])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .pending)
+        #expect(summary?.checks.map(\.id) == ["queued"])
+    }
+
+    @Test func optionalPrimaryQuotaDoesNotDelayMetadataPolling() async throws {
+        let deadline = Date().addingTimeInterval(600)
+        PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 403, headers: [
+            "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(Int(deadline.timeIntervalSince1970))
+        ])])
+        let result = WorkspacePullRequestRefreshResult(
+            workspaceId: UUID(), panelId: UUID(),
+            resolution: .resolved(WorkspacePullRequestResolvedItem(
+                number: 1, urlString: "https://github.com/o/r/pull/1", statusRawValue: "open",
+                branch: "feature", repoSlug: repoSlug, headSHA: "abc123"
+            )), usedCachedRepoData: false
+        )
+        let enriched = await makeService().enrichPullRequestChecks([result])
+        #expect(enriched.rateLimitRetryDate == nil)
+    }
+
+    @Test func partialGraphQLErrorsCannotBecomeSuccess() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 200, data: Data("{\"errors\":[{\"message\":\"unavailable\"}]}".utf8))])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .unavailable)
+    }
+
 }
 
 /// Resolves a stable non-empty auth header so the fetch layer proceeds without a

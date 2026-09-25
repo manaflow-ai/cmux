@@ -98,6 +98,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
+| `sidebar.showPullRequestChecks` | boolean | `false` | Show optional CI checks and mergeability beside each pull request. |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |
 | `sidebar.openPortLinksInCmuxBrowser` | boolean | `true` | Open sidebar port links in the embedded cmux browser. |

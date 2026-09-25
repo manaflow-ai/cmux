@@ -33,7 +33,7 @@ XCODEBUILD_LOG = """\
 2026-09-25T05:55:55.4894300Z \tGlobalSearchLocalMonitorChainTests.visibleSearchCloses()
 2026-09-25T05:55:55.4894400Z \tcmuxTests.LegacyTests.testOld()
 2026-09-25T05:55:55.4894500Z \tSidebarHiddenPresentationTests.visibility()
-2026-09-25T05:55:55.4907210Z 
+2026-09-25T05:55:55.4907210Z
 2026-09-25T05:55:55.4907400Z \x1b[1m\x1b[31m** TEST EXECUTE FAILED **
 2026-09-25T05:55:55.4907500Z \tNotATest.after()
 """

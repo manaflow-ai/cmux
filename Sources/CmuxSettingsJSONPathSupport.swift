@@ -10,6 +10,7 @@ enum SidebarWorkspaceDetailDefaults {
 
     static let showBranchDirectoryKey = sidebar.showBranchDirectory.userDefaultsKey
     static let showPullRequestsKey = sidebar.showPullRequests.userDefaultsKey
+    static let showPullRequestChecksKey = sidebar.showPullRequestChecks.userDefaultsKey
     static let watchGitStatusKey = sidebar.watchGitStatus.userDefaultsKey
     static let showSSHKey = sidebar.showSSH.userDefaultsKey
     static let showPortsKey = sidebar.showPorts.userDefaultsKey
@@ -20,6 +21,7 @@ enum SidebarWorkspaceDetailDefaults {
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
     static let showPullRequests = sidebar.showPullRequests.defaultValue
+    static let showPullRequestChecks = sidebar.showPullRequestChecks.defaultValue
     static let watchGitStatus = sidebar.watchGitStatus.defaultValue
     static let showSSH = sidebar.showSSH.defaultValue
     static let showPorts = sidebar.showPorts.defaultValue
@@ -285,6 +287,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showPullRequests",
             defaultsKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey
+        ),
+        .init(
+            jsonKey: "showPullRequestChecks",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showPullRequestChecksKey
         ),
         .init(
             jsonKey: "watchGitStatus",

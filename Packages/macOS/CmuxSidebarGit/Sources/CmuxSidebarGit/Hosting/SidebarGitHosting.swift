@@ -87,12 +87,17 @@ public protocol SidebarGitHosting: AnyObject {
     /// Clears every workspace's sidebar pull-request badges.
     func clearAllSidebarPullRequestMetadata()
 
+    /// Clears optional check details in one traversal while preserving PR badges.
+    func clearAllSidebarPullRequestChecks()
+
     // MARK: Environment
 
     /// The active/passive/disabled work level for sidebar git metadata.
     var gitMetadataActivity: SidebarGitMetadataActivity { get }
     /// The active/passive/disabled work level for sidebar pull-request metadata.
     var pullRequestActivity: SidebarGitMetadataActivity { get }
+    /// Whether the optional GitHub checks status should be fetched and shown.
+    var pullRequestChecksEnabled: Bool { get }
     /// Whether the paired mobile host served a request within `interval`
     /// seconds (background git/PR work defers while true).
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool

@@ -57,6 +57,7 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestRefreshTask: Task<Void, Never>?
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
     var lastSidebarPullRequestActivity: SidebarGitMetadataActivity = .disabled
+    var lastSidebarPullRequestChecksEnabled = false
 
     /// Creates the poll service.
     ///
@@ -91,6 +92,7 @@ public final class PullRequestPollService: PullRequestProbing {
     public func attach(host: any SidebarGitHosting) {
         self.host = host
         lastSidebarPullRequestActivity = host.pullRequestActivity
+        lastSidebarPullRequestChecksEnabled = host.pullRequestChecksEnabled
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -247,8 +249,10 @@ public final class PullRequestPollService: PullRequestProbing {
         }
 
         let cacheBySlug = workspacePullRequestRepoCacheBySlug
-        let allowCachedResults = allowCachedResultsOverride
-            ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+        let allowCachedResults = (allowCachedResultsOverride
+            ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason))
+            && !requiresFreshPullRequestChecks(for: requestedKeys)
+        let includePullRequestChecks = host.pullRequestChecksEnabled
         let gitMetadataService = gitMetadataService
         let probeService = probeService
         let seeds = candidateSeeds
@@ -266,10 +270,17 @@ public final class PullRequestPollService: PullRequestProbing {
                 now: now,
                 allowCachedResults: allowCachedResults
             )
-            let results = PullRequestProbeService.resolveRefreshResults(
+            var results = PullRequestProbeService.resolveRefreshResults(
                 candidates: candidateResolution.candidates,
                 repoResults: repoFetch.repoResults
             )
+            var rateLimitRetryDate = repoFetch.rateLimitRetryDate
+            if includePullRequestChecks {
+                let enriched = await probeService.enrichPullRequestChecks(results, allowCachedResults: allowCachedResults)
+                results = enriched.results
+                // Enrichment returns only backoff that also affects REST.
+                rateLimitRetryDate = [rateLimitRetryDate, enriched.rateLimitRetryDate].compactMap { $0 }.max()
+            }
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -281,7 +292,7 @@ public final class PullRequestPollService: PullRequestProbing {
                     requestedKeys: keys,
                     now: Date(),
                     reason: reason,
-                    rateLimitRetryDate: repoFetch.rateLimitRetryDate
+                    rateLimitRetryDate: rateLimitRetryDate
                 )
             }
         }

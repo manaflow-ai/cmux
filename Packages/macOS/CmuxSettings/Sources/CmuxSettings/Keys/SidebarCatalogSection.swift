@@ -90,6 +90,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowPullRequest"
     )
 
+    /// Whether the compact GitHub check status is shown beside PR rows.
+    /// Disabled by default because it performs additional authenticated API
+    /// requests and is intentionally opt-in.
+    public let showPullRequestChecks = DefaultsKey<Bool>(
+        id: "sidebar.showPullRequestChecks",
+        defaultValue: false,
+        userDefaultsKey: "sidebarShowPullRequestChecks"
+    )
+
     public let watchGitStatus = DefaultsKey<Bool>(
         id: "sidebar.watchGitStatus",
         defaultValue: true,

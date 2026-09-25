@@ -118,7 +118,7 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
-    @Test func remotePwdPreservesMetadataReportedBeforeFirstTrustedDirectory() async throws {
+    @Test func remotePwdClearsMetadataReportedBeforeFirstTrustedDirectory() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
@@ -154,14 +154,11 @@ import CmuxGit
             displayLabel: nil
         )
 
-        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
-            branch: "remote-main",
-            isDirty: false
-        ))
-        #expect(host.workspaces[0].state.panels[panelId]?.badge == badge)
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
-        #expect(!host.events.contains(.clearGitBranch(workspaceId, panelId)))
-        #expect(!host.events.contains(.clearPullRequestBadge(workspaceId, panelId)))
+        #expect(host.events.contains(.clearGitBranch(workspaceId, panelId)))
+        #expect(host.events.contains(.clearPullRequestBadge(workspaceId, panelId)))
     }
 
     @Test func trustedRemoteDirectoryChangeClearsStaleMetadataWithoutLocalProbe() async throws {
