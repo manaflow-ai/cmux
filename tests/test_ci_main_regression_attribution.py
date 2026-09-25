@@ -203,11 +203,11 @@ class RankingTests(unittest.TestCase):
         a, b = pr(1, reached={"Suite"}), pr(2, reached={"Suite"})
         self.assertEqual([p.number for p in MODULE.suspects_for("Suite/t()", [a, b, pr(3)])[0]], [1, 2])
 
-    def test_a_tie_prefers_pull_requests_that_merged_unverified(self):
+    def test_a_tie_lists_pull_requests_that_merged_unverified_first(self):
         a, b = pr(1, reached={"Suite"}), pr(2, reached={"Suite"}, unverified=True)
         suspects, how = MODULE.suspects_for("Suite/t()", [a, b, pr(3, unverified=True)])
-        self.assertEqual([p.number for p in suspects], [2])
-        self.assertEqual(how, "changes code the suite names, merged unverified")
+        self.assertEqual([p.number for p in suspects], [2, 1])
+        self.assertEqual(how, "changes code the suite names")
         # The label breaks ties only: a stronger signal still wins, and no signal blames nobody.
         edits = pr(4, edited={"Suite"})
         self.assertEqual([p.number for p in MODULE.suspects_for("Suite/t()", [edits, b])[0]], [4])

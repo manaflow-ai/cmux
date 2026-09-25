@@ -20,8 +20,8 @@ its diff reaches the failing test's suite: 2 when it edits the suite
 (test_impact.py), 1 when a changed app declaration or string is named by the
 suite (reverse_test_impact.py), 0 otherwise. The top score names the
 suspects; when every score is 0 the failure is left unattributed rather than
-blaming the whole range. A tie prefers pull requests labeled merged-unverified
-(merge_receipt.py): a judging check was not green when they merged.
+blaming the whole range. A tie lists pull requests labeled merged-unverified
+(merge_receipt.py: a judging check was not green when they merged) first.
 
 `report` writes a "New since" markdown section for the tracking issue (read
 by main_full_suite.py report --extra-section) and comments once on each
@@ -257,10 +257,10 @@ def suspects_for(
         return [], "no pull request in the range reaches this suite"
     how = "edits the suite" if best == 2 else "changes code the suite names"
     tied = [pr for value, pr in scored if value == best]
-    # A pull request that merged before its checks passed breaks a tie.
-    unverified = [pr for pr in tied if pr.unverified]
-    if unverified and len(unverified) < len(tied):
-        return unverified, f"{how}, merged unverified"
+    # A pull request that merged before its checks passed is listed first in a
+    # tie; the others stay, since a verified head can still break main
+    # through an interaction with another merge.
+    tied.sort(key=lambda pr: not pr.unverified)
     return tied, how
 
 

@@ -142,10 +142,22 @@ class ReceiptTests(unittest.TestCase):
         self.assertIn("CLA Assistant (failure)", loud.body)
         self.assertFalse(loud.unverified)
 
-    def test_the_existing_receipt_comment_is_found_by_its_marker(self):
-        comments = [{"databaseId": 1, "body": "hi"}, {"databaseId": 7, "body": f"old\n{MODULE.MARKER}"}]
+    def test_the_existing_receipt_comment_is_found_by_its_marker_on_a_bot_comment(self):
+        bot, person = {"login": "github-actions"}, {"login": "someone"}
+        comments = [
+            {"databaseId": 1, "body": "hi", "author": bot},
+            {"databaseId": 3, "body": f"quoting\n{MODULE.MARKER}", "author": person},
+            {"databaseId": 7, "body": f"old\n{MODULE.MARKER}", "author": bot},
+        ]
         self.assertEqual(MODULE.existing_comment(comments), 7)
-        self.assertIsNone(MODULE.existing_comment(comments[:1]))
+        self.assertIsNone(MODULE.existing_comment(comments[:2]))
+
+    def test_check_names_are_inert_markdown(self):
+        result = MODULE.receipt(snapshot(
+            run("ci-status", required=True), run("@team <!-- hide `x`", "FAILURE"),
+        ))
+        self.assertIn("\\@team &lt;\\!-- hide \\`x\\` (failure)", result.body)
+        self.assertEqual(result.body.count("<!--"), 1)  # only the marker
 
 
 class WorkflowTests(unittest.TestCase):

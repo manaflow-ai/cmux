@@ -20,8 +20,21 @@ unless they failed.
 A pull request whose judging checks (compile admission, app-host unit tests,
 ci-status and required checks) were not all green at merge gets the
 `merged-unverified` label, which main_regression_attribution.py uses to break
-ties between suspects. The comment is idempotent through a hidden marker and
-is edited in place on a re-run.
+ties between suspects. The comment is idempotent through a hidden marker on a
+github-actions comment and is edited in place on a re-run.
+
+Known limits:
+- Only the last 100 comments are searched for the marker, so re-running this
+  on a pull request that has since gained more comments posts a second one.
+- A required check that never ran on the head has no isRequired to read, so
+  only EXPECTED checks (ci-status) are named when missing. ci-status depends
+  on the other jobs today, so that covers them.
+- A commit status keeps one context that later updates replace, so a status
+  shows its current state, not its state at merge. Statuses are noise unless
+  required.
+- With a merge queue, checks run on the merge_group commit, not the pull
+  request head, so every queued pull request would read as unverified. Gate
+  this workflow or read the merge_group commit before enabling a queue.
 """
 
 from __future__ import annotations
@@ -45,6 +58,8 @@ NOISE_RE = re.compile(
     r"^CLA |^CLA$|CLA Assistant|CLA policy guard|^welcome$|Watch owned pool jobs|\(report only\)|^changes$"
 )
 ACTIONS_APP = "github-actions"
+# The login GraphQL reports for comments this workflow's token posts.
+BOT_LOGIN = "github-actions"
 MAX_LISTED = 12
 
 # States, worst first. A group reports its worst member.
@@ -87,7 +102,8 @@ class Group:
         return bool(JUDGING_RE.search(self.name)) or any(check.required for check in self.checks)
 
     def label(self) -> str:
-        return f"{self.name} ({len(self.checks)})" if len(self.checks) > 1 else self.name
+        name = escape(self.name)
+        return f"{name} ({len(self.checks)})" if len(self.checks) > 1 else name
 
 
 def state_at(context: Mapping[str, object], merged_at: str) -> tuple[str, str]:
@@ -174,6 +190,13 @@ class Receipt:
     unverified: bool
 
 
+def escape(name: str) -> str:
+    """A check name as inert Markdown text: a pull request's own workflow can name its checks."""
+    name = " ".join(name.split())[:100]
+    name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return re.sub(r"([\\`*_\[\]#|~!@])", r"\\\1", name)
+
+
 def listed(items: list[str]) -> str:
     if len(items) <= MAX_LISTED:
         return ", ".join(items)
@@ -222,7 +245,7 @@ query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       number merged mergedAt headRefOid
       labels(first: 50) { nodes { name } }
-      comments(last: 100) { nodes { databaseId body } }
+      comments(last: 100) { nodes { databaseId body author { login } } }
     }
   }
 }
@@ -255,7 +278,11 @@ query($owner: String!, $name: String!, $oid: GitObjectID!, $number: Int!, $after
 
 
 def gh(args: list[str]) -> str:
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if result.returncode:
+        print(result.stderr, file=sys.stderr)
+        result.check_returncode()
+    return result.stdout
 
 
 def graphql(query: str, **variables: object) -> dict:
@@ -294,7 +321,8 @@ def fetch(repo: str, number: int) -> dict:
 
 def existing_comment(comments: Iterable[Mapping[str, object]]) -> int | None:
     for comment in comments:
-        if MARKER in str(comment.get("body") or ""):
+        author = str(((comment.get("author") or {}) or {}).get("login") or "")
+        if author == BOT_LOGIN and MARKER in str(comment.get("body") or ""):
             return int(comment["databaseId"])
     return None
 
