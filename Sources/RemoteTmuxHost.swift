@@ -298,24 +298,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// tiny `/bin/sh` wrapper, then `exec` it with the original arguments so both
     /// one-shot probes and `tmux -CC` use the same path behavior.
     static func tmuxRemoteCommand(arguments: [String]) -> String {
-        (["/bin/sh", "-c", tmuxResolverShellScript, "cmux-remote-tmux"] + arguments)
-            .map(shellSingleQuoted)
-            .joined(separator: " ")
+        RemoteTmuxCommandBuilder(arguments: arguments).remoteShellCommand
     }
 
     /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
-    static let tmuxNotFoundSentinel = "cmux-remote-tmux: tmux not found"
-
-    // Keep this one physical line: the remote login shell parses it before /bin/sh -c runs.
-    private static let tmuxResolverShellScript =
-        "cmux_tmux=\"\"; " +
-        "if command -v tmux >/dev/null 2>&1; then cmux_tmux=\"$(command -v tmux)\"; else " +
-        "for cmux_dir in \"$HOME/.local/bin\" \"$HOME/bin\" /opt/homebrew/bin /usr/local/bin /opt/local/bin /usr/pkg/bin /snap/bin /usr/bin /bin; do " +
-        "if [ -x \"$cmux_dir/tmux\" ]; then cmux_tmux=\"$cmux_dir/tmux\"; break; fi; done; " +
-        "if [ -z \"$cmux_tmux\" ] && [ -x /usr/libexec/path_helper ]; then eval \"$(/usr/libexec/path_helper -s 2>/dev/null)\"; " +
-        "if command -v tmux >/dev/null 2>&1; then cmux_tmux=\"$(command -v tmux)\"; fi; fi; fi; " +
-        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; " +
-        "printf '%s\\n' '\(tmuxNotFoundSentinel)' >&2; exit 127"
+    static let tmuxNotFoundSentinel = RemoteTmuxCommandBuilder.notFoundSentinel
 
     /// Returns a non-empty tmux control-mode command argument, or `nil` when the
     /// value could break the line-oriented control stream. Shell quoting is not

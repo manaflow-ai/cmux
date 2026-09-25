@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxControlSocket
 import Darwin
 import Foundation
 import Testing
@@ -28,6 +29,28 @@ private func XCTAssertEqual<T: Equatable>(
         let value1 = try expression1()
         let value2 = try expression2()
         #expect(value1 == value2, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertEqual<T: FloatingPoint>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    accuracy: T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(
+            abs(value1 - value2) <= accuracy,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
     } catch {
         Issue.record(error, sourceLocation: sourceLocation)
     }
@@ -111,6 +134,28 @@ private func XCTFail(
     sourceLocation: SourceLocation = #_sourceLocation
 ) {
     Issue.record(Comment(rawValue: message()), sourceLocation: sourceLocation)
+}
+
+@MainActor
+private final class SocketSurfaceSelectionPanel: Panel {
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .filePreview
+    let displayTitle = "Selection fixture"
+    let selection: SurfaceSelectionSnapshot
+
+    init(selection: SurfaceSelectionSnapshot) {
+        self.selection = selection
+    }
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .snapshot(selection)
+    }
 }
 
 @MainActor
@@ -221,7 +266,7 @@ final class TerminalControllerSocketSecurityTests {
     }
 
     init() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     deinit {
@@ -251,7 +296,7 @@ final class TerminalControllerSocketSecurityTests {
         try waitForSocket(at: allowAllPath)
         XCTAssertEqual(try socketMode(at: allowAllPath), 0o666)
 
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
 
         let restrictedPath = makeSocketPath("cmux-only")
         TerminalController.shared.start(
@@ -447,6 +492,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -471,6 +517,49 @@ final class TerminalControllerSocketSecurityTests {
         )
     }
 
+    @Test func testRemoteConfigureDisablesPersistentPTYForMoshTerminal() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "terminal_transport": "mosh",
+                "terminal_profile": "tmux",
+                "terminal_tmux_session": "agent-main",
+                "destination": "example.com",
+                "preserve_after_terminal_exit": true,
+                "auto_connect": false,
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true)
+        let configuration = try #require(workspace.remoteConfiguration)
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.terminalProfile.tmuxSessionName == "agent-main")
+        #expect(!configuration.preserveAfterTerminalExit)
+        #expect(configuration.persistentDaemonSlot == nil)
+        let remotePayload = try #require(response["result"] as? [String: Any])
+        let remote = try #require(remotePayload["remote"] as? [String: Any])
+        #expect(remote["terminal_profile"] as? String == "tmux")
+        #expect(remote["terminal_tmux_session"] as? String == "agent-main")
+    }
+
     @Test func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
@@ -493,6 +582,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -537,6 +627,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -560,7 +651,7 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
-    @Test func testRemoteConfigureUsesLastForwardAgentOption() throws {
+    @Test func testRemoteConfigureUsesFirstForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
         setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
@@ -582,6 +673,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -599,9 +691,9 @@ final class TerminalControllerSocketSecurityTests {
         )
 
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
-        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
-        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertEqual(workspace.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
     }
 
     @Test func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
@@ -712,6 +804,48 @@ final class TerminalControllerSocketSecurityTests {
         }
     }
 
+    @Test func testMobilePanelArtifactMethodsRunOnSocketWorker() async throws {
+        let socketPath = makeSocketPath("panel-artifact-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        for method in [
+            "mobile.panel.artifact.stat",
+            "mobile.panel.artifact.thumbnail",
+        ] {
+            let requestLine = try makeV2RequestLine(method: method, params: [:])
+            let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+            let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any], method)
+            XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch", method)
+
+            let workerEnvelope = try await sendV2RequestAsync(
+                method: method,
+                params: [:],
+                to: socketPath
+            )
+            let workerError = try XCTUnwrap(workerEnvelope["error"] as? [String: Any], method)
+            XCTAssertNotEqual(workerError["code"] as? String, "invalid_dispatch", method)
+            XCTAssertNotEqual(workerError["code"] as? String, "method_not_found", method)
+            XCTAssertNotEqual(workerError["code"] as? String, "internal_error", method)
+            XCTAssertEqual(workerError["code"] as? String, "invalid_params", method)
+        }
+
+        // Fetch requires the authenticated mobile RPC execution context; a
+        // local control socket must not bypass artifact-transfer authorization.
+        let fetchEnvelope = try await sendV2RequestAsync(
+            method: "mobile.panel.artifact.fetch",
+            params: [:],
+            to: socketPath
+        )
+        let fetchError = try XCTUnwrap(fetchEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(fetchError["code"] as? String, "method_not_found")
+    }
+
     @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
         let socketPath = makeSocketPath("v1-ping")
         let tabManager = TabManager()
@@ -804,6 +938,166 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(v1Replies, ["ERROR: Terminal surface not found"])
     }
 
+    @Test func testSurfaceReadSelectionIsDiscoverableAndServicedOnTheWorkerLane() async throws {
+        let socketPath = makeSocketPath("v2-read-selection-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let capabilitiesEnvelope = try await sendV2RequestAsync(
+            method: "system.capabilities",
+            params: [:],
+            to: socketPath
+        )
+        let capabilities = try XCTUnwrap(capabilitiesEnvelope["result"] as? [String: Any])
+        let methods = try XCTUnwrap(capabilities["methods"] as? [String])
+        XCTAssertTrue(methods.contains("surface.read_selection"))
+
+        let inline = TerminalController.shared.handleSocketLine(
+            #"{"id":"rs-main","method":"surface.read_selection","params":{}}"#
+        )
+        XCTAssertTrue(inline.contains("invalid_dispatch"), inline)
+        XCTAssertTrue(inline.contains("surface.read_selection must run off the main thread"), inline)
+
+        let envelope = try await sendV2RequestAsync(
+            method: "surface.read_selection",
+            params: ["workspace_id": workspace.id.uuidString],
+            to: socketPath
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, false)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "unavailable")
+        XCTAssertEqual(error["message"] as? String, "Selection reading is currently unavailable.")
+    }
+
+    @Test func testSurfaceReadSelectionRoutesAnyPanelAndReturnsTheCommonShape() async throws {
+        let socketPath = makeSocketPath("v2-read-selection-shape")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let panel = SocketSurfaceSelectionPanel(selection: .selected(
+            kind: .filePreview,
+            text: "let answer = 42",
+            filePath: "/tmp/Answer.swift",
+            lineRange: SurfaceSelectionLineRange(start: 7, end: 7)
+        ))
+        workspace.panels[panel.id] = panel
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let envelope = try await sendV2RequestAsync(
+            method: "surface.read_selection",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panel.id.uuidString,
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, true)
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any])
+        XCTAssertEqual(result["has_selection"] as? Bool, true)
+        XCTAssertEqual(result["kind"] as? String, "filepreview")
+        XCTAssertEqual(result["text"] as? String, "let answer = 42")
+        XCTAssertEqual(result["file_path"] as? String, "/tmp/Answer.swift")
+        XCTAssertEqual(result["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, panel.id.uuidString)
+        let lineRange = try XCTUnwrap(result["line_range"] as? [String: Any])
+        XCTAssertEqual((lineRange["start"] as? NSNumber)?.intValue, 7)
+        XCTAssertEqual((lineRange["end"] as? NSNumber)?.intValue, 7)
+        let encoded = try XCTUnwrap(result["base64"] as? String)
+        let decoded = try XCTUnwrap(Data(base64Encoded: encoded))
+        XCTAssertEqual(String(decoding: decoded, as: UTF8.self), "let answer = 42")
+    }
+
+    @Test func testSurfaceReadSelectionFailsClosedForExplicitSelectors() async throws {
+        let socketPath = makeSocketPath("v2-read-selection-invalid-selector")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        for selector in [
+            "window_id",
+            "group_id",
+            "workspace_id",
+            "surface_id",
+            "terminal_id",
+            "tab_id",
+            "pane_id",
+        ] {
+            let malformedEnvelope = try await sendV2RequestAsync(
+                method: "surface.read_selection",
+                params: [selector: "not-a-selector"],
+                to: socketPath
+            )
+            XCTAssertEqual(malformedEnvelope["ok"] as? Bool, false, selector)
+            let malformedError = try XCTUnwrap(
+                malformedEnvelope["error"] as? [String: Any],
+                selector
+            )
+            XCTAssertEqual(
+                malformedError["code"] as? String,
+                "invalid_params",
+                selector
+            )
+            XCTAssertEqual(
+                malformedError["message"] as? String,
+                "Invalid selector for `\(selector)`.",
+                selector
+            )
+            let malformedData = try XCTUnwrap(
+                malformedError["data"] as? [String: Any],
+                selector
+            )
+            XCTAssertEqual(malformedData["selector"] as? String, selector)
+        }
+
+        let missingEnvelope = try await sendV2RequestAsync(
+            method: "surface.read_selection",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "pane_id": UUID().uuidString,
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(missingEnvelope["ok"] as? Bool, false)
+        let missingError = try XCTUnwrap(missingEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(missingError["code"] as? String, "not_found")
+        XCTAssertEqual(missingError["message"] as? String, "No surface is focused.")
+    }
+
     @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
         let socketPath = makeSocketPath("v1-status-worker")
         let manager = TabManager()
@@ -879,6 +1173,10 @@ final class TerminalControllerSocketSecurityTests {
                 "terminal.replay",
                 "mobile.terminal.viewport",
                 "terminal.viewport",
+                "mobile.panel.artifact.stat",
+                // fetch is mobile-only (authenticated execution context); the
+                // local socket neither serves nor advertises it.
+                "mobile.panel.artifact.thumbnail",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
             ]
@@ -937,7 +1235,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -966,6 +1267,153 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(moved.destination.activeRemoteTerminalSessionCount, 0)
     }
 
+    @Test func testWindowDockRemoteReadinessSurvivesLaunchWorkspaceRemoval() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+        }
+
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        sourceWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let surfaceID = try #require(sourceWorkspace.focusedTerminalPanel?.id)
+        let terminalLifecycleID = try #require(
+            sourceWorkspace.focusedTerminalPanel?.surface.startupEnvironmentValue(
+                "CMUX_TERMINAL_LIFECYCLE_ID"
+            ).flatMap(UUID.init(uuidString:))
+        )
+        let windowDock = appDelegate.windowDock(forWindowId: windowID)
+        let dockPaneID = try #require(windowDock.bonsplitController.allPaneIds.first)
+        let ownedConfiguration = try #require(sourceWorkspace.remoteConfiguration)
+        let transfer = try #require(sourceWorkspace.detachSurface(panelId: surfaceID))
+        #expect(transfer.remoteCleanupConfiguration == ownedConfiguration)
+        #expect(
+            windowDock.attachDetachedSurface(transfer, inPane: dockPaneID, focus: false)
+                == surfaceID
+        )
+
+        manager.closeWorkspace(sourceWorkspace)
+        #expect(!manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
+
+        let attemptID = UUID()
+        guard case .resolved = TerminalController.shared
+            .controlWorkspaceRemoteTerminalSessionLaunching(
+                workspaceID: sourceWorkspace.id,
+                surfaceID: surfaceID,
+                terminalLifecycleID: terminalLifecycleID,
+                attemptID: attemptID
+            ) else {
+            Issue.record("window Dock lost launch-attempt ownership with its launch workspace")
+            return
+        }
+
+        #expect(TerminalController.shared.controlWorkspaceRemoteTerminalSessionConnected(
+            workspaceID: sourceWorkspace.id,
+            surfaceID: surfaceID,
+            authority: .relayPort(
+                64_012,
+                terminalLifecycleID: terminalLifecycleID
+            ),
+            attemptID: attemptID
+        ) == .notFound)
+
+        guard case .resolved(
+            let resolvedWindowID,
+            let resolvedWorkspaceID,
+            let remoteStatus
+        ) = TerminalController.shared.controlWorkspaceRemoteTerminalSessionConnected(
+            workspaceID: sourceWorkspace.id,
+            surfaceID: surfaceID,
+            authority: .relayPort(
+                64_011,
+                terminalLifecycleID: terminalLifecycleID
+            ),
+            attemptID: attemptID
+        ) else {
+            Issue.record("window Dock lost readiness ownership with its launch workspace")
+            return
+        }
+        #expect(resolvedWindowID == windowID)
+        #expect(resolvedWorkspaceID == nil)
+        #expect(remoteStatus == .object([:]))
+    }
+
+    @Test func testRelayReadinessRejectsAnotherTerminalProcessGeneration() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+        }
+        let socketPath = makeSocketPath("relay-generation")
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: socketPath,
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let surfaceID = try #require(workspace.focusedTerminalPanel?.id)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.terminal_session_connected",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "relay_port": 64_011,
+                "terminal_lifecycle_id": UUID().uuidString,
+                "attempt_id": UUID().uuidString,
+            ],
+            to: socketPath
+        )
+
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "not_found")
+        #expect(
+            workspace.remoteTerminalSessionStatesBySurfaceId[surfaceID]?.phase
+                == .launching
+        )
+    }
+
     @Test func testRemotePTYRejectsWorkspaceSurfaceMismatchWithoutMovedSurfaceOptIn() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -975,7 +1423,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -1017,7 +1468,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -1070,7 +1524,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -1522,6 +1979,69 @@ final class TerminalControllerSocketSecurityTests {
         #expect(abs(browserPanel.currentPageZoomFactor() - 1.4) < 0.000_001)
     }
 
+    @Test func browserZoomSetAcceptsNumericValueAndExplicitSurfaceAlias() throws {
+        let manager = TabManager()
+        let defaults = UserDefaults.standard
+        let defaultZoomKey = "browserDefaultZoomLevel"
+        // Snapshot the persisted value, not object(forKey:): the resolved value
+        // includes the fallback registered by BrowserPanel's defaults bootstrap,
+        // and the restore below would persist that fallback for a key that was
+        // never actually written.
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let previousDefaultZoom = defaults.persistentDomain(forName: domainName)?[defaultZoomKey]
+        defaults.set(0.8, forKey: defaultZoomKey)
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            if let previousDefaultZoom {
+                defaults.set(previousDefaultZoom, forKey: defaultZoomKey)
+            } else {
+                defaults.removeObject(forKey: defaultZoomKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let focusedBrowser = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        let targetBrowser = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        XCTAssertTrue(focusedBrowser.setPageZoomFactor(1.2))
+        XCTAssertTrue(targetBrowser.setPageZoomFactor(1.4))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = try handleV2Request(
+            method: "browser.zoom.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface": targetBrowser.id.uuidString,
+                "zoom": 0.8,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(Double(targetBrowser.currentPageZoomFactor()), 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(Double(focusedBrowser.currentPageZoomFactor()), 1.2, accuracy: 0.000_001)
+
+        let resetResponse = try handleV2Request(
+            method: "browser.zoom.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface": targetBrowser.id.uuidString,
+                "direction": "reset",
+            ]
+        )
+        XCTAssertEqual(resetResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(resetResponse)")
+        XCTAssertEqual(Double(targetBrowser.currentPageZoomFactor()), 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(Double(focusedBrowser.currentPageZoomFactor()), 1.2, accuracy: 0.000_001)
+    }
+
     @Test func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer {
@@ -1892,5 +2412,77 @@ private final class WorkerLaneReplyBox: @unchecked Sendable {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
         }
         return try result.get()
+    }
+}
+
+
+@Suite("Control handle ordinal persistence")
+struct ControlHandleOrdinalPersistenceTests {
+    @Test func firstUpgradedLaunchLeavesLegacyLowRefsUnknown() throws {
+        let suite = "cmux-control-handle-legacy-floor-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = ControlHandleOrdinalDefaultsStore(defaults: defaults)
+        var registry = store.makeRegistry()
+        let id = UUID()
+
+        #expect(
+            registry.ensureRef(kind: .surface, uuid: id)
+                == "surface:\(ControlHandleOrdinalDefaultsStore.defaultMigrationFloor)"
+        )
+        #expect(registry.uuid(forRef: "surface:1") == nil)
+    }
+
+    @Test func aLaterLaunchStartsOutsideThePriorReservation() throws {
+        let suite = "cmux-control-handle-ordinals-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let firstStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 100,
+            reservationSize: 3
+        )
+        var firstRegistry = firstStore.makeRegistry()
+        let firstID = UUID()
+        let firstRef = firstRegistry.ensureRef(kind: .surface, uuid: firstID)
+        #expect(firstRef == "surface:100")
+
+        let secondStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 100,
+            reservationSize: 3
+        )
+        var secondRegistry = secondStore.makeRegistry()
+        let secondID = UUID()
+        let secondRef = secondRegistry.ensureRef(kind: .surface, uuid: secondID)
+
+        #expect(secondRef == "surface:103")
+        #expect(secondRegistry.uuid(forRef: firstRef) == nil)
+        #expect(secondRegistry.uuid(forRef: secondRef) == secondID)
+    }
+
+    @Test func exhaustingAReservationAdvancesTheNextLaunch() throws {
+        let suite = "cmux-control-handle-ordinal-extension-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let firstStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 200,
+            reservationSize: 2
+        )
+        var firstRegistry = firstStore.makeRegistry()
+        #expect(firstRegistry.ensureRef(kind: .surface, uuid: UUID()) == "surface:200")
+        #expect(firstRegistry.ensureRef(kind: .surface, uuid: UUID()) == "surface:201")
+
+        let secondStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 200,
+            reservationSize: 2
+        )
+        var secondRegistry = secondStore.makeRegistry()
+        #expect(secondRegistry.ensureRef(kind: .surface, uuid: UUID()) == "surface:204")
     }
 }

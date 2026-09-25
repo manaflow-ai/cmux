@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCommandPalette
 import AppKit
 import Foundation
@@ -5,6 +6,7 @@ import Foundation
 extension ContentView {
     static let commandPaletteAuthSignInCommandId = "palette.auth.signIn"
     static let commandPaletteAuthSignOutCommandId = "palette.auth.signOut"
+    static let commandPaletteAuthTeamPickerCommandId = "palette.auth.teamPicker"
 
     static func commandPaletteAuthCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
@@ -32,6 +34,16 @@ extension ContentView {
                         && !context.bool(CommandPaletteContextKeys.authWorking)
                 }
             ),
+            CommandPaletteCommandContribution(
+                commandId: commandPaletteAuthTeamPickerCommandId,
+                title: constant(String(localized: "command.auth.teamPicker.title", defaultValue: "Open Team Picker")),
+                subtitle: constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud")),
+                keywords: ["account", "auth", "team", "teams", "switch", "create"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.authSignedIn)
+                        && !context.bool(CommandPaletteContextKeys.authWorking)
+                }
+            ),
         ]
     }
 
@@ -44,7 +56,7 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            auth.browserSignIn.beginSignIn()
+            auth.accountFlow.startSignIn()
         }
         registry.register(commandId: Self.commandPaletteAuthSignOutCommandId) {
 #if DEBUG
@@ -55,14 +67,19 @@ extension ContentView {
                 return
             }
             Task { @MainActor in
-                await auth.browserSignIn.signOut()
+                await auth.accountFlow.signOut()
             }
+        }
+        registry.register(commandId: Self.commandPaletteAuthTeamPickerCommandId) {
+            _ = AppDelegate.shared?.openCloudTeamPicker(
+                preferredWindow: tabManager.window,
+                debugSource: "palette.auth.teamPicker"
+            )
         }
     }
 }
 
 extension ContentView {
-    static let commandPaletteCloudOpenCommandId = "palette.cloud.open"
     static let commandPaletteCloudForkCommandId = "palette.cloud.fork"
     static let commandPaletteCloudSnapshotCommandId = "palette.cloud.snapshot"
     static let commandPaletteCloudRestoreCommandId = "palette.cloud.restore"
@@ -71,21 +88,25 @@ extension ContentView {
     static let commandPaletteCloudPortsCommandId = "palette.cloud.ports"
     static let commandPaletteCloudToolsCommandId = "palette.cloud.tools"
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
+    static let commandPaletteCloudNewMachineCommandId = "palette.cloud.newMachine"
 
-    static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
+    static func commandPaletteCloudCommandContributions(
+        isAuthenticated: Bool? = nil
+    ) -> [CommandPaletteCommandContribution] {
         // Feature-gated: hide every Cloud VM command from the palette when the
         // Cloud VM UI flag is off, matching the dropdown and shortcut gates.
-        guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { return [] }
+        guard CloudMachinesFeature.isEnabled,
+              isAuthenticated ?? (AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true) else { return [] }
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
         let subtitle = constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud"))
         return [
             CommandPaletteCommandContribution(
-                commandId: commandPaletteCloudOpenCommandId,
-                title: constant(String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")),
+                commandId: commandPaletteCloudNewMachineCommandId,
+                title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine\u{2026}")),
                 subtitle: subtitle,
-                keywords: ["base", "cloud", "vm", "ssh", "sshd", "open", "reconnect"]
+                keywords: ["cloud", "vm", "machine", "new", "create", "desktop", "base"]
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudForkCommandId,
@@ -139,8 +160,11 @@ extension ContentView {
     }
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: Self.commandPaletteCloudOpenCommandId) {
-            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "palette.cloud.open")
+        registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
+            _ = AppDelegate.shared?.performNewCloudMachineAction(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                debugSource: "palette.cloud.newMachine"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudForkCommandId) {
             _ = AppDelegate.shared?.performCurrentCloudVMCommand(.fork, debugSource: "palette.cloud.fork")

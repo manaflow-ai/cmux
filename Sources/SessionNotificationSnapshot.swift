@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 struct SessionNotificationSnapshot: Codable, Sendable {
@@ -9,8 +10,12 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var isRead: Bool
     var paneFlash: Bool?
     var retargetsToLiveSurfaceOwner: Bool?
+    var correlationKey: String?
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    /// Agent/alert identity used if a restored notification is redelivered.
+    /// Optional keeps snapshots written before per-agent sounds compatible.
+    var soundContext: NotificationSoundOverrideContext?
 
     init(
         id: UUID,
@@ -21,8 +26,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         isRead: Bool,
         paneFlash: Bool? = nil,
         retargetsToLiveSurfaceOwner: Bool? = nil,
+        correlationKey: String? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         self.id = id
         self.title = title
@@ -32,8 +39,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.isRead = isRead
         self.paneFlash = paneFlash
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.correlationKey = correlationKey
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.soundContext = soundContext
     }
 
     init(notification: TerminalNotification) {
@@ -49,8 +58,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
+            correlationKey: notification.correlationKey,
             scrollPosition: persistedScrollPosition,
-            clickAction: notification.clickAction
+            clickAction: notification.clickAction,
+            soundContext: notification.soundContext
         )
     }
 
@@ -64,6 +75,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             surfaceId: surfaceId,
             panelId: panelId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner ?? true,
+            correlationKey: correlationKey,
             title: title,
             subtitle: subtitle,
             body: body,
@@ -71,7 +83,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             isRead: isRead,
             paneFlash: paneFlash ?? true,
             scrollPosition: restoredScrollPosition,
-            clickAction: clickAction
+            clickAction: clickAction,
+            soundContext: soundContext
         )
     }
 }

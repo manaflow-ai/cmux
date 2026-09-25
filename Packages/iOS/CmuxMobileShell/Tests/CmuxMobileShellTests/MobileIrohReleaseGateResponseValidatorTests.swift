@@ -1,11 +1,76 @@
 #if DEBUG
 import CmuxAgentChat
+import CmuxMobileRPC
 import CmuxMobileShell
 import Foundation
 import Testing
 @testable import CmuxMobileShellReleaseGateSupport
 
 struct MobileIrohReleaseGateResponseValidatorTests {
+    @Test func validatesCompleteUniqueRPCMethodInventory() throws {
+        let required: Set<String> = ["workspace.list", "terminal.input"]
+        let complete = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 1,
+            "methods": ["terminal.input", "workspace.list"],
+        ])
+        let missing = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 1,
+            "methods": ["workspace.list"],
+        ])
+        let duplicate = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 1,
+            "methods": ["workspace.list", "workspace.list", "terminal.input"],
+        ])
+
+        #expect(MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
+            complete,
+            required: required
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
+            missing,
+            required: required
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
+            duplicate,
+            required: required
+        ))
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                complete,
+                required: required
+            ) == nil
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                missing,
+                required: required
+            ) == .missingMethods
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                duplicate,
+                required: required
+            ) == .duplicateMethods
+        )
+
+        let wrongSchema = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 2,
+            "methods": ["terminal.input", "workspace.list"],
+        ])
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                wrongSchema,
+                required: required
+            ) == .schemaMismatch
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                Data("[]".utf8),
+                required: required
+            ) == .malformed
+        )
+    }
+
     @Test
     func independentEventsRequireExactStreamAndIrohLaneThenRemoval() throws {
         let streamID = "gate-stream"
@@ -27,6 +92,16 @@ struct MobileIrohReleaseGateResponseValidatorTests {
             subscribed,
             expectedStreamID: streamID
         ))
+        #expect(MobileIrohReleaseGateResponseValidator.independentEventSubscription(
+            subscribed,
+            expectedStreamID: streamID,
+            expectedAlreadySubscribed: false
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.independentEventSubscription(
+            subscribed,
+            expectedStreamID: streamID,
+            expectedAlreadySubscribed: true
+        ))
         #expect(!MobileIrohReleaseGateResponseValidator.independentEventSubscription(
             controlFallback,
             expectedStreamID: streamID
@@ -34,6 +109,80 @@ struct MobileIrohReleaseGateResponseValidatorTests {
         #expect(MobileIrohReleaseGateResponseValidator.independentEventUnsubscription(
             unsubscribed,
             expectedStreamID: streamID
+        ))
+    }
+
+    @Test
+    func artifactContinuityRequiresTheExactAuthorizedPathAndLaneDescriptor() throws {
+        let path = "/tmp/cmux-iroh-gate.txt"
+        let scan = try ChatWireCoding().encode(TerminalArtifactScanResponse(artifacts: [
+            TerminalArtifactReference(
+                path: path,
+                kind: .text,
+                displayName: "cmux-iroh-gate.txt",
+                size: 12
+            ),
+        ]))
+        let descriptor = ChatArtifactLaneDescriptor(
+            resourceID: "opaque-resource",
+            totalSize: 12,
+            expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let encodedDescriptor = try ChatWireCoding().encode(descriptor)
+
+        #expect(MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: path
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/tmp/other.txt"
+        ))
+        #expect(
+            MobileIrohReleaseGateResponseValidator.artifactLaneDescriptor(encodedDescriptor)
+                == descriptor
+        )
+
+        let stat = ChatArtifactStat(
+            exists: true,
+            isDirectory: false,
+            size: 12,
+            modifiedAt: Date(timeIntervalSince1970: 2_000_000_000),
+            kind: .text
+        )
+        let encodedStat = try ChatWireCoding().encode(stat)
+        #expect(MobileIrohReleaseGateResponseValidator.artifactStat(
+            encodedStat,
+            expectedSize: 12
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.artifactStat(
+            encodedStat,
+            expectedSize: 13
+        ))
+    }
+
+    @Test
+    func artifactContinuityAcceptsTheCanonicalMacOSTemporaryDirectoryAlias() throws {
+        let scan = try ChatWireCoding().encode(TerminalArtifactScanResponse(artifacts: [
+            TerminalArtifactReference(
+                path: "/private/tmp/cmux-iroh-gate-test.bin",
+                kind: .binary,
+                displayName: "cmux-iroh-gate-test.bin",
+                size: 12
+            ),
+        ]))
+
+        #expect(MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/tmp/cmux-iroh-gate-test.bin"
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/tmp/cmux-iroh-gate-other.bin"
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/var/tmp/cmux-iroh-gate-test.bin"
         ))
     }
 

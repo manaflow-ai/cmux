@@ -9,6 +9,33 @@ import Testing
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    @Test func allHiddenReconnectSweepPreservesHintAndNeverDialsHiddenTarget() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+
+        await store.hideMac(macDeviceID: "test-mac")
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.hasHiddenComputers)
+        #expect(store.hasKnownPairedMac)
+        #expect(store.workspaceListConnectionStatus == .connected)
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+
+        #expect(factory.attemptedKinds().isEmpty)
+        #expect(store.hasKnownPairedMac)
+        #expect(store.workspaceListConnectionStatus == .connected)
+    }
+
     @Test func manualReconnectRedialsWhenLiveStreamIsUnavailableButRPCStateIsConnected() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -38,7 +65,9 @@ extension ReconnectRouteSelectionTests {
 
         #expect(factory.attemptedKinds() == [.iroh, .iroh])
         #expect(store.connectionState == .connected)
-        #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(try await pollUntil(attempts: 1_000) {
+            store.workspaceListConnectionStatus == .connected
+        })
     }
 
     @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {
@@ -792,6 +821,8 @@ extension ReconnectRouteSelectionTests {
         #expect(await store.switchToMac(macDeviceID: "mac-b"))
         #expect(store.foregroundMacDeviceID == "mac-b")
         #expect(store.activeRoute?.id == macBIroh.id)
+        #expect(store.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
+        #expect(store.liveMacConnections.map(\.role) == [.focused, .control])
         #expect(await registry.counts() == .init(list: 1, fresh: 0))
     }
 

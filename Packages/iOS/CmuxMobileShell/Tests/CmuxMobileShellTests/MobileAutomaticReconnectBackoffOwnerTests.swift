@@ -130,4 +130,28 @@ struct MobileAutomaticReconnectBackoffOwnerTests {
         #expect(owner.retryAt == nil)
         #expect(owner.transientFailureCount == 0)
     }
+
+    @MainActor
+    @Test
+    func foregroundRecoveryClearsTransientCooldown() async throws {
+        let (pairedStore, directory) = try ReconnectRouteSelectionTests()
+            .makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "account-a"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "foreground-backoff-\(UUID().uuidString)"
+            )!
+        )
+        store.recordTransientAutomaticReconnectBackoff(accountID: "account-a")
+        #expect(store.automaticReconnectBackoffOwner.transientRetryAt != nil)
+
+        store.recoverMobileConnection(trigger: .foreground)
+
+        #expect(store.automaticReconnectBackoffOwner.transientRetryAt == nil)
+        store.connectionRecoveryOwner.cancel()
+    }
 }

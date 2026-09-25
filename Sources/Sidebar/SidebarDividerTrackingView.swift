@@ -48,10 +48,15 @@ final class SidebarDividerTrackingView: NSView {
         diagnosticsInstalled = true
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
             if let contentView = event.window?.contentView {
-                let point = contentView.convert(event.locationInWindow, from: nil)
-                let hit = contentView.hitTest(point)
+                let location = event.locationInWindow
+                let hit = contentView.cmuxHitTest(windowPoint: location)
+                // macOS 26 can deliver events whose window location is
+                // non-finite; `Int(_:)` traps on NaN/infinity and takes the
+                // whole app down from this log line. `%.0f` formats any
+                // Double without trapping ("nan"/"inf" for the odd ones).
+                let x = String(format: "%.0f", location.x)
                 cmuxDebugLog(
-                    "sidebar.divider.downRouting x=\(Int(event.locationInWindow.x)) " +
+                    "sidebar.divider.downRouting x=\(x) " +
                     "hit=\(hit.map { String(describing: type(of: $0)) } ?? "nil")"
                 )
             }
@@ -76,6 +81,12 @@ final class SidebarDividerTrackingView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
+        trackMouseDown(with: event, in: window)
+    }
+
+    /// Keeps a portal-owned drag on its original window during tracker reparenting.
+    func trackMouseDown(with event: NSEvent, in window: NSWindow) {
+        guard event.window === window else { return }
         onBegan?()
         let startX = event.locationInWindow.x
         var eventCount = 0

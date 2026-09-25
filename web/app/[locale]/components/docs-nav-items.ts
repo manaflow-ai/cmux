@@ -6,6 +6,7 @@ import {
 import {
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
 
@@ -66,6 +67,12 @@ export function hasNavItemContent(item: NavLink, locale: string): boolean {
 
 export const navItems: NavEntry[] = [
   { titleKey: "gettingStarted", href: "/docs/getting-started" },
+  {
+    titleKey: "tui",
+    href: "/docs/tui",
+    locales: fallbackContentLocales,
+    contentLocales: fallbackContentLocales,
+  },
   { titleKey: "concepts", href: "/docs/concepts" },
   { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
   { titleKey: "workspaceGroups", href: "/docs/workspace-groups" },
@@ -78,12 +85,19 @@ export const navItems: NavEntry[] = [
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
   { titleKey: "apiReference", href: "/docs/api" },
+  { titleKey: "computerUse", href: "/docs/computer-use" },
   { titleKey: "browserAutomation", href: "/docs/browser-automation" },
   { titleKey: "skills", href: "/docs/skills" },
   { titleKey: "notifications", href: "/docs/notifications" },
   { titleKey: "ssh", href: "/docs/ssh" },
   { titleKey: "ios", href: "/docs/ios" },
   { titleKey: "remoteTmux", href: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
+  {
+    titleKey: "managedPolicies",
+    href: "/docs/managed-policies",
+    locales: managedPoliciesDocsLocales,
+    contentLocales: managedPoliciesDocsLocales,
+  },
   {
     sectionKey: "agentIntegrations",
     children: [

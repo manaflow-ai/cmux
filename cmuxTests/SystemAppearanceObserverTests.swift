@@ -342,3 +342,45 @@ struct SystemAppearanceObserverTests {
         #expect(harness.startObservationCallCount == 2)
     }
 }
+
+@MainActor
+@Suite("Ghostty surface configuration refresh")
+struct GhosttySurfaceConfigurationRefreshTests {
+    // Regression: https://github.com/manaflow-ai/cmux/issues/9588
+    // Surface-targeted Ghostty reloads must install the newly resolved config
+    // before applying its color scheme. Otherwise a light background can be
+    // paired with the previous near-white foreground.
+    @Test
+    func surfaceConfigReloadPreservesHardReloadAndUpdatesConfigBeforeColorScheme() throws {
+        let fakeSurface = try #require(UnsafeMutableRawPointer(bitPattern: 0x9588))
+        var events: [String] = []
+
+        GhosttySurfaceConfigurationRefresh.applyConfigurationReload(
+            to: fakeSurface,
+            soft: false,
+            source: "action.reload_config.surface:test",
+            redrawReason: "surface.reloadConfig",
+            reloadSurfaceConfiguration: { surface, soft, source in
+                #expect(surface == fakeSurface)
+                #expect(!soft)
+                events.append("reload:\(source)")
+            },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
+            refreshHostBackground: {
+                events.append("host-background")
+            },
+            forceRefresh: { reason in
+                events.append("force-refresh:\(reason)")
+            }
+        )
+
+        #expect(events == [
+            "reload:action.reload_config.surface:test",
+            "color-scheme",
+            "host-background",
+            "force-refresh:surface.reloadConfig"
+        ])
+    }
+}
