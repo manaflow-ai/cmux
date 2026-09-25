@@ -46,13 +46,21 @@ struct IrxMacPeerAuthorizationTests {
         #expect(authority.authorizedPeer(endpointID: endpoint) == nil)
     }
 
+    @Test("Mac host authorization does not depend on iOS pairing")
+    func acceptsMacOnlyHostPermission() throws {
+        let state = cache(peer: record(device: device, endpoint: endpoint, enabled: false))
+        let selected = try IrxMacPeerAuthorization(deviceID: device, tag: "feature", endpointID: endpoint)
+            .resolve(cache: state, localIdentity: state.identity, now: Date(timeIntervalSince1970: 1001))
+        #expect(selected.descriptor.metadata.pairingEnabled == false)
+        #expect(selected.descriptor.metadata.capabilities.contains("cmux.mac-host.v1"))
+    }
+
     @Test("Remote identities and disabled hosts fail closed")
     func rejectsUntrustedPeer() throws {
         let intent = IrxMacPeerAuthorization(deviceID: device, tag: "feature", endpointID: endpoint)
         let invalid = [
             record(device: device, endpoint: endpoint, tag: "other"),
             record(device: device, endpoint: endpoint, user: "other"),
-            record(device: device, endpoint: endpoint, enabled: false),
             record(device: device, endpoint: endpoint, revoked: true),
             record(device: local, endpoint: endpoint)
         ]

@@ -186,7 +186,14 @@ public final class V2InboundAdmissionAuthority: Sendable {
             return clear(&current)
         }
         current.localRecordID = own.deviceRecordID
-        guard own.descriptor.metadata.pairingEnabled else { return clear(&current) }
+        // iOS pairing and Mac incoming hosting are independent capabilities.
+        // A Mac-only host keeps an inbound authority even when its legacy iOS
+        // pairing switch is off; the host capability is itself opt-in and the
+        // runtime still applies the incoming-access policy per peer.
+        guard own.descriptor.metadata.pairingEnabled
+                || own.descriptor.metadata.capabilities.contains("cmux.mac-host.v1") else {
+            return clear(&current)
+        }
         guard let directory = cache.directory else { return clear(&current) }
         guard directory.teamID == host.identity.teamID, directory.nextCursor == nil,
               (directory.inboundPeers?.count ?? 0) <= 4096 else { return clear(&current) }

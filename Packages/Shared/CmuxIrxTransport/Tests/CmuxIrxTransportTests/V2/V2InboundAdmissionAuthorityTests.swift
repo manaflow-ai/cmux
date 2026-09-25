@@ -70,6 +70,37 @@ struct V2InboundAdmissionAuthorityTests {
         #expect(authority.nextExpiration == nil)
     }
 
+    @Test func macOnlyHostKeepsMacInboundAuthorityWhenPairingIsOff() throws {
+        let base = device()
+        let host = V2DeviceDescriptor(
+            endpointID: base.endpointID,
+            identity: base.identity,
+            identityGeneration: base.identityGeneration,
+            metadata: V2DeviceMetadata(
+                appVersion: base.metadata.appVersion,
+                capabilities: ["cmux.mac-host.v1"],
+                displayName: base.metadata.displayName,
+                pairingEnabled: false,
+                platform: .mac,
+                relayURLs: []
+            )
+        )
+        let mac = V2DeviceRecord(
+            descriptor: device(key: "b", deviceID: "peer", platform: .mac),
+            deviceRecordID: "peer-record",
+            revision: 1,
+            revoked: false
+        )
+        let permission = V2InboundPeerPermission(device: mac, permissionExpiresAt: timestamp + 100)
+        let authority = try V2InboundAdmissionAuthority(
+            host: host,
+            wallNow: { Date(timeIntervalSince1970: TimeInterval(timestamp)) },
+            monotonicNow: { .now }
+        )
+        #expect(authority.restore(cache(peers: [permission], outbound: [mac], host: host)))
+        #expect(authority.authorizedPeer(endpointID: mac.descriptor.endpointID) != nil)
+    }
+
     @Test(arguments: [V2Platform.mac, .ios])
     func knowingAnEndpointIDNeverReplacesPermission(platform: V2Platform) throws {
         let authority = try authority(V2AdmissionTestClock(wall: timestamp))

@@ -98,7 +98,7 @@ export class PermissionTestDO {
           const descriptor = {
             identity: { ...scope, userId: "alice", deviceId: name, appNamespace: "com.cmuxterm.app.nightly", buildTag: "nightly" },
             endpointId: key.repeat(64), identityGeneration: 0,
-            metadata: { platform: "mac" as const, displayName: name, appVersion: "0.64.25-nightly.1", pairingEnabled: true,
+            metadata: { platform: "mac" as const, displayName: name, appVersion: "0.64.25-nightly.1", pairingEnabled: name !== "nightly-host",
               capabilities: [...capabilities], relayURLs: ["https://relay.test"] },
           };
           const challenge = { challengeId: name, nonceHash: name, payloadHash: name, issuedAt: 1000, expiresAt: 2800 };
