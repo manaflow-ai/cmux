@@ -4,8 +4,9 @@
 main_full_suite.py keeps one issue open while main's full suite is red, but a
 red run lists failing jobs, not what broke them, and nobody is told. This
 reads a red full-suite run and finds its new failures: app-host tests the
-shard ratchet reported as RATCHET_NEW_FAILURE (so not in the known-failures
-catalog) that did not fail in the previous full-suite run whose app-host
+shard ratchet reported as RATCHET_NEW_FAILURE, or xcodebuild listed under
+"Failing tests:" in a batch the ratchet does not grade, that are not in the
+known-failures catalog and did not fail in the previous full-suite run whose app-host
 shards all finished and graded every test.
 
 Each new failure is attributed to the commits between the two runs' head
@@ -43,11 +44,21 @@ import main_full_suite as suite_run  # noqa: E402
 
 APP_HOST_JOB_RE = re.compile(r"app-host unit tests \(\d+/\d+\)")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-# One ratchet verdict per line, after the runner's timestamp.
-RATCHET_RE = re.compile(r"^(?:\S+Z )?RATCHET_NEW_FAILURE (\S+)\s*$")
+TIMESTAMP_RE = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+# One ratchet verdict per line.
+RATCHET_RE = re.compile(r"^RATCHET_NEW_FAILURE (\S+)\s*$")
+# xcodebuild's closing "Failing tests:" block, one tab-indented `Suite.test()`
+# per line. Batches the ratchet does not grade (dedicated lanes such as the
+# global-search shortcuts batch) name their failures only here.
+FAILING_TESTS_HEADER = "Failing tests:"
+FAILING_TEST_RE = re.compile(r"^\t(?:cmuxTests\.)?([A-Za-z_][\w.]*)\.([A-Za-z_]\w*\(.*\))\s*$")
+EXECUTION_FAILED_MARKERS = ("** TEST EXECUTE FAILED **", "** TEST FAILED **")
 RAN_CONCLUSIONS = frozenset({"success", "failure"})
 # app_host_result_accounting.py closes every graded batch with one of these.
-VERDICT_MARKERS = ("RATCHET_NEW_FAILURE ", "typed app-host run passed", "known-main failures tolerated")
+VERDICT_MARKERS = (
+    "RATCHET_NEW_FAILURE ", "typed app-host run passed", "known-main failures tolerated",
+    *EXECUTION_FAILED_MARKERS,
+)
 # ...and prints one of these when a batch's tests did not all report, so a
 # test that already failed may be missing from its RATCHET_NEW_FAILURE lines.
 INCOMPLETE_MARKERS = (
@@ -59,6 +70,7 @@ INCOMPLETE_MARKERS = (
     "selector matched zero built tests",
     "nonterminal or unknown result",
 )
+CATALOG = Path(__file__).resolve().parent / "app-host-known-failures.json"
 MARKER_PREFIX = "<!-- main-regression-attribution"
 MARKER_RE = re.compile(r"<!-- main-regression-attribution pr=(\d+) tests=(\w+) range=(\S+) -->")
 # Bounds on one report, so a long red streak cannot fan out into a comment storm.
@@ -84,14 +96,29 @@ class PullRequest:
     reached_suites: set[str] = field(default_factory=set)
 
 
-def ratchet_failures(log_text: str) -> set[str]:
-    """Test ids one app-host job log reported as new against the catalog."""
+def log_failures(log_text: str, known: Iterable[str] = ()) -> set[str]:
+    """Failing test ids in one app-host job log that the known-failures catalog does not list.
+
+    Ratchet verdicts are already graded against the catalog; the xcodebuild
+    block is not, so both pass through the catalog here.
+    """
     found = set()
+    in_block = False
     for raw in log_text.splitlines():
-        match = RATCHET_RE.match(ANSI_RE.sub("", raw).strip())
+        line = TIMESTAMP_RE.sub("", ANSI_RE.sub("", raw)).rstrip()
+        match = RATCHET_RE.match(line.strip())
         if match:
             found.add(match.group(1))
-    return found
+        if line.strip() == FAILING_TESTS_HEADER:
+            in_block = True
+            continue
+        if in_block:
+            listed = FAILING_TEST_RE.match(line)
+            if listed:
+                found.add(f"{listed.group(1).replace('.', '/')}/{listed.group(2)}")
+            else:
+                in_block = False
+    return found - set(known)
 
 
 def shard_log_complete(log_text: str) -> bool:
@@ -343,8 +370,10 @@ def run_jobs(repo: str, run_id: object) -> list[dict]:
     ])
 
 
-def job_failures(repo: str, jobs: list[Mapping[str, object]]) -> tuple[dict[str, list[str]], bool]:
-    """(ratchet failure -> job URLs, whether every failed shard graded all its tests) for one run."""
+def job_failures(
+    repo: str, jobs: list[Mapping[str, object]], known: Iterable[str],
+) -> tuple[dict[str, list[str]], bool]:
+    """(failing test -> job URLs, whether every failed shard reported all its tests) for one run."""
     from app_host_failure_census import _gh_api_escape_flag
 
     failures: dict[str, list[str]] = {}
@@ -354,7 +383,7 @@ def job_failures(repo: str, jobs: list[Mapping[str, object]]) -> tuple[dict[str,
             continue
         log = gh(["api", *_gh_api_escape_flag(), f"repos/{repo}/actions/jobs/{job['id']}/logs"])
         complete = complete and shard_log_complete(ANSI_RE.sub("", log))
-        for test in ratchet_failures(log):
+        for test in log_failures(log, known):
             failures.setdefault(test, []).append(str(job.get("html_url") or ""))
     return failures, complete
 
@@ -466,7 +495,8 @@ def command_report(args: argparse.Namespace) -> int:
     if not app_host_ran(jobs):
         print(f"Run {run['id']} did not finish every app-host shard; nothing to compare.")
         return 0
-    current, _ = job_failures(args.repo, jobs)
+    known = set(json.loads(CATALOG.read_text(encoding="utf-8")).get("tests") or {})
+    current, _ = job_failures(args.repo, jobs, known)
 
     # The baseline is the newest earlier run that graded every app-host test:
     # a shard that stopped early cannot show a test was already failing.
@@ -480,7 +510,7 @@ def command_report(args: argparse.Namespace) -> int:
         if not app_host_ran(candidate_jobs):
             continue
         if candidate.get("conclusion") == "failure":
-            failed, complete = job_failures(args.repo, candidate_jobs)
+            failed, complete = job_failures(args.repo, candidate_jobs, known)
             if not complete:
                 continue
             previous_failures = set(failed)

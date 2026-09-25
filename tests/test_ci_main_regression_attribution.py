@@ -25,6 +25,17 @@ LOG = """\
 2026-09-25T07:44:10.4990130Z RATCHET_KNOWN_FAILURE SidebarHiddenPresentationTests/visibility()
 2026-09-25T07:44:10.4990140Z   echo "RATCHET_NEW_FAILURE $identifier"
 """
+# A dedicated batch the ratchet does not grade reports only through xcodebuild.
+XCODEBUILD_LOG = """\
+2026-09-25T05:55:55.4893920Z Failing tests:
+2026-09-25T05:55:55.4894300Z \tGlobalSearchLocalMonitorChainTests.visibleSearchCloses()
+2026-09-25T05:55:55.4894300Z \tGlobalSearchLocalMonitorChainTests.visibleSearchCloses()
+2026-09-25T05:55:55.4894400Z \tcmuxTests.LegacyTests.testOld()
+2026-09-25T05:55:55.4894500Z \tSidebarHiddenPresentationTests.visibility()
+2026-09-25T05:55:55.4907210Z 
+2026-09-25T05:55:55.4907400Z \x1b[1m\x1b[31m** TEST EXECUTE FAILED **
+2026-09-25T05:55:55.4907500Z \tNotATest.after()
+"""
 
 
 def run(**overrides):
@@ -55,9 +66,21 @@ def pr(number, edited=(), reached=()):
 class ExtractionTests(unittest.TestCase):
     def test_reads_only_ratchet_new_failure_verdict_lines(self):
         self.assertEqual(
-            MODULE.ratchet_failures(LOG),
+            MODULE.log_failures(LOG),
             {"AgentSessionAutoResumeSwiftTests/splitAfterRestore()", "FooTests/testBar"},
         )
+
+    def test_reads_the_xcodebuild_failing_tests_block_minus_the_catalog(self):
+        self.assertEqual(
+            MODULE.log_failures(XCODEBUILD_LOG, {"SidebarHiddenPresentationTests/visibility()"}),
+            {"GlobalSearchLocalMonitorChainTests/visibleSearchCloses()", "LegacyTests/testOld()"},
+        )
+        self.assertTrue(MODULE.shard_log_complete(MODULE.ANSI_RE.sub("", XCODEBUILD_LOG)))
+
+    def test_catalog_ids_match_what_the_log_names(self):
+        known = set(MODULE.json.loads(MODULE.CATALOG.read_text())["tests"])
+        listed = "Failing tests:\n" + "".join("\t" + t.replace("/", ".", 1) + "\n" for t in known)
+        self.assertEqual(MODULE.log_failures(listed, known), set())
 
     def test_a_failed_shard_is_complete_only_when_every_batch_was_graded(self):
         self.assertTrue(MODULE.shard_log_complete(LOG))
