@@ -2434,10 +2434,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cloudWorkspaceOperationController: CloudWorkspaceOperationController,
         newMachineSheetPresenter: any NewMachineSheetPresenting,
         automationEngine: AutomationEngine,
-         browserDataImportCoordinator: BrowserDataImportCoordinator,
-         computerUseRuntimeService: ComputerUseRuntimeService,
-         devicesRegistry: DeviceSurfaceProviderRegistry? = nil,
-         computersService: HiveComputersService? = nil
+        browserDataImportCoordinator: BrowserDataImportCoordinator,
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        devicesRegistry: DeviceSurfaceProviderRegistry? = nil,
+        computersService: HiveComputersService? = nil
     ) {
         captureSessionLaunchStateIfNeeded()
         self.tabManager = tabManager

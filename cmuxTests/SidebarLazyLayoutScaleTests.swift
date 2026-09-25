@@ -246,7 +246,7 @@ final class SidebarLazyLayoutScaleTests {
     static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
         autoreleasepool {
             window?.contentView?.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)); _ = RunLoop.main.run(mode: .common, before: Date(timeIntervalSinceNow: 0.001))
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         }
     }
 

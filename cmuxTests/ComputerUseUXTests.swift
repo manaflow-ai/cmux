@@ -302,9 +302,7 @@ struct ComputerUseUXTests {
         )
         defer { responder.stop() }
 
-        var presentations: [
-            ComputerUseOnboardingWindowController.StartingPoint
-        ] = []
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
         let actions = HostSettingsActions(
             configFileURL: root.appendingPathComponent("cmux.json"),
             computerUseRuntimeService: runtime,
