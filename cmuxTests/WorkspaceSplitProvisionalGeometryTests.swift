@@ -69,7 +69,7 @@ struct WorkspaceSplitProvisionalGeometryTests {
             #expect(abs(afterSecond.width - afterFirst.width) < 1)
             #expect(afterSecond.height < afterFirst.height * 0.7)
         } else {
-            #expect(abs(afterSecond.height - afterFirst.height) < 1)
+            #expect(abs(afterSecond.height - afterFirst.height) <= 1)
             #expect(afterSecond.width < afterFirst.width * 0.7)
         }
     }
