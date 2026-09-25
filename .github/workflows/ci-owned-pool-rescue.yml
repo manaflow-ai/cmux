@@ -20,8 +20,9 @@ run-name: owned-pool-rescue-${{ inputs.run_id || github.event.workflow_run.id }}
 # from 2026-09-24 to 09-25 05:00 UTC, 361 of which were skipped (fork pull
 # requests) or found no owned pool. The script reads the run from the API and
 # applies the checks the event filter did (ci.yml, a same-repository pull
-# request run, or a dispatch of a DISPATCH_WORKFLOW_PATHS workflow; attempt
-# 1), so a dispatch naming any other run does nothing. Only attempt 1 is
+# request run or main's full-suite dispatch, which pr_runner_pool.py places
+# like one, or a dispatch of a DISPATCH_WORKFLOW_PATHS workflow; attempt 1),
+# so a dispatch naming any other run does nothing. Only attempt 1 is
 # watched, so the re-run this workflow starts is never watched twice.
 #
 # Two kinds of source keep the workflow_run trigger:

@@ -130,10 +130,12 @@ if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; 
   exit 1
 fi
 
-R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
-TAG_MOVE_LINE="$(grep -nF -- '- name: Move channel release tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
-if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le "$R2_UPLOAD_LINE" ]; then
-  echo "FAIL: the nightly tag completion marker must move only after GitHub and R2 publication succeed"
+R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
+MARKER_LINE="$(grep -nF -- '- name: Record verified nightly publication' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
+TAG_MOVE_LINE="$(grep -nF -- '- name: Move channel release tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
+if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$MARKER_LINE" ] || [ -z "$TAG_MOVE_LINE" ] \
+  || [ "$MARKER_LINE" -le "$R2_UPLOAD_LINE" ] || [ "$TAG_MOVE_LINE" -le "$MARKER_LINE" ]; then
+  echo "FAIL: the nightly publication marker and tag must move only after GitHub and R2 publication succeed"
   exit 1
 fi
 
@@ -486,12 +488,47 @@ if ! awk '
   /^      - name: Move channel release tag to built commit/ { in_move=1; next }
   in_move && /^      - name:/ { in_move=0 }
   in_move && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_move_if=1 }
+  in_move && /id: move-channel-release-tag/ { saw_move_id=1 }
+  in_move && /continue-on-error: true/ { saw_move_best_effort=1 }
+  in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token=1 }
+  in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared=1 }
   in_move && /scripts\/ci\/update-release-tag\.py/ { saw_api_update=1 }
-  END { exit !(saw_move_if && saw_api_update) }
+  END { exit !(saw_move_if && saw_move_id && saw_move_best_effort && saw_app_token && saw_github_token_cleared && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: moving the channel release tag must be gated to publishing runs and use the verified API helper"
+  echo "FAIL: moving the channel release tag must use the scoped app token, remain observable when stale, and use the verified API helper"
   exit 1
 fi
+
+if ! awk '
+  /^      - name: Mint release tag app token/ { in_token=1; next }
+  in_token && /^      - name:/ { in_token=0 }
+  in_token && /actions\/create-github-app-token@/ { saw_action=1 }
+  in_token && /permission-contents: write/ { saw_contents=1 }
+  in_token && /permission-workflows: write/ { saw_workflows=1 }
+  /^      - name: Record nightly publication marker outcome/ { in_outcome=1; next }
+  in_outcome && /^      - name:/ { in_outcome=0 }
+  in_outcome && /id: tag-outcome/ { saw_outcome_id=1 }
+  in_outcome && /tag_status=updated/ { saw_updated=1 }
+  in_outcome && /tag_status=stale/ { saw_stale=1 }
+  in_outcome && /Published, tag marker stale/ { saw_summary=1 }
+  END { exit !(saw_action && saw_contents && saw_workflows && saw_outcome_id && saw_updated && saw_stale && saw_summary) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly tag publication must mint contents/workflows app permissions and record updated/stale outcomes"
+  exit 1
+fi
+
+for expected in \
+  'cmux-published-sha:' \
+  'nightly-publication-marker.py' \
+  'release metadata already records the exact' \
+  'published, tag marker stale' \
+  "needs.publish-nightly.outputs.tag_status == 'stale'" \
+  "needs.publish-nightly.outputs.tag_status == 'updated'"; do
+  if ! grep -Fqi "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly publication recovery contract is missing: $expected"
+    exit 1
+  fi
+done
 
 if ! awk '
   /^      - name: Publish nightly release assets/ { in_publish=1; next }
@@ -554,7 +591,8 @@ fi
 # Match the expression, not its declaration keyword, so that rebinding
 # shouldBuild later in `decide` does not read as a change to this contract.
 for expected in \
-  "shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
+  "const alreadyPublished = !buildOnly && !forceBuild && (isMainRef || isRcRef) && publishedSha === headSha;" \
+  "shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
   "fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"

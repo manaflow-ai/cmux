@@ -136,6 +136,9 @@ CI_PUBLISHING_ONLY = frozenset({
     "scripts/ci/nightly-sparkle-key.sh",
     "scripts/prebuild_sparkle_deltas.sh",
     "scripts/sparkle_generate_appcast.sh",
+    # The local release script behind /release-local and /release-nightly. No
+    # workflow runs it; its guards read it as text on Linux.
+    "scripts/build-sign-upload.sh",
 })
 
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({

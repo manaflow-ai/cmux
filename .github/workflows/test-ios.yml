@@ -1,10 +1,29 @@
 name: iOS simulator tests
 run-name: >-
   iOS tests · ${{ inputs.ref || github.ref_name }} · ${{ inputs.swift_package || 'simulator' }} ·
-  ${{ inputs.test_filter || 'full suite' }} · ${{ inputs.device_family || 'both' }} · iOS ${{ inputs.ios_version || 'default' }}
+  ${{ inputs.test_filter || 'full suite' }} · ${{ inputs.device_family || 'both' }} · iOS ${{ inputs.ios_version || 'default' }} ·
+  on ${{ inputs.runner || 'auto' }}
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  # Pull requests that touch the iOS app or its packages run again (paused
+  # 2026-07-13 to cut CI load). A same-repository pull request takes an idle
+  # simulator mini through the `runner` job like an `auto` dispatch, with
+  # Blacksmith as overflow; a fork's never reaches an owned Mac.
+  # detect-ios-changes narrows further (and decides the conventions lint).
+  pull_request:
+    paths:
+      - "ios/**"
+      - "Packages/**"
+      - "Sources/Mobile/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      - "scripts/lint-ios-package-conventions*"
+      - "scripts/lint_swift_namespaces.py"
+      - "scripts/lint-namespace-types-baseline.txt"
+      - "scripts/swift_source_mask.py"
+      - "scripts/tests/test_ios_package_conventions.py"
+      - "scripts/ci/ios_runner_pool.py"
+      - "scripts/ci/select_ios_simulator.py"
+      - ".github/workflows/test-ios.yml"
   workflow_dispatch:
     inputs:
       ref:
@@ -43,7 +62,7 @@ on:
           - iphone
           - ipad
       runner:
-        description: "macOS runner (auto follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and takes an owned Mac with an iOS simulator runtime when CI_PR_POOL_OWNED and CI_IOS_OWNED are 1 and one is free; owned forces the owned pool for a proof run; tart-ios uses the isolated VM fleet)"
+        description: "macOS runner (auto follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and takes an owned Mac with an iOS simulator runtime when CI_PR_POOL_OWNED and CI_IOS_OWNED are 1 and one is free; owned forces the owned pool for a proof run)"
         required: false
         default: "auto"
         type: choice
@@ -51,7 +70,6 @@ on:
           - auto
           - blacksmith-6vcpu-macos-26
           - owned
-          - tart-ios
       cache_backend:
         description: "Cache store for this run. default follows CI_CACHE_BACKEND."
         required: false
@@ -80,6 +98,12 @@ permissions:
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
+
+# A newer push to the same pull request replaces its run; dispatches never
+# cancel each other.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || format('test-ios-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
     # The macOS pool mobile-core-package, ios-simulator-build and ios-simulator
@@ -135,11 +159,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           IOS_VERSION: ${{ inputs.ios_version }}
@@ -150,6 +175,7 @@ jobs:
           set -euo pipefail
           route="$(python3 scripts/ci/ios_runner_pool.py \
             --lane test-ios \
+            --fork "$FORK_PULL_REQUEST" \
             --requested "$REQUESTED_RUNNER" \
             --variable "$RUNNER_VARIABLE" \
             --ios-owned "$IOS_OWNED" \
@@ -305,7 +331,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -363,7 +389,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
       # A hung test otherwise runs to the job ceiling, which GitHub reports as
@@ -397,21 +423,6 @@ jobs:
             ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileShell|CmuxMobileShellModel) ;;
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
-
-      - name: Validate Tart runner identity
-        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
-        env:
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
-            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-            exit 1
-          }
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::tart-ios runner is missing the immutable VM identity marker"
-            exit 1
-          }
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -550,7 +561,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
@@ -577,21 +588,6 @@ jobs:
               fi
               ;;
           esac
-      - name: Validate Tart runner identity
-        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
-        env:
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
-            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-            exit 1
-          }
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::tart-ios runner is missing the immutable VM identity marker"
-            exit 1
-          }
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -613,7 +609,35 @@ jobs:
           # here, so a reused runner keeps nothing in ~/.cache.
           echo "CMUX_GHOSTTYKIT_CACHE_DIR=$RUNNER_TEMP/cmux-ghosttykit-cache" >> "$GITHUB_ENV"
 
+      - name: Reuse this owned Mac's iOS build state
+        # An owned Mac outlives the job, so it keeps this job's DerivedData and
+        # resolved packages instead of downloading the packages from R2 and
+        # compiling cold every time: on cmux7s the R2 restore took 273 s and
+        # the resolve 282 s (run 36108107919). The state is per runner
+        # instance (one job at a time, and the kept packages carry this
+        # instance's paths), under a separate root from ci-macos.yml's.
+        # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
+        id: owned-state
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          case "${RUNNER_NAME:-}" in
+            *-glaeda|*-glaeda-[0-9]*) ;;
+            *) echo "Not an owned Mac: $RUNNER_NAME"; exit 0 ;;
+          esac
+          store="/Users/Shared/cmux-build-fleet/ci-ios/$RUNNER_NAME"
+          fingerprint="$( { echo ios-owned-v1; xcodebuild -version; echo "$PWD"; echo "$RUNNER_TEMP"; } | shasum -a 256 | cut -d' ' -f1)"
+          echo "IOS_OWNED_STORE=$store" >> "$GITHUB_ENV"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$PWD"
+          # check clones the kept packages to ci-macos.yml's directory name.
+          if [ -d .ci-source-packages ]; then
+            rm -rf .ci-ios-source-packages
+            mv .ci-source-packages .ci-ios-source-packages
+          fi
+
       - name: Restore iOS SwiftPM cache
+        if: ${{ steps.owned-state.outputs.packages != 'true' }}
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -623,6 +647,8 @@ jobs:
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
+        # Kept packages have only ever lived at this runner's paths.
+        if: ${{ steps.owned-state.outputs.packages != 'true' }}
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
 
       - name: Ensure iOS simulator runtime
@@ -684,13 +710,49 @@ jobs:
           echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
 
       - name: Resolve packages
+        env:
+          KEPT_PACKAGES: ${{ steps.owned-state.outputs.packages }}
         run: |
+          set -euo pipefail
+          # Kept packages resolved from this same Package.resolved and Xcode
+          # need no remote fetches (another 4-5 min over a mini's uplink).
+          stamp="$IOS_SPM_CACHE/.cmux-resolved-sha256"
+          resolved_sha="$( { xcodebuild -version; cat ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved; } | shasum -a 256 | cut -d' ' -f1)"
+          offline=()
+          if [ "${KEPT_PACKAGES:-}" = true ] && [ "$(cat "$stamp" 2>/dev/null)" = "$resolved_sha" ]; then
+            offline=(-skipPackageUpdates)
+          fi
+          rm -f "$stamp"
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$IOS_DERIVED_DATA" \
             -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
+            ${offline[@]+"${offline[@]}"} \
             -resolvePackageDependencies
+          if [ -n "${IOS_OWNED_STORE:-}" ]; then
+            printf '%s\n' "$resolved_sha" > "$stamp"
+            echo "IOS_PACKAGES_RESOLVED=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Adopt this owned Mac's iOS DerivedData
+        id: owned-adopt
+        if: ${{ steps.owned-state.outputs.warm == 'true' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # A failed adopt only rebuilds more; the steps below must still run.
+          python3 scripts/ci/owned_build_state.py adopt "$IOS_OWNED_STORE" "$IOS_DERIVED_DATA" "$PWD" \
+            || echo "::warning::Could not adopt the kept DerivedData; building from what is there"
+          mkdir -p "$IOS_DERIVED_DATA/logs"
+          # The kept Build/Products still holds the last job's xctestrun, maybe
+          # for another test plan, and Stage and stamp needs exactly one.
+          rm -f "$IOS_DERIVED_DATA"/Build/Products/*.xctestrun
+
+      - name: Record this owned Mac's iOS build inputs
+        if: ${{ steps.owned-state.outputs.fingerprint != '' }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_build_state.py record "$PWD" "$IOS_DERIVED_DATA"
 
       - name: Build iOS simulator test product
         id: compile-product
@@ -707,6 +769,10 @@ jobs:
             -derivedDataPath "$IOS_DERIVED_DATA"
             -clonedSourcePackagesDirPath "$IOS_SPM_CACHE"
           )
+          # Resolve packages just resolved into the kept directory.
+          if [ "${IOS_PACKAGES_RESOLVED:-}" = 1 ]; then
+            XCODEBUILD_ARGS+=(-disableAutomaticPackageResolution)
+          fi
           # The build action emits every scheme plan unless one is named.
           # Match ordinary test's default plan and keep the product unambiguous.
           if [[ "${TEST_FILTER:-}" == cmuxUITests/* ]]; then
@@ -728,6 +794,19 @@ jobs:
           echo "IOS_BUILD_ONCE_METRIC producer_compile_seconds=$seconds"
           echo "Producer compile: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+      - name: Forget the inode override
+        if: ${{ always() && steps.owned-adopt.outcome != 'skipped' }}
+        continue-on-error: true
+        run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+
+      - name: Keep this owned Mac's iOS DerivedData
+        # Before the steps below stage the product: keep what Xcode left.
+        if: ${{ steps.compile-product.outcome == 'success' && steps.owned-state.outputs.fingerprint != '' }}
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
+        run: python3 scripts/ci/owned_build_state.py keep "$IOS_OWNED_STORE" "$IOS_DERIVED_DATA" "$FINGERPRINT"
 
       - name: Stage and stamp iOS test product
         env:
@@ -818,6 +897,11 @@ jobs:
           path: .ci-ios-source-packages
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
+      - name: Save this owned Mac's iOS packages
+        if: ${{ always() && steps.owned-state.outputs.fingerprint != '' }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_build_state.py save "$IOS_OWNED_STORE" "$IOS_SPM_CACHE" "$PWD"
+
       - name: Upload producer log
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -856,7 +940,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -879,21 +963,6 @@ jobs:
               fi
               ;;
           esac
-      - name: Validate Tart runner identity
-        if: ${{ startsWith(github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label, 'tart-') }}
-        env:
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
-            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-            exit 1
-          }
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::tart-ios runner is missing the immutable VM identity marker"
-            exit 1
-          }
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
