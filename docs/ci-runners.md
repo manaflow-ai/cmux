@@ -303,8 +303,9 @@ attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
 whole, and so does a manual "Re-run all jobs".
 
 An owned runner can also refuse a job: glaeda's job-started hook exits 1 when
-the host is busy, and the job fails within seconds. GitHub does not retry it.
-The watcher treats a job on the persistent pool that failed within 120
+the host is busy, and the job fails within seconds (or, for a GUI job waiting on
+the mini's one gui token, within about 4 minutes). GitHub does not retry it.
+The watcher treats a job on the persistent pool that failed within 360
 seconds of starting, with no workflow step succeeded, as refused. It confirms
 the head has not moved, cancels the run if it is still going, and re-runs its
 failed jobs, so nobody has to. That attempt 2 keeps what passed and sends the
@@ -318,7 +319,7 @@ take the owned pool again where a job's `runs-on` reads
 `github.run_attempt == 2 && inputs.pr_refused_retry_runner` first. GitHub
 sends no `requested` event for a re-run, so the watch that re-ran the failed
 jobs follows attempt 2 itself, until its owned jobs have run past the
-120-second refusal window. A job refused, or queued past the budget, on
+360-second refusal window. A job refused, or queued past the budget, on
 attempt 2 gets its failed jobs re-run once more, keeping what passed, and
 attempt 3 and later always take `retry_runner` on Blacksmith, so a busy fleet
 costs at most one extra refusal and never loops.
