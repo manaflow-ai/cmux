@@ -91,7 +91,7 @@ if [[ "$swift_package_directives" == *MACOS_RUNNER_PR* ]]; then
   exit 1
 fi
 
-if [[ "$swift_package_section" != *"timeout-minutes: 40"* ]]; then
+if [[ "$swift_package_section" != *"timeout-minutes: 60"* ]]; then
   echo "FAIL: CI swift-package-tests must have enough timeout budget for helper build plus package tests" >&2
   exit 1
 fi

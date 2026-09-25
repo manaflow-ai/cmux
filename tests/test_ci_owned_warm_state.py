@@ -82,9 +82,11 @@ def snapshot_artifact(warm, artifact_id=500):
 
 
 class Pure(unittest.TestCase):
-    def test_keys_are_twelve_hex_digits_deduplicated_and_capped(self):
-        self.assertEqual(state.keys({"keys": [A.upper(), A, "nope", B + "ff", C, "dddddddddddd", "eeeeeeeeeeee"]}),
-                         [A, B, C, "dddddddddddd"])
+    def test_keys_are_twelve_hex_digits_or_pr_keys_deduplicated_and_capped(self):
+        self.assertEqual(state.keys({"keys": [A.upper(), A, "nope", B + "ff", "pr-42", "pr-x", C, "pr-42"]}),
+                         [A, B, "pr-42", C])
+        many = [f"{index:x}" * 12 for index in range(12)]
+        self.assertEqual(state.keys({"keys": many}), many[:state.MAX_KEYS])
         self.assertEqual(state.keys({"keys": "aaaaaaaaaaaa"}), [])
         self.assertEqual(state.keys([A]), [])
 

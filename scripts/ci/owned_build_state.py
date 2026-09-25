@@ -4,7 +4,7 @@
     owned_build_state.py check STORE FINGERPRINT WORKSPACE [PACKAGE_STORE]
     owned_build_state.py adopt STORE DERIVED_DATA SOURCE
     owned_build_state.py record SOURCE DERIVED_DATA
-    owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT [MERGED_ONTO]
+    owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT [MERGED_ONTO [PR_NUMBER]]
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
     owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
     owned_build_state.py warm-keys STORE RUNNER POOL [FINGERPRINT]
@@ -112,10 +112,28 @@ runner (owned_warm_state.py, pr_runner_pool.py warm affinity):
     {"runner": "<RUNNER>", "pool": "<POOL>", "keys": ["<sha12>", ...]}
 
 The kept build's merge base comes first, when its stamp matches FINGERPRINT,
-then the commits of the seeds this Mac keeps for FINGERPRINT
-(CMUX_SEED_LOCAL_CACHE, set only when CI_OWNED_PREFER_SEED lets `prefer`
-clone them), most recently used first, MAX_WARM_KEYS in all. It never fails:
-anything it cannot read leaves that key out.
+then `pr-<n>` for the pull request it built (`keep`'s PR_NUMBER, so a re-push
+goes back to its previous push's build), then the same two keys of the mini's
+other canonical roots, then, on a mini with a single root, the commits of the
+seeds this Mac keeps for FINGERPRINT (CMUX_SEED_LOCAL_CACHE, set only when
+CI_OWNED_PREFER_SEED lets `prefer` clone them), most recently used first,
+MAX_WARM_KEYS in all. It never fails: anything it cannot read leaves that key
+out.
+
+The other roots count because a job's root follows glaeda's free token, not
+the runner: the janitor records the keys against the runner that ran
+admission, and glaeda-cmux-runner-hook gives a routed admission the root
+whose stamp is warm for it. Root k>1 keeps its state in STORE/cmux-ci-<k>
+(ci-macos.yml build-slot), root 1 in STORE itself. Another root's fingerprint
+includes its root (compile-app-host-test-product.sh), so its stamp is checked
+by STATE_VERSION only. Seeds are left out once the mini has a second root
+(any STORE/cmux-ci-<k>): each root keeps its own seeds for its own
+fingerprint, and the hook routes by stamps only, so a routed admission lands
+on its runner's own root (or any free one), not on the root that listed the
+seed. A seed key recorded against the runner would send it there to miss.
+A second root counts once its store directory exists: one whose store was
+never created still lists seeds, and a store left behind after a mini goes back to
+one root keeps them out, which costs affinity but never a wrong route.
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
@@ -158,7 +176,9 @@ RECORD = "cmux-owned-input-mtimes.json"
 # discards every older kept DerivedData instead of trusting it.
 STATE_VERSION = "owned-rec1"
 # The keys owned_warm_state.py keeps per runner (its MAX_KEYS).
-MAX_WARM_KEYS = 4
+MAX_WARM_KEYS = 8
+# The second and later canonical roots' stores, beside the first root's.
+ROOT_STORE_PREFIX = "cmux-ci-"
 SEED_KEY_PREFIX = "admission-derived-data-v1-"
 
 
@@ -330,7 +350,7 @@ def warm_key(commit: str | None) -> str:
     return key if len(key) == 12 and all(char in "0123456789abcdef" for char in key) else ""
 
 
-def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "") -> dict[str, str]:
+def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr_number: str = "") -> dict[str, str]:
     """Clone a just-compiled DerivedData into STORE, stamped with its fingerprint and merge base."""
     if not fingerprint or not derived.is_dir():
         return {"kept": "false", "reason": "no fingerprint or no DerivedData"}
@@ -343,24 +363,62 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "") ->
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
     stamp.pop("merged_onto", None)
+    stamp.pop("pr", None)
     write_stamp(store, stamp)
     clear(store / DERIVED)
     incoming.rename(store / DERIVED)
     stamp["fingerprint"] = stamped(fingerprint)
     if warm_key(merged_onto):
         stamp["merged_onto"] = merged_onto.strip().lower()
+    if pr_key(pr_number):
+        stamp["pr"] = int(pr_number.strip())
     write_stamp(store, stamp)
     return {"kept": "true"}
 
 
-def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dict[str, object]:
-    """The main commits this Mac starts from cheaply, as owned_warm_state.py reads them."""
-    found: list[str] = []
+def pr_key(number: object) -> str:
+    """Pull request NUMBER's warm key, `pr-<n>`, or ""."""
+    text = str(number if number is not None else "").strip()
+    return f"pr-{int(text)}" if text.isdigit() and 0 < int(text) < 10**9 else ""
+
+
+def stamp_keys(store: Path, fingerprint: str) -> list[str]:
+    """The kept build's keys (merge base, pull request) when its stamp matches FINGERPRINT.
+
+    An empty FINGERPRINT checks STATE_VERSION only (another root's stamp).
+    """
     stamp = read_stamp(store)
-    if ((store / DERIVED).is_dir() and stamp.get("fingerprint")
-            and (not fingerprint or stamp.get("fingerprint") == stamped(fingerprint))):
-        found.append(warm_key(str(stamp.get("merged_onto") or "")))
-    cache = seed.local_cache()
+    kept = str(stamp.get("fingerprint") or "")
+    if not (store / DERIVED).is_dir() or not kept.endswith(f"-{STATE_VERSION}"):
+        return []
+    if fingerprint and kept != stamped(fingerprint):
+        return []
+    return [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
+
+
+def other_root_stores(store: Path) -> list[Path]:
+    """The mini's other canonical roots' stores (STORE is root 1's, or STORE/../cmux-ci-<k>)."""
+    def is_root(path: Path) -> bool:
+        suffix = path.name[len(ROOT_STORE_PREFIX):]
+        return path.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() and len(suffix) <= 2
+    base = store.parent if is_root(store) else store
+    try:
+        roots = [base, *sorted(path for path in base.iterdir() if is_root(path))]
+    except OSError:
+        roots = [base]
+    return [path for path in roots if path != store]
+
+
+def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dict[str, object]:
+    """The main commits and pull requests this Mac starts from cheaply, as owned_warm_state.py reads them."""
+    found: list[str] = stamp_keys(store, fingerprint)
+    others = other_root_stores(store)
+    for other in others:
+        found.extend(stamp_keys(other, ""))
+    # A seed sits in one root's store, and glaeda routes by stamps only: on a
+    # mini with more than one root, a routed admission may start at another
+    # root, whose store lacks the seed and whose fingerprint rules it out.
+    cache = None if others else seed.local_cache()
     seeds: list[tuple[float, str]] = []
     try:
         entries = list(cache.iterdir()) if cache is not None and cache.is_dir() else []
@@ -692,8 +750,9 @@ def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] == "record":
         write_outputs(record(Path(argv[2]).resolve(), Path(argv[3])))
         return 0
-    if len(argv) in (5, 6) and argv[1] == "keep":
-        write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4], argv[5] if len(argv) == 6 else ""))
+    if len(argv) in (5, 6, 7) and argv[1] == "keep":
+        write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4], argv[5] if len(argv) >= 6 else "",
+                           argv[6] if len(argv) == 7 else ""))
         return 0
     if len(argv) in (5, 6) and argv[1] == "warm-keys":
         # Only the document on stdout: the workflow uploads it as is.
