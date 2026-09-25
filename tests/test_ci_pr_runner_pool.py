@@ -292,7 +292,7 @@ class FailSafe(unittest.TestCase):
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
                                               f"refused_retry_runner=\nroot_runner=\nside_runner=\n"
-                                              "admission_runner=\nowned_jobs=\n")
+                                              "admission_runner=\nadmission_warm=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -478,10 +478,11 @@ def warm_lane(index: str = "") -> str:
     runs-on reads the JSON array itself; CMUX_PRODUCT_RUNNER (index "[0]")
     names its first label, the root label.
     """
+    pinned = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
     return root_lane("' admission '").replace(
         "&& inputs.pr_retry_runner || inputs.pr_root_runner",
-        "&& inputs.pr_retry_runner || github.run_attempt == 1 && inputs.pr_admission_runner "
-        f"&& fromJSON(inputs.pr_admission_runner){index} || inputs.pr_root_runner")
+        f"&& inputs.pr_retry_runner || github.run_attempt == 1 && {pinned} "
+        f"&& fromJSON{pinned}{index} || inputs.pr_root_runner")
 
 
 PR_XCODE = "/Applications/Xcode_26.6.app"
@@ -1841,7 +1842,7 @@ class WarmAffinity(unittest.TestCase):
                          [ROOT_MINI, "glaeda-runner-cmux2-glaeda"])
 
     def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
-                owned_warm="1", state=None):
+                owned_warm="1", state=None, attempt="1", pr_number=""):
         fresh = fleet(busy=0)
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh["warm"] = warm(2) if state is None else state
@@ -1855,8 +1856,9 @@ class WarmAffinity(unittest.TestCase):
                    "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
                    "POOL_OWNED_SPLIT": "1", "OWNED_SLOTS": slots, "ROUTE_TOKEN": token,
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
-                   "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
-                   "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "OWNED_WARM": owned_warm}
+                   "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
+                   "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "OWNED_WARM": owned_warm,
+                   "PR_NUMBER": pr_number}
             pool.main([], env)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             values["summary"] = summary.read_text()
@@ -1870,18 +1872,199 @@ class WarmAffinity(unittest.TestCase):
         self.assertIn(" admission ", values["owned_jobs"])
         self.assertEqual(json.loads(values["admission_runner"]), [ROOT_MINI, own])
         self.assertIn(f"`{own}`", values["summary"])
+        self.assertEqual(json.loads(values["admission_warm"]), [["cmux2-glaeda"]])
         # Another merge base, a busy warm runner, or no root count: admission keeps the root label.
         self.assertEqual(self.outputs(runners, merged_onto="f" * 40)["admission_runner"], "")
         busy = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI, busy=True)]
-        self.assertEqual(self.outputs(busy)["admission_runner"], "")
+        busy_values = self.outputs(busy)
+        self.assertEqual(busy_values["admission_runner"], "")
+        # admission-placement still gets the warm names; it re-reads which are idle.
+        self.assertEqual(json.loads(busy_values["admission_warm"]), [["cmux2-glaeda"]])
         self.assertEqual(self.outputs(runners, slots='{"std": 40}')["admission_runner"], "")
         # A snapshot without `warm` (the janitor's sweep off or failed).
-        self.assertEqual(self.outputs(runners, state={})["admission_runner"], "")
+        self.assertEqual(self.outputs(runners, state={})["admission_warm"], "")
         # Without the route token the runners are never read.
         self.assertEqual(self.outputs(runners, token="")["admission_runner"], "")
         # CI_OWNED_WARM off ignores the snapshot's warm state.
         for off in ("", "0"):
-            self.assertEqual(self.outputs(runners, owned_warm=off)["admission_runner"], "", off)
+            values = self.outputs(runners, owned_warm=off)
+            self.assertEqual((values["admission_runner"], values["admission_warm"]), ("", ""), off)
+
+    def test_main_hands_admission_placement_the_pull_request_tier_too(self):
+        state = {"through": 9, "runners": {
+            "cmux1-glaeda": {"keys": ["ffffffffffff", "pr-7"], "at": "2026-09-25T00:00:00Z"},
+            "cmux2-glaeda": {"keys": [KEY, "pr-8"], "at": "2026-09-25T00:00:00Z"}}}
+        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI)]
+        values = self.outputs(runners, state=state, pr_number="7")
+        self.assertEqual(json.loads(values["admission_warm"]), [["cmux2-glaeda"], ["cmux1-glaeda"]])
+        self.assertEqual(json.loads(values["admission_runner"])[1], "glaeda-runner-cmux2-glaeda")
+        # A re-push onto a new main commit: the pull request's tier alone.
+        values = self.outputs(runners, state=state, pr_number="7", merged_onto="e" * 40)
+        self.assertEqual(json.loads(values["admission_warm"]), [["cmux1-glaeda"]])
+        self.assertEqual(json.loads(values["admission_runner"])[1], "glaeda-runner-cmux1-glaeda")
+
+    def test_attempt_two_gets_no_pin(self):
+        # Attempt 2 (the rescue's light retry) may take an owned pool again; admission is never pinned.
+        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI), live_runner(3, MINI)]
+        values = self.outputs(runners, attempt="2")
+        self.assertEqual((values["admission_runner"], values["admission_warm"]), ("", ""))
+
+
+def mini_runner(host, k, *labels, busy=False, status="online", own=True):
+    """Root runner K of mini `host` (`<host>-glaeda` for K 0, else `<host>-glaeda-<K>`)."""
+    name = f"{host}-glaeda" + (f"-{k}" if k else "")
+    return {"id": hash(name), "name": name, "status": status, "busy": busy,
+            "labels": [{"name": label} for label in (*labels, *([f"glaeda-runner-{name}"] if own else []))]}
+
+
+def spread(runners, *, hot=(), seed=""):
+    labels, hit = pool.spread_admission_runner(runners, ROOT_MINI, [set(hot)] if hot else [], seed=seed)
+    return (json.loads(labels)[1] if labels else "", hit)
+
+
+class SpreadFirstAdmission(unittest.TestCase):
+    """Compile admission goes to an idle root runner on a mini with no root job running."""
+
+    def test_runner_member_strips_the_glaeda_suffix(self):
+        self.assertEqual(pool.runner_member("cmux7s-glaeda"), "cmux7s")
+        self.assertEqual(pool.runner_member("cmux7s-glaeda-2"), "cmux7s")
+        self.assertEqual(pool.runner_member("mini-a-glaeda-12"), "mini-a")
+        for name in ("", "cmux15", "glaeda", "-glaeda", "cmux7s-glaeda-x"):
+            self.assertEqual(pool.runner_member(name), "", name)
+
+    def test_spreads_to_an_empty_mini(self):
+        # mini-a compiles on its first root runner; its second is idle but shares the cores.
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI, busy=True), mini_runner("mini-a", 1, MINI, ROOT_MINI),
+                   mini_runner("mini-b", 0, MINI, ROOT_MINI), mini_runner("mini-b", 1, MINI, ROOT_MINI)]
+        for seed in ("", "1", "2", "3"):
+            self.assertEqual(spread(runners, seed=seed), ("glaeda-runner-mini-b-glaeda", False), seed)
+        labels, _ = pool.spread_admission_runner(runners, ROOT_MINI)
+        self.assertEqual(json.loads(labels)[0], ROOT_MINI)
+        # A busy side runner (no root label) leaves the mini empty.
+        side = [mini_runner("mini-a", 2, MINI, SIDE_MINI, busy=True), mini_runner("mini-a", 0, MINI, ROOT_MINI)]
+        self.assertEqual(spread(side)[0], "glaeda-runner-mini-a-glaeda")
+        # A root runner of another root pool is not one of this pool's.
+        other = [mini_runner("mini-a", 1, LIGHT, pool.root_label(LIGHT), busy=True),
+                 mini_runner("mini-a", 0, MINI, ROOT_MINI)]
+        self.assertEqual(spread(other)[0], "glaeda-runner-mini-a-glaeda")
+        # An offline root runner is neither a candidate nor a running job.
+        offline = [mini_runner("mini-a", 1, MINI, ROOT_MINI, busy=True, status="offline"),
+                   mini_runner("mini-a", 0, MINI, ROOT_MINI)]
+        self.assertEqual(spread(offline)[0], "glaeda-runner-mini-a-glaeda")
+
+    def test_the_seed_picks_a_mini_first(self):
+        # mini-a has four idle root runners, mini-b one: each mini is about equally likely.
+        runners = ([mini_runner("mini-a", k, MINI, ROOT_MINI) for k in range(4)]
+                   + [mini_runner("mini-b", 0, MINI, ROOT_MINI)])
+        picked = [pool.runner_member(spread(runners, seed=str(run_id))[0].removeprefix("glaeda-runner-"))
+                  for run_id in range(1000, 1400)]
+        self.assertEqual(set(picked), {"mini-a", "mini-b"})
+        self.assertLess(abs(picked.count("mini-a") - picked.count("mini-b")), 80)
+        # Six empty minis: concurrent runs land on most of them.
+        six = [mini_runner(f"mini-{host}", 0, MINI, ROOT_MINI) for host in "abcdef"]
+        self.assertGreater(len({spread(six, seed=str(run_id))[0] for run_id in range(1000, 1040)}), 4)
+        # The same run always gets the same runner, and no seed takes the first mini.
+        self.assertEqual(spread(six, seed="1234"), spread(six, seed="1234"))
+        self.assertEqual(spread(six)[0], "glaeda-runner-mini-a-glaeda")
+
+    def test_keeps_the_warm_runner_when_its_mini_is_empty(self):
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-b", 0, MINI, ROOT_MINI),
+                   mini_runner("mini-b", 1, MINI, ROOT_MINI)]
+        for seed in ("", "1", "2", "3"):
+            self.assertEqual(spread(runners, hot={"mini-b-glaeda-1"}, seed=seed),
+                             ("glaeda-runner-mini-b-glaeda-1", True), seed)
+
+    def test_spreads_away_from_a_warm_runner_whose_mini_is_busy(self):
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI, busy=True), mini_runner("mini-a", 1, MINI, ROOT_MINI),
+                   mini_runner("mini-b", 0, MINI, ROOT_MINI)]
+        self.assertEqual(spread(runners, hot={"mini-a-glaeda-1"}), ("glaeda-runner-mini-b-glaeda", False))
+
+    def test_finds_nothing_when_every_mini_runs_a_root_job(self):
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI, busy=True), mini_runner("mini-a", 1, MINI, ROOT_MINI),
+                   mini_runner("mini-b", 0, MINI, ROOT_MINI, busy=True), mini_runner("mini-b", 1, MINI, ROOT_MINI)]
+        self.assertEqual(spread(runners, hot={"mini-b-glaeda-1"}), ("", False))
+        # The warm fallback still finds the idle warm runner.
+        self.assertEqual(pool.idle_warm_runner(runners, ROOT_MINI, {"mini-b-glaeda-1"}), "mini-b-glaeda-1")
+        self.assertEqual(pool.spread_admission_runner(runners, MINI), ("", False))
+        self.assertEqual(spread([]), ("", False))
+
+    def test_warm_tiers_put_the_merge_base_before_the_pull_request(self):
+        state = {"runners": {"b-glaeda": {"keys": [KEY, "pr-7"]}, "a-glaeda": {"keys": ["pr-7"]},
+                             "c-glaeda": {"keys": [KEY]}, "d-glaeda": {"keys": ["pr-9"]}, "e-glaeda": "junk"}}
+        self.assertEqual(pool.warm_tiers(MERGE_BASE, state, "7"), [["b-glaeda", "c-glaeda"], ["a-glaeda"]])
+        self.assertEqual(pool.warm_tiers("e" * 40, state, "7"), [["a-glaeda", "b-glaeda"]])
+        self.assertEqual(pool.warm_tiers(MERGE_BASE, state, None), [["b-glaeda", "c-glaeda"]])
+        self.assertEqual(pool.warm_tiers("", None, "7"), [])
+
+    def test_a_merge_base_warm_mini_beats_a_pull_request_warm_one(self):
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-b", 0, MINI, ROOT_MINI),
+                   mini_runner("mini-c", 0, MINI, ROOT_MINI)]
+        tiers = [{"mini-c-glaeda"}, {"mini-a-glaeda"}]
+        for seed in ("", "1", "2", "3"):
+            labels, warm = pool.spread_admission_runner(runners, ROOT_MINI, tiers, seed=seed)
+            self.assertEqual((json.loads(labels)[1], warm), ("glaeda-runner-mini-c-glaeda", True), seed)
+        # The merge base's mini runs a root job: the pull request's mini, still empty, comes next.
+        runners[2] = mini_runner("mini-c", 0, MINI, ROOT_MINI, busy=True)
+        labels, warm = pool.spread_admission_runner(runners, ROOT_MINI, tiers)
+        self.assertEqual((json.loads(labels)[1], warm), ("glaeda-runner-mini-a-glaeda", True))
+
+    def test_warmth_is_the_minis_not_the_runners(self):
+        # The janitor recorded the keys against mini-b's first root runner, which lacks its
+        # static label now; its other root runner takes the job, and glaeda's hook gives it
+        # the warm root (the mini's warm-keys cover both roots).
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-b", 0, MINI, ROOT_MINI, own=False),
+                   mini_runner("mini-b", 1, MINI, ROOT_MINI)]
+        self.assertEqual(spread(runners, hot={"mini-b-glaeda"}), ("glaeda-runner-mini-b-glaeda-1", True))
+        # So does an offline warm runner on an otherwise empty mini.
+        runners[1] = mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline")
+        self.assertEqual(spread(runners, hot={"mini-b-glaeda"}), ("glaeda-runner-mini-b-glaeda-1", True))
+
+    def test_ignores_runners_lacking_their_pinned_label(self):
+        # Not installed with its static label yet: a job naming it would wait forever.
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI, own=False), mini_runner("mini-b", 0, MINI, ROOT_MINI)]
+        self.assertEqual(spread(runners)[0], "glaeda-runner-mini-b-glaeda")
+        self.assertEqual(spread(runners[:1]), ("", False))
+        # A runner named outside glaeda's scheme has no known mini.
+        stray = {"name": "cmux15", "status": "online", "busy": False,
+                 "labels": [{"name": ROOT_MINI}, {"name": "glaeda-runner-cmux15"}]}
+        self.assertEqual(spread([stray]), ("", False))
+
+
+class LiveCapacity(unittest.TestCase):
+    """With the runner listing, a pool's capacity is its online runners, not CI_OWNED_POOL_SLOTS."""
+
+    def test_online_runners_count_per_label(self):
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI, busy=True), mini_runner("mini-a", 1, MINI, SIDE_MINI),
+                   mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, LIGHT)]
+        self.assertEqual(pool.live_online(runners, (MINI, ROOT_MINI, LIGHT)), {MINI: 2, ROOT_MINI: 1, LIGHT: 1})
+
+    def test_capacity_is_the_online_count_when_listed(self):
+        snap = fleet(busy=0)
+        slot_counts = {MINI: 40, ROOT_MINI: 18}
+        # The variable under-counts (20 root runners online) and over-counts (30 pool runners online of 40).
+        live, capacity = pool.live_pools(snap, {MINI: 3, ROOT_MINI: 1}, slot_counts, {},
+                                         online={MINI: 30, ROOT_MINI: 20})
+        self.assertEqual(capacity, {MINI: 30, ROOT_MINI: 20})
+        self.assertEqual((live["pools"][MINI]["running"], live["pools"][ROOT_MINI]["running"]), (27, 19))
+        # A root label still counts only beside a root count: the variable keeps that switch.
+        _, capacity = pool.live_pools(snap, {MINI: 3, ROOT_MINI: 1}, {MINI: 40}, {},
+                                      online={MINI: 30, ROOT_MINI: 20})
+        self.assertEqual(capacity, {MINI: 30})
+        # No listing: the variable, or the idle runners when those are more.
+        _, capacity = pool.live_pools(snap, {MINI: 3, ROOT_MINI: 1}, slot_counts, {})
+        self.assertEqual(capacity, {MINI: 40, ROOT_MINI: 18})
+
+    def test_an_offline_fleet_is_no_queue_to_join(self):
+        busy = fleet(busy=0, small=21, large=6, old=4)
+        # Every runner busy and 11 online: the queue is worth joining (test_live_busy_fleet_queues...).
+        choice = owned_choice(busy, live_owned={MINI: 0}, live_online={MINI: 11}, queue_rounds="")
+        self.assertEqual((choice.runner, choice.owned_budget), (MINI, 3))
+        # The variable says 11 but none is online: nothing will ever take the jobs.
+        self.assertEqual(owned_choice(busy, live_owned={MINI: 0}, live_online={MINI: 0}, queue_rounds="").runner, LARGE)
+        # The variable says 2 but 11 are online: the listing wins.
+        self.assertEqual(owned_choice(busy, machines=2, live_owned={MINI: 0}, queue_rounds="").runner, LARGE)
+        self.assertEqual(owned_choice(busy, machines=2, live_owned={MINI: 0}, live_online={MINI: 11},
+                                      queue_rounds="").runner, MINI)
 
 
 class Wiring(unittest.TestCase):
@@ -2029,11 +2212,11 @@ class Wiring(unittest.TestCase):
         inputs = self.workflow("ci-macos.yml")[True]["workflow_call"]["inputs"]["pr_admission_runner"]
         self.assertEqual((inputs["required"], inputs["default"], inputs["type"]), (False, "", "string"))
         admission = self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        self.assertIn("github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) ||",
-                      admission["runs-on"])
+        pinned = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
+        self.assertIn(f"github.run_attempt == 1 && {pinned} && fromJSON{pinned} ||", admission["runs-on"])
         # Only admission reads it; its consumers follow its root label.
         text = (WORKFLOWS / "ci-macos.yml").read_text()
-        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 2)
+        self.assertEqual(text.count(f"fromJSON{pinned}"), 2)
 
     def test_admission_uploads_its_warm_keys(self):
         steps = self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]["steps"]
