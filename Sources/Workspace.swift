@@ -10729,10 +10729,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// The search is local to the source pane's ancestry in the split tree:
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
     func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
+        preferredTargetPane(fromPanelId: panelId, orientation: .horizontal)
+    }
+
+    /// Returns the nearest adjacent sibling pane for the requested split orientation.
+    func preferredTargetPane(fromPanelId panelId: UUID, orientation: SplitOrientation) -> PaneID? {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
-        return BrowserRightSidePaneResolver().preferredPane(
+        return BrowserSplitPaneResolver().preferredPane(
             from: sourcePane,
-            in: bonsplitController
+            in: bonsplitController,
+            orientation: orientation
         )
     }
 

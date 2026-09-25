@@ -39,11 +39,27 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
+        openTerminalBrowserLink(
+            url: url,
+            sourcePanelId: sourcePanelId,
+            focus: focus,
+            splitDirection: .right
+        )
+    }
+
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        focus: Bool,
+        splitDirection: BrowserTerminalLinkSplitDirection
+    ) -> Bool {
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
               let sourcePane = paneId(forPanelId: panelId) else { return false }
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
+        let orientation = splitDirection.splitOrientation
+        if let targetPane = BrowserSplitPaneResolver().preferredPane(
             from: sourcePane,
-            in: bonsplitController
+            in: bonsplitController,
+            orientation: orientation
         ) {
             if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
             guard let panelId = newSurface(
@@ -61,7 +77,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
         guard let panelId = newSplit(
             kind: .browser,
-            orientation: .horizontal,
+            orientation: orientation,
             insertFirst: false,
             sourcePanelId: panelId,
             url: url,

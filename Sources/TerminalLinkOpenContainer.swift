@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 /// Host operations needed to give terminal links identical behavior in the
 /// workspace grid and the Dock.
@@ -22,6 +23,14 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     @discardableResult
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool
+
+    @discardableResult
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        focus: Bool,
+        splitDirection: BrowserTerminalLinkSplitDirection
+    ) -> Bool
 }
 
 struct CloudTerminalLinkTarget: Sendable, Equatable {
@@ -33,5 +42,14 @@ extension TerminalLinkOpenContainer {
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
         openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: true)
+    }
+
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        focus: Bool,
+        splitDirection _: BrowserTerminalLinkSplitDirection
+    ) -> Bool {
+        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: focus)
     }
 }

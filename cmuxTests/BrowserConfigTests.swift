@@ -5528,6 +5528,22 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
+    func testTerminalLinkSplitDirectionDefaultsToRight() {
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkSplitDirection(defaults: defaults),
+            .right
+        )
+    }
+    func testTerminalLinkSplitDirectionUsesStoredValue() {
+        defaults.set(
+            BrowserTerminalLinkSplitDirection.down.rawValue,
+            forKey: BrowserLinkOpenSettings.terminalLinkSplitDirectionKey
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkSplitDirection(defaults: defaults),
+            .down
+        )
+    }
     func testSidebarPullRequestLinksDefaultToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }

@@ -65,6 +65,12 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserOpenTerminalLinksInCmuxBrowser"
     )
 
+    public let terminalLinkSplitDirection = DefaultsKey<BrowserTerminalLinkSplitDirection>(
+        id: "browser.terminalLinkSplitDirection",
+        defaultValue: .right,
+        userDefaultsKey: "browserTerminalLinkSplitDirection"
+    )
+
     public let interceptTerminalOpenCommandInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.interceptTerminalOpenCommandInCmuxBrowser",
         defaultValue: true,

@@ -471,6 +471,9 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let terminalLinkSplitDirectionKey = BrowserCatalogSection().terminalLinkSplitDirection.userDefaultsKey
+    static let defaultTerminalLinkSplitDirection = BrowserCatalogSection().terminalLinkSplitDirection.defaultValue
+
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
 
@@ -490,6 +493,12 @@ enum BrowserLinkOpenSettings {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+
+    static func terminalLinkSplitDirection(defaults: UserDefaults = .standard) -> BrowserTerminalLinkSplitDirection {
+        UserDefaultsSettingsClient(defaults: defaults).value(
+            for: BrowserCatalogSection().terminalLinkSplitDirection
+        )
     }
 
     static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {

@@ -361178,6 +361178,65 @@
         }
       }
     },
+    "settings.search.alias.setting.browser.terminal-link-split-direction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection terminal links browser split right down below direction pane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection Terminal-Links Browser teilen rechts unten Richtung Bereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection liens du terminal navigateur division droite bas direction panneau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection روابط الطرفية المتصفح تقسيم يمين أسفل اتجاه لوحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection enlaces del terminal navegador división derecha abajo dirección panel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection 終端機連結 瀏覽器 分割 右側 下方 方向 面板"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection 终端链接 浏览器 分割 右侧 下方 方向 面板"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection 터미널 링크 브라우저 분할 오른쪽 아래 방향 패널"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkSplitDirection ターミナルリンク ブラウザ 分割 右 下 方向 ペイン"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.browser.theme": {
       "extractionState": "manual",
       "localizations": {
