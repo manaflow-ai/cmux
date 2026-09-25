@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
 import Darwin
@@ -26,6 +27,14 @@ final class RemoteTmuxSocksProxyStreamClient: RemoteProxyStreamOpening, @uncheck
     /// bound a peer that accepts but never reads lets a local client queue
     /// unlimited memory here.
     private static let maxPendingWriteBytes = 4 * 1024 * 1024
+    // SOCKS5 framing fields used only for ssh's domain-capable `-D` forward.
+    // CmuxCloud intentionally exposes the IP-only request builder instead.
+    private static let socksMethodSelectionLength = 2
+    private static let socksReplyHeaderLength = 4
+    private static let socksConnectCommand: UInt8 = 0x01
+    private static let socksAddressTypeIPv4: UInt8 = 0x01
+    private static let socksAddressTypeDomain: UInt8 = 0x03
+    private static let socksAddressTypeIPv6: UInt8 = 0x04
 
     private let localForwardPort: Int
     private let ioQueue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-stream-io", qos: .userInitiated)
@@ -197,13 +206,13 @@ extension RemoteTmuxSocksProxyStreamClient {
         deadline: DispatchTime
     ) throws {
         try writeAll(fd: fd, bytes: SocksV5Client.greeting, deadline: deadline)
-        let methodSelection = try readExact(fd: fd, count: SocksV5Client.methodSelectionLength, deadline: deadline)
+        let methodSelection = try readExact(fd: fd, count: socksMethodSelectionLength, deadline: deadline)
         try SocksV5Client.checkMethodSelection(methodSelection)
 
         let request = try connectRequest(host: targetHost, port: targetPort)
         try writeAll(fd: fd, bytes: request, deadline: deadline)
 
-        let header = try readExact(fd: fd, count: SocksV5Client.replyHeaderLength, deadline: deadline)
+        let header = try readExact(fd: fd, count: socksReplyHeaderLength, deadline: deadline)
         let trailerLength: Int
         if let fixed = try SocksV5Client.replyTrailerLength(header: header) {
             trailerLength = fixed
@@ -224,19 +233,19 @@ extension RemoteTmuxSocksProxyStreamClient {
         guard (1...65_535).contains(port) else {
             throw RemoteTmuxError.launchFailed("browser proxy SOCKS request has an invalid port: \(host):\(port)")
         }
-        var request: [UInt8] = [SocksV5Client.version, SocksV5Client.commandConnect, 0x00]
+        var request: [UInt8] = [SocksV5Client.version, socksConnectCommand, 0x00]
         if let ipv4 = IPv4Address(host) {
-            request.append(SocksV5Client.addressTypeIPv4)
+            request.append(socksAddressTypeIPv4)
             request.append(contentsOf: ipv4.rawValue)
         } else if let ipv6 = IPv6Address(host) {
-            request.append(SocksV5Client.addressTypeIPv6)
+            request.append(socksAddressTypeIPv6)
             request.append(contentsOf: ipv6.rawValue)
         } else {
             let nameBytes = Array(host.utf8)
             guard !nameBytes.isEmpty, nameBytes.count <= 255 else {
                 throw RemoteTmuxError.launchFailed("browser proxy SOCKS request host is invalid: \(host)")
             }
-            request.append(SocksV5Client.addressTypeDomain)
+            request.append(socksAddressTypeDomain)
             request.append(UInt8(nameBytes.count))
             request.append(contentsOf: nameBytes)
         }
