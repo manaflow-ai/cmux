@@ -14,6 +14,7 @@ mkdir -p \
   "$APP/Contents/Frameworks" \
   "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS" \
   "$FAKE_BIN"
+APP="$(cd "$APP" && pwd -P)"
 
 for binary in \
   "$APP/Contents/MacOS/cmux" \
@@ -37,8 +38,8 @@ EOF
 cat > "$FAKE_BIN/otool" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "\$1" == '-l' ]] || exit 2
-target="\$2"
+[[ "\$1" == '-arch' && "\$2" == all && "\$3" == '-l' ]] || exit 2
+target="\$4"
 if [[ "\${CMUX_FAKE_MODE:-}" == bad-rpath && "\$target" == */cmux-cua ]]; then
   cat <<'BAD_RPATH'
 Load command 0
