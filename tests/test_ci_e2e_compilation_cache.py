@@ -181,8 +181,10 @@ exit 97
             upload = by_id(upload_id)
             self.assertEqual(
                 upload['with']['name'],
-                'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
-                'publish under the name ci.yml uses, so a later run can adopt it')
+                'app-host-products-v1-${{ steps.reuse.outputs.product_key'
+                ' || steps.product-key.outputs.key }}-${{ github.run_attempt }}',
+                'publish under the name ci.yml uses, so a later run can adopt it,'
+                ' or the name of the root a reused product moved this job to')
 
         outputs = WORKFLOW['jobs']['build']['outputs']
         self.assertEqual(outputs['artifact_id'],
