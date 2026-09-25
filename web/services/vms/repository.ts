@@ -655,7 +655,7 @@ function dbEffect<A>(
 }
 
 function envLayerSnapshotFenceKey(provider: ProviderId, snapshotId: string): SQL {
-  return sql`pg_advisory_xact_lock(hashtextextended(${`${provider}:${snapshotId}`}, 0))`;
+  return sql`select pg_advisory_xact_lock(hashtextextended(${`${provider}:${snapshotId}`}, 0))`;
 }
 
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
