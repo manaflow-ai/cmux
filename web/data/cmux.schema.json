@@ -1848,6 +1848,7 @@
               "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
+              "focusHistoryLast",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",

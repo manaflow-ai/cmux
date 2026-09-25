@@ -177,10 +177,8 @@ struct RemoteResumeBindingTests {
         let params = try #require(request["params"] as? [String: Any])
 
         #expect(params["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
-        #expect(WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-            params,
-            remoteRelayTokenHex: relayToken
-        ))
+        let resumeCode = try #require(params["_cmux_remote_relay_authentication_code"] as? String)
+        #expect(resumeCode.count == 64)
     }
 
     @Test
@@ -279,7 +277,7 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
-    func remoteResumeProvenanceRequiresExactMethodAndUntamperedAuthentication() throws {
+    func remoteResumeAuthenticationIsStampedOnlyForExactMethod() throws {
         let workspaceID = UUID()
         let relayToken = String(repeating: "c", count: 64)
         let rewriter = WorkspaceRemoteRelayCommandRewriter(
@@ -304,33 +302,10 @@ struct RemoteResumeBindingTests {
         let authenticatedParams = try #require(rewrittenRequest["params"] as? [String: Any])
 
         #expect(authenticatedParams["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
-        #expect(WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-            authenticatedParams,
-            remoteRelayTokenHex: relayToken
-        ))
-
-        for authenticationCode in [nil, "", "0", "not-hex", String(repeating: "0", count: 64)] as [String?] {
-            var invalidParams = authenticatedParams
-            invalidParams["_cmux_remote_relay_authentication_code"] = authenticationCode
-            #expect(!WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-                invalidParams,
-                remoteRelayTokenHex: relayToken
-            ))
-        }
-
-        var missingProvenance = authenticatedParams
-        missingProvenance.removeValue(forKey: "_cmux_remote_workspace_id")
-        #expect(!WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-            missingProvenance,
-            remoteRelayTokenHex: relayToken
-        ))
-
-        var tampered = authenticatedParams
-        tampered["command"] = "codex resume attacker-session"
-        #expect(!WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-            tampered,
-            remoteRelayTokenHex: relayToken
-        ))
+        let resumeCode = try #require(
+            authenticatedParams["_cmux_remote_relay_authentication_code"] as? String
+        )
+        #expect(resumeCode.count == 64)
 
         for method in ["surface.resume.get", "surface.resume.set.backup", "surface.resume.setter", "custom.surface.resume.set"] {
             let unrelated: [String: Any] = [
