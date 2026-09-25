@@ -264,7 +264,7 @@ class Refusal(unittest.TestCase):
         self.assertEqual(api.calls.count("jobs:2"), 1)
         self.assertIn("no job of this attempt asked for a persistent pool", summary)
 
-    def test_one_deadline_covers_both_attempts(self):
+    def test_a_late_refusal_is_rescued_and_attempt_2_inherits_the_watch(self):
         # A refusal found near the end of the watch is still rescued: the job
         # keeps time past the watch, under its own timeout, for the cancel to
         # settle and the re-run.
@@ -285,7 +285,7 @@ class Refusal(unittest.TestCase):
         _, summary = run_main(api, clock)
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
-        self.assertNotIn("too little of the watch left", summary)
+        self.assertNotIn("too little of the job left", summary)
         self.assertLess(clock.seconds, rescue.WATCH_LIMIT_SECONDS + rescue.RESCUE_GRACE_SECONDS)
         # And attempt 2 inherits what is left, not a fresh hour.
         clock = Clock()
@@ -476,6 +476,32 @@ class Rescuing(unittest.TestCase):
         code, _ = run_main(api, clock)
         self.assertEqual(code, 0)
         self.assertGreaterEqual(api.calls.count("force-cancel"), 1)
+        self.assertIn("rerun", api.calls)
+
+    def test_no_cancel_starts_without_time_to_settle_and_re_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        target = rescue.Target(run_id=555, attempt=1, head_sha=HEAD, pr_number=7)
+        deadline = clock.now() + rescue.dt.timedelta(
+            seconds=rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS - 1)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                               deadline=deadline)
+        self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_refused_force_cancel_keeps_waiting(self):
+        # The run can settle between the read and the POST, and GitHub then
+        # refuses the force-cancel; the next read sees it finished.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=400)
+
+        def refuse(run_id):
+            api.calls.append("force-cancel")
+            raise rescue.urllib.error.HTTPError("url", 409, "Conflict", {}, None)
+        api.force_cancel = refuse
+        code, _ = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(api.calls.count("force-cancel"), 2)
         self.assertIn("rerun", api.calls)
 
     def test_force_cancel_again_then_give_up_only_at_the_wait_limit(self):

@@ -477,7 +477,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS:
         # A job killed between the cancel and the re-run would leave the
         # pull request's run cancelled for good; leave it as GitHub has it.
-        return "not rescued: too little of the watch left to cancel and re-run"
+        return "not rescued: too little of the job left to cancel and re-run"
     if run.get("status") == "completed":
         if not (failed_only if refused is None else refused):
             return "not rescued: the run already finished"
@@ -497,9 +497,14 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         waited = (now() - started).total_seconds()
         if (forced_at is None and waited >= FORCE_CANCEL_AFTER_SECONDS) or \
                 (forced_at is not None and waited - forced_at >= FORCE_CANCEL_AGAIN_SECONDS):
-            api.force_cancel(target.run_id)
             forced_at = waited
-            log(f"force-cancelled run {target.run_id} ({round(waited)}s after cancel)")
+            try:
+                api.force_cancel(target.run_id)
+                log(f"force-cancelled run {target.run_id} ({round(waited)}s after cancel)")
+            except urllib.error.HTTPError as error:
+                # Most likely the run settled since the read; the next read
+                # sees it. Aborting here would leave it cancelled for good.
+                log(f"force-cancel of run {target.run_id} refused ({error.code}); still waiting")
         if waited >= CANCEL_WAIT_SECONDS:
             raise Aborted(f"run {target.run_id} did not finish {CANCEL_WAIT_SECONDS}s after cancel; not re-run")
     # A push during the cancel starts the new head's run; re-running the old
