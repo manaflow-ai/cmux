@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Darwin
 import Foundation
 import Testing
@@ -134,6 +137,7 @@ import Testing
         #expect(build.detail == "/root/work/app")
         #expect(build.lifecycle == .running)
         #expect(build.agent == SurfaceAgentBadge(state: "working", source: "claude"))
+        #expect(build.terminalAgentIconAssetName == "AgentIcons/Claude")
         #expect(build.remoteWorkspace == SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true))
         #expect(build.remoteViews?.map(\.tabID) == ["tab_1", "tab_4"])
         #expect(build.remoteWorkspaces.map(\.id) == ["ws_main", "ws_api"])
@@ -154,6 +158,15 @@ import Testing
         #expect(detached.remoteViews == [])
         #expect(detached.remoteWorkspaces.isEmpty)
         #expect(detached.lifecycle == .running)
+    }
+
+    @Test func providerAwareAgentFieldResolvesCodexMark() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["agents"] = [["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "hook", "agent": "codex"]]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let terminal = try #require(resources.first { $0.id.key == "term_build" })
+        #expect(terminal.agent?.agent == "codex")
+        #expect(terminal.terminalAgentIconAssetName == "AgentIcons/Codex")
     }
 
     @Test func userTabNameStaysOnTheIndividualRemoteView() throws {
@@ -1009,8 +1022,8 @@ import Testing
         LISTEN  0       128     127.0.0.1:5901      0.0.0.0:*
         LISTEN  0       128     0.0.0.0:3000        0.0.0.0:*
         """
-        #expect(CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: ss) == [1337, 3000, 5901])
-        #expect(CmuxTuiSnapshotParser.internalPorts.isSuperset(of: [1337, 5901, 6901]))
+        #expect(CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: ss) == [1337, 3000, 5901]); let probe = VMExecResult(exitCode: 0, stdout: ss, stderr: ""); #expect(CmuxTuiSurfaceProvider.ports(from: probe, displayPortsOwned: true) == [3000]); #expect(CmuxTuiSurfaceProvider.ports(from: probe, displayPortsOwned: false) == [3000, 5901])
+        #expect(CmuxTuiSnapshotParser.displayPorts.isSuperset(of: [5901, 5902, 5916, 6901, 6902, 6916]))
         #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "cmux-xfce-vnc:latest"))
         #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "cmuxd-ws:tooling-20260509f"))
 
@@ -1235,7 +1248,9 @@ import Testing
 
         await link.disconnect()
 
-        #expect(Darwin.kill(linkPID, 0) == -1 && errno == ESRCH, "disconnect must reap the link child")
+        let killResult = Darwin.kill(linkPID, 0)
+        let killErrno = errno
+        #expect(killResult == -1 && killErrno == ESRCH, "disconnect must reap the link child")
         #expect(!FileManager.default.fileExists(atPath: eventPIDFile.path), "event subscription must not spawn a CLI child")
     }
 

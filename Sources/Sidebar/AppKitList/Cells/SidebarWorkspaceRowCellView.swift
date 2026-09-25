@@ -514,13 +514,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         descriptionView.isHidden = description == nil
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
-            let descriptionColor = palette.secondary(0.84, inactiveOpacity: 0.95)
+            let customDescriptionColor = settings.workspaceDescriptionColorHex.flatMap(NSColor.init(hex:))
+            let descriptionColor = customDescriptionColor ?? palette.secondary(0.84, inactiveOpacity: 0.95)
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
                 descriptionView.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
                     color: descriptionColor,
-                    linkColor: palette.linkText
+                    linkColor: customDescriptionColor ?? palette.linkText
                 )
             } else {
                 descriptionView.configurePlainText(

@@ -42,6 +42,23 @@ The top entry's version MUST equal the checked-in
 for a different version), so bump the beta version with
 `ios/scripts/bump-ios-version.sh` in the SAME change that adds the top entry.
 
+## [1.0.6] - 2026-09-23
+
+### Internal
+
+- Require Mac 0.64.25 or NIGHTLY 0.64.25-nightly.3522337919701 for BETA and INTERNAL 1.0.6's v2 connection service and Iroh transport.
+- Show a new What's New notice only to BETA and INTERNAL 1.0.6, with exact Mac requirements, pairing opt-in, and rollback instructions.
+- Keep the existing compatibility requirements for older iOS versions.
+- Verify updating from 1.0.5 preserves sign-in and saved computers, and exercise reconnects after backgrounding.
+
+### External
+
+- Updated the Mac connection service and Iroh transport.
+- Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac.
+- If you cannot update your Mac, use cmux BETA 1.0.5 (20260914204800) in TestFlight > Previous Builds while available. Choose that exact build.
+
+---
+
 ## [1.0.5] - 2026-09-15
 
 ### Internal

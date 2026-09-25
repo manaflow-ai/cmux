@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Oppdaget harness-konfigurasjon",
+    "selectionNotice": "Valg av leverandør starter eller aktiverer ikke disse harnessene.",
+    "selectProvider": "Velg {provider}",
+    "foundPath": "Fant {path}",
+    "foundCommand": "Fant kommandoen {command}",
+    "installed": "Leverandøren er installert",
+    "missing": "Leverandøren er ikke installert",
+    "install": "Installer med: {command}",
+    "benefitPi": "Komprimering, minne og leverandørruting",
+    "benefitOpenagent": "Parallelle spesialister og gjenoppretting for OpenCode",
+    "benefitClaude": "Team og verifisering for Claude Code",
+    "benefitSuperpowers": "Planlegging, TDD, underagenter og gjennomgang"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Oppsettet av Cloud VM ble ikke fullført",
+      "reason": "Gjesteoppsettet for Cloud VM ble ikke fullført.",
+      "message": "cmux kunne ikke fullføre oppsettet av Cloud VM.",
+      "action": "Prøv operasjonen på nytt. Kontakt kundestøtte hvis problemet fortsetter."
+    },
+    "createCleanupPending": {
+      "title": "Opprydding av Cloud VM venter",
+      "message": "Oppsettet av Cloud VM mislyktes, og oppryddingen venter fortsatt.",
+      "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
+    },
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",
       "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",
@@ -399,6 +424,22 @@
       "savingRelaySettings": "Lagrer…"
     },
     "coderouterAccounts": {
+      "transferAction": "Overfør",
+      "transferringAction": "Overfører…",
+      "transferDialogTitle": "Overfør konto til et annet team",
+      "transferChooseBody": "Velg teamet som skal motta {account}. Den tilhører nå {source}.",
+      "transferDestinationLabel": "Mottakerteam",
+      "continueAction": "Fortsett",
+      "backAction": "Tilbake",
+      "transferConfirmTitle": "Overføre {account}?",
+      "transferConfirmBody": "{account} flyttes fra {source} til {destination}. Skymaskiner og medlemmer i {source} slutter å bruke den med en gang. Den beholder den nåværende delingsinnstillingen i {destination}.",
+      "transferConfirmAction": "Overfør konto",
+      "transferSuccess": "{account} er flyttet til {destination}.",
+      "transferError": "Kunne ikke overføre denne kontoen. Prøv igjen.",
+      "transferForbiddenError": "Du kan ikke lenger flytte kontoer til det teamet.",
+      "transferNotFoundError": "Denne kontoen er ikke lenger i dette teamet. Oppdater for å se hvor den er.",
+      "transferConflictError": "Kontoen endret seg under flyttingen. Oppdater og prøv igjen.",
+      "transferUnavailableError": "Overføringer er midlertidig utilgjengelige, eller kontoen oppdateres. Prøv igjen om et øyeblikk.",
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gjør privat",
       "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
@@ -1246,6 +1287,12 @@
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
+        "root": "cmux-konfigurasjon. Den globale cmux.json støtter appinnstillinger, snarveier, handlinger, egendefinerte kommandoer, varslingshooks og arbeidsområdeoppsett. En prosjektlokal .cmux/cmux.json eller cmux.json støtter handlinger, kommandoer, varslingshooks, kobling av UI-handlinger, overstyringer for Agent Chat, vault-agenter, overstyringer for arbeidsområdegrupper samt konfigurasjon av oppstart og knapper for arbeidsområder.",
+        "rightSidebar": "Eldre og utvidelseseid konfigurasjon av høyre sidefelt som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper som lastes før denne konfigurasjonen. Mapper viser til cmux.pack.json. Bruk en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurasjonsfilen med mindre den er absolutt."
+        },
         "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
         "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "automation": {
@@ -1257,6 +1304,7 @@
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Skjermnavn som bare brukes i DEBUG-bygg når nye vinduer åpnes. En tom verdi bruker systemstandarden.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
@@ -1432,6 +1480,7 @@
       "restartNew": "Opprett et nytt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z).",
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",
@@ -4021,5 +4070,15 @@
     "organization": "Organisasjon",
     "personalAccount": "personlig konto",
     "switchAccountButton": "Bruk en annen konto"
+  },
+  "MobileRelease106": {
+    "title": "Nytt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Oppdaterte Mac-tilkoblinger",
+    "connectionDetail": "Denne oppdateringen bruker den nye tilkoblingstjenesten og Iroh-transport. Eldre Mac-bygg må oppdateres for å koble til.",
+    "updateTitle": "Oppdater cmux på Macen",
+    "updateDetail": "Krever cmux {stableVersion} eller nyere, eller NIGHTLY {nightlyVersion} eller nyere. Slå på iOS-sammenkobling i Innstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Må du beholde et eldre Mac-bygg?",
+    "rollbackDetail": "Bruk cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere bygg så lenge det er tilgjengelig. Velg akkurat dette bygget, siden senere bygg bruker en nyere tilkoblingstjeneste."
   }
 }

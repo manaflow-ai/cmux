@@ -273,7 +273,7 @@ extension MobileShellComposite {
     /// already reflect its stores).
     private func refreshAfterForget(displayScope: MobileShellScopeSnapshot) async {
         guard await isScopeCurrent(displayScope) else { return }
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         await loadRegistryDevices()
         // Mirror the hide path: once the last stored Mac is gone, drop the saved
         // reconnect hint so the app does not keep trying to redial a forgotten Mac.
@@ -522,7 +522,7 @@ extension MobileShellComposite {
         guard !Task.isCancelled,
               await isScopeCurrent(scope),
               !Task.isCancelled else { return }
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         guard !Task.isCancelled else { return }
         await loadRegistryDevices()
         recordAppEvent(.computerUnhidden, correlationID: correlationID)
@@ -784,7 +784,7 @@ extension MobileShellComposite {
         guard !Task.isCancelled,
               await isScopeCurrent(scope),
               !Task.isCancelled else { return }
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
         recordAppEvent(
             .computerHidden,

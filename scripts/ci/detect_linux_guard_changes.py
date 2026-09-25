@@ -4,33 +4,57 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
-
-ROUTES = (
-    "linux_guard_tests", "linux_guard_history", "linux_guard_cli",
-    "linux_guard_source", "ghosttykit_release",
+from workflow_guard_groups import (
+    GROUPS, GUARD_WORKFLOW, PATH_OWNERS, ROUTING_POLICY_PATHS,
+    GuardWorkflowError, groups_for_path, route_direct_paths,
 )
-CLI_INPUTS = {
-    "Resources/bin/start-cmux-profiling",
-    "scripts/ci/resolve-cmux-tui-client-commit.sh",
-    "tests/test_start_cmux_profiling.sh",
-    "tests/test_ci_resolve_cmux_tui_client_commit.sh",
+
+
+GUARD_ROUTES = (
+    "linux_guard_tests", "linux_guard_history", "linux_guard_cli", "linux_guard_source",
+)
+ROUTES = GUARD_ROUTES + ("ghosttykit_release",)
+
+# Inputs a guard step exercises without naming them in its `run:`. Everything a
+# step runs directly is read out of ci-guards.yml instead of being listed here,
+# so a renamed or deleted guard step cannot leave a stale route behind.
+INDIRECT_ROUTE_INPUTS = {
+    # The two CLI contracts each exercise the script they are named after.
+    "linux_guard_cli": frozenset({
+        "Resources/bin/start-cmux-profiling",
+        "scripts/ci/resolve-cmux-tui-client-commit.sh",
+    }),
+    # workflow-guard-tests reads these through an import, a working directory,
+    # or yaml.safe_load; PATH_OWNERS is the one place they are declared.
+    "linux_guard_tests": frozenset(PATH_OWNERS),
 }
-HISTORY_INPUTS = {
-    "scripts/check-package-resolved-policy.py",
-    "tests/test_package_resolved_policy_remote_inputs.py",
-    "tests/test_check_package_resolved_policy.py",
-}
-# Exact inputs of the Cloud skill coverage check in workflow-guard-tests.
-# New tests and skill files retain the conservative fallback until mapped.
-WORKFLOW_TEST_INPUTS = {
-    "tests/test_cloud_vm_skill_coverage.py",
-    "skills/cmux-cloud-vm/SKILL.md",
-    "skills/cmux-cloud-vm/references/commands.md",
-    "skills/cmux-cloud-vm/references/agent-workflows.md",
-    "skills/cmux-cloud-vm/references/guest.md",
-}
+
+# ghosttykit-release-check lives in ci.yml, not ci-guards.yml, so this module
+# cannot see that it owns the pinned GhosttyKit artifact. A submodule bump keeps
+# the conservative fallback even though workflow-guard-tests also reads it.
+GHOSTTYKIT_PROVENANCE = frozenset({"ghostty"})
+
+
+def route_inputs() -> dict[str, frozenset[str]] | None:
+    """Map each guard route to the paths that route's job observes.
+
+    Returns None when ci-guards.yml cannot be read, so the caller falls open to
+    every guard rather than routing from a half-known workflow.
+    """
+    try:
+        derived = route_direct_paths(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, GuardWorkflowError):
+        return None
+    if set(derived) != set(GUARD_ROUTES):
+        return None
+    return {
+        route: frozenset(derived[route] | INDIRECT_ROUTE_INPUTS.get(route, frozenset()))
+        - ROUTING_POLICY_PATHS - GHOSTTYKIT_PROVENANCE
+        for route in GUARD_ROUTES
+    }
 
 
 def plain_documentation(path: str) -> bool:
@@ -48,6 +72,9 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
     all_guards = dict.fromkeys(ROUTES, True)
     if event != "pull_request" or macos not in {"true", "false"} or not paths:
         return all_guards
+    inputs = route_inputs()
+    if inputs is None:
+        return all_guards
     routes = dict.fromkeys(ROUTES, False)
     routes["ghosttykit_release"] = macos == "true"
     for path in paths:
@@ -58,18 +85,18 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
         # The mixed suite includes source, resource, and packaging contracts.
         # Keep it for code changes until those contracts have finer ownership.
         routes["linux_guard_tests"] = True
-        if path in WORKFLOW_TEST_INPUTS:
-            pass
-        elif path in CLI_INPUTS:
-            routes["linux_guard_cli"] = True
-        elif path in HISTORY_INPUTS:
-            routes["linux_guard_history"] = True
+        observers = [route for route in GUARD_ROUTES if path in inputs[route]]
+        if observers:
+            # A guard job runs this path itself, so only those jobs observe it.
+            for route in observers:
+                routes[route] = True
         elif path.rsplit("/", 1)[-1] in {"Package.swift", "Package.resolved", "project.pbxproj",
                                               "contents.xcworkspacedata", ".gitignore"}:
             routes["linux_guard_history"] = True
             routes["linux_guard_source"] = True
         elif path.startswith(("Sources/", "CLI/", "Resources/", "Packages/",
-                              "cmuxTests/", "cmuxUITests/", "cmux.xcodeproj/",
+                              "cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                              "cmuxUITests/", "cmux.xcodeproj/",
                               "cmux.xcworkspace/", "vendor/bonsplit/", "ios/")):
             routes["linux_guard_source"] = True
         elif path.startswith(("web/", "webviews/", "cmux-tui/")):
@@ -79,6 +106,30 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
             # itself retain all coverage. New guard inputs cannot silently skip.
             return all_guards
     return routes
+
+
+def classify_test_groups(paths: list[str], *, event: str, macos: str) -> tuple[str, ...]:
+    """Select only workflow-guard-tests groups that can observe this diff."""
+    if event != "pull_request" or macos not in {"true", "false"} or not paths:
+        return GROUPS
+
+    selected: set[str] = set()
+    for path in paths:
+        if not path or path.startswith("/") or ".." in path.split("/"):
+            return GROUPS
+        if plain_documentation(path):
+            continue
+        owners = groups_for_path(path)
+        if owners is None:
+            return GROUPS
+        selected.update(owners)
+
+    # linux_guard_tests skips documentation-only diffs. Keep a valid non-empty
+    # matrix value available anyway so malformed callers cannot create an empty
+    # matrix-expansion failure.
+    if not selected:
+        return GROUPS
+    return tuple(group for group in GROUPS if group in selected)
 
 
 def main() -> None:
@@ -91,8 +142,11 @@ def main() -> None:
         paths = args.files_from.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
         paths = []
-    for name, enabled in classify(paths, event=args.event_name, macos=args.macos).items():
+    routes = classify(paths, event=args.event_name, macos=args.macos)
+    for name, enabled in routes.items():
         print(f"{name}={'true' if enabled else 'false'}")
+    groups = classify_test_groups(paths, event=args.event_name, macos=args.macos)
+    print(f"linux_guard_test_groups={json.dumps(groups, separators=(',', ':'))}")
 
 
 if __name__ == "__main__":

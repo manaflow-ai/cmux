@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Task-grouped `cmux help` output and `cmux help <topic>` topic views.
@@ -253,6 +254,9 @@ extension CMUXCLI {
         list-windows
         current-window
         comments list [--repo <path>] [--all] [--json]
+        review list [--repo <path>] [--json]
+        review show [<id|latest>] [--repo <path>] [--json]
+        review findings [<id|latest>] [--repo <path>] [--all] [--json]
         vault sessions [--agent <id>] [--folder <path>] [--limit <n>] [--json]
         vault search <query> [--limit <n>] [--json]
         vault checkpoints --agent <id> --session <id> [--json]
@@ -294,9 +298,14 @@ extension CMUXCLI {
     }
 
     private var automationCommandsHelp: String {
+        let executionExchangeHelp = CmuxGlaedaExecutionLocalization().string(
+            "glaeda.cli.taskHelp",
+            defaultValue: "glaeda <request|observe> [options]"
+        )
         return """
         events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
         automation <list|show|test|enable|disable|logs|reload> [args]
+        \(executionExchangeHelp)
         todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
         send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
         send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>

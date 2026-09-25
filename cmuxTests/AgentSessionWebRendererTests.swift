@@ -10,6 +10,24 @@ import Testing
 @Suite(.serialized)
 struct AgentSessionWebRendererTests {
     @Test
+    @MainActor
+    func testTerminalCommandQueuedBeforeCloseIsRejectedAfterClose() {
+        let coordinator = AgentSessionWebRendererCoordinator()
+        var invoked = false
+        coordinator.onRunCommand = { _ in
+            invoked = true
+            return ["accepted": true]
+        }
+
+        coordinator.close()
+
+        #expect(throws: AgentSessionBridgeError.self) {
+            _ = try coordinator.runTerminalCommandRequest("pwd")
+        }
+        #expect(!invoked)
+    }
+
+    @Test
     func testTrustedShellURLAcceptsOnlyMatchingFileURL() {
         let resources = URL(fileURLWithPath: "/tmp/cmux DEV test.app/Contents/Resources", isDirectory: true)
         let expected = AgentSessionWebRendererCoordinator.shellURL(

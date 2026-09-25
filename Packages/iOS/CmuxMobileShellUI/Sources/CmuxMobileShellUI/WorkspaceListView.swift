@@ -71,6 +71,10 @@ struct WorkspaceListView: View {
     /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
     /// SwiftUI's `refreshable(action:)` action type under Swift 6.
     var refresh: (@Sendable () async -> Void)?
+    /// Whether the empty-state recovery action currently owns the shared
+    /// connection status line under the computer picker.
+    var isRecoveringWorkspaceList = false
+    var cancelRefresh: (() -> Void)? = nil
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
@@ -939,6 +943,7 @@ struct WorkspaceListView: View {
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
+            isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,

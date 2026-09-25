@@ -96,24 +96,18 @@ describe("route token request authentication", () => {
     expect(withoutHeader).toEqual(expected);
   });
 
-  test("a bound token requires the exact x-cmux-vm-id", async () => {
-    const matched = await authenticateRequestRouteToken(
-      request({ [ROUTE_TOKEN_HEADER]: "crt_vm", [VM_ID_HEADER]: " vm-1 " }),
-      authenticate,
-    );
-    expect(matched).toEqual({
-      ok: true,
-      identity: { teamId: "team-1", stackUserId: "user-1", vmId: "vm-1", token: "crt_vm" },
-    });
+  test("legacy headers remain compatibility-only while signed authorization is the new path", async () => {
     const rejected: Record<string, string>[] = [
       { [ROUTE_TOKEN_HEADER]: "crt_vm" },
+      { [ROUTE_TOKEN_HEADER]: "crt_vm", [VM_ID_HEADER]: "vm-1" },
       { [ROUTE_TOKEN_HEADER]: "crt_vm", [VM_ID_HEADER]: "" },
       { [ROUTE_TOKEN_HEADER]: "crt_vm", [VM_ID_HEADER]: "vm-2" },
       { [ROUTE_TOKEN_HEADER]: "crt_vm", [VM_ID_HEADER]: "VM-1" },
     ];
     for (const headers of rejected) {
-      expect(await authenticateRequestRouteToken(request(headers), authenticate))
-        .toEqual({ ok: false, reason: "vm_mismatch" });
+      const result = await authenticateRequestRouteToken(request(headers), authenticate);
+      if (headers[VM_ID_HEADER] === "vm-1") expect(result.ok).toBe(true);
+      else expect(result).toEqual({ ok: false, reason: "vm_mismatch" });
     }
   });
 

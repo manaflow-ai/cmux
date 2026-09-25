@@ -63,14 +63,22 @@ public final class MobileIrohReleaseGateTerminalSession {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 let client = ClientBox(value: self.client)
                 let command = probe.command
-                group.addTask { @MainActor in
+                let submitTask = Task { @MainActor in
                     await client.value.submitTerminalRawInput(command, surfaceID: surfaceID)
-                    try Task.checkCancellation()
-                    for try await _ in proof {
+                }
+                defer { submitTask.cancel() }
+                group.addTask {
+                    try await withTaskCancellationHandler {
+                        await submitTask.value
                         try Task.checkCancellation()
-                        return
+                        for try await _ in proof {
+                            try Task.checkCancellation()
+                            return
+                        }
+                        throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+                    } onCancel: {
+                        submitTask.cancel()
                     }
-                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
                 }
                 group.addTask {
                     try await ContinuousClock().sleep(for: Self.verificationTimeout)

@@ -111,6 +111,7 @@ extension CMUXCLI {
         "focus-webview",
         "focus-window",
         "get-url",
+        "glaeda",
         "help",
         "hooks",
         "identify",

@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { makeCoderouterTransferHandler } from "../app/api/coderouter/accounts/[accountId]/transfer/route";
+import { makeCoderouterTransferHandler, transferDestinationTeams } from "../app/api/coderouter/accounts/[accountId]/transfer/route";
+import type { AuthedUser } from "../services/vms/auth";
 
 const ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
 const context = {
@@ -118,5 +119,54 @@ describe("coderouter account transfer route", () => {
     expect(response.status).toBe(400);
     expect(listTeams).not.toHaveBeenCalled();
     expect(transfer).not.toHaveBeenCalled();
+  });
+});
+
+function authedUser(teamIds: readonly string[]): AuthedUser {
+  return {
+    id: "user-1",
+    displayName: "User",
+    primaryEmail: "user@example.com",
+    billingCustomerType: "team",
+    billingTeamId: "team-source",
+    selectedTeamId: "team-source",
+    teams: teamIds.map((id) => ({ id, displayName: id, billingPlanId: null, billingSeats: null })),
+    teamIds,
+    userBillingPlanId: null,
+    billingPlanId: null,
+    billingSeats: null,
+  };
+}
+
+describe("coderouter transfer destination membership", () => {
+  // The source request's identity carries only its selected and requested
+  // team, so a destination the caller belongs to is missing from user.teams.
+  test("re-verifies the destination with an exact team lookup", async () => {
+    const verify = mock(async (_request: Request, _signal: AbortSignal, options?: { requestedTeamId?: string | null }) =>
+      authedUser(options?.requestedTeamId === "team-destination"
+        ? ["team-source", "team-destination"]
+        : ["team-source"]));
+
+    const teams = await transferDestinationTeams(authedUser(["team-source"]), request(), "team-destination", verify as never);
+
+    expect(teams.some((team) => team.teamId === "team-destination" && team.manageAccounts)).toBe(true);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(verify.mock.calls[0]?.[2]).toEqual({ requestedTeamId: "team-destination", allowCookie: true });
+  });
+
+  test("offers no destination when the re-verified identity is a different user", async () => {
+    const verify = mock(async () => ({ ...authedUser(["team-source", "team-destination"]), id: "someone-else" }));
+
+    const teams = await transferDestinationTeams(authedUser(["team-source"]), request(), "team-destination", verify as never);
+
+    expect(teams.some((team) => team.teamId === "team-destination")).toBe(false);
+  });
+
+  test("offers no destination the caller does not belong to", async () => {
+    const verify = mock(async () => authedUser(["team-source"]));
+
+    const teams = await transferDestinationTeams(authedUser(["team-source"]), request(), "team-destination", verify as never);
+
+    expect(teams.some((team) => team.teamId === "team-destination")).toBe(false);
   });
 });

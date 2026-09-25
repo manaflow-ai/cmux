@@ -23,7 +23,7 @@ SUITES = [
 
 
 def step_script(job, name):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
     return next(s["run"] for s in workflow["jobs"][job]["steps"] if s.get("name") == name)
 
 
@@ -61,6 +61,7 @@ else:
 """)
             runner.chmod(0o755)
             shutil.copy2(ROOT / "scripts/ci/require_selected_test_execution.sh", helpers)
+            shutil.copy2(ROOT / "scripts/ci/run-and-capture.sh", helpers)
             bindir = root / "bin"
             bindir.mkdir()
             for command in ("node", "bun"):
@@ -117,8 +118,16 @@ else:
             helpers = root / "scripts/ci"
             helpers.mkdir(parents=True)
             shutil.copy(ROOT / "scripts/ci/select_package_tests.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/require_swift_test_execution.py", helpers)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
+            selected = runner_temp / "selected-packages.txt"
+            package_names = sorted(
+                package.name
+                for package in (ROOT / "Packages").glob("*/*")
+                if package.is_dir()
+            )
+            selected.write_text("\n".join(package_names) + "\n", encoding="utf-8")
             isolated = helpers / "run-swift-testing-suites.sh"
             isolated.write_text('#!/bin/bash\nexec swift test --package-path "$1"\n')
             isolated.chmod(0o755)
@@ -142,11 +151,15 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
 """)
             swift.chmod(0o755)
             calls = root / "calls.jsonl"
-            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}",
-                       CALLS=str(calls), WARNING_PACKAGE=warning_package,
-                       RUNNER_TEMP=str(runner_temp))
-            # An unknown diff selects every package, so both warning gates run.
-            env.pop("CHANGED_FILES", None)
+            env = dict(
+                os.environ,
+                PATH=f"{bindir}:{os.environ['PATH']}",
+                CALLS=str(calls),
+                WARNING_PACKAGE=warning_package,
+                RUNNER_TEMP=str(runner_temp),
+                SELECTED_PACKAGES=str(selected),
+                SELECTED_COUNT=str(len(package_names)),
+            )
             result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             return result, [json.loads(line) for line in calls.read_text().splitlines()]

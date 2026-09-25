@@ -84,7 +84,7 @@ if ! awk '
   in_job && /^  [[:alnum:]_-]+:$/ { exit }
   in_job && index($0, "git submodule update --init --depth 1 ghostty") { found = 1 }
   END { exit !found }
-' "$ROOT_DIR/.github/workflows/ci.yml"; then
+' "$ROOT_DIR/.github/workflows/ci-guards.yml"; then
   echo "workflow-guard-tests does not initialize Ghostty before reading its Zig manifest" >&2
   exit 1
 fi
