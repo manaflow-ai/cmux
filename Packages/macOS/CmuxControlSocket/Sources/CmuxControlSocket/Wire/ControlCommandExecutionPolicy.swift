@@ -125,8 +125,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // surfaces. Keep them on the worker lane so markdown/file-preview panes
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead
         // of the main-actor switch returning method_not_found.
+        // `mobile.panel.artifact.fetch` is deliberately absent: it needs the
+        // authenticated mobile RPC execution context, so the local control
+        // socket answers method_not_found instead of bypassing
+        // artifact-transfer authorization (the worker switch has no case for it).
         "mobile.panel.artifact.stat",
-        "mobile.panel.artifact.fetch",
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
@@ -159,10 +162,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
         "surface.read_selection",
-        // The surface catalog verbs await main-actor catalog work that can sit on the
-        // network (a cloud provider materializing a pane); like `vm.*` they park the
-        // worker instead of holding the main actor.
+        // Surface verbs park the worker while awaiting catalog or provider work.
         "surface.catalog",
+        // Current-work captures owners once, then reduces/encodes off-main without refresh.
+        "current.list",
         "surface.project",
         "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY
@@ -173,7 +176,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
         "workspace.env",
-        "workspace.remote.pty_sessions",
+        "workspace.ssh.open", "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",

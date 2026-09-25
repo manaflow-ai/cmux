@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -11,6 +13,20 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudInitialWorkspaceNamingTests {
+    @Test("Plain attachment keeps the original loading surface without running a placeholder shell")
+    func deferredAttachmentNeverRunsATemporaryLocalCommand() throws {
+        let workspace = Workspace(title: "New Machine", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let loadingID = try #require(workspace.focusedPanelId)
+        let original = try #require(workspace.panels[loadingID])
+        let returned = workspace.prepareCloudTerminalAttachment(command: "sleep 60", deferTerminal: true, focus: false)
+        #expect(returned == loadingID)
+        #expect(workspace.panels.count == 1)
+        #expect(workspace.panels[loadingID] === original)
+        #expect(workspace.terminalPanel(for: loadingID) == nil)
+        #expect(workspace.title == "New Machine")
+    }
+
     @Test("Binding after discovery immediately gives both sidebars the daemon workspace name")
     func bindingReconcilesAlreadyDiscoveredName() async throws {
         try await withUnboundFixture { fixture in
@@ -21,6 +37,36 @@ struct CloudInitialWorkspaceNamingTests {
             #expect(fixture.workspace.cloudVMBinding?.remoteWorkspaceID == "a")
             #expect(fixture.provider.writes.isEmpty)
             #expect(fixture.manager.tabs.count == 1)
+        }
+    }
+
+    @Test("The first remote workspace receipt adopts the optimistic local placeholder once")
+    func firstWorkspaceReceiptAdoptsPlaceholder() async throws {
+        try await withUnboundFixture { fixture in
+            fixture.catalog.bindCloudWorkspace(
+                localWorkspaceID: fixture.workspace.id,
+                machine: fixture.provider.machine,
+                remoteWorkspaceID: "a",
+                generatedTitle: "Cloud VM",
+                remoteWorkspaceName: "workspace-1"
+            )
+
+            #expect(fixture.workspace.title == "workspace-1")
+            #expect(fixture.workspace.cloudVMBinding?.remoteWorkspaceID == "a")
+            #expect(fixture.provider.writes.isEmpty, "adoption acknowledges the daemon name; it does not rename it back")
+
+            // A duplicate receipt is idempotent and cannot create another local
+            // workspace or replay a remote rename.
+            fixture.catalog.bindCloudWorkspace(
+                localWorkspaceID: fixture.workspace.id,
+                machine: fixture.provider.machine,
+                remoteWorkspaceID: "a",
+                generatedTitle: "Cloud VM",
+                remoteWorkspaceName: "workspace-1"
+            )
+            #expect(fixture.manager.tabs.count == 1)
+            #expect(fixture.workspace.title == "workspace-1")
+            #expect(fixture.provider.writes.isEmpty)
         }
     }
 
@@ -73,7 +119,8 @@ struct CloudInitialWorkspaceNamingTests {
         try await withUnboundFixture { fixture in
             #expect(fixture.workspace.setCustomTitle("Cloud VM", source: .user))
             fixture.catalog.bindCloudWorkspace(localWorkspaceID: fixture.workspace.id,
-                machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM")
+                machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM",
+                remoteWorkspaceName: "workspace-1")
             try await fixture.settle()
             try fixture.expectParity("terminal", workspaceName: "Cloud VM")
             #expect(fixture.provider.writes.map { $0.1 } == ["Cloud VM"])
@@ -155,7 +202,11 @@ struct CloudInitialWorkspaceNamingTests {
                 selectsCreatedWorkspace: true
             )
             let coordinator = MachineCreateCoordinator(
-                notifier: { _ in }, notificationCenter: NotificationCenter()
+                notifier: { _ in },
+                selectWorkspace: { workspaceID, request in
+                    MachineCreateCoordinator.selectCreatedWorkspace(workspaceID, for: request)
+                },
+                notificationCenter: NotificationCenter()
             )
             var completion: (@MainActor (CloudVMActionLauncher.Completion) -> Void)?
             #expect(coordinator.start(request, cancellableLaunch: { _, _, handler in

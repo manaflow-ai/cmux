@@ -4,6 +4,7 @@ import Foundation
 /// All mutable state is accessed only from `queue`; main-actor code replaces whole instances on recovery.
 final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     let queue: DispatchQueue
+    // Carve-out: synchronous C-event admission must reject a full queue before allocating more work.
     private let pendingLock = NSLock()
     private var pendingPriority: [@Sendable () -> Void] = []
     private var pendingNormal: [@Sendable () -> Void] = []

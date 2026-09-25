@@ -16,6 +16,7 @@ import Foundation
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
     /// without a second list in the settings package.
@@ -34,6 +35,35 @@ public protocol SettingsHostActions: AnyObject {
     /// this is the escape hatch for users who prefer their own
     /// editor.
     func openConfigInExternalEditor()
+
+    /// Reads the existing config-backed automation rules for Settings status.
+    func automationRulesStatus() async -> AutomationRulesStatus
+
+    /// Opens ~/.cmuxterm/automations.json in the user's preferred editor.
+    func openAutomationRulesInExternalEditor()
+
+    /// Asks the running automation engine to reload its existing config file.
+    /// Returns false when the host has no live automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool
+
+    /// Names of custom sidebar files currently discovered by the host.
+    func customSidebarNames() -> [String]
+
+    /// Streams sidebar names after external filesystem changes, including an initial snapshot.
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]>
+
+    /// Creates a starter custom sidebar and opens it in the preferred editor.
+    func createCustomSidebar() -> CustomSidebarOnboardingResult
+
+    /// Copies one bundled example into the custom-sidebar directory and opens it.
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
+
+    /// Opens an existing discovered custom sidebar in the preferred editor.
+    func openCustomSidebarInExternalEditor(named name: String)
+
+    /// Creates the custom-sidebar directory when needed, then reveals it in Finder.
+    func openCustomSidebarsFolder()
 
     /// Launches the host's feedback flow (typically a "Send Feedback"
     /// URL or in-app form).
@@ -67,6 +97,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
+
+    /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
+    func openTerminalThemePicker()
 
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
@@ -260,6 +293,18 @@ public protocol SettingsHostActions: AnyObject {
     /// Whether the displayed Computer Use permission values are authoritative.
     func computerUsePermissionStatusIsKnown() -> Bool
 
+    /// The remaining setup step, including capture confirmation beyond the TCC grants.
+    func computerUseSetupStatus() -> ComputerUseSetupStatus
+
+    /// One runtime-owned enablement, permission, and setup snapshot.
+    func computerUseSetupSnapshot() -> ComputerUseSettingsSnapshot
+
+    /// Emits coalesced invalidations of the host's cached permission and setup snapshot.
+    func computerUseSetupUpdates() -> AsyncStream<Void>
+
+    /// Opens the explicit setup flow, including when both TCC grants already exist.
+    func finishComputerUseSetup()
+
     /// Starts the helper-owned Accessibility permission flow.
     func requestComputerUseAccessibility()
 
@@ -285,6 +330,34 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Opens the host's plan management / upgrade flow.
     func openCloudMachinesBilling()
+}
+
+/// Host-provided summary of the existing config-backed automation rules.
+public struct AutomationRulesStatus: Equatable, Sendable {
+    public let configPath: String
+    public let ruleCount: Int
+    public let enabledCount: Int
+    public let configExists: Bool
+    public let hasError: Bool
+
+    public init(
+        configPath: String,
+        ruleCount: Int,
+        enabledCount: Int,
+        configExists: Bool,
+        hasError: Bool = false
+    ) {
+        self.configPath = configPath
+        self.ruleCount = max(0, ruleCount)
+        self.enabledCount = min(max(0, enabledCount), max(0, ruleCount))
+        self.configExists = configExists
+        self.hasError = hasError
+    }
+
+    /// Number of configured rules that are currently disabled.
+    public var disabledCount: Int {
+        ruleCount - enabledCount
+    }
 }
 
 /// Snapshot of the caller's Cloud Machines plan for the settings section.
@@ -341,6 +414,23 @@ public extension SettingsHostActions {
     /// Validates a candidate custom notification sound path on the host.
     func validateNotificationSoundFile(path: String) async -> Bool { false }
 
+    /// Empty automation summary for previews and package-only hosts.
+    func automationRulesStatus() async -> AutomationRulesStatus {
+        AutomationRulesStatus(
+            configPath: "~/.cmuxterm/automations.json",
+            ruleCount: 0,
+            enabledCount: 0,
+            configExists: false
+        )
+    }
+
+    /// Default no-op for hosts without app-owned automation files.
+    func openAutomationRulesInExternalEditor() {}
+
+    /// Default failure for hosts without a live automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool { false }
+
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
 
@@ -364,11 +454,34 @@ public extension SettingsHostActions {
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
 
+    /// Default no-op for package-only settings hosts without a terminal theme picker.
+    func openTerminalThemePicker() {}
+
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
+
+    /// Custom-sidebar defaults for package previews and tests without a live host.
+    func customSidebarNames() -> [String] { [] }
+
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]> {
+        let names = customSidebarNames()
+        return AsyncStream { continuation in
+            continuation.yield(names)
+            continuation.finish()
+        }
+    }
+    func createCustomSidebar() -> CustomSidebarOnboardingResult {
+        .writeFailed
+    }
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func openCustomSidebarInExternalEditor(named name: String) { _ = name }
+    func openCustomSidebarsFolder() {}
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
@@ -383,22 +496,6 @@ public extension SettingsHostActions {
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
 
-    /// Default no-op for hosts without Computer Use permission reporting.
-    func refreshComputerUsePermissions() async {}
-    /// Default denied Accessibility status for hosts without Computer Use.
-    func computerUseAccessibilityGranted() -> Bool { false }
-    /// Default denied Screen Recording status for hosts without Computer Use.
-    func computerUseScreenRecordingGranted() -> Bool { false }
-    /// Default unknown status for hosts without Computer Use permission reporting.
-    func computerUsePermissionStatusIsKnown() -> Bool { false }
-    /// Default no-op for hosts that cannot request Computer Use Accessibility.
-    func requestComputerUseAccessibility() {}
-    /// Default no-op for hosts that cannot request Computer Use Screen Recording.
-    func requestComputerUseScreenRecording() {}
-    /// Default no-op for hosts without a Computer Use Accessibility settings route.
-    func openComputerUseAccessibilitySettings() {}
-    /// Default no-op for hosts without a Computer Use Screen Recording settings route.
-    func openComputerUseScreenRecordingSettings() {}
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

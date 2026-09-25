@@ -18,6 +18,15 @@ from typing import BinaryIO
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
+RESTART_BUDGET_EXIT_CODE = 123
+# xcodebuild emits this when the XCTest app host exits unexpectedly, then
+# relaunches it and resumes the remaining tests. Resuming is unbounded: a host
+# that crashes on contact keeps the shard running until the job-level timeout.
+# The run is already lost by then, because any restart makes it non-ratchetable
+# (run_is_complete in scripts/ci/app_host_result_accounting.py, added for
+# https://github.com/manaflow-ai/cmux/issues/7471). Same literal as that
+# module's RESTART_MARKER.
+RESTART_MARKER = b"Restarting after unexpected exit, crash, or test timeout"
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 # A test bundle that mixes XCTest and Swift Testing runs XCTest first and then
 # starts a Swift Testing run. The XCTest summary is therefore only terminal
@@ -59,6 +68,40 @@ def contains_test_progress(chunk: bytes, pending: bytearray) -> bool:
     if len(pending) > 65536:
         del pending[:-4096]
     return progress
+
+
+def count_restart_markers(chunk: bytes, carry: bytearray) -> int:
+    """Count app-host restarts in `chunk`, counting each marker exactly once.
+
+    `carry` holds the trailing bytes that could still be the head of a marker
+    split across two reads, so a straddling marker is counted on the read that
+    completes it and never again.
+    """
+    carry.extend(chunk)
+    buffered = bytes(carry)
+    count = buffered.count(RESTART_MARKER)
+    if count:
+        buffered = buffered[buffered.rfind(RESTART_MARKER) + len(RESTART_MARKER) :]
+    keep = len(RESTART_MARKER) - 1
+    carry[:] = buffered[-keep:]
+    return count
+
+
+def restart_budget() -> int | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET")
+    if not raw:
+        return None
+    try:
+        budget = int(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET must be an integer",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if budget < 0:
+        return None
+    return budget
 
 
 def app_host_pids(derived_data_path: str) -> list[int]:
@@ -121,6 +164,75 @@ def sample_app_host(log_file: BinaryIO | None, stdout_fd: int) -> None:
         # Keep stdout bounded: the call graph's head names the stuck frames.
         excerpt = b"\n".join(output.splitlines()[:160]) + b"\n"
         write_child_output(header + excerpt, None, stdout_fd)
+
+
+def compiler_process_snapshot(root_pid: int, timeout: float) -> list[tuple[int, str]]:
+    """Only compiler descendants of this invocation; never print argv or env."""
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,ppid=,time=,etime=,state=,comm="],
+        capture_output=True, text=True, timeout=timeout, check=False,
+    )
+    records = {}
+    for line in result.stdout.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) != 6:
+            continue
+        try:
+            pid, parent = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        records[pid] = (parent, fields)
+    descendants = {root_pid}
+    while True:
+        children = {pid for pid, (parent, _) in records.items() if parent in descendants}
+        if children.issubset(descendants):
+            break
+        descendants.update(children)
+    names = {"xcodebuild", "swift", "swiftc", "swift-frontend", "clang", "clang++", "ld", "XCBBuildService"}
+    return [
+        (pid, f"pid={pid} ppid={fields[1]} cpu={fields[2]} elapsed={fields[3]} state={fields[4]} executable={os.path.basename(fields[5])}")
+        for pid, (_, fields) in records.items()
+        if pid in descendants and os.path.basename(fields[5]) in names
+    ][:12]
+
+
+def sample_compilers(root_pid: int, log_file: BinaryIO | None, stdout_fd: int) -> None:
+    """Spend at most eight seconds recording why a silent compile timed out.
+
+    CPU time is evidence, not permission to extend the build: a spinning
+    compiler can consume CPU forever. The idle verdict remains unchanged.
+    """
+    deadline = time.monotonic() + 8
+    try:
+        first = compiler_process_snapshot(root_pid, timeout=2)
+        if not first:
+            return
+        write_child_output(("[idle timeout] compiler process snapshot (before)\n" +
+                            "\n".join(row for _, row in first) + "\n").encode(), log_file, stdout_fd)
+        time.sleep(1)
+        second = compiler_process_snapshot(root_pid, timeout=min(2, max(0.1, deadline - time.monotonic())))
+        write_child_output(("[idle timeout] compiler process snapshot (after)\n" +
+                            "\n".join(row for _, row in second) + "\n").encode(), log_file, stdout_fd)
+        # Recheck parentage in the second snapshot; never sample a process that
+        # disappeared or another developer's compiler. One stack is enough.
+        candidates = [pid for pid, row in second if pid != root_pid and
+                      any(row.endswith("executable=" + name) for name in ("swift-frontend", "swiftc", "clang", "clang++", "ld"))]
+        sampler = shutil.which("sample")
+        remaining = deadline - time.monotonic()
+        if sampler and candidates and remaining > 0:
+            result = subprocess.run([sampler, str(candidates[0]), "1", "-mayDie"],
+                                    capture_output=True, timeout=min(3, remaining), check=False)
+            # Do not emit sample's process metadata/command line. Stack lines
+            # follow the Call graph header on macOS; omit other sections.
+            output = result.stdout or result.stderr
+            marker = output.find(b"Call graph:")
+            if marker >= 0:
+                stack = output[marker:].split(b"Binary Images:", 1)[0]
+                excerpt = b"\n".join(stack.splitlines()[:120]) + b"\n"
+                write_child_output(b"[idle timeout] compiler stack sample\n" + excerpt, log_file, stdout_fd)
+    except (OSError, subprocess.SubprocessError):
+        # Missing/slow diagnostics cannot replace the timeout verdict.
+        return
 
 
 def child_exit_code(status: int) -> int:
@@ -249,6 +361,9 @@ def main() -> int:
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
     heartbeat = heartbeat_seconds()
+    restarts_allowed = restart_budget()
+    restarts_observed = 0
+    restart_carry = bytearray()
     started_at = time.monotonic()
     deadline = time.monotonic() + timeout if timeout else None
     heartbeat_deadline = started_at + heartbeat if heartbeat else None
@@ -310,6 +425,7 @@ def main() -> int:
     pending_line = bytearray()
     timed_out = False
     post_test_timed_out = False
+    restart_budget_spent = False
     while True:
         select_timeout = None
         if deadline is not None:
@@ -356,6 +472,11 @@ def main() -> int:
             break
 
         write_child_output(chunk, log_file, stdout_fd)
+        if restarts_allowed is not None:
+            restarts_observed += count_restart_markers(chunk, restart_carry)
+            if restarts_observed > restarts_allowed:
+                restart_budget_spent = True
+                break
         if heartbeat:
             heartbeat_deadline = time.monotonic() + heartbeat
         if timeout and contains_test_progress(chunk, pending_line):
@@ -395,6 +516,25 @@ def main() -> int:
             os.write(fd, b"q")
             prompt_window = b""
 
+    if restart_budget_spent:
+        assert restarts_allowed is not None
+        message = (
+            "Aborted by the app-host restart budget: xcodebuild restarted the "
+            f"app host {restarts_observed} times (budget {restarts_allowed}) "
+            "after unexpected exits, crashes, or test timeouts. The shard was "
+            "stopped here so a crash loop cannot hold a macOS runner to the "
+            "job timeout; a restarted run is already non-ratchetable, so "
+            "resuming it could not have produced a passing verdict. This "
+            "abort is a CI capacity guard, not a test verdict: the failure to "
+            "investigate is the app-host crash above it."
+        )
+        print(message, file=sys.stderr)
+        if log_file is not None:
+            log_file.write(f"{message}\n".encode())
+            log_file.close()
+        terminate_child(pid)
+        return RESTART_BUDGET_EXIT_CODE
+
     if timed_out:
         assert timeout is not None
         message = (
@@ -404,6 +544,7 @@ def main() -> int:
         print(message, file=sys.stderr)
         if log_file is not None:
             log_file.write(f"{message}\n".encode())
+        sample_compilers(pid, log_file, stdout_fd)
         sample_app_host(log_file, stdout_fd)
         if log_file is not None:
             log_file.close()

@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "偵測到的 harness 設定",
+    "selectionNotice": "選擇提供者不會啟動或啟用這些 harness。",
+    "selectProvider": "選擇 {provider}",
+    "foundPath": "找到 {path}",
+    "foundCommand": "找到命令 {command}",
+    "installed": "提供者已安裝",
+    "missing": "提供者未安裝",
+    "install": "使用以下命令安裝：{command}",
+    "benefitPi": "壓縮、記憶體和提供者路由",
+    "benefitOpenagent": "OpenCode 的平行專家與復原能力",
+    "benefitClaude": "Claude Code 的團隊協作與驗證",
+    "benefitSuperpowers": "規劃、TDD、子代理與審查"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM 設定未完成",
+      "reason": "Cloud VM 的來賓環境設定未完成。",
+      "message": "cmux 無法完成 Cloud VM 的設定。",
+      "action": "請重試此操作。如果問題持續，請聯絡支援。"
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM 清理待完成",
+      "message": "Cloud VM 設定失敗，清理仍未完成。",
+      "action": "建立另一台機器之前，請提供追蹤 ID 聯絡支援團隊。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",
@@ -40,8 +65,7 @@
     "memoryUnavailable": {
       "message": "此機器規格目前無法使用。請選擇不超過 {max} GiB 的規格。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go 最多儲存兩台 VM，包括正在執行的 VM。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +75,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "如果我們找到帳戶，請查看你的電子郵件以了解下一步"
   },
@@ -324,7 +349,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "總覽",
       "team": "團隊",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "行動裝置"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,30 +394,84 @@
         "loading": "載入中…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "行動裝置",
+      "description": "管理已連線電腦、手機和平板電腦的存取權。",
+      "team": "團隊",
+      "teamSwitchError": "無法切換團隊。請重試。",
+      "loading": "正在載入裝置…",
+      "empty": "此團隊沒有已註冊的裝置。",
+      "unavailable": "無法載入你的裝置。重新整理頁面後再試一次。",
+      "retry": "重試",
+      "mutationError": "無法完成裝置變更。",
+      "revoke": "撤銷存取權",
+      "deviceId": "裝置",
+      "revision": "版本",
+      "status": "狀態",
+      "active": "使用中",
+      "revoked": "已撤銷",
+      "relaySettings": "中繼設定",
+      "relaySettingsDescription": "選擇此團隊使用的中繼伺服器。每行輸入一個 URL。",
+      "saveRelaySettings": "儲存中繼設定",
+      "eyebrow": "雲端 / 裝置",
+      "scopeActive": "正在顯示此團隊",
+      "emptyTitle": "尚無已連接的裝置",
+      "emptyDescription": "cmux 裝置與此團隊配對後，其平台、版本和存取控制將顯示在這裡。",
+      "revoking": "正在撤銷…",
+      "registeredDevices": "已註冊裝置",
+      "activeDevices": "有效裝置",
+      "directoryRevision": "裝置清單修訂編號",
+      "savingRelaySettings": "正在儲存…"
     },
     "coderouterAccounts": {
+      "transferAction": "轉移",
+      "transferringAction": "正在轉移…",
+      "transferDialogTitle": "將帳號轉移到其他團隊",
+      "transferChooseBody": "選擇接收 {account} 的團隊。它目前屬於 {source}。",
+      "transferDestinationLabel": "目標團隊",
+      "continueAction": "繼續",
+      "backAction": "返回",
+      "transferConfirmTitle": "要轉移 {account} 嗎？",
+      "transferConfirmBody": "{account} 將從 {source} 轉移到 {destination}。{source} 的雲端機器和成員將立即停止使用它。它在 {destination} 中會保留目前的共用設定。",
+      "transferConfirmAction": "轉移帳號",
+      "transferSuccess": "已將 {account} 轉移到 {destination}。",
+      "transferError": "無法轉移此帳號，請再試一次。",
+      "transferForbiddenError": "你已無法將帳號轉移到該團隊。",
+      "transferNotFoundError": "此帳號已不在此團隊中。請重新整理以查看其目前位置。",
+      "transferConflictError": "轉移過程中帳號有所變更。請重新整理後再試一次。",
+      "transferUnavailableError": "轉移暫時無法使用，或帳號正在更新。請稍後再試。",
       "shareWithTeam": "與團隊共用",
       "makePrivate": "設為私人",
       "privateImportHint": "新帳戶預設為私人。共用帳戶後，此團隊的雲端虛擬機即可使用。",
       "description": "共享帳戶可供此團隊的 Cloud VM 使用。私人帳戶僅供新增它們的人使用。",
-      "cancelAction": "取消"
+      "cancelAction": "取消",
+      "apiKeysTitle": "API 金鑰",
+      "apiKeysDescription": "為腳本和代理程式建立長期金鑰。秘密只會顯示一次。",
+      "apiKeysCount": "{count, plural, one {# 個金鑰} other {# 個金鑰}}",
+      "apiKeysLoading": "正在載入 API 金鑰…",
+      "apiKeysLoadError": "無法載入 API 金鑰，請稍後再試。",
+      "apiKeysRetry": "重試",
+      "apiKeysEmptyBody": "尚無 API 金鑰。建立金鑰以驗證 CodeRouter 用戶端。",
+      "apiKeyPrefixColumn": "金鑰",
+      "apiKeyStatusColumn": "狀態",
+      "apiKeySecretTitle": "立即複製此金鑰",
+      "apiKeySecretBody": "此秘密不會再次顯示。",
+      "apiKeyCopy": "複製 API 金鑰",
+      "apiKeyCopied": "已複製",
+      "apiKeyCreatedAt": "建立於 {at}",
+      "apiKeyLastUsed": "最後使用 {at}",
+      "apiKeyRevoked": "已撤銷",
+      "apiKeyLabelPlaceholder": "例如 CI 或正式環境",
+      "createApiKeyAction": "建立 API 金鑰",
+      "creatingApiKeyAction": "建立中",
+      "apiKeyCreateError": "無法建立 API 金鑰。",
+      "revokeApiKeyAction": "撤銷",
+      "revokingApiKeyAction": "撤銷中",
+      "apiKeyRevokeError": "無法撤銷 API 金鑰。",
+      "revokeApiKeyConfirmTitle": "撤銷此 API 金鑰？",
+      "apiKeyUsageDetail": "過去 30 天：{completions} 次完成 · {tokens} 個權杖（輸入 {input} / 輸出 {output}）· API 等值 {value}",
+      "apiKeyUsageUnavailable": "使用量不可用",
+      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。"
     }
   },
   "community": {
@@ -1208,6 +1287,12 @@
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "root": "cmux 設定。全域 cmux.json 支援應用程式設定、快捷鍵、動作、自訂命令、通知 hook 與工作區版面配置。專案本機的 .cmux/cmux.json 或 cmux.json 支援動作、命令、通知 hook、UI 動作綁定、Agent Chat 覆寫、vault 代理、工作區群組覆寫，以及工作區啟動與按鈕設定。",
+        "rightSidebar": "保留在 cmux.json 中的舊版及擴充功能所擁有的右側邊欄設定。",
+        "packs": {
+          "description": "在此設定之前載入的本機 cmux 套件檔案或目錄。目錄會解析為 cmux.pack.json。請使用路徑字串或含有 path 欄位的物件。",
+          "path": "本機檔案或目錄路徑。非絕對路徑會相對於此設定檔案。"
+        },
         "paneBorderColor": "覆寫分割工作區中的 cmux 窗格分隔線顏色。此設定影響 cmux 窗格邊界，而不是 Ghostty 的內部分割。",
         "activePaneBorderColor": "在分割工作區中圍繞目前聚焦的 cmux 窗格繪製的選用邊框顏色。",
         "automation": {
@@ -1219,6 +1304,7 @@
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
+          "devWindowDisplay": "僅在 DEBUG 建置中開啟新視窗時使用的顯示器名稱。空值會使用系統預設值。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
@@ -1341,7 +1427,7 @@
       "plusButtonScreenshotAlt": "cmux 加號按鈕右鍵選單顯示 Worktree Agents、New Terminal 與 New Browser",
       "plusButtonScreenshotCaption": "右鍵選單會依照 ui.newWorkspace.contextMenu 的順序。",
       "newWorkspaceButton": "加號按鈕的自訂動作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。 New Cloud Workspace 會使用最近選取的 Cloud 工作區所屬機器，接著使用右側邊欄的第一台機器；New Cloud Machine 會主動佈建機器。",
       "newWorkspaceWorktreeNote": "此範例讓一般加號點擊執行 <action>worktree-agents</action> 動作。來自 <commands>commands</commands> 的工作區命令會先使用可見的設定終端機建立 Git <worktree>worktree</worktree>。Codex 與 Claude 同時啟動，等待該工作區專用的狀態檔，然後在 exec 前進入建立的目錄。",
       "simpleCommands": "簡單指令",
       "simpleCommandsDesc": "簡單指令會在目前聚焦的終端機中執行 shell 指令：",
@@ -1394,6 +1480,7 @@
       "restartNew": "建立新的 workspace（預設）"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "切換檔案編輯器自動換行 (Option+Z).",
       "title": "鍵盤快捷鍵",
       "description": "cmux 中所有可用的鍵盤快捷鍵，依類別分組。",
       "metaDescription": "cmux 所有鍵盤快捷鍵，涵蓋工作區、surface、分割窗格、瀏覽器、通知、搜尋和 macOS 視窗管理。",
@@ -3985,5 +4072,15 @@
     "organization": "組織",
     "personalAccount": "個人帳戶",
     "switchAccountButton": "使用其他帳號"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 更新內容",
+    "releaseLabel": "1.0.6 · 2026年9月",
+    "connectionTitle": "Mac 連線已更新",
+    "connectionDetail": "此更新使用新的連線服務與 Iroh 傳輸。較舊的 Mac 組建需要更新才能連線。",
+    "updateTitle": "更新 Mac 上的 cmux",
+    "updateDetail": "需要 cmux {stableVersion} 或更新版本，或 NIGHTLY {nightlyVersion} 或更新版本。請在每台 Mac 的「設定」>「行動裝置」中啟用 iOS 配對。",
+    "rollbackTitle": "需要保留較舊的 Mac 組建？",
+    "rollbackDetail": "在仍可用時，從 TestFlight > 先前的組建中使用 cmux BETA 1.0.5 ({rollbackBuild})。請選擇此確切組建，因為後續組建使用更新的連線服務。"
   }
 }

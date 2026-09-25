@@ -22,12 +22,16 @@ permissions:
   contents: read
   pull-requests: read
 
+# Metadata-only edits must not cancel a useful content check. A separate
+# group also keeps them from replacing a pending content run.
 concurrency:
-  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
   complexity:
+    # Keep the required context literal and evaluate the real verdict on edits.
+    # GitHub can publish an unevaluated name expression when a job is skipped.
     name: Web complexity
     # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
     # hosted runner and never allow a repository variable to select the host.
@@ -47,7 +51,11 @@ jobs:
           repository: ${{ github.repository }}
           ref: ${{ env.TRUSTED_SHA }}
           path: trusted
-          fetch-depth: 0
+          # Pull requests and merge groups only read the exact trusted policy
+          # snapshot, so avoid cloning the repository's full history and tags.
+          # Main pushes compare github.event.before..github.sha and still need
+          # enough history to reach an arbitrarily large pushed commit range.
+          fetch-depth: ${{ github.event_name != 'push' && 1 || 0 }}
           persist-credentials: false
 
       - name: Require GitHub-hosted runner
@@ -62,15 +70,140 @@ jobs:
           set -euo pipefail
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$(git -C trusted rev-parse HEAD)" == "$TRUSTED_SHA" ]]
+          [[ -f trusted/scripts/ci/scope-web-complexity.py ]]
           [[ -f trusted/web/scripts/check-complexity.mjs ]]
           [[ -f trusted/web/oxlint-complexity-baseline.txt ]]
 
+      - name: Check complete current-base API scope
+        id: api_scope
+        if: github.event_name == 'pull_request_target'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$GITHUB_WORKSPACE/trusted/scripts/ci/web_complexity_scope.py" ]]; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! gh api "repos/${GITHUB_REPOSITORY}/compare/${TRUSTED_SHA}...${CANDIDATE_SHA}" > "$RUNNER_TEMP/complexity-compare.json"; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 "$GITHUB_WORKSPACE/trusted/scripts/ci/web_complexity_scope.py" \
+            --compare-json "$RUNNER_TEMP/complexity-compare.json" \
+            --trusted-base "$TRUSTED_SHA" --expected-count "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pull-request or merge-group source
+        if: github.event_name != 'push' && steps.api_scope.outputs.scan != 'false'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select complexity work before installing Bun
+        id: scope
+        if: github.event_name != 'push' && steps.api_scope.outputs.scan != 'false'
+        env:
+          UPSTREAM_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          if ! git -C candidate cat-file -e "${TRUSTED_SHA}^{commit}" 2>/dev/null; then
+            git -C candidate -c protocol.version=2 fetch --no-tags --depth=1               "https://github.com/${UPSTREAM_REPOSITORY}.git" "$TRUSTED_SHA"
+          fi
+
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          root = os.environ["GITHUB_WORKSPACE"] + "/candidate"
+          base = os.environ["TRUSTED_SHA"]
+          head = os.environ["CANDIDATE_SHA"]
+          changed = subprocess.check_output(
+              ["git", "-C", root, "diff", "--no-renames", "--name-only", "-z", base, head, "--"]
+          ).split(b"\0")
+
+          policy = {
+              b".github/workflows/web-complexity-trusted.yml",
+              b".github/workflows/web-complexity.yml",
+              b"scripts/ci/scope-web-complexity.py",
+              b"scripts/ci/web_complexity_scope.py",
+              b"web/.oxlintrc.json",
+              b"web/bun.lock",
+              b"web/bunfig.toml",
+              b"web/package.json",
+              b"web/oxlint-complexity-baseline.txt",
+              b"web/scripts/check-complexity.mjs",
+          }
+          excluded = (
+              b".next/",
+              b"coverage/",
+              b"db/migrations/",
+              b"e2e/",
+              b"node_modules/",
+              b"out/",
+              b"public/",
+              b"scripts/",
+              b"tests/",
+              b"tools/",
+          )
+          extensions = (b".js", b".jsx", b".mjs", b".cjs", b".ts", b".tsx", b".mts", b".cts")
+
+          relevant = []
+          for path in filter(None, changed):
+              if path in policy:
+                  relevant.append(path)
+                  continue
+              if not path.startswith(b"web/"):
+                  continue
+              web_path = path[len(b"web/"):]
+              if web_path.startswith(excluded):
+                  continue
+              if web_path.endswith(extensions):
+                  relevant.append(path)
+
+          run = bool(relevant)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"run={str(run).lower()}\n")
+              output.write(f"count={len(relevant)}\n")
+
+          if run:
+              print(f"Complexity-relevant changes: {len(relevant)}")
+              for path in relevant[:50]:
+                  print("  " + os.fsdecode(path))
+          else:
+              print("No production web source or complexity policy changed; skipping Bun and Oxlint.")
+          PY
+
+      - name: Determine pull-request complexity scope
+        if: github.event_name == 'pull_request_target' && steps.api_scope.outputs.scan != 'false' && steps.scope.outputs.run == 'true'
+        id: selected_scope
+        run: |
+          set -euo pipefail
+          [[ "$(git -C candidate rev-parse HEAD)" == "$CANDIDATE_SHA" ]]
+          git -C candidate fetch --no-tags --depth=1 "$GITHUB_WORKSPACE/trusted" "$TRUSTED_SHA"
+          python3 -I -S trusted/scripts/ci/scope-web-complexity.py \
+            --repo-root candidate \
+            --base "$TRUSTED_SHA" \
+            --head "$CANDIDATE_SHA" \
+            --base-baseline trusted/web/oxlint-complexity-baseline.txt \
+            --selected-output "$RUNNER_TEMP/web-complexity-selected.zlist" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Setup Bun
+        if: github.event_name == 'push' || steps.scope.outputs.run == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.14"
 
       - name: Install trusted web tooling
+        if: github.event_name == 'push' || steps.scope.outputs.run == 'true'
         working-directory: trusted/web
         run: bun install --frozen-lockfile
 
@@ -80,30 +213,95 @@ jobs:
       # --config needs the = form: given a separate argument, Bun runs the config
       # file as the script, exits 0, and the check never happens.
       - name: Create empty trusted Bun config
+        if: github.event_name == 'push' || steps.scope.outputs.run == 'true'
         run: |
           set -euo pipefail
           : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
 
-      - name: Checkout pull-request or merge-group source
-        if: github.event_name != 'push'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          repository: ${{ env.CANDIDATE_REPOSITORY }}
-          ref: ${{ env.CANDIDATE_SHA }}
-          path: candidate
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Check pull-request or merge-group source with trusted policy
-        if: github.event_name != 'push'
-        working-directory: trusted/web
+      # A stale branch still carries old copies of trusted files that main has
+      # since updated, and those copies never land. Squash and merge-commit
+      # landings both produce the merge of the head into its base, so merge it
+      # the same way (git merge-tree follows renames and criss-cross history)
+      # and let the checker judge the trusted files in that merge. A rebase
+      # merge replays commits one by one instead, so while the repository
+      # allows it the check stays strict. The setting is read when the check
+      # runs, so re-enabling rebase merging leaves earlier passes standing: keep
+      # rebase off with a ruleset, or re-run this check on open pull requests
+      # after turning it on. The history is fetched without file contents; any
+      # failure or a conflicted merge also stays strict.
+      - name: Merge pull request into its base for the trusted-file check
+        id: merge
+        if: github.event_name == 'pull_request_target' && steps.scope.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs \
-            --repo-root "$GITHUB_WORKSPACE/candidate" \
-            --tool-root "$GITHUB_WORKSPACE/trusted" \
-            --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt" \
+          # The GraphQL variables are literal; gh substitutes them, not the shell.
+          # shellcheck disable=SC2016
+          rebase_allowed="$(gh api graphql -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { rebaseMergeAllowed } }' \
+            --jq '.data.repository.rebaseMergeAllowed' || true)"
+          if [[ "$rebase_allowed" != "false" ]]; then
+            echo "Rebase merging is allowed (or unknown); comparing trusted files strictly."
+            exit 0
+          fi
+          merge_repo="$RUNNER_TEMP/merge.git"
+          upstream="https://github.com/${GITHUB_REPOSITORY}.git"
+          if ! git clone -q --bare --filter=blob:none --no-tags --single-branch --branch main "$upstream" "$merge_repo" ||
+            ! git -C "$merge_repo" cat-file -e "${TRUSTED_SHA}^{commit}" ||
+            ! git -C "$merge_repo" -c protocol.version=2 fetch -q --no-tags --filter=blob:none "$upstream" "$CANDIDATE_SHA"; then
+            echo "Merge unavailable; comparing trusted files strictly."
+            exit 0
+          fi
+          if ! merge_output="$(git -C "$merge_repo" merge-tree --write-tree "$TRUSTED_SHA" "$CANDIDATE_SHA")"; then
+            echo "The pull request does not merge cleanly; comparing trusted files strictly."
+            exit 0
+          fi
+          tree="${merge_output%%$'\n'*}"
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+          echo "repo=$merge_repo" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+
+      - name: Check pull-request or merge-group source with trusted policy
+        if: github.event_name != 'push' && steps.scope.outputs.run == 'true'
+        working-directory: trusted/web
+        env:
+          SCOPE_MODE: ${{ steps.selected_scope.outputs.mode || 'full' }}
+          SELECTED_COUNT: ${{ steps.selected_scope.outputs.selected_count }}
+          MERGE_REPO: ${{ steps.merge.outputs.repo }}
+          MERGE_TREE: ${{ steps.merge.outputs.tree }}
+        run: |
+          set -euo pipefail
+          checker=(
+            bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
+            scripts/check-complexity.mjs
+            --repo-root "$GITHUB_WORKSPACE/candidate"
+            --tool-root "$GITHUB_WORKSPACE/trusted"
+            --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt"
             --head "$CANDIDATE_SHA"
+          )
+          if [[ -n "$MERGE_REPO" && -n "$MERGE_TREE" ]]; then
+            checker+=(--merge-repo "$MERGE_REPO" --merge-tree "$MERGE_TREE")
+          fi
+          case "$SCOPE_MODE" in
+            full|skip)
+              echo "Web complexity: selected $SELECTED_COUNT production file(s) for conservative full scan."
+              "${checker[@]}"
+              ;;
+            changed)
+              mapfile -d '' -t selected < "$RUNNER_TEMP/web-complexity-selected.zlist"
+              [[ "${#selected[@]}" -eq "$SELECTED_COUNT" ]]
+              echo "Web complexity: selected ${#selected[@]} changed existing production file(s)."
+              if [[ "${#selected[@]}" -eq 0 ]]; then
+                exit 0
+              fi
+              "${checker[@]}" --files "${selected[@]}"
+              ;;
+            *)
+              echo "::error::Unexpected Web complexity scope mode: $SCOPE_MODE"
+              exit 1
+              ;;
+          esac
 
       - name: Check main push with trusted policy
         if: github.event_name == 'push'

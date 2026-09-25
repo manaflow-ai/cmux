@@ -1,3 +1,5 @@
+import { ios106Localizations } from "./whats-new-localizations";
+
 /**
  * The remote What's New list served by GET /api/whats-new.
  *
@@ -50,7 +52,14 @@ export interface WhatsNewAnnouncementFeature {
   detail: string;
 }
 
+export interface WhatsNewAnnouncementContent {
+  title: string;
+  releaseLabel?: string;
+  features: WhatsNewAnnouncementFeature[];
+}
+
 export interface WhatsNewAnnouncement {
+  localizations?: Record<string, WhatsNewAnnouncementContent>;
   id: string;
   minVersion: string;
   maxVersion: string;
@@ -83,6 +92,15 @@ export const whatsNewList: WhatsNewList = {
   // One bespoke page now carries the Mac-side opt-in, the screenshot, the
   // compatibility floors, and the connection notes. The earlier standalone
   // pairing page is intentionally absent and can never be shown again.
-  visibleEntryIds: ["connections.v2", "connections.v1"],
-  announcements: [],
+  visibleEntryIds: ["pairing.1.0.6", "connections.v2", "connections.v1"],
+  announcements: [
+    {
+      id: "ios-1.0.6-connections",
+      minVersion: "1.0.6",
+      maxVersion: "1.0.6",
+      channels: ["beta", "internal"],
+      ...ios106Localizations.en,
+      localizations: ios106Localizations,
+    },
+  ],
 };

@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 @MainActor
@@ -20,19 +22,28 @@ extension CmuxTuiSurfaceProvider {
     }
 
     private func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
-        try await terminalMutationQueue.run {
+        let lifecycle = lifecycleGeneration
+        try validateTerminalMutationLifecycle(lifecycle)
+        return try await terminalMutationQueue.run {
             try await self.createTerminalInMutationTurn(
                 command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID,
-                onExit: onExit, request: request
+                onExit: onExit, request: request, lifecycle: lifecycle
             )
         }
     }
 
-    private func createTerminalInMutationTurn(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
-        guard !isFeatureSuspended else { throw ProviderError.machineAsleep(machineID) }
+    private func createTerminalInMutationTurn(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest, lifecycle: UInt64) async throws -> SurfaceResource {
+        try validateTerminalMutationLifecycle(lifecycle)
         let connected = try await links.connected(machineID: machineID)
+        try validateTerminalMutationLifecycle(lifecycle)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        if let created = try await request.prepare(using: link, socketPath: connected.socketPath) {
+        try validateTerminalMutationLifecycle(lifecycle)
+        let commands = CloudTerminalMutationCommandRunner(base: link) {
+            try self.validateTerminalMutationLifecycle(lifecycle)
+        }
+        let recovered = try await request.prepare(using: commands, socketPath: connected.socketPath)
+        try validateTerminalMutationLifecycle(lifecycle)
+        if let created = recovered {
             guard let workspaceID = created.workspaceID else { throw ProviderError.invalidSnapshot(machineID) }
             return recordCreatedTerminal(created, workspaceID: workspaceID, name: name, cwd: cwd)
         }
@@ -42,11 +53,12 @@ extension CmuxTuiSurfaceProvider {
         let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
         // The protocol has a native cwd field. A shell wrapper would load
         // another login profile before executing the requested terminal.
-        let argv = (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
-        let data = try await link.run(arguments: CloudTuiRequests.runArguments(
+        let argv = (command?.isEmpty == false ? command : nil) ?? request.commandOverride ?? summary.defaultTerminalCommand
+        let data = try await commands.runTuiCommand(arguments: CloudTuiRequests.runArguments(
             socketPath: connected.socketPath, workspaceID: workspaceID, command: argv,
             onExit: onExit, cwd: cwd, idempotencyKey: request.attemptKey, correlationKey: request.correlationArgument
-        ))
+        ), deadline: .seconds(30))
+        try validateTerminalMutationLifecycle(lifecycle)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
@@ -57,4 +69,11 @@ extension CmuxTuiSurfaceProvider {
         return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
     }
 
+    /// The captured turn cannot survive suspension, retirement, or provider replacement.
+    func validateTerminalMutationLifecycle(_ lifecycle: UInt64) throws {
+        try Task.checkCancellation()
+        guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog() else {
+            throw CancellationError()
+        }
+    }
 }

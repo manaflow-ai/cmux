@@ -58,6 +58,20 @@ public struct StackAuthClient: AuthClient {
         await stack.getAccessToken()
     }
 
+    /// Resolves access with typed cancellation/deadline failures when supported.
+    /// - Parameter forceRefresh: Bypasses the cached token after server rejection.
+    /// - Returns: A usable access token, or `nil` when unavailable.
+    /// - Throws: Cancellation or a classified transient refresh failure.
+    public func resolvedAccessToken(forceRefresh: Bool) async throws -> String? {
+        let pair = await stack.resolvedTokenPair(forceRefresh: forceRefresh)
+        try Task.checkCancellation()
+        switch pair.refreshFailure {
+        case .cancelled, .sessionChanged: throw CancellationError()
+        case .timedOut: throw AuthError.timedOut
+        case nil: return pair.accessToken
+        }
+    }
+
     public func refreshToken() async -> String? {
         await stack.getRefreshToken()
     }

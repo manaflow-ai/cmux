@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
 
@@ -21,7 +21,7 @@ ADMISSION="$(job_body "$CI_FILE" "macos-compile-admission")"
 SEEDER="$(job_body "$NIGHTLY_FILE" "refresh-test-compilation-cache")"
 
 if [ -z "$ADMISSION" ] || [ -z "$SEEDER" ]; then
-  echo "FAIL: expected ci.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
+  echo "FAIL: expected ci-macos.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
   exit 1
 fi
 
@@ -31,8 +31,8 @@ fi
 for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
   name="${pair%%:*}"
   body="${pair#*:}"
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh build' <<<"$body" \
-    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh fingerprint' <<<"$body"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-build' <<<"$body" \
+    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-fingerprint' <<<"$body"; then
     echo "FAIL: the $name job must build and fingerprint through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi
@@ -43,11 +43,13 @@ for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
 done
 echo "PASS: admission and the seeder build the app-host test product through one script"
 
+# Pools may differ: the executable canonical recipe test checks absolute paths.
+
 # The build paths are part of every cache entry, so both jobs must use the
 # same ones.
 for line in \
-  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission' \
-  'CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas'; do
+  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission' \
+  'CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas'; do
   if ! grep -Fq "$line" <<<"$ADMISSION" || ! grep -Fq "$line" <<<"$SEEDER"; then
     echo "FAIL: admission and the seeder must both set $line"
     exit 1
@@ -56,27 +58,32 @@ done
 echo "PASS: admission and the seeder build from the same paths"
 
 KEY_PREFIX='xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-'
-for file in "$CI_FILE" "$NIGHTLY_FILE"; do
-  if ! grep -Fq -- "$KEY_PREFIX" "$file" \
-    || grep -F 'xcode-compilation-test-' "$file" | grep -vqF -- "$KEY_PREFIX"; then
-    echo "FAIL: $(basename "$file") must use the shared test compilation cache key prefix"
-    exit 1
-  fi
-done
-echo "PASS: admission and the seeder share one cache key prefix"
-
-# Pull requests restore and never save: a cache written from a pull request is
-# scoped to it, so it helps nobody else and spends the budget that keeps the
-# main seed from being evicted.
-if ! awk '
-  /uses: actions\/cache/ { uses=$0 }
-  /key: xcode-compilation-test-/ { saw=1; if (uses !~ /actions\/cache\/restore@/) bad=1 }
-  END { exit !(saw && !bad) }
-' <<<"$ADMISSION"; then
-  echo "FAIL: macos-compile-admission must restore the test compilation cache with actions/cache/restore and never save it"
+if ! grep -Fq -- "$KEY_PREFIX" "$NIGHTLY_FILE" \
+  || grep -F 'xcode-compilation-test-' "$NIGHTLY_FILE" | grep -vqF -- "$KEY_PREFIX"; then
+  echo "FAIL: nightly.yml must key the test compilation cache on the canonical fingerprint"
   exit 1
 fi
-echo "PASS: pull requests restore the test compilation cache read-only"
+echo "PASS: the seeder keys the test compilation cache on the canonical fingerprint"
+
+# Pull-request compile admission does not restore the test compilation cache.
+# Swift keys every compile job on its whole module, so the one-module `cmux`
+# app target (and cmuxUITests) missed on every file: 581 of 581 and 566 of 566
+# in two sampled admission logs on 2026-09-24, although the key, path and
+# Xcode matched the seed exactly. Only modules unchanged since the six-hourly
+# seed hit, and those are what the adopted DerivedData seed already leaves
+# up to date. The restore cost 13-43 s and a 932 MB download on every run.
+# Admission still computes the fingerprint: the DerivedData seed is keyed on it.
+if grep -Fq 'xcode-compilation-test-' <<<"$ADMISSION" \
+  || grep -Eq '^      - name: Restore test compilation cache' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must not restore the test compilation cache;"
+  echo "      the app target misses on every file and the DerivedData seed covers the rest"
+  exit 1
+fi
+if ! grep -Fq 'steps.compilation-cache-key.outputs.fingerprint' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must still key the DerivedData seed on the canonical fingerprint"
+  exit 1
+fi
+echo "PASS: pull requests skip the test compilation cache and keep the fingerprint for the seed"
 
 if ! awk '
   /^      - name: Restore test compilation cache/ { step="restore" }
@@ -85,7 +92,7 @@ if ! awk '
   step == "restore" && /id: compilation-cache-restore/ { saw_restore_id=1 }
   step == "restore" && /needs\.decide\.outputs\.head_sha/ { saw_revision_key=1 }
   step == "bound" && /prune-xcode-compilation-cache\.py/ { saw_prune=1 }
-  step == "save" && /uses: actions\/cache\/save@/ { saw_save=1 }
+  step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { saw_save=1 }
   step == "save" && /cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''/ { saw_gate=1 }
   END { exit !(saw_restore_id && saw_revision_key && saw_prune && saw_save && saw_gate) }
 ' <<<"$SEEDER"; then
@@ -93,6 +100,25 @@ if ! awk '
   exit 1
 fi
 echo "PASS: the seeder rolls the cache forward by main revision and bounds what it saves"
+
+# The seed must come from one clean build. The seeder used to restore its own
+# last seed by prefix, so each run stacked another build's objects onto the
+# CAS; Xcode keeps the primary generation and the upstream it faults from, and
+# that pair crossed the 5 GiB save bound on 2026-09-22 after climbing 3.5 -> 5.0
+# GiB in eight runs. Past the bound nothing is saved, so the next run restores
+# the same older entry and lands past it again and the seed freezes for good.
+# A cold build covers all of main anyway, and it measured smaller (3.5 GiB) and
+# faster (18 min, against 19-25 warm) than a stacked one.
+if awk '
+  /^      - name: / { step = $0 }
+  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
+  END { exit !found }
+' <<<"$SEEDER"; then
+  echo "FAIL: refresh-test-compilation-cache must not restore an earlier seed by prefix:"
+  echo "      stacking builds onto one CAS grows it past the save bound, and then the seed freezes."
+  exit 1
+fi
+echo "PASS: the seeder seeds from one clean build"
 
 if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
@@ -116,16 +142,25 @@ echo "---" >> "$STUB_XCODEBUILD_ARGS"
 # success, and writes the binary artifacts only from the attempt named by
 # STUB_RESOLVE_ARTIFACTS_FROM.
 packages=""
+scheme=""
 resolving=0
+skip_updates=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -scheme) scheme="$2"; shift ;;
     -clonedSourcePackagesDirPath) packages="$2"; shift ;;
     -resolvePackageDependencies) resolving=1 ;;
+    -skipPackageUpdates) skip_updates=1 ;;
   esac
   shift
 done
+if [ -n "$scheme" ]; then echo "build output for $scheme"; fi
 if [ "$resolving" -eq 1 ]; then
   echo x >> "$STUB_RESOLVE_ATTEMPTS"
+  # A package cache missing a pinned revision fails an offline resolve.
+  if [ "$skip_updates" -eq 1 ] && [ -n "${STUB_SKIP_UPDATES_FAILS:-}" ]; then
+    exit 74
+  fi
   if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -le "${STUB_RESOLVE_FAILS_UNTIL:-0}" ]; then
     # A failed resolve that leaves a partial clone behind.
     mkdir -p "$packages/checkouts/partial-clone"
@@ -140,6 +175,8 @@ STUB
 chmod +x "$TMP_DIR/bin/xcodebuild"
 export STUB_RESOLVE_ATTEMPTS="$TMP_DIR/resolve-attempts.txt"
 export STUB_XCODEBUILD_ARGS="$TMP_DIR/args.txt"
+# swiftpm-manifest-cache.sh runs resolves under a fixed environment.
+export CMUX_CI_SWIFTPM_KEEP_ENV="STUB_RESOLVE_ATTEMPTS STUB_XCODEBUILD_ARGS STUB_SKIP_UPDATES_FAILS STUB_RESOLVE_FAILS_UNTIL STUB_RESOLVE_ARTIFACTS_FROM STUB_XCODE_VERSION"
 
 run_script() {
   (cd "$TMP_DIR/work" && PATH="$TMP_DIR/bin:$PATH" "$SCRIPT" "$@")
@@ -157,10 +194,20 @@ echo "PASS: the fingerprint follows the build path and the toolchain"
 
 run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
 for expected in \
+  cmux \
   cmux-unit \
   cmux-numeric-locale \
+  cmux-cli-tests \
   build-for-testing \
-  COMPILATION_CACHE_ENABLE_CACHING=YES \
+  -showBuildTimingSummary \
+  'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_COMPILATION_CACHE_cmuxTests=NO \
+  'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO \
+  'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
+  CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately \
+  'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_INSTALL_MODULE_cmuxTests=NO \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \
   "$TMP_DIR/packages"; do
@@ -169,8 +216,8 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 2 ] || [ ! -d "$TMP_DIR/cas" ]; then
-  echo "FAIL: the build must run both schemes against an existing CAS directory"
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 4 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run all four schemes against an existing CAS directory"
   exit 1
 fi
 # `build` compiles no test files: the cmux-unit scheme marks cmuxTests
@@ -179,7 +226,28 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles both schemes for testing with the compilation cache on"
+echo "PASS: the build compiles all four schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
+if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
+  exit 1
+fi
+for newer in 26.6 26.6.1 27.0; do
+  : > "$STUB_XCODEBUILD_ARGS"
+  STUB_XCODE_VERSION="$newer" run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+  if grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS" \
+    || ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmuxTests=NO "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: on Xcode $newer the app target must keep the compilation cache"
+    exit 1
+  fi
+done
+echo "PASS: the app target builds without the compilation cache only before Xcode 26.6"
+if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
+  || grep -Fq 'build output for cmux-unit' "$TMP_DIR/derived/cmux-build.log"; then
+  echo "FAIL: the warning-budget log must retain only app/UI build output"
+  exit 1
+fi
+echo "PASS: app/UI warnings are captured separately from unit-test warnings"
+
 
 # A restored package cache can make resolution succeed without the binary
 # artifacts, and the build cannot resolve again.
@@ -205,15 +273,84 @@ if STUB_RESOLVE_ARTIFACTS_FROM=9 run_script resolve "$TMP_DIR/derived" "$TMP_DIR
   exit 1
 fi
 for name_and_body in "macos-compile-admission:$ADMISSION" "refresh-test-compilation-cache:$SEEDER"; do
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh resolve' <<<"${name_and_body#*:}"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-resolve' <<<"${name_and_body#*:}"; then
     echo "FAIL: the ${name_and_body%%:*} job must resolve packages through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi
 done
 echo "PASS: resolve retries until the binary artifacts exist, in both jobs"
 
+# An exact `spm-` hit was saved after a successful resolve of this same
+# Package.resolved, so its repositories already hold every pinned revision.
+# Resolving it must not fetch every package remote again. Anything short of an
+# exact hit, or an offline resolve that fails, keeps the normal resolve.
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+mkdir -p "$TMP_DIR/exact-packages/checkouts/kept"
+if ! CMUX_CI_SWIFTPM_CACHE_EXACT_HIT=true run_script resolve "$TMP_DIR/derived" "$TMP_DIR/exact-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 1 ] \
+  || ! grep -Fxq -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: an exact package-cache hit must resolve once without fetching package remotes"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+if ! CMUX_CI_SWIFTPM_CACHE_EXACT_HIT=true STUB_SKIP_UPDATES_FAILS=1 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/exact-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
+  || [ "$(grep -cFx -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS")" -ne 1 ] \
+  || [ ! -d "$TMP_DIR/exact-packages/checkouts/kept" ]; then
+  echo "FAIL: a failed offline resolve must fall back to a normal resolve of the same restored cache"
+  exit 1
+fi
+for hit in "" false; do
+  : > "$STUB_RESOLVE_ATTEMPTS"
+  : > "$STUB_XCODEBUILD_ARGS"
+  if ! CMUX_CI_SWIFTPM_CACHE_EXACT_HIT="$hit" run_script resolve "$TMP_DIR/derived" "$TMP_DIR/prefix-packages" >/dev/null 2>&1 \
+    || grep -Fxq -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: a prefix restore or a miss must fetch package remotes as before (hit='$hit')"
+    exit 1
+  fi
+done
+if ! awk '
+  /^      - name: / { step = $0 }
+  step ~ /name: Cache Swift packages$/ && /^        id: swift-package-cache$/ { id = 1 }
+  step ~ /name: Resolve Swift packages$/ && /CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: \$\{\{ steps\.swift-package-cache\.outputs\.cache-hit \}\}/ { wired = 1 }
+  step ~ /name: Resolve Swift packages$/ && /CMUX_CI_MOVE_SOURCE_PACKAGES: "1"/ { moved = 1 }
+  END { exit !(id && wired && moved) }
+' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must pass the package cache's exact-hit output to resolve and move, not copy, the cache"
+  exit 1
+fi
+echo "PASS: an exact package-cache hit resolves without remote fetches, with a normal-resolve fallback"
+
 if run_script bogus >/dev/null 2>&1 || run_script build only-one-arg >/dev/null 2>&1; then
   echo "FAIL: the script must reject unknown commands and short argument lists"
   exit 1
 fi
 echo "PASS: the script rejects bad usage"
+
+# scripts/test-unit.sh, the local test-compile wrapper, builds cmuxTests the
+# way CI does: no Swift module producer or installer, with target-scoped settings.
+cmuxtests_module_values() {
+  sed -n -E "s/^$1_(INTEGRATED_DRIVER|SWIFT_FLAGS|INSTALL_MODULE)_cmuxTests=(.*)$/\\1=\\2/p" "$2" | sort -u
+}
+: > "$STUB_XCODEBUILD_ARGS"
+run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+ci_values="$(cmuxtests_module_values CMUX_CI "$STUB_XCODEBUILD_ARGS")"
+: > "$STUB_XCODEBUILD_ARGS"
+PATH="$TMP_DIR/bin:$PATH" "$ROOT_DIR/scripts/test-unit.sh" build-for-testing >/dev/null
+local_values="$(cmuxtests_module_values CMUX_TEST "$STUB_XCODEBUILD_ARGS")"
+if [ -z "$ci_values" ] || [ "$ci_values" != "$local_values" ] \
+  || ! grep -Fxq 'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_TEST_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' "$STUB_XCODEBUILD_ARGS" \
+  || ! grep -Fxq 'SWIFT_INSTALL_MODULE=$(CMUX_TEST_INSTALL_MODULE_$(TARGET_NAME):default=YES)' "$STUB_XCODEBUILD_ARGS" \
+  || ! grep -Fxq 'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_TEST_SWIFT_FLAGS_$(TARGET_NAME))' "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: scripts/test-unit.sh must build cmuxTests without a Swift module, like CI"
+  exit 1
+fi
+: > "$STUB_XCODEBUILD_ARGS"
+CMUX_TEST_EMIT_MODULE=1 PATH="$TMP_DIR/bin:$PATH" "$ROOT_DIR/scripts/test-unit.sh" build-for-testing >/dev/null
+if grep -q 'cmuxTests=' "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: CMUX_TEST_EMIT_MODULE=1 must keep the cmuxTests module"
+  exit 1
+fi
+echo "PASS: scripts/test-unit.sh builds cmuxTests without a Swift module, like CI, unless CMUX_TEST_EMIT_MODULE=1"

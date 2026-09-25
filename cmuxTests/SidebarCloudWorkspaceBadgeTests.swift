@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCore
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Observation
 import Testing
 @testable import cmux_DEV
@@ -8,6 +9,48 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarCloudWorkspaceBadgeTests {
+    @Test(arguments: [false, true])
+    func deviceNameIsVisibleBesideItsDirectory(vertical: Bool) throws {
+        let defaults = Self.makeDefaults()
+        let sidebar = SettingCatalog().sidebar
+        defaults.set(vertical, forKey: sidebar.branchVerticalLayout.userDefaultsKey)
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(.init(deviceID: UUID().uuidString, tag: "test"))
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: .init(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Studio Mac"]
+        )
+        workspace.updateCloudPanelDirectory(panelId: panelID, directory: "/Users/remote/project")
+        let snapshot = SidebarWorkspaceSnapshotFactory(workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false).makeSnapshot()
+        let candidates = snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)
+        #expect(!candidates.isEmpty)
+        #expect(candidates.contains { $0.contains("Studio Mac") && $0.contains("/Users/remote/project") })
+        #expect(candidates.first?.contains("/Users/remote/project") == true)
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+    }
+
+    @Test func deviceProjectionUsesComputerBadgeInBothSidebarSnapshots() throws {
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))
+        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()), showsAgentActivity: false)
+        let before = factory.makeSnapshot()
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Studio Mac"]
+        )
+        let snapshot = factory.makeSnapshot()
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("Studio Mac") == true)
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+        let shown = SidebarWorkspaceSnapshotRefreshPolicy().decision(current: before, next: snapshot, force: false, contextMenuVisible: true)
+        #expect(shown.workspaceSnapshotStorage?.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+    }
+
     /// Ensures Cloud identity changes alter only the immutable row projection.
     @Test func cloudBindingChangesSidebarSnapshotWithoutTitleOrPathChanges() {
         let workspace = Workspace(title: "vm:vivid-newt", workingDirectory: "/tmp", initialSurface: .cloudVMLoading)

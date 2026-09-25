@@ -1,5 +1,7 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import CmuxWorkspaces
 import Foundation
 
@@ -65,7 +67,20 @@ extension Workspace {
         // A disconnected provider may remove its graph while the native remote
         // transport remains. Absence of graph metadata is not local ownership.
         if let machineID = (panels[panelID] as? TerminalPanel)?.cloudAttachment?.machineID {
-            return CloudTerminalSourcePlacement(machine: .cloud(machineID))
+            return CloudTerminalSourcePlacement(machine: SurfaceMachineID(rawValue: machineID))
+        }
+        // Legacy managed-Cloud SSH and transferred panels can be Cloud-owned
+        // without a catalog projection or manual-mirror attachment. Reuse the
+        // same owner resolver used by drag rejection; if its workspace binding
+        // is missing, the create route fails closed instead of repairing locally.
+        if let machine = machineOwningSurface(panelID), !machine.isLocal {
+            let remoteWorkspaceID = cloudVMBinding?.vmID == machine.tuiMachineID
+                ? cloudVMBinding?.remoteWorkspaceID
+                : nil
+            return CloudTerminalSourcePlacement(
+                machine: machine,
+                remoteWorkspaceID: remoteWorkspaceID
+            )
         }
         return nil
     }
@@ -103,7 +118,7 @@ extension Workspace {
             source: source, sourcePanelID: panelID,
             destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
             focus: focus
-        )
+        ).isAccepted
     }
 
     /// Routes a bonsplit UI split (the pane-divider split button) whose source pane
@@ -118,7 +133,7 @@ extension Workspace {
             splitDirection: orientation == .horizontal ? .right : .down,
             pendingPane: newPane
         )
-        if !routed { closeUntouchedPane(newPane) }
+        if !routed.isAccepted { closeUntouchedPane(newPane) }
         return true
     }
 
@@ -133,42 +148,44 @@ extension Workspace {
             source: source, sourcePanelID: selectedPanelID,
             destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
             focus: focus
-        )
+        ).isAccepted
     }
 
     /// Creates a terminal using the captured source placement and projects it at `destination`.
     /// The pane appears at once; the machine reports the terminal into it. A failure
     /// is shown in that pane instead of silently doing nothing, because the user's
     /// gesture otherwise looks dead.
-    private func routeCloudPaneTerminalCreate(
+    func routeCloudPaneTerminalCreate(
         source: CloudTerminalSourcePlacement,
         sourcePanelID: UUID?,
         destination: SurfaceDestination,
         focus: Bool,
         splitDirection: SurfaceSplitDirection? = nil,
-        pendingPane: PaneID? = nil
-    ) -> Bool {
+        pendingPane: PaneID? = nil,
+        commandOverride: [String]? = nil
+    ) -> TerminalPanelCreationOutcome {
         let catalog = SurfaceCatalog.shared
         let machine = source.machine
         let requestID = cloudPaneCreationFailureStore.beginRequest()
         guard let provider = catalog.provider(for: machine) else {
             presentCloudPaneCreationFailure(machine: machine, error: SurfaceCatalogError.noProvider(machine),
                                             requestID: requestID, sourcePanelID: sourcePanelID)
-            return false
+            return .failed
         }
         guard source.remoteWorkspaceID != nil || source.pendingCreation != nil else {
             presentCloudPaneCreationFailure(machine: machine, error: CloudDiagnosticFailure.placement,
                                             requestID: requestID, sourcePanelID: sourcePanelID)
-            return false
+            return .failed
         }
         if let remoteWorkspaceID = source.remoteWorkspaceID,
            catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
             presentCloudPaneCreationFailure(machine: machine, error: CloudDiagnosticFailure.placement,
                                             requestID: requestID, sourcePanelID: sourcePanelID)
             if let pendingPane { closeUntouchedPane(pendingPane) }
-            return true
+            return .routedToRemote
         }
-        let request = CloudTerminalCreationRequest(id: requestID, remoteWorkspaceID: source.remoteWorkspaceID)
+        let effectiveCommand = commandOverride ?? (machine.isSSH ? remoteConfiguration.map { SSHTuiConnection(configuration: $0).shellCommand } : nil)
+        let request = CloudTerminalCreationRequest(id: requestID, remoteWorkspaceID: source.remoteWorkspaceID, commandOverride: effectiveCommand)
         let reservationDestination: SurfaceDestination = pendingPane.map {
             .tab(workspaceID: id, paneID: $0.id.uuidString, index: nil)
         } ?? destination
@@ -182,7 +199,7 @@ extension Workspace {
             // delivering the split callback. Remove only an untouched pane;
             // never leave a handled Cloud request as a blank slot.
             if let pendingPane { closeUntouchedPane(pendingPane) }
-            return true
+            return .routedToRemote
         }
 
         var token: UUID?
@@ -238,7 +255,7 @@ extension Workspace {
             onStart: beginProjectionMutation,
             onFinish: endProjectionMutation
         )
-        return true
+        return terminalPanel(for: reservation.panelID).map(TerminalPanelCreationOutcome.created) ?? .routedToRemote
     }
 
     /// Starts a fresh terminal on `machine` (in `remoteWorkspaceID` when given) as a
@@ -307,7 +324,7 @@ extension Workspace {
     /// one remote create, projection adopting the reserved pane, and pane-local
     /// failure and retry. `onStart`/`onFinish` bracket the projection-suppression
     /// scope the caller chose.
-    private func runOptimisticCloudTerminalCreation(
+    func runOptimisticCloudTerminalCreation(
         reservation: CloudTerminalPaneReservation,
         requestID: UUID,
         destination: SurfaceDestination,

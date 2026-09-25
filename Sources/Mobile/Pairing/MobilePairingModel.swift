@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileHost
 import Foundation
 import Observation
 
@@ -196,8 +197,13 @@ final class MobilePairingModel {
             )
             return
         }
+        // Enter the bounded state before waiting for auth restoration. A host
+        // whose bootstrap never completes must not leave the pairing sheet in
+        // an indefinite loading spinner.
+        state = .preparing
         await coordinator.awaitBootstrapped()
         guard generation == refreshGeneration else { return }
+        guard state == .preparing else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
             state = .signedOut
@@ -208,7 +214,6 @@ final class MobilePairingModel {
             state = .pairingDisabled
             return
         }
-        state = .preparing
         let status = await host.ensureListeningAndReady()
         guard generation == refreshGeneration else { return }
         guard status.isRunning else {
@@ -301,9 +306,7 @@ final class MobilePairingModel {
     ) -> State {
         guard status.isRunning else { return .failed(preparationFailureMessage) }
         guard status.isPairingReady else {
-            return status.lastErrorDescription?.isEmpty == false
-                ? .failed(preparationFailureMessage)
-                : .preparing
+            return status.lastErrorDescription?.isEmpty == false ? .failed(preparationFailureMessage) : .preparing
         }
         let ready = State.ready(Ready(
             attachURL: "", tailscaleLines: [], manualEntry: nil,
@@ -320,10 +323,8 @@ final class MobilePairingModel {
     }
 
     private static var preparationFailureMessage: String {
-        String(
-            localized: "mobile.pairing.error.preparationFailed",
-            defaultValue: "Pairing could not finish. Check your connection and try again."
-        )
+        String(localized: "mobile.pairing.error.preparationFailed",
+               defaultValue: "Pairing could not finish. Check your connection and try again.")
     }
 
     private func updatePreparationDeadline() {

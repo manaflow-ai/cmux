@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxFoundation
 
@@ -159,6 +160,21 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     var onQuickSearch: ((String) -> Void)?
     var onDidBecomeFirstResponder: (() -> Void)?
     private var quickSearchQuery: String?
+
+    /// NSTableView forwards a click to a subview only when this returns true,
+    /// and its default accepts only `NSControl`s. The row's hover buttons are
+    /// SwiftUI, so without this the trash, ×, and + clicks ran the row's click
+    /// action (toggle or open) instead of the button.
+    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
+        var view = responder as? NSView
+        while let candidate = view, candidate !== self {
+            if let controls = candidate as? CloudTreeRowControlsHostingView {
+                return !controls.isHiddenOrHasHiddenAncestor
+            }
+            view = candidate.superview
+        }
+        return super.validateProposedFirstResponder(responder, for: event)
+    }
 
     override func mouseDown(with event: NSEvent) {
         reorderPresentation.clear()
@@ -328,7 +344,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         frame.origin.x = disclosureLeading(atRow: row)
         // The native disclosure control keeps its own artwork and height; only
         // its column is fixed so every row's caret lines up at the same depth.
-        frame.size.width = GlobalFontMagnification.scaledSize(CloudTreeRowGrid.disclosureSlot)
+        frame.size.width = GlobalFontMagnification.scaledSize(treeStyle.rowGrid.disclosureSlot)
         if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow,
            treeStyle.machineRowLayout == .twoLine {
             // Multi-line machine rows: the chevron centers on the name line (first
@@ -347,9 +363,17 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var frame = super.frameOfCell(atColumn: column, row: row)
+        if let node = item(atRow: row) as? CloudTreeNode, case .devicesEmpty = node.kind {
+            // Controls own a full-width hit/hover area and inset their content
+            // onto the same icon grid as the sibling device rows.
+            let rowFrame = rect(ofRow: row)
+            frame.origin.x = rowFrame.minX
+            frame.size.width = rowFrame.width
+            return frame
+        }
         let trailing = frame.maxX
         frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
-            CloudTreeRowGrid.disclosureSlot + CloudTreeRowGrid.disclosureGap
+            treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap
         )
         frame.size.width = max(0, trailing - frame.minX)
         return frame

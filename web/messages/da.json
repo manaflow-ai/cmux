@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Registreret harness-konfiguration",
+    "selectionNotice": "Valg af en udbyder starter eller aktiverer ikke disse harnesses.",
+    "selectProvider": "Vælg {provider}",
+    "foundPath": "Fandt {path}",
+    "foundCommand": "Fandt kommandoen {command}",
+    "installed": "Udbyderen er installeret",
+    "missing": "Udbyderen er ikke installeret",
+    "install": "Installer med: {command}",
+    "benefitPi": "Komprimering, hukommelse og udbyderrouting",
+    "benefitOpenagent": "Parallelle specialister og gendannelse til OpenCode",
+    "benefitClaude": "Teams og verifikation til Claude Code",
+    "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Opsætning af Cloud VM blev ikke fuldført",
+      "reason": "Gæsteopsætningen af Cloud VM blev ikke fuldført.",
+      "message": "cmux kunne ikke fuldføre opsætningen af Cloud VM.",
+      "action": "Prøv igen. Kontakt support, hvis problemet fortsætter."
+    },
+    "createCleanupPending": {
+      "title": "Oprydning af Cloud VM afventer",
+      "message": "Opsætningen af Cloud VM mislykkedes, og oprydningen afventer stadig.",
+      "action": "Kontakt support med sporings-ID’et, før du opretter en ny maskine."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",
@@ -40,8 +65,7 @@
     "memoryUnavailable": {
       "message": "Denne maskinstørrelse er ikke tilgængelig. Vælg op til {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go omfatter to gemte VM’er, inklusive den kørende VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +75,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Hvis vi fandt en konto, så tjek din e-mail for næste trin"
   },
@@ -324,7 +349,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversigt",
       "team": "team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile enheder"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,30 +394,84 @@
         "loading": "Indlæser…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile enheder",
+      "description": "Administrer adgang til dine tilsluttede computere, telefoner og tablets.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
+      "teamSwitchError": "Teamet kunne ikke skiftes. Prøv igen.",
+      "loading": "Indlæser enheder…",
+      "empty": "Der er ingen registrerede enheder for dette team.",
+      "unavailable": "Dine enheder kunne ikke indlæses. Opdater siden, og prøv igen.",
+      "retry": "Prøv igen",
+      "mutationError": "Enhedsændringen kunne ikke gennemføres.",
+      "revoke": "Tilbagekald adgang",
+      "deviceId": "Enhed",
       "revision": "Revision",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktiv",
+      "revoked": "Tilbagekaldt",
+      "relaySettings": "Relayindstillinger",
+      "relaySettingsDescription": "Vælg de relayservere, som dette team bruger. Indtast én URL pr. linje.",
+      "saveRelaySettings": "Gem relayindstillinger",
+      "eyebrow": "cloud / enheder",
+      "scopeActive": "Viser dette team",
+      "emptyTitle": "Ingen tilsluttede enheder endnu",
+      "emptyDescription": "Når en cmux-enhed parres med dette team, vises den her med platform, version og adgangskontrol.",
+      "revoking": "Tilbagekalder…",
+      "registeredDevices": "Registrerede enheder",
+      "activeDevices": "Aktive enheder",
+      "directoryRevision": "Oversigtens revision",
+      "savingRelaySettings": "Gemmer…"
     },
     "coderouterAccounts": {
+      "transferAction": "Overfør",
+      "transferringAction": "Overfører…",
+      "transferDialogTitle": "Overfør konto til et andet team",
+      "transferChooseBody": "Vælg det team, der skal modtage {account}. Den tilhører i dag {source}.",
+      "transferDestinationLabel": "Modtagerteam",
+      "continueAction": "Fortsæt",
+      "backAction": "Tilbage",
+      "transferConfirmTitle": "Overfør {account}?",
+      "transferConfirmBody": "{account} flyttes fra {source} til {destination}. Cloud-maskiner og medlemmer i {source} holder straks op med at bruge den. Den beholder sin nuværende delingsindstilling i {destination}.",
+      "transferConfirmAction": "Overfør konto",
+      "transferSuccess": "{account} er flyttet til {destination}.",
+      "transferError": "Kontoen kunne ikke overføres. Prøv igen.",
+      "transferForbiddenError": "Du kan ikke længere flytte konti til det team.",
+      "transferNotFoundError": "Kontoen er ikke længere i dette team. Opdater for at se, hvor den er.",
+      "transferConflictError": "Kontoen ændrede sig under flytningen. Opdater, og prøv igen.",
+      "transferUnavailableError": "Overførsler er midlertidigt utilgængelige, eller kontoen bliver opdateret. Prøv igen om et øjeblik.",
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gør privat",
       "privateImportHint": "Nye konti er private. Del en konto for at gøre den tilgængelig for teamets Cloud-VM’er.",
       "description": "Delte konti er tilgængelige for dette teams Cloud VM’er. Private konti kan kun bruges af den person, der tilføjede dem.",
-      "cancelAction": "Annuller"
+      "cancelAction": "Annuller",
+      "apiKeysTitle": "API-nøgler",
+      "apiKeysDescription": "Opret langvarige nøgler til scripts og agenter. Hemmeligheden vises én gang.",
+      "apiKeysCount": "{count, plural, one {# nøgle} other {# nøgler}}",
+      "apiKeysLoading": "Indlæser API-nøgler…",
+      "apiKeysLoadError": "API-nøgler kunne ikke indlæses. Prøv igen snart.",
+      "apiKeysRetry": "Prøv igen",
+      "apiKeysEmptyBody": "Ingen API-nøgler endnu. Opret en for at godkende en CodeRouter-klient.",
+      "apiKeyPrefixColumn": "Nøgle",
+      "apiKeyStatusColumn": "Tilstand",
+      "apiKeySecretTitle": "Kopiér denne nøgle nu",
+      "apiKeySecretBody": "Hemmeligheden vises ikke igen.",
+      "apiKeyCopy": "Kopiér API-nøgle",
+      "apiKeyCopied": "Kopieret",
+      "apiKeyCreatedAt": "oprettet {at}",
+      "apiKeyLastUsed": "sidst brugt {at}",
+      "apiKeyRevoked": "Tilbagekaldt",
+      "apiKeyLabelPlaceholder": "For eksempel CI eller produktion",
+      "createApiKeyAction": "Opret API-nøgle",
+      "creatingApiKeyAction": "Opretter",
+      "apiKeyCreateError": "API-nøglen kunne ikke oprettes.",
+      "revokeApiKeyAction": "Tilbagekald",
+      "revokingApiKeyAction": "Tilbagekalder",
+      "apiKeyRevokeError": "API-nøglen kunne ikke tilbagekaldes.",
+      "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
+      "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
+      "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
+      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
     }
   },
   "community": {
@@ -1208,6 +1287,12 @@
       "exampleConfig": "Eksempelkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "root": "cmux-konfiguration. Den globale cmux.json understøtter appindstillinger, genveje, handlinger, brugerdefinerede kommandoer, notifikations-hooks og arbejdsområdelayouts. En projektspecifik .cmux/cmux.json eller cmux.json understøtter handlinger, kommandoer, notifikations-hooks, kobling af UI-handlinger, tilsidesættelser for Agent Chat, vault-agenter, tilsidesættelser for arbejdsområdegrupper samt konfiguration af opstart og knapper for arbejdsområder.",
+        "rightSidebar": "Ældre og udvidelsesejet konfiguration af højre sidepanel, som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper, der indlæses før denne konfiguration. Mapper peger på cmux.pack.json. Brug en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurationsfil, medmindre den er absolut."
+        },
         "paneBorderColor": "Tilsidesæt farven på cmux-rudeadskilleren i opdelte arbejdsområder. Dette påvirker cmux-rudegrænser, ikke Ghosttys interne opdelinger.",
         "activePaneBorderColor": "Valgfri kantfarve, der tegnes omkring den fokuserede cmux-rude i opdelte arbejdsområder.",
         "automation": {
@@ -1219,6 +1304,7 @@
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
           "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Skærmnavn, der kun bruges i DEBUG-builds, når nye vinduer åbnes. En tom værdi bruger systemets standard.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
@@ -1341,7 +1427,7 @@
       "plusButtonScreenshotAlt": "Plusknappens højreklikmenu viser Worktree Agents, New Terminal og New Browser",
       "plusButtonScreenshotCaption": "Højreklikmenuen følger rækkefølgen fra ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Tilpassede handlinger for plusknappen",
-      "newWorkspaceButtonDesc": "Brug <action>ui.newWorkspace.action</action> til at tilsidesætte, hvad plusknappen gør. Brug <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) til at definere den ordnede højreklikmenu. Menupunkter kan være handlings-ID’er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>. Når den ikke er angivet, viser menuen cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) med deres aktuelle genveje. Cloud-punkter vises kun, når Cloud Machines er aktiveret.",
+      "newWorkspaceButtonDesc": "Brug <action>ui.newWorkspace.action</action> til at tilsidesætte, hvad plusknappen gør. Brug <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) til at definere den ordnede højreklikmenu. Menupunkter kan være handlings-ID’er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>. Når den ikke er angivet, viser menuen cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) med deres aktuelle genveje. Cloud-punkter vises kun, når Cloud Machines er aktiveret. New Cloud Workspace bruger maskinen fra det senest valgte Cloud-arbejdsområde og derefter den første maskine i højre sidepanel; New Cloud Machine opretter en maskine med vilje.",
       "newWorkspaceWorktreeNote": "Dette eksempel får et almindeligt plusklik til at køre handlingen <action>worktree-agents</action>. Arbejdsområdekommandoen fra <commands>commands</commands> bruger en synlig opsætningsterminal til først at oprette Git-<worktree>worktree</worktree>. Codex og Claude starter samtidig, venter på den arbejdsområdespecifikke tilstandsfil og skifter derefter til den oprettede mappe før exec.",
       "simpleCommands": "Simple kommandoer",
       "simpleCommandsDesc": "En simpel kommando kører en shell-kommando i den aktuelt fokuserede terminal:",
@@ -1394,6 +1480,7 @@
       "restartNew": "Opret et nyt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Slå linjeombrydning i fileditoren til eller fra (Option+Z).",
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
       "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",
@@ -3983,5 +4070,15 @@
     "organization": "Organisation",
     "personalAccount": "personlig konto",
     "switchAccountButton": "Brug en anden konto"
+  },
+  "MobileRelease106": {
+    "title": "Nyt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Opdaterede Mac-forbindelser",
+    "connectionDetail": "Denne opdatering bruger den nye forbindelsestjeneste og Iroh-transport. Ældre Mac-builds skal opdateres for at oprette forbindelse.",
+    "updateTitle": "Opdater cmux på din Mac",
+    "updateDetail": "Kræver cmux {stableVersion} eller nyere eller NIGHTLY {nightlyVersion} eller nyere. Slå iOS-parring til i Indstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Har du brug for at beholde et ældre Mac-build?",
+    "rollbackDetail": "Brug cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere builds, så længe det er tilgængeligt. Vælg netop dette build, da senere builds bruger en nyere forbindelsestjeneste."
   }
 }

@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "រកឃើញការកំណត់រចនាសម្ព័ន្ធ harness",
+    "selectionNotice": "ការជ្រើសរើសអ្នកផ្តល់សេវាមិនចាប់ផ្តើម ឬបើកដំណើរការ harness ទាំងនេះទេ។",
+    "selectProvider": "ជ្រើសរើស {provider}",
+    "foundPath": "រកឃើញ {path}",
+    "foundCommand": "រកឃើញពាក្យបញ្ជា {command}",
+    "installed": "អ្នកផ្តល់សេវាត្រូវបានដំឡើង",
+    "missing": "អ្នកផ្តល់សេវាមិនត្រូវបានដំឡើងទេ",
+    "install": "ដំឡើងដោយប្រើ៖ {command}",
+    "benefitPi": "ការបង្រួម បញ្ញាចងចាំ និងការកំណត់ផ្លូវអ្នកផ្តល់សេវា",
+    "benefitOpenagent": "អ្នកជំនាញស្របគ្នា និងការស្តារឡើងវិញសម្រាប់ OpenCode",
+    "benefitClaude": "ក្រុម និងការផ្ទៀងផ្ទាត់សម្រាប់ Claude Code",
+    "benefitSuperpowers": "ការរៀបចំផែនការ TDD ភ្នាក់ងាររង និងការពិនិត្យ"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "ការរៀបចំ Cloud VM មិនបានបញ្ចប់ទេ",
+      "reason": "ការរៀបចំបរិស្ថានភ្ញៀវរបស់ Cloud VM មិនបានបញ្ចប់ទេ។",
+      "message": "cmux មិនអាចបញ្ចប់ការរៀបចំ Cloud VM បានទេ។",
+      "action": "សូមព្យាយាមប្រតិបត្តិការម្តងទៀត។ ប្រសិនបើបញ្ហានៅតែបន្ត សូមទាក់ទងជំនួយ។"
+    },
+    "createCleanupPending": {
+      "title": "ការសម្អាត Cloud VM កំពុងរង់ចាំ",
+      "message": "ការដំឡើង Cloud VM បានបរាជ័យ ហើយការសម្អាតមិនទាន់បញ្ចប់ទេ។",
+      "action": "សូមទាក់ទងផ្នែកគាំទ្រដោយផ្ដល់លេខសម្គាល់តាមដាន មុនពេលបង្កើតម៉ាស៊ីនផ្សេងទៀត។"
+    },
     "unsupported": {
       "title": "ប្រតិបត្តិការ Cloud VM មិនអាចប្រើបាន",
       "reason": "ប្រភេទម៉ាស៊ីននេះមិនផ្តល់ប្រតិបត្តិការនេះទេ។",
@@ -40,8 +65,7 @@
     "memoryUnavailable": {
       "message": "ទំហំម៉ាស៊ីននេះមិនអាចប្រើបានទេ។ សូមជ្រើសរើសរហូតដល់ {max} GiB។",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go រួមបញ្ចូល VM ដែលបានរក្សាទុកពីរ រួមទាំង VM ដែលកំពុងដំណើរការ។",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +75,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go គាំទ្រ 2 vCPU, RAM 4 GiB និងថាស 16 GiB។",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "ប្រសិនបើយើងរកឃើញគណនី សូមពិនិត្យអ៊ីមែលរបស់អ្នកសម្រាប់ជំហានបន្ទាប់"
   },
@@ -324,7 +349,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
       "team": "ក្រុម",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "ឧបករណ៍ចល័ត"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,30 +394,84 @@
         "loading": "កំពុងផ្ទុក…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "ឧបករណ៍ចល័ត",
+      "description": "គ្រប់គ្រងការចូលប្រើកុំព្យូទ័រ ទូរស័ព្ទ និងថេប្លេតដែលបានភ្ជាប់។",
+      "team": "ក្រុម",
+      "teamSwitchError": "មិនអាចប្តូរក្រុមបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+      "loading": "កំពុងផ្ទុកឧបករណ៍…",
+      "empty": "មិនមានឧបករណ៍បានចុះឈ្មោះសម្រាប់ក្រុមនេះទេ។",
+      "unavailable": "មិនអាចផ្ទុកឧបករណ៍របស់អ្នកបានទេ។ ផ្ទុកទំព័រឡើងវិញ ហើយព្យាយាមម្តងទៀត។",
+      "retry": "ព្យាយាមម្ដងទៀត",
+      "mutationError": "មិនអាចបញ្ចប់ការផ្លាស់ប្តូរឧបករណ៍បានទេ។",
+      "revoke": "ដកសិទ្ធិចូលប្រើ",
+      "deviceId": "ឧបករណ៍",
+      "revision": "កំណែ",
+      "status": "ស្ថានភាព",
+      "active": "សកម្ម",
+      "revoked": "បានដកហូត",
+      "relaySettings": "ការកំណត់ relay",
+      "relaySettingsDescription": "ជ្រើសរើសម៉ាស៊ីនមេ relay ដែលក្រុមនេះប្រើ។ បញ្ចូល URL មួយក្នុងមួយជួរ។",
+      "saveRelaySettings": "រក្សាទុកការកំណត់ relay",
+      "eyebrow": "ពពក / ឧបករណ៍",
+      "scopeActive": "កំពុងបង្ហាញក្រុមនេះ",
+      "emptyTitle": "មិនទាន់មានឧបករណ៍បានភ្ជាប់ទេ",
+      "emptyDescription": "នៅពេលឧបករណ៍ cmux ផ្គូផ្គងជាមួយក្រុមនេះ វានឹងបង្ហាញនៅទីនេះជាមួយវេទិកា កំណែ និងការគ្រប់គ្រងសិទ្ធិចូលប្រើ។",
+      "revoking": "កំពុងដកសិទ្ធិចូលប្រើ…",
+      "registeredDevices": "ឧបករណ៍ដែលបានចុះឈ្មោះ",
+      "activeDevices": "ឧបករណ៍សកម្ម",
+      "directoryRevision": "កំណែបញ្ជី",
+      "savingRelaySettings": "កំពុងរក្សាទុក…"
     },
     "coderouterAccounts": {
+      "transferAction": "ផ្ទេរ",
+      "transferringAction": "កំពុងផ្ទេរ…",
+      "transferDialogTitle": "ផ្ទេរគណនីទៅក្រុមផ្សេង",
+      "transferChooseBody": "ជ្រើសរើសក្រុមដែលនឹងទទួល {account}។ បច្ចុប្បន្នវាជាកម្មសិទ្ធិរបស់ {source}។",
+      "transferDestinationLabel": "ក្រុមគោលដៅ",
+      "continueAction": "បន្ត",
+      "backAction": "ថយក្រោយ",
+      "transferConfirmTitle": "ផ្ទេរ {account} មែនទេ?",
+      "transferConfirmBody": "{account} នឹងផ្លាស់ពី {source} ទៅ {destination}។ ម៉ាស៊ីន Cloud និងសមាជិករបស់ {source} នឹងឈប់ប្រើវាភ្លាមៗ។ វារក្សាការកំណត់ការចែករំលែកបច្ចុប្បន្ននៅក្នុង {destination}។",
+      "transferConfirmAction": "ផ្ទេរគណនី",
+      "transferSuccess": "បានផ្លាស់ {account} ទៅ {destination} ហើយ។",
+      "transferError": "មិនអាចផ្ទេរគណនីនេះបានទេ។ សូមព្យាយាមម្តងទៀត។",
+      "transferForbiddenError": "អ្នកមិនអាចផ្លាស់គណនីទៅក្រុមនោះបានទៀតទេ។",
+      "transferNotFoundError": "គណនីនេះលែងនៅក្នុងក្រុមនេះហើយ។ សូមផ្ទុកឡើងវិញដើម្បីមើលថាវានៅឯណា។",
+      "transferConflictError": "គណនីបានផ្លាស់ប្តូរពេលកំពុងផ្លាស់ទី។ សូមផ្ទុកឡើងវិញ ហើយព្យាយាមម្តងទៀត។",
+      "transferUnavailableError": "ការផ្ទេរមិនអាចប្រើបានជាបណ្តោះអាសន្ន ឬគណនីកំពុងធ្វើបច្ចុប្បន្នភាព។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។",
       "shareWithTeam": "ចែករំលែកជាមួយក្រុម",
       "makePrivate": "កំណត់ជាឯកជន",
       "privateImportHint": "គណនីថ្មីជាគណនីឯកជន។ ចែករំលែកគណនី ដើម្បីឱ្យ Cloud VM របស់ក្រុមនេះអាចប្រើបាន។",
       "description": "គណនីដែលបានចែករំលែកអាចប្រើបានដោយ Cloud VM របស់ក្រុមនេះ។ គណនីឯកជនអាចប្រើបានតែដោយអ្នកដែលបានបន្ថែមវាប៉ុណ្ណោះ។",
-      "cancelAction": "បោះបង់"
+      "cancelAction": "បោះបង់",
+      "apiKeysTitle": "សោ API",
+      "apiKeysDescription": "បង្កើតសោរយៈពេលវែងសម្រាប់ស្គ្រីប និងភ្នាក់ងារ។ សម្ងាត់បង្ហាញតែម្តង។",
+      "apiKeysCount": "{count, plural, one {សោ #} other {សោ #}}",
+      "apiKeysLoading": "កំពុងផ្ទុកសោ API…",
+      "apiKeysLoadError": "មិនអាចផ្ទុកសោ API បានទេ។ សូមព្យាយាមម្តងទៀតឆាប់ៗនេះ។",
+      "apiKeysRetry": "ព្យាយាមម្តងទៀត",
+      "apiKeysEmptyBody": "មិនទាន់មានសោ API ទេ។ បង្កើតសោដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។",
+      "apiKeyPrefixColumn": "សោ",
+      "apiKeyStatusColumn": "ស្ថានភាព",
+      "apiKeySecretTitle": "ចម្លងសោនេះឥឡូវនេះ",
+      "apiKeySecretBody": "សម្ងាត់នេះនឹងមិនបង្ហាញម្តងទៀតទេ។",
+      "apiKeyCopy": "ចម្លងសោ API",
+      "apiKeyCopied": "បានចម្លង",
+      "apiKeyCreatedAt": "បានបង្កើត {at}",
+      "apiKeyLastUsed": "ប្រើចុងក្រោយ {at}",
+      "apiKeyRevoked": "បានដកហូត",
+      "apiKeyLabelPlaceholder": "ឧទាហរណ៍ CI ឬផលិតកម្ម",
+      "createApiKeyAction": "បង្កើតសោ API",
+      "creatingApiKeyAction": "កំពុងបង្កើត",
+      "apiKeyCreateError": "មិនអាចបង្កើតសោ API បានទេ។",
+      "revokeApiKeyAction": "ដកហូត",
+      "revokingApiKeyAction": "កំពុងដកហូត",
+      "apiKeyRevokeError": "មិនអាចដកហូតសោ API បានទេ។",
+      "revokeApiKeyConfirmTitle": "ដកហូតសោ API នេះ?",
+      "apiKeyUsageDetail": "30 ថ្ងៃចុងក្រោយ៖ បញ្ចប់ {completions} · ថូខឹន {tokens} ({input} ចូល / {output} ចេញ) · តម្លៃស្មើ API {value}",
+      "apiKeyUsageUnavailable": "មិនមានទិន្នន័យប្រើប្រាស់",
+      "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។"
     }
   },
   "community": {
@@ -1208,6 +1287,12 @@
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
+        "root": "ការកំណត់ cmux។ cmux.json សកលគាំទ្រការកំណត់កម្មវិធី ផ្លូវកាត់ សកម្មភាព ពាក្យបញ្ជាផ្ទាល់ខ្លួន hook ជូនដំណឹង និងប្លង់កន្លែងធ្វើការ។ .cmux/cmux.json ឬ cmux.json របស់គម្រោងគាំទ្រសកម្មភាព ពាក្យបញ្ជា hook ជូនដំណឹង ការភ្ជាប់សកម្មភាព UI ការកំណត់ជំនួស Agent Chat ភ្នាក់ងារ vault ការកំណត់ជំនួសក្រុមកន្លែងធ្វើការ និងការកំណត់ការបើកនិងប៊ូតុងកន្លែងធ្វើការ។",
+        "rightSidebar": "ការកំណត់របារចំហៀងខាងស្តាំបែបចាស់ និងដែលគ្រប់គ្រងដោយផ្នែកបន្ថែម ដែលត្រូវបានរក្សាទុកក្នុង cmux.json។",
+        "packs": {
+          "description": "ឯកសារ ឬថតកញ្ចប់ cmux ក្នុងម៉ាស៊ីន ដែលផ្ទុកមុនការកំណត់រចនាសម្ព័ន្ធនេះ។ ថតនឹងប្រើ cmux.pack.json។ ប្រើខ្សែអក្សរផ្លូវ ឬវត្ថុដែលមានវាល path។",
+          "path": "ផ្លូវឯកសារ ឬថតក្នុងម៉ាស៊ីន ដែលទាក់ទងនឹងឯកសារកំណត់រចនាសម្ព័ន្ធនេះ លុះត្រាតែជាផ្លូវដាច់ខាត។"
+        },
         "paneBorderColor": "ប្ដូរពណ៌ខ្សែបំបែក pane របស់ cmux នៅក្នុង workspace ដែលបានបំបែក។ វាប៉ះពាល់ដល់ព្រំដែន pane របស់ cmux មិនមែនការបំបែកខាងក្នុងរបស់ Ghostty ទេ។",
         "activePaneBorderColor": "ពណ៌ស៊ុមជាជម្រើស ដែលគូរជុំវិញ pane របស់ cmux ដែលកំពុងផ្តោត នៅក្នុង workspace ដែលបានបំបែក។",
         "automation": {
@@ -1219,6 +1304,7 @@
         "app": {
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
           "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
+          "devWindowDisplay": "ឈ្មោះអេក្រង់ដែលប្រើតែក្នុង build DEBUG ពេលបើកបង្អួចថ្មី។ តម្លៃទទេប្រើលំនាំដើមរបស់ប្រព័ន្ធ។",
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
@@ -1341,7 +1427,7 @@
       "plusButtonScreenshotAlt": "Right-click menu របស់ cmux plus button បង្ហាញ Worktree Agents, New Terminal និង New Browser",
       "plusButtonScreenshotCaption": "Right-click menu ធ្វើតាមលំដាប់ពី ui.newWorkspace.contextMenu។",
       "newWorkspaceButton": "Actions ផ្ទាល់ខ្លួនសម្រាប់ប៊ូតុង plus",
-      "newWorkspaceButtonDesc": "ប្រើ <action>ui.newWorkspace.action</action> ដើម្បី override អ្វីដែលប៊ូតុង plus ធ្វើ។ ប្រើ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ឬ alias <rightClick>rightClick</rightClick>) ដើម្បីកំណត់ right-click menu ដែលមានលំដាប់។ Menu entries អាចជា action IDs, action objects, ឬ <separator>{ \"type\": \"separator\" }</separator>។ ប្រសិនបើមិនបានកំណត់ ម៉ឺនុយបង្ហាញ cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) ជាមួយផ្លូវកាត់បច្ចុប្បន្ន។ ធាតុពពកបង្ហាញតែនៅពេលបើក Cloud Machines ប៉ុណ្ណោះ។",
+      "newWorkspaceButtonDesc": "ប្រើ <action>ui.newWorkspace.action</action> ដើម្បី override អ្វីដែលប៊ូតុង plus ធ្វើ។ ប្រើ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ឬ alias <rightClick>rightClick</rightClick>) ដើម្បីកំណត់ right-click menu ដែលមានលំដាប់។ Menu entries អាចជា action IDs, action objects, ឬ <separator>{ \"type\": \"separator\" }</separator>។ ប្រសិនបើមិនបានកំណត់ ម៉ឺនុយបង្ហាញ cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) ជាមួយផ្លូវកាត់បច្ចុប្បន្ន។ ធាតុពពកបង្ហាញតែនៅពេលបើក Cloud Machines ប៉ុណ្ណោះ។ New Cloud Workspace ប្រើម៉ាស៊ីនរបស់ workspace Cloud ដែលបានជ្រើសចុងក្រោយ បន្ទាប់មកម៉ាស៊ីនដំបូងក្នុង sidebar ខាងស្ដាំ។ New Cloud Machine បង្កើតម៉ាស៊ីនដោយចេតនា។",
       "newWorkspaceWorktreeNote": "ឧទាហរណ៍នេះធ្វើឱ្យការចុច plus ធម្មតារត់ action <action>worktree-agents</action>។ Workspace command ពី <commands>commands</commands> ប្រើ setup terminal ដែលមើលឃើញ ដើម្បីបង្កើត Git <worktree>worktree</worktree> ជាមុន។ Codex និង Claude ចាប់ផ្តើមពេលតែមួយ រង់ចាំ state file សម្រាប់ workspace នោះ បន្ទាប់មក cd ទៅ directory ដែលបានបង្កើត មុន exec។",
       "simpleCommands": "ពាក្យបញ្ជាសាមញ្ញ",
       "simpleCommandsDesc": "ពាក្យបញ្ជាសាមញ្ញដំណើរការពាក្យបញ្ជា shell ក្នុងទែមីណាល​ដែលបានផ្ដោតបច្ចុប្បន្ន:",
@@ -1394,6 +1480,7 @@
       "restartNew": "បង្កើត workspace ថ្មី (លំនាំដើម)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "បិទឬបើកការរុំបន្ទាត់ក្នុងកម្មវិធីកែសម្រួលឯកសារ (Option+Z).",
       "title": "ផ្លូវកាត់ក្ដារចុច",
       "description": "ផ្លូវកាត់ក្ដារចុចទាំងអស់ដែលមានក្នុង cmux, ដាក់ជាក្រុមតាមប្រភេទ។",
       "metaDescription": "ផ្លូវកាត់ក្ដារចុច cmux ទាំងអស់សម្រាប់ workspace, surface, បន្ទះបំបែក, កម្មវិធីរុករក, ជូនដំណឹង, ស្វែងរក និងការគ្រប់គ្រងបង្អួចនៅលើ macOS។",
@@ -3984,5 +4071,15 @@
     "organization": "ស្ថាប័ន",
     "personalAccount": "គណនីផ្ទាល់ខ្លួន",
     "switchAccountButton": "ប្រើគណនីផ្សេងទៀត"
+  },
+  "MobileRelease106": {
+    "title": "អ្វីដែលថ្មីក្នុង 1.0.6",
+    "releaseLabel": "1.0.6 · ខែកញ្ញា 2026",
+    "connectionTitle": "ការតភ្ជាប់ Mac ត្រូវបានធ្វើបច្ចុប្បន្នភាព",
+    "connectionDetail": "ការអាប់ដេតនេះប្រើសេវាតភ្ជាប់ថ្មី និងការបញ្ជូន Iroh។ កំណែ Mac ចាស់ត្រូវអាប់ដេតដើម្បីតភ្ជាប់។",
+    "updateTitle": "អាប់ដេត cmux នៅលើ Mac របស់អ្នក",
+    "updateDetail": "ត្រូវការ cmux {stableVersion} ឬថ្មីជាងនេះ ឬ NIGHTLY {nightlyVersion} ឬថ្មីជាងនេះ។ បើកការផ្គូផ្គង iOS ក្នុង ការកំណត់ > ទូរសព្ទ នៅលើ Mac នីមួយៗ។",
+    "rollbackTitle": "ត្រូវការរក្សាកំណែ Mac ចាស់មែនទេ?",
+    "rollbackDetail": "ប្រើ cmux BETA 1.0.5 ({rollbackBuild}) ពី TestFlight > កំណែមុន ខណៈដែលវានៅអាចប្រើបាន។ ជ្រើសរើសកំណែនេះឱ្យបានច្បាស់ ព្រោះកំណែក្រោយប្រើសេវាតភ្ជាប់ថ្មីជាង។"
   }
 }

@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -122,6 +123,34 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         allowed.isOn = false
         registry.syncPollingToActivationPolicy()
         #expect(registry.isPolling == false)
+    }
+
+    @Test("Cloud activation starts carrier preparation before fleet discovery finishes")
+    @MainActor
+    func activationStartsCarrierBeforeFleetReadFinishes() async {
+        let listStarted = CloudLinkFirstValue<Bool>()
+        let releaseList = CloudLinkFirstValue<Bool>()
+        let enrollmentStarted = CloudLinkFirstValue<Bool>()
+        let h = makeHub {
+            enrollmentStarted.resolve(true)
+            return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
+        }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: h.hub, hostThemeColors: { nil }),
+            wireGuardHub: h.hub,
+            allowsBackgroundWork: { true },
+            listPage: {
+                listStarted.resolve(true)
+                _ = await releaseList.result
+                return VMListPage(vms: [], limits: nil)
+            },
+            notificationCenter: NotificationCenter()
+        )
+        registry.start(catalog: SurfaceCatalog())
+        #expect(await received(enrollmentStarted))
+        #expect(await received(listStarted))
+        releaseList.resolve(true)
+        await registry.accessDidEnd()
     }
 
     @Test("Restarting Cloud discovery during an in-flight fleet read starts the new account promptly")
@@ -284,6 +313,7 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
             notificationCenter: center
         )
         registry.start(catalog: SurfaceCatalog())
+        let refresh = Task { await registry.refresh(force: true) }
         let began = await received(started)
         if signOut {
             await registry.accessDidEnd()
@@ -293,6 +323,7 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         }
         let stopped = await received(closed)
         release.resolve(true)
+        _ = await refresh.value
         let status = await h.hub.status()
         await registry.accessDidEnd()
 
@@ -316,6 +347,7 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
             wireGuardHub: h.hub,
             isCloudEnabled: { enabled },
             listPage: { nil },
+            hasCloudSession: { false },
             notificationCenter: NotificationCenter()
         )
         registry.start(catalog: SurfaceCatalog())

@@ -112,6 +112,75 @@ public final class Session {
         );
     }
 
+    /** Lists generic journal producers installed for this session. */
+    public JournalProducerListResult journalProducers(Options.Read options) {
+        Object value = client.requestValue(
+            Operations.SESSION_JOURNAL_PRODUCER_LIST,
+            withExtra(route.params(), options == null ? Map.of() : options.extra()),
+            null
+        );
+        return JournalWire.decodeList(value);
+    }
+
+    public JournalProducerListResult journalProducers() {
+        return journalProducers(Options.Read.defaults());
+    }
+
+    public List<JournalProducerManifest> listJournalProducers(Options.Read options) {
+        return journalProducers(options).producers();
+    }
+
+    public MutationResult<JournalProducerPutResult> putJournalProducer(
+        JournalProducerManifest manifest,
+        Options.Mutation options
+    ) {
+        Objects.requireNonNull(manifest, "manifest");
+        options = options == null ? Options.Mutation.defaults() : options;
+        Map<String, Object> params = withExtra(route.params(), options.extra());
+        params.put("manifest", JournalWire.manifest(manifest));
+        Client.MutationResponse response = client.mutation(
+            Operations.SESSION_JOURNAL_PRODUCER_PUT,
+            params,
+            options
+        );
+        return response.parts().withValue(
+            JournalWire.decodePut(response.result().get(Wire.VALUE))
+        );
+    }
+
+    /** Compatibility alias for the first agent-plugin SDK preview. */
+    public MutationResult<JournalProducerPutResult> putJournalProducerManifest(
+        JournalProducerManifest manifest,
+        Options.Mutation options
+    ) {
+        return putJournalProducer(manifest, options);
+    }
+
+    public MutationResult<JournalAppendResult> appendJournal(
+        JournalIngress event,
+        Options.Mutation options
+    ) {
+        Objects.requireNonNull(event, "event");
+        options = options == null ? Options.Mutation.defaults() : options;
+        Map<String, Object> params = withExtra(route.params(), options.extra());
+        params.put("event", JournalWire.ingress(event));
+        Client.MutationResponse response = client.mutation(
+            Operations.SESSION_JOURNAL_APPEND,
+            params,
+            options
+        );
+        return response.parts().withValue(
+            JournalWire.decodeAppend(response.result().get(Wire.VALUE))
+        );
+    }
+
+    public MutationResult<JournalAppendResult> appendJournalEvent(
+        JournalIngress event,
+        Options.Mutation options
+    ) {
+        return appendJournal(event, options);
+    }
+
     public Results.PingResult ping(Options.Read options) {
         return Client.decodePingResult(client.requestValue(
             Operations.SESSION_PING,
