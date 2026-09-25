@@ -114,10 +114,13 @@ struct MobileWorkspaceListEmptyRow: View {
                             retryTimedOut = true
                         }
                         } label: {
-                            Label {
-                                Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
-                            } icon: {
+                            // An HStack, not a Label: in this table-hosted row the
+                            // Label icon slot draws in the accent color, which is
+                            // invisible on the accent-filled prominent button.
+                            HStack(spacing: 6) {
                                 Image(systemName: "arrow.clockwise")
+                                    .accessibilityHidden(true)
+                                Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
                             }
                         }
                     .buttonStyle(.borderedProminent)
