@@ -615,6 +615,7 @@
 		C1175700000000000000002C /* CLICodexQueuedHookContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000013 /* CLICodexQueuedHookContractTests.swift */; };
 		C1175700000000000000002D /* CLICodexResumeNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000014 /* CLICodexResumeNotificationTests.swift */; };
 		C6711A010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */; };
+		04DA187F240960D5EC22908A /* CLICodexWriterLockRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB706E1B5F672566F5CDB8B3 /* CLICodexWriterLockRestoreTests.swift */; };
 		C0D3F1F20000000000000103 /* CLICodexYoloResumePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */; };
 		C11218000000000000000052 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000053 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
@@ -4881,6 +4882,7 @@
 		C11757000000000000000013 /* CLICodexQueuedHookContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexQueuedHookContractTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000014 /* CLICodexResumeNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexResumeNotificationTests.swift; sourceTree = "<group>"; };
 		C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexWeakEnvironmentRestoreBindingTests.swift; sourceTree = "<group>"; };
+		EB706E1B5F672566F5CDB8B3 /* CLICodexWriterLockRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLICodexWriterLockRestoreTests.swift"; sourceTree = "<group>"; };
 		C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexYoloResumePersistenceTests.swift; sourceTree = "<group>"; };
 		C11218000000000000000051 /* CLIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIError.swift; sourceTree = "<group>"; };
 		C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExecInheritedSignalStateTests.swift; sourceTree = "<group>"; };
@@ -12529,6 +12531,7 @@
 				C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */,
 				0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */,
 				F0677DB157F30F725FECA0EC /* CMUXCLICodexUnavailableAdmissionTests.swift */,
+				EB706E1B5F672566F5CDB8B3 /* CLICodexWriterLockRestoreTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16440,6 +16443,7 @@
 				C0DE60C0000000000000A032 /* CLICoderouterCommandTests.swift in Sources */,
 				C0D3F1F10000000000000103 /* CLICodexHookTimeoutRegressionTestSupport.swift in Sources */,
 				C6711A010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift in Sources */,
+				04DA187F240960D5EC22908A /* CLICodexWriterLockRestoreTests.swift in Sources */,
 				C0D3F1F20000000000000103 /* CLICodexYoloResumePersistenceTests.swift in Sources */,
 				C11218000000000000000053 /* CLIError.swift in Sources */,
 				C51600000000000000000001 /* CLIExecInheritedSignalStateTests.swift in Sources */,

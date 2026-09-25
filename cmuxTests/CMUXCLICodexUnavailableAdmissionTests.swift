@@ -1,5 +1,4 @@
 import CMUXAgentLaunch
-import Darwin
 import Foundation
 import Testing
 
@@ -8,7 +7,7 @@ import Testing
 struct CMUXCLICodexUnavailableAdmissionTests {
     enum Scenario: CaseIterable, Sendable {
         case recovering, liveOwner, targetRemoved
-        case olderApp, unadvertisedAdmission, olderAppWriterHeld
+        case olderApp, unadvertisedAdmission
         case missing, rejectedChild, bindingChanged
     }
 
@@ -40,24 +39,6 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        var heldWriterFD: Int32 = -1
-        defer {
-            if heldWriterFD >= 0 {
-                _ = flock(heldWriterFD, LOCK_UN)
-                close(heldWriterFD)
-            }
-        }
-        if scenario == .olderAppWriterHeld {
-            let locks = codexHome.appendingPathComponent("thread-writer-locks", isDirectory: true)
-            try FileManager.default.createDirectory(at: locks, withIntermediateDirectories: true)
-            heldWriterFD = open(
-                locks.appendingPathComponent("\(checkpointID).lock").path,
-                O_CREAT | O_RDWR | O_CLOEXEC,
-                0o600
-            )
-            #expect(heldWriterFD >= 0)
-            #expect(flock(heldWriterFD, LOCK_EX | LOCK_NB) == 0)
-        }
         if scenario == .rejectedChild {
             let sessions = codexHome.appendingPathComponent("sessions", isDirectory: true)
             try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
@@ -78,7 +59,6 @@ struct CMUXCLICodexUnavailableAdmissionTests {
             .write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
 
-        let recordSource = scenario == .olderAppWriterHeld ? "session-snapshot" : "agent-hook"
         let binding: [String: Any] = [
             "name": "Codex", "kind": "codex", "command": "codex resume \(checkpointID)",
             "cwd": workingDirectory.path,
@@ -87,7 +67,7 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         ]
         let record: [String: Any] = [
             "mode": "resumeAgent", "kind": "codex", "checkpoint_id": checkpointID,
-            "source": recordSource, "working_directory": workingDirectory.path,
+            "source": "agent-hook", "working_directory": workingDirectory.path,
             "environment": ["CODEX_HOME": codexHome.path],
             "launch_command": [
                 "launcher": "codex", "executable_path": executable.path,
@@ -101,7 +81,7 @@ struct CMUXCLICodexUnavailableAdmissionTests {
             "workspace_id": workspaceID, "surface_id": surfaceID,
             "restore_record": record, "resume_binding": binding
         ]
-        if scenario != .unadvertisedAdmission && scenario != .olderAppWriterHeld {
+        if scenario != .unadvertisedAdmission {
             payload["agent_restore_admission_supported"] = scenario != .olderApp
         }
         let claimResponse = try jsonResponse(result: ["resume_claimed": true, "resume_binding": binding])
@@ -126,7 +106,7 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         case .missing, .rejectedChild:
             responses += [try jsonResponse(result: ["cleared": true])]
             expectedMethods += ["surface.resume.clear"]
-        case .olderApp, .unadvertisedAdmission, .olderAppWriterHeld, .bindingChanged:
+        case .olderApp, .unadvertisedAdmission, .bindingChanged:
             break
         }
         if !explicitSurface {

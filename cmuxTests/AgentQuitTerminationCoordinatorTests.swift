@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Testing
@@ -27,7 +28,7 @@ struct AgentQuitTerminationCoordinatorTests {
         defer { fixture.cleanup() }
 
         #expect(!fixture.lockIsAcquirable(), "the fixture must hold the lock before quit termination runs")
-        #expect(fixture.stillHoldsLockAfterSIGHUP())
+        #expect(try fixture.stillHoldsLockAfterSIGHUP())
 
         let outcome = await AgentQuitTerminationCoordinator(
             gracePeriod: .seconds(3),
@@ -102,6 +103,8 @@ struct AgentQuitTerminationCoordinatorTests {
 /// the way Codex's embedded app-server keeps its thread writer lock through a
 /// pty hangup.
 private struct AgentLockHolderFixture {
+    let agentIdentity: AgentPIDProcessIdentity
+    let acknowledgmentFD: Int32
     let workspaceID: UUID
     let panelID: UUID
     let launcherPID: pid_t
@@ -114,28 +117,34 @@ private struct AgentLockHolderFixture {
             .appendingPathComponent("cmux-quit-termination-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let lockPath = root.appendingPathComponent("thread.lock").path
-        let pidPath = root.appendingPathComponent("agent.pid").path
+        var descriptors: [Int32] = [-1, -1]
+        guard pipe(&descriptors) == 0 else { throw POSIXError(.EIO) }
+        var handedOff = false
+        defer {
+            close(descriptors[1])
+            if !handedOff { close(descriptors[0]); try? FileManager.default.removeItem(at: root) }
+        }
+        _ = fcntl(descriptors[0], F_SETFD, FD_CLOEXEC)
         let workspaceID = UUID()
         let panelID = UUID()
 
         // The parent keeps the pty master open and reaps the child; the child is
         // the "agent": a session leader with a controlling TTY, holding the lock.
         let script = """
-        import fcntl, os, pty, signal, sys, time
-        lock_path, pid_path, ignore_term = sys.argv[1], sys.argv[2], sys.argv[3] == '1'
+        import fcntl, os, pty, signal, sys
+        lock_path, ack, ignore_term = sys.argv[1], int(sys.argv[2]), sys.argv[3] == '1'
         pid, fd = pty.fork()
         if pid == 0:
-            signal.signal(signal.SIGHUP, signal.SIG_IGN)
+            signal.signal(signal.SIGHUP, lambda *_: os.write(ack, b'hup\\n'))
             if ignore_term:
                 signal.signal(signal.SIGTERM, signal.SIG_IGN)
             lock = open(lock_path, 'a+')
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            with open(pid_path + '.tmp', 'w') as f:
-                f.write(str(os.getpid()))
-            os.rename(pid_path + '.tmp', pid_path)
+            os.write(ack, (str(os.getpid()) + '\\n').encode())
             while True:
                 signal.pause()
         else:
+            os.close(ack)
             try:
                 os.waitpid(pid, 0)
             except ChildProcessError:
@@ -146,38 +155,24 @@ private struct AgentLockHolderFixture {
         environment["CMUX_SURFACE_ID"] = panelID.uuidString
         let launcherPID = try spawnProcess(
             executablePath: "/usr/bin/python3",
-            arguments: ["/usr/bin/python3", "-c", script, lockPath, pidPath, ignoresSIGTERM ? "1" : "0"],
+            arguments: ["/usr/bin/python3", "-c", script, lockPath, String(descriptors[1]), ignoresSIGTERM ? "1" : "0"],
             environment: environment
         )
 
-        let deadline = Date().addingTimeInterval(20)
-        var agentPID: pid_t = 0
-        while Date() < deadline {
-            if let raw = try? String(contentsOfFile: pidPath, encoding: .utf8),
-               let pid = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-               pid > 0 {
-                agentPID = pid
-                break
-            }
-            var status: Int32 = 0
-            if waitpid(launcherPID, &status, WNOHANG) == launcherPID {
-                throw NSError(
-                    domain: NSPOSIXErrorDomain,
-                    code: Int(ECHILD),
-                    userInfo: [NSLocalizedDescriptionKey: "agent fixture launcher exited early: \(status)"]
-                )
-            }
-            usleep(20_000)
-        }
-        guard agentPID > 0 else {
+        let agentPID: pid_t
+        let identity: AgentPIDProcessIdentity
+        do {
+            agentPID = try #require(pid_t(try readEvent(from: descriptors[0])))
+            identity = try #require(AgentPIDProcessIdentity(pid: agentPID))
+        } catch {
             kill(launcherPID, SIGKILL)
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(ETIMEDOUT),
-                userInfo: [NSLocalizedDescriptionKey: "agent fixture did not report its PID"]
-            )
+            _ = waitpid(launcherPID, nil, 0)
+            throw error
         }
+        handedOff = true
         return AgentLockHolderFixture(
+            agentIdentity: identity,
+            acknowledgmentFD: descriptors[0],
             workspaceID: workspaceID,
             panelID: panelID,
             launcherPID: launcherPID,
@@ -188,7 +183,7 @@ private struct AgentLockHolderFixture {
     }
 
     func scope(staleGeneration: Bool = false) throws -> AgentHibernationController.ProcessTerminationScope {
-        let identity = try #require(AgentPIDProcessIdentity(pid: agentPID))
+        let identity = agentIdentity
         let recorded = staleGeneration
             ? AgentPIDProcessIdentity(
                 pid: identity.pid,
@@ -213,22 +208,43 @@ private struct AgentLockHolderFixture {
         return flock(fd, LOCK_EX | LOCK_NB) == 0
     }
 
-    func stillHoldsLockAfterSIGHUP() -> Bool {
+    func stillHoldsLockAfterSIGHUP() throws -> Bool {
         guard kill(agentPID, SIGHUP) == 0 else { return false }
-        usleep(150_000)
+        guard try Self.readEvent(from: acknowledgmentFD) == "hup" else { return false }
         return agentIsAlive() && !lockIsAcquirable()
     }
 
     func agentIsAlive() -> Bool {
-        AgentPIDProcessIdentity(pid: agentPID) != nil
+        AgentPIDProcessIdentity(pid: agentPID) == agentIdentity
     }
 
     func cleanup() {
-        kill(agentPID, SIGKILL)
+        if AgentPIDProcessIdentity(pid: agentPID) == agentIdentity { kill(agentPID, SIGKILL) }
+        close(acknowledgmentFD)
         kill(launcherPID, SIGKILL)
         var status: Int32 = 0
         _ = waitpid(launcherPID, &status, 0)
         try? FileManager.default.removeItem(at: root)
+    }
+
+    /// Read the child's explicit readiness/signal acknowledgment, bounded by one deadline.
+    private static func readEvent(from descriptor: Int32) throws -> String {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        var bytes: [UInt8] = []
+        while bytes.count < 128 {
+            let remaining = ContinuousClock.now.duration(to: deadline).components
+            let milliseconds = remaining.seconds * 1_000 + remaining.attoseconds / 1_000_000_000_000_000
+            guard milliseconds > 0 else { throw POSIXError(.ETIMEDOUT) }
+            var event = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&event, 1, Int32(milliseconds))
+            if ready < 0, errno == EINTR { continue }
+            guard ready > 0 else { throw POSIXError(.ETIMEDOUT) }
+            var byte: UInt8 = 0
+            guard read(descriptor, &byte, 1) == 1 else { throw POSIXError(.EPIPE) }
+            if byte == 10 { return String(decoding: bytes, as: UTF8.self) }
+            bytes.append(byte)
+        }
+        throw POSIXError(.EINVAL)
     }
 
     private static func spawnProcess(
