@@ -133,13 +133,28 @@ extension TerminalController {
                 return
             }
 
-            let openedPanels = ws.openFileSurfaces(
-                inPane: paneId,
-                filePaths: filePaths,
-                focus: shouldFocus,
-                reuseExisting: filePaths.count == 1 && !hasExplicitPaneDestination
-            )
-            guard !openedPanels.isEmpty else {
+            var defaultFilePaths: [String] = []
+            var configuredActionCount = 0
+            for filePath in filePaths {
+                if CommandClickFileOpenRouter.openConfiguredFileAction(
+                    workspace: ws,
+                    filePath: filePath
+                ) {
+                    configuredActionCount += 1
+                } else {
+                    defaultFilePaths.append(filePath)
+                }
+            }
+
+            let openedPanels = defaultFilePaths.isEmpty
+                ? []
+                : ws.openFileSurfaces(
+                    inPane: paneId,
+                    filePaths: defaultFilePaths,
+                    focus: shouldFocus,
+                    reuseExisting: defaultFilePaths.count == 1 && !hasExplicitPaneDestination
+                )
+            guard !openedPanels.isEmpty || configuredActionCount > 0 else {
                 result = .err(code: "internal_error", message: "Failed to open file", data: nil)
                 return
             }
@@ -149,18 +164,18 @@ extension TerminalController {
                 v2FileOpenSurfacePayload(workspace: ws, panel: $0)
             }
             let primary = surfacePayloads.last ?? [:]
-            let paneUUID = ws.paneId(forPanelId: openedPanels.last?.id ?? openedPanels[0].id)?.id
+            let responsePaneUUID = openedPanels.last.flatMap { ws.paneId(forPanelId: $0.id)?.id } ?? paneId.id
             var response: [String: Any] = [
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "pane_id": v2OrNull(paneUUID?.uuidString),
-                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                "pane_id": v2OrNull(responsePaneUUID.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: responsePaneUUID),
                 "surface_id": primary["surface_id"] ?? NSNull(),
                 "surface_ref": primary["surface_ref"] ?? NSNull(),
                 "panel_type": primary["panel_type"] ?? NSNull(),
-                "path": primary["path"] ?? NSNull(),
+                "path": primary["path"] ?? (filePaths.last ?? NSNull()),
                 "paths": filePaths,
                 "surfaces": surfacePayloads
             ]

@@ -25,6 +25,10 @@ extension Workspace: TerminalLinkOpenContainer {
         )
     }
 
+    func terminalLinkHasConfiguredFileHandler(path: String) -> Bool {
+        CommandClickFileOpenRouter.hasConfiguredFileHandler(workspace: self, filePath: path)
+    }
+
     /// Resolve the connection from the terminal's authoritative owner, including native SSH projections.
     func remoteTerminalFilePreviewConfiguration(for surfaceID: UUID) -> WorkspaceRemoteConfiguration? {
         guard let configuration = remoteConfiguration, configuration.transport == .ssh else { return nil }
