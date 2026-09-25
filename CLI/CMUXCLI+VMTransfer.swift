@@ -278,13 +278,13 @@ extension CMUXCLI {
         }
 
         func summaryLines() -> [String] {
-            let template = CMUXDiffViewerLocalization.string(
+            let template = CMUXCLILocalization.string(
                 "cli.vm.push.summary",
                 defaultValue: "Pushed %1$@ to %2$@:%3$@ (%4$@)"
             )
             var lines = [String(format: template, localPath, vmID, remotePath, CMUXCLI.formatByteCount(bytes))]
             if !appliedExcludes.isEmpty {
-                let excludedTemplate = CMUXDiffViewerLocalization.string(
+                let excludedTemplate = CMUXCLILocalization.string(
                     "cli.vm.push.excludedNote",
                     defaultValue: "Skipped: %1$@ (pass --no-default-excludes to send everything)"
                 )
@@ -730,7 +730,7 @@ extension CMUXCLI {
             print(jsonString(payload))
             return
         }
-        let template = CMUXDiffViewerLocalization.string(
+        let template = CMUXCLILocalization.string(
             "cli.vm.pull.summary",
             defaultValue: "Pulled %1$@:%2$@ to %3$@ (%4$@)"
         )
@@ -799,7 +799,7 @@ extension CMUXCLI {
             print(jsonString(payload))
             return
         }
-        let template = CMUXDiffViewerLocalization.string(
+        let template = CMUXCLILocalization.string(
             "cli.vm.wait.ready",
             defaultValue: "%1$@ is ready (%2$@) after %3$ds"
         )
@@ -921,7 +921,7 @@ extension CMUXCLI {
             }
             data.append(decoded)
             if totalChunks > 1 {
-                let template = CMUXDiffViewerLocalization.string(
+                let template = CMUXCLILocalization.string(
                     "cli.vm.pull.progress",
                     defaultValue: "cmux vm pull: %1$d/%2$d chunks"
                 )
@@ -1396,7 +1396,7 @@ extension CMUXCLI {
         } catch {
             // Product-level copy only: the underlying failure names a local lock path
             // and raw OS text, which do not belong in user-facing output.
-            let template = CMUXDiffViewerLocalization.string(
+            let template = CMUXCLILocalization.string(
                 "cli.vm.run.poolRecordFailed",
                 defaultValue: "vm run: provisioned %1$@ but could not record it in the pool store, so later runs will not reuse it. Use `cmux vm run --machine %1$@` to keep using it or `cmux vm rm %1$@` to remove it."
             )

@@ -7,7 +7,7 @@ extension CMUXCLI.VMTuiOpenOptions {
         let trimmed = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty else {
             return (
-                CMUXDiffViewerLocalization.string(
+                CMUXCLILocalization.string(
                     "workspace.cloudVM.defaultTitle",
                     defaultValue: "Cloud VM"
                 ),

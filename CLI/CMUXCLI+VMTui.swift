@@ -209,9 +209,9 @@ extension CMUXCLI {
         let daemonCommit = (daemon["commit"] as? String).map { String($0.prefix(10)) } ?? "?"
         let clientCommit = client.buildIdentity.map { String($0.prefix(10)) } ?? "?"
         let stale = clientProtocol < daemonProtocol
-            ? CMUXDiffViewerLocalization.string("cli.vm.tui.staleClient", defaultValue: "Update cmux (its bundled cmux-tui client is older than the machine's daemon).")
-            : CMUXDiffViewerLocalization.string("cli.vm.tui.staleDaemon", defaultValue: "The machine's cmux-tui daemon is older than this client; reconnect once the machine has updated.")
-        let template = CMUXDiffViewerLocalization.string(
+            ? CMUXCLILocalization.string("cli.vm.tui.staleClient", defaultValue: "Update cmux (its bundled cmux-tui client is older than the machine's daemon).")
+            : CMUXCLILocalization.string("cli.vm.tui.staleDaemon", defaultValue: "The machine's cmux-tui daemon is older than this client; reconnect once the machine has updated.")
+        let template = CMUXCLILocalization.string(
             "cli.vm.tui.protocolMismatch",
             defaultValue: "cmux-tui protocol mismatch: client %1$@ speaks protocol %2$d, the machine daemon %3$@ speaks protocol %4$d. %5$@"
         )
@@ -290,13 +290,13 @@ extension CMUXCLI {
             ]))
             return
         }
-        let template = CMUXDiffViewerLocalization.string(
+        let template = CMUXCLILocalization.string(
             "cli.vm.tui.opened",
             defaultValue: "Opened cmux-tui for %1$@ (%2$@)"
         )
         let mode = opened.trustedCarrier
-            ? CMUXDiffViewerLocalization.string("cli.vm.tui.mode.carrier", defaultValue: "private network trust")
-            : CMUXDiffViewerLocalization.string("cli.vm.tui.mode.enrolled", defaultValue: "device already enrolled")
+            ? CMUXCLILocalization.string("cli.vm.tui.mode.carrier", defaultValue: "private network trust")
+            : CMUXCLILocalization.string("cli.vm.tui.mode.enrolled", defaultValue: "device already enrolled")
         print(String(format: template, vmId, mode))
     }
 
@@ -327,7 +327,7 @@ extension CMUXCLI {
         // client only matters for `vm tui` (the pane execs it).
         if options.fullClient, clientPath == nil || clientProbe == nil {
             let searched = cmuxTuiClientCandidates().joined(separator: ", ")
-            let template = CMUXDiffViewerLocalization.string(
+            let template = CMUXCLILocalization.string(
                 "cli.vm.tui.clientMissingSearched",
                 defaultValue: "No cmux-tui client found (searched: %1$@). Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
             )
@@ -575,7 +575,7 @@ extension CMUXCLI {
         // The config is one-shot; it has served its purpose.
         try? FileManager.default.removeItem(at: configURL)
 
-        cliWriteStderr(String(format: CMUXDiffViewerLocalization.string(
+        cliWriteStderr(String(format: CMUXCLILocalization.string(
             "cli.vm.tui.connecting",
             defaultValue: "Connecting to %1$@ through cmux-tui…"
         ), config.vmId) + "\n")
@@ -797,7 +797,7 @@ extension CMUXCLI {
     }
 
     static var vmTreeUsage: String {
-        CMUXDiffViewerLocalization.string(
+        CMUXCLILocalization.string(
             "cli.vm.tree.usage",
             defaultValue: """
         Usage: cmux vm tree [<machine>|local] [--refresh] [--json]
@@ -845,7 +845,7 @@ extension CMUXCLI {
         Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]
                cmux vm open <id> <port> [--print]
 
-        \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
+        \(CMUXCLILocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
           <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
           <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
@@ -868,7 +868,7 @@ extension CMUXCLI {
           cmux vm open vivid-newt/main/term_2f9c…/tab_a
           cmux vm open vivid-newt:desktop
           cmux vm open vivid-newt:port/3000 --print
-          cmux vm open device:1f0c…@nightly/main/6C27…   \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceExample", defaultValue: "a terminal on another Mac (from `cmux vm tree`)"))
+          cmux vm open device:1f0c…@nightly/main/6C27…   \(CMUXCLILocalization.string("cli.vm.open.deviceExample", defaultValue: "a terminal on another Mac (from `cmux vm tree`)"))
         """
     }
 
@@ -1664,11 +1664,11 @@ extension CMUXCLI {
         // link is connecting/asleep/failed. The link-status line above explains
         // why workspace membership may be stale; hiding the terminals would
         // make an otherwise addressable resource disappear from the catalog.
-        let terminalsLabel = CMUXDiffViewerLocalization.string(
+        let terminalsLabel = CMUXCLILocalization.string(
             "cli.vm.tree.terminals",
             defaultValue: "terminals/"
         )
-        let noTerminalsLabel = CMUXDiffViewerLocalization.string(
+        let noTerminalsLabel = CMUXCLILocalization.string(
             "cli.vm.tree.noTerminals",
             defaultValue: "(no terminals)"
         )

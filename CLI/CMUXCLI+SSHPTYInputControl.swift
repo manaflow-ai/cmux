@@ -17,7 +17,7 @@ extension CMUXCLI {
             throw CLIError(message: String(
                 localized: "cli.sshPtyAttach.incompatibleDaemon",
                 defaultValue: "SSH attach stopped because the remote daemon version does not match this cmux client. Install a cmux release with its matching remote daemon, then reconnect the workspace. Do not substitute a daemon from an older release.",
-                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                bundle: CMUXCLILocalization.bundle
             ))
         }
     }
@@ -34,7 +34,7 @@ extension CMUXCLI {
         CLIError(message: String(
             localized: "cli.sshPtyAttach.terminalModeFailed",
             defaultValue: "SSH attach stopped because terminal input could not be placed in raw forwarding mode. Reconnect the workspace to try again.",
-            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            bundle: CMUXCLILocalization.bundle
         ))
     }
 
@@ -43,7 +43,7 @@ extension CMUXCLI {
     /// The generated retry wrapper invokes this internal no-socket command
     /// while it owns terminal input between attachment attempts.
     func runSSHPTYFlushInput(commandArgs: [String]) throws {
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         guard commandArgs.isEmpty else {
             throw CLIError(
                 message: String(

@@ -4059,7 +4059,7 @@ final class SocketClient {
         let localizedAccessDeniedResponse = "ERROR: " + String(
             localized: "socket.client.accessDenied",
             defaultValue: "Access denied - only processes started inside cmux can connect",
-            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            bundle: CMUXCLILocalization.bundle
         )
         while true {
             let line = try readStreamLine(deadline: deadline)
@@ -4072,13 +4072,13 @@ final class SocketClient {
                     throw CLIError(message: String(
                         localized: "cli.events.error.connectionDenied",
                         defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation.",
-                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                        bundle: CMUXCLILocalization.bundle
                     ))
                 case .server:
                     throw CLIError(message: String(
                         localized: "cli.events.error.server",
                         defaultValue: "cmux returned an error while starting the event stream. Check the command and try again.",
-                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                        bundle: CMUXCLILocalization.bundle
                     ))
                 }
             }
@@ -4741,13 +4741,13 @@ struct CMUXCLI {
 
     func localizedCoderouterAliases() -> String {
         let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the CodeRouter CLI; offers to install it when missing)"
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         let catalogValue = String(
             localized: "cli.coderouter.aliases",
             defaultValue: "coderouter|cr [coderouter-args...]                 (aliases for the CodeRouter CLI; offers to install it when missing)",
             bundle: bundle
         )
-        let explicitValue = CMUXDiffViewerLocalization.string(
+        let explicitValue = CMUXCLILocalization.string(
             "cli.coderouter.aliases",
             defaultValue: defaultValue
         )
@@ -4756,13 +4756,13 @@ struct CMUXCLI {
 
     func localizedCoderouterCommands() -> String {
         let defaultValue = "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)"
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         let catalogValue = String(
             localized: "cli.coderouter.commands",
             defaultValue: "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)",
             bundle: bundle
         )
-        let explicitValue = CMUXDiffViewerLocalization.string(
+        let explicitValue = CMUXCLILocalization.string(
             "cli.coderouter.commands",
             defaultValue: defaultValue
         )
@@ -8475,7 +8475,7 @@ struct CMUXCLI {
     }
 
     private func localizedFormat(_ key: String, defaultValue: String, _ arguments: CVarArg...) -> String {
-        let format = NSLocalizedString(key, bundle: .main, value: defaultValue, comment: "")
+        let format = NSLocalizedString(key, bundle: CMUXCLILocalization.bundle, value: defaultValue, comment: "")
         return String(format: format, locale: Locale.current, arguments: arguments)
     }
 
@@ -14639,7 +14639,7 @@ struct CMUXCLI {
         return String(
             localized: "cli.sshSessionList.remoteStateUnavailable",
             defaultValue: "Remote PTY session state is unavailable for one or more workspaces.",
-            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            bundle: CMUXCLILocalization.bundle
         )
     }
 
@@ -19492,7 +19492,7 @@ struct CMUXCLI {
               cmux surface-health --workspace workspace:2
             """
         case "surface", "surface-resume":
-            return CMUXDiffViewerLocalization.string(
+            return CMUXCLILocalization.string(
                 "cli.surface.usage",
                 defaultValue: """
             Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
@@ -30736,7 +30736,7 @@ struct CMUXCLI {
             localized: "agent.codex.input.body.needsInput",
             defaultValue: "Codex is asking a question"
         )
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         if let surfaceId, !surfaceId.isEmpty {
             let payload = notificationPayload(
                 title: String(
@@ -30767,7 +30767,7 @@ struct CMUXCLI {
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         if let surfaceId, !surfaceId.isEmpty {
             let payload = notificationPayload(
                 title: String(

@@ -4,7 +4,7 @@ import Foundation
 
 extension CMUXCLI {
     func sshAutoReconnectNoteFormat() -> String {
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         let status = String(localized: "cli.ssh.autoReconnect.status", defaultValue: "[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).", bundle: bundle)
         let stopHint = String(localized: "cli.ssh.autoReconnect.stopHint", defaultValue: "[cmux] close this pane or press Ctrl-C to stop reconnecting.", bundle: bundle)
         return "\\n\\033[33m\(status)\\033[0m\\n\\033[2m\(stopHint)\\033[0m\\n"
@@ -14,7 +14,7 @@ extension CMUXCLI {
     /// supervisor retry.  Keeping this beside the retry/error formats makes a
     /// historical warning in scrollback unambiguous once the bridge is live.
     func sshAutoReconnectRecoveredNoteFormat() -> String {
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         let status = String(
             localized: "cli.ssh.autoReconnect.recovered",
             defaultValue: "[cmux] SSH reconnected (attempt %s/%s).",
@@ -24,7 +24,7 @@ extension CMUXCLI {
     }
 
     func sshManualReconnectExitPromptFormat() -> String {
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         let status = String(localized: "cli.ssh.manualReconnectPrompt.status", defaultValue: "[cmux] ssh exited with status %s.", bundle: bundle)
         let detail = String(localized: "cli.ssh.manualReconnectPrompt.detail", defaultValue: "[cmux] the SSH connection ended; the remote session may still be running.", bundle: bundle)
         let prompt = String(localized: "cli.ssh.manualReconnectPrompt.prompt", defaultValue: "[cmux] press Enter to close this pane. Press r then Enter to reconnect.", bundle: bundle)
@@ -32,7 +32,7 @@ extension CMUXCLI {
     }
 
     func sshTerminalExitPromptFormat() -> String {
-        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let bundle = CMUXCLILocalization.bundle
         let status = String(localized: "cli.ssh.manualReconnectPrompt.status", defaultValue: "[cmux] ssh exited with status %s.", bundle: bundle)
         let detail = String(localized: "cli.ssh.manualReconnectPrompt.detail", defaultValue: "[cmux] the SSH connection ended; the remote session may still be running.", bundle: bundle)
         let prompt = String(localized: "cli.ssh.terminalExitPrompt.prompt", defaultValue: "[cmux] press Enter to close this pane.", bundle: bundle)

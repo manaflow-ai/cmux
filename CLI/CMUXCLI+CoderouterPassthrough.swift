@@ -303,6 +303,6 @@ extension CMUXCLI {
     /// An explicit `AppleLanguages` override wins, then the app bundle's
     /// catalog in the user's language, then the English default.
     private static func localizedPassthroughString(_ key: String, defaultValue: String) -> String {
-        CMUXDiffViewerLocalization.string(key, defaultValue: defaultValue)
+        CMUXCLILocalization.string(key, defaultValue: defaultValue)
     }
 }
