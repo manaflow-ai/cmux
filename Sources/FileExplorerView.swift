@@ -107,6 +107,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private var needsReloadAfterContextMenu = false
+        private var mutationTask: Task<Void, Never>?
+        private var mutationTaskID: UUID?
         // Keep one coordinator-level record for the promoted native source.
         // The source view can be replaced during SwiftUI reconstruction, so
         // view-local markers alone cannot reclaim a lost endedAt callback.
@@ -175,6 +177,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
+            mutationTask?.cancel()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -1022,10 +1025,20 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func performMutation(_ operation: @escaping @MainActor () async throws -> Void) {
-            Task { @MainActor [weak self] in
+            mutationTask?.cancel()
+            let taskID = UUID()
+            mutationTaskID = taskID
+            mutationTask = Task { @MainActor [weak self] in
+                defer {
+                    guard let self, self.mutationTaskID == taskID else { return }
+                    self.mutationTask = nil
+                    self.mutationTaskID = nil
+                }
                 do {
+                    try Task.checkCancellation()
                     try await operation()
                 } catch {
+                    guard !Task.isCancelled else { return }
                     self?.showMutationError(error)
                 }
             }

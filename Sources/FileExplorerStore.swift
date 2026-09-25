@@ -361,19 +361,45 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
     }
 
     func createDirectory(path: String) async throws {
-        try FileManager.default.createDirectory(
-            atPath: path,
-            withIntermediateDirectories: false,
-            attributes: nil
-        )
+        do {
+            try FileManager.default.createDirectory(
+                atPath: path,
+                withIntermediateDirectories: false,
+                attributes: nil
+            )
+        } catch {
+            throw FileExplorerError.mutationFailed
+        }
     }
 
     func rename(path: String, to destinationPath: String) async throws {
-        try FileManager.default.moveItem(atPath: path, toPath: destinationPath)
+        do {
+            if path != destinationPath,
+               path.caseInsensitiveCompare(destinationPath) == .orderedSame {
+                let parentPath = (path as NSString).deletingLastPathComponent
+                let temporaryPath = (parentPath as NSString)
+                    .appendingPathComponent(".cmux-rename-(UUID().uuidString)")
+                try FileManager.default.moveItem(atPath: path, toPath: temporaryPath)
+                do {
+                    try FileManager.default.moveItem(atPath: temporaryPath, toPath: destinationPath)
+                } catch {
+                    try? FileManager.default.moveItem(atPath: temporaryPath, toPath: path)
+                    throw error
+                }
+                return
+            }
+            try FileManager.default.moveItem(atPath: path, toPath: destinationPath)
+        } catch {
+            throw FileExplorerError.mutationFailed
+        }
     }
 
     func delete(path: String) async throws {
-        try FileManager.default.removeItem(atPath: path)
+        do {
+            try FileManager.default.removeItem(atPath: path)
+        } catch {
+            throw FileExplorerError.mutationFailed
+        }
     }
 }
 
@@ -603,7 +629,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            command: "rm -rf -- \(Self.shellSingleQuote(path))"
+            command: "if [ ! -e \(Self.shellSingleQuote(path)) ] && [ ! -L \(Self.shellSingleQuote(path)) ]; then exit 74; fi; "
+                + "rm -rf -- \(Self.shellSingleQuote(path))"
         )
     }
 
@@ -1190,10 +1217,9 @@ final class FileExplorerStore: ObservableObject {
         }
         let uniquePaths = Set(paths)
         let topLevelPaths = uniquePaths.filter { path in
-            !uniquePaths.contains { other in
-                other != path && Self.path(path, isContainedIn: other)
-            }
+            !Self.pathHasAncestor(path, in: uniquePaths)
         }
+        let topLevelPathSet = Set(topLevelPaths)
         let context = resourceContextID
         do {
             for path in topLevelPaths.sorted() {
@@ -1207,14 +1233,14 @@ final class FileExplorerStore: ObservableObject {
             throw FileExplorerError.providerUnavailable
         }
         selectedPaths = selectedPaths.filter { selected in
-            !topLevelPaths.contains { deleted in Self.path(selected, isContainedIn: deleted) }
+            !Self.pathIsContained(selected, inAnyOf: topLevelPathSet)
         }
         if let selectedPath,
-           topLevelPaths.contains(where: { Self.path(selectedPath, isContainedIn: $0) }) {
+           Self.pathIsContained(selectedPath, inAnyOf: topLevelPathSet) {
             self.selectedPath = nil
         }
         expandedPaths = expandedPaths.filter { expanded in
-            !topLevelPaths.contains { deleted in Self.path(expanded, isContainedIn: deleted) }
+            !Self.pathIsContained(expanded, inAnyOf: topLevelPathSet)
         }
         reload()
         refreshGitStatus()
@@ -1259,6 +1285,27 @@ final class FileExplorerStore: ObservableObject {
         guard candidate == old || Self.path(candidate, isContainedIn: old) else { return candidate }
         let suffix = String(candidate.dropFirst(old.count))
         return new + suffix
+    }
+
+    private static func pathHasAncestor(_ candidate: String, in paths: Set<String>) -> Bool {
+        var ancestor = (candidate as NSString).deletingLastPathComponent
+        while !ancestor.isEmpty {
+            if paths.contains(ancestor) { return true }
+            let nextAncestor = (ancestor as NSString).deletingLastPathComponent
+            guard nextAncestor != ancestor else { return false }
+            ancestor = nextAncestor
+        }
+        return false
+    }
+
+    private static func pathIsContained(_ candidate: String, inAnyOf roots: Set<String>) -> Bool {
+        var current = candidate
+        while true {
+            if roots.contains(current) { return true }
+            let parent = (current as NSString).deletingLastPathComponent
+            guard parent != current else { return false }
+            current = parent
+        }
     }
 
     /// Cancels the directory-watch consumer and drops the watcher; the watcher's

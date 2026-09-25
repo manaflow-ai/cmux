@@ -326,6 +326,26 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testLocalStoreMutationsSupportCaseOnlyRename() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-case-rename-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let sourceURL = rootURL.appendingPathComponent("Readme.md")
+        try Data("content".utf8).write(to: sourceURL)
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        store.rootPath = rootURL.path
+
+        let destinationPath = try await store.renameEntry(path: sourceURL.path, toName: "README.md")
+        #expect(destinationPath == rootURL.appendingPathComponent("README.md").path)
+        #expect(!FileManager.default.fileExists(atPath: sourceURL.path))
+        #expect(FileManager.default.fileExists(atPath: destinationPath))
+        #expect(try String(contentsOfFile: destinationPath, encoding: .utf8) == "content")
+    }
+
+    @Test
     func testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([
