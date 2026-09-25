@@ -86,6 +86,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_git_seed.py
 
+      - name: Validate the CLI lane runs in compile admission
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cli_lane_in_admission.py
+
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
         run: |
