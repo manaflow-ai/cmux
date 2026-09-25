@@ -639,7 +639,9 @@ final class SidebarRowChecklistSection: NSView {
                 x: Self.expandedLeadingPadding, y: top,
                 width: viewportWidth, height: 0
             )
-            let contentWidth = max(10, scrollView.contentSize.width)
+            let contentWidth = scrollView.contentSize.width > 10
+                ? scrollView.contentSize.width
+                : viewportWidth
             let viewportHeight = scrollViewportHeight(width: contentWidth, model: model)
             var scrollFrame = scrollView.frame
             scrollFrame.size.height = viewportHeight
