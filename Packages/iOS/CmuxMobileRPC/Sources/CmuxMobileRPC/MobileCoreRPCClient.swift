@@ -18,6 +18,9 @@ public enum MobileCoreRPCAttachTicketPolicy: Sendable, Equatable {
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    /// Stable identity for this logical client across focused/control role
+    /// handoffs. A replacement client receives a new identity.
+    public let instanceID: String = UUID().uuidString
     private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
@@ -25,6 +28,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
+    /// Whether this session is bound to an exact Tailscale endpoint the user
+    /// authorized locally, rather than an endpoint learned through discovery.
+    public var usesLocallyAuthorizedTailscaleRoute: Bool {
+        guard route.kind == .tailscale else { return false }
+        switch transportRequest.authorizationMode {
+        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+            return true
+        case .stackBearer, .transportAdmission:
+            return false
+        }
+    }
     private let allowsStackAuthFallback: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
@@ -43,6 +57,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
     ///     only for a pairing that predates Iroh. Mismatched evidence is ignored,
     ///     leaving the raw Tailscale route fail-closed.
+    ///   - irohDirectOnlyDialCandidates: The per-Computer Direct method's
+    ///     complete path allowlist for an Iroh route. Ignored for other route
+    ///     kinds; `nil` = the normal Iroh dial plan.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
     public init(
@@ -52,6 +69,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -95,7 +113,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            irohDirectOnlyDialCandidates: route.kind == .iroh
+                ? irohDirectOnlyDialCandidates
+                : nil
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
@@ -145,6 +166,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
+    /// Returns the native transport's close snapshot without creating or
+    /// replacing a connection. `nil` means the transport does not expose this
+    /// optional observation seam.
+    public func isTransportClosed() async -> Bool? {
+        await session.isTransportClosed()
+    }
+
     /// Retire this client and await both its installed transport close and any
     /// transport factory admission that raced retirement. A cancellation-
     /// ignoring abandoned dial is handed to the shared route registry after a
@@ -168,8 +196,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public func sharesPhysicalTransportRoute(
         with otherRoute: CmxAttachRoute
     ) -> Bool {
-        MobileRPCConnectAttemptKey(route: route)
-            == MobileRPCConnectAttemptKey(route: otherRoute)
+        Self.routesSharePhysicalTransport(route, otherRoute)
+    }
+
+    /// Returns whether two routes compete for the same physical connection
+    /// lease. Shell ownership arbitration uses this before either route has a
+    /// live client, including while a background admission is still suspended.
+    public static func routesSharePhysicalTransport(
+        _ lhs: CmxAttachRoute,
+        _ rhs: CmxAttachRoute
+    ) -> Bool {
+        MobileRPCConnectAttemptKey(route: lhs)
+            == MobileRPCConnectAttemptKey(route: rhs)
     }
 
     /// Synchronously prevent this client from allocating another transport.
@@ -672,11 +710,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
         switch method {
         case "mobile.workspace.list", "workspace.list",
+             "mobile.task.models.list",
              "mobile.directory.list", "mobile.directory.search":
             return false
-        case "workspace.create":
+        case "workspace.create", "mobile.task.attachment.upload":
             return false
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
@@ -712,7 +753,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
-        case "mobile.browser.list":
+        case "mobile.browser.list", "mobile.browser.create":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value

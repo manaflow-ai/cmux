@@ -6,12 +6,8 @@ import {
   parseNativeStackTokens,
   unauthorized,
 } from "../../../../services/vms/auth";
-import {
-  subrouterErrorResponse,
-} from "../../../../services/subrouter/routeHelpers";
+import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   if (!isStackConfigured()) return unauthorized();

@@ -1,6 +1,6 @@
 {
   "contract_version": 2,
-  "protocol": "cmux.protocol/1",
+  "protocol": "cmux.protocol/2",
   "constants": {
     "machine": "machine_11111111111111111111111111111111",
     "session": "session_22222222222222222222222222222222",

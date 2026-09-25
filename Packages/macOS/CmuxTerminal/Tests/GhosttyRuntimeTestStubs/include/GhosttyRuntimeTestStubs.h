@@ -15,6 +15,15 @@ typedef struct {
   bool sentinel;
 } ghostty_string_s;
 
+typedef struct {
+  double tl_px_x;
+  double tl_px_y;
+  uint32_t offset_start;
+  uint32_t offset_len;
+  const char* text;
+  uintptr_t text_len;
+} ghostty_text_s;
+
 typedef void (*ghostty_font_size_action_cb)(
     void* userdata,
     int32_t action,
@@ -24,7 +33,12 @@ typedef void (*ghostty_font_size_action_cb)(
     bool current_adjusted);
 
 bool ghostty_surface_clear_selection(void *surface);
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    ghostty_text_s *selection);
 
+int ghostty_init(uintptr_t argc, char **argv);
 void *ghostty_config_new(void);
 void ghostty_config_free(void *config);
 void ghostty_config_load_string(
@@ -32,6 +46,7 @@ void ghostty_config_load_string(
     const char *contents,
     uintptr_t contents_len,
     const char *path);
+ghostty_string_s ghostty_config_serialize(void *config);
 bool ghostty_config_get(
     void *config,
     void *value,
@@ -62,11 +77,20 @@ void ghostty_surface_mouse_scroll(void);
 bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
 bool ghostty_surface_process_exited(void *surface);
-void ghostty_surface_process_output(void);
+void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len);
 void ghostty_surface_quicklook_font(void);
 void ghostty_surface_read_screen_tail_vt(void);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
+bool ghostty_surface_set_render_presented_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t),
+    void *userdata);
+bool ghostty_surface_set_render_failed_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t, int),
+    void *userdata);
+bool ghostty_surface_request_render_with_token(void *surface, uint64_t token);
 void ghostty_surface_render_grid_json(void);
 void ghostty_surface_render_grid_json_with_theme(void);
 ghostty_string_s ghostty_surface_render_grid_json_v2(
@@ -92,6 +116,17 @@ ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
+void cmux_test_ghostty_surface_free_blocking_begin(void *surface);
+bool cmux_test_ghostty_surface_free_wait_until_started(void);
+bool cmux_test_ghostty_surface_free_blocking_did_start(void);
+bool cmux_test_ghostty_surface_free_blocking_is_active(void);
+void cmux_test_ghostty_surface_free_release(void);
+void cmux_test_ghostty_surface_free_blocking_reset(void);
+void cmux_test_ghostty_process_output_blocking_begin(void *surface);
+bool cmux_test_ghostty_process_output_wait_until_started(void);
+bool cmux_test_ghostty_process_output_called_on_main_thread(void);
+void cmux_test_ghostty_process_output_release(void);
+void cmux_test_ghostty_process_output_blocking_reset(void);
 uint32_t cmux_test_ghostty_tty_name_call_count(void);
 void cmux_test_ghostty_renderer_realized_begin(void *surface);
 void cmux_test_ghostty_renderer_realized_reset(void);
@@ -100,6 +135,9 @@ uint32_t cmux_test_ghostty_renderer_rebuild_call_count(void);
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
+bool cmux_test_ghostty_renderer_occlusion_visible(void);
+bool cmux_test_ghostty_renderer_present(void *surface);
+bool cmux_test_ghostty_renderer_fail(void *surface, int status);
 bool cmux_test_ghostty_surface_was_updated(void *surface);
 void cmux_test_ghostty_font_state_begin(
     void *surface,

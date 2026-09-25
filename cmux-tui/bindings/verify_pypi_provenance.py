@@ -162,9 +162,7 @@ def _verify_publisher(
     ):
         raise ProvenanceError("PyPI trusted publisher identity does not match")
     claims = publisher.get("claims")
-    if "claims" not in publisher or not (
-        claims is None or isinstance(claims, dict)
-    ):
+    if claims is not None and not isinstance(claims, dict):
         raise ProvenanceError("PyPI trusted publisher claims are malformed")
     attestations = bundle.get("attestations")
     if not isinstance(attestations, list) or not attestations:

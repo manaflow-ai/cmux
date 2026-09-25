@@ -16,6 +16,7 @@ import Bonsplit
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
     private final class MinimalModeBodyProbeCounts {
+        var isMeasuringInvalidations = false
         var contentViewBody = 0
         var workspaceContentBody = 0
         var verticalTabsSidebarBody = 0
@@ -111,28 +112,28 @@ final class WorkspaceContentViewVisibilityTests {
         let secondTarget = Self.restoreFocusTarget()
 
         coordinator.request(target: firstTarget)
-        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == firstTarget.host)
 
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: nil,
+                currentHost: nil,
                 focusedPanelId: nil,
                 targetPanelExists: true
             )
         )
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: true
             )
         )
-        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == firstTarget.host)
 
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: secondTarget.workspaceId,
+                currentHost: secondTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: true
             )
@@ -142,7 +143,7 @@ final class WorkspaceContentViewVisibilityTests {
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: secondTarget.panelId,
                 targetPanelExists: true
             )
@@ -152,7 +153,7 @@ final class WorkspaceContentViewVisibilityTests {
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: false
             )
@@ -160,7 +161,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(coordinator.pendingTarget == nil)
 
         coordinator.request(target: secondTarget)
-        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == secondTarget.host)
 
         #expect(coordinator.claimRestoreAttempt())
         #expect(!coordinator.claimRestoreAttempt())
@@ -168,17 +169,40 @@ final class WorkspaceContentViewVisibilityTests {
 
         for _ in 0..<4 {
             #expect(coordinator.claimRestoreAttempt())
-            #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+            #expect(coordinator.pendingTarget?.host == secondTarget.host)
             coordinator.finishRestoreAttempt()
         }
         #expect(!coordinator.claimRestoreAttempt())
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
+        #expect(coordinator.pendingTarget?.host == nil)
 
         coordinator.request(target: secondTarget)
         #expect(coordinator.claimRestoreAttempt())
 
         coordinator.clear()
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
+        #expect(coordinator.pendingTarget?.host == nil)
+
+        let dockTarget = CommandPaletteRestoreFocusTarget(
+            host: .windowDock(UUID()),
+            panelId: UUID(),
+            intent: .browser(.webView)
+        )
+        coordinator.request(target: dockTarget)
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                currentHost: dockTarget.host,
+                focusedPanelId: dockTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget?.host == dockTarget.host)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                currentHost: firstTarget.host,
+                focusedPanelId: dockTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
     }
 
     @Test
@@ -197,9 +221,9 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: WorkspacePresentationModeSettings.modeKey
         )
 
-        let tabManager = TabManager()
-        for _ in 0..<6 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        for _ in 0..<7 {
+            tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: tabManager.tabs.isEmpty, autoWelcomeIfNeeded: false)
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
@@ -213,6 +237,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
@@ -226,23 +251,44 @@ final class WorkspaceContentViewVisibilityTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
             window.close()
         }
-
         await Self.drainMainRunLoop(for: window)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
-
+        // Setup work keeps publishing after the first render: the selected
+        // workspace's directory reaches the file explorer a few runloop turns
+        // later, and that store change re-evaluates ContentView. On a loaded
+        // runner it landed inside the toggle's window (PR run 36016958288 logged
+        // "ContentView: _fileExplorerStore changed."), so measure only once the
+        // window has gone quiet.
+        var quietRounds = 0
+        for _ in 0..<100 where quietRounds < 3 {
+            counts.reset()
+            await Self.drainMainRunLoop(for: window)
+            let settled = counts.contentViewBody == 0
+                && counts.workspaceContentBody == 0
+                && counts.verticalTabsSidebarBody == 0
+            quietRounds = settled ? quietRounds + 1 : 0
+        }
+        try #require(quietRounds >= 3, "The window must stop re-evaluating chrome bodies before the toggle is measured")
         counts.reset()
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
         defaults.set(
             WorkspacePresentationModeSettings.Mode.minimal.rawValue,
             forKey: WorkspacePresentationModeSettings.modeKey
         )
         await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
 
         #expect(
             counts.contentViewBody == 0,
@@ -274,9 +320,19 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
 
-        let tabManager = TabManager()
-        let workspaceId = try #require(tabManager.selectedTabId)
+        // Loading-card workspaces, as in the minimal-mode test above. A terminal
+        // workspace starts a login shell and schedules a git metadata probe, and
+        // either can publish a workspace change after `counts.reset()`. That
+        // re-evaluates VerticalTabsSidebar for a reason unrelated to unread
+        // state, so the count below depended on how fast the runner was.
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspaceId = tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
+            select: true,
+            autoWelcomeIfNeeded: false
+        ).id
         let unaffectedWorkspace = tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
             select: false,
             autoWelcomeIfNeeded: false
         )
@@ -296,6 +352,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
@@ -313,6 +370,7 @@ final class WorkspaceContentViewVisibilityTests {
         window.contentView = MainWindowHostingView(rootView: root)
         defer {
             window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
             window.close()
         }
 
@@ -342,6 +400,8 @@ final class WorkspaceContentViewVisibilityTests {
             unaffectedApplyCount += 1
         }
         counts.reset()
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
 
         unread.apply(
             totalUnreadCount: 1,
@@ -358,6 +418,7 @@ final class WorkspaceContentViewVisibilityTests {
             manualUnreadWorkspaceIds: []
         )
         await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
 
         #expect(
             counts.contentViewBody == 0,
@@ -514,36 +575,6 @@ final class WorkspaceContentViewVisibilityTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
-    }
-
-    @Test
-    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: false
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: false,
-                isPanelVisible: false,
-                renderOpacity: 0
-            )
-        )
-    }
-
-    @Test
-    func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: true
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: true,
-                isPanelVisible: true,
-                renderOpacity: 1
-            )
-        )
     }
 
     @Test

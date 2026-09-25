@@ -11,6 +11,10 @@ extension cmuxApp {
 
             Divider()
 
+            Button(String(localized: "cloud.diagnostics.menu", defaultValue: "Cloud Diagnostics…")) {
+                AppDelegate.shared?.showCloudDiagnostics()
+            }
+
             splitCommandButton(title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"), shortcut: menuShortcut(for: .sendFeedback)) {
                 presentFeedbackFromHelpMenu()
             }
@@ -25,7 +29,7 @@ extension cmuxApp {
             helpResourceButton(.discord)
             if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
                 Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
-                    ProUpgradePresenter.present()
+                    ProUpgradePresenter.present(source: .helpMenu)
                 }
                 #if DEBUG
                 Button(String(localized: "menu.help.previewNativePricing", defaultValue: "Preview Native Pro Pricing…")) {
@@ -34,6 +38,9 @@ extension cmuxApp {
                 #endif
             }
             #if DEBUG
+            Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
+                AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+            }
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }

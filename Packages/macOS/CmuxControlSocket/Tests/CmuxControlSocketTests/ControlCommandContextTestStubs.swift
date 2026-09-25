@@ -6,7 +6,6 @@ import CmuxSettings
 // implement the domain it actually exercises. Each domain's own tests override
 // the methods they drive; everything else returns an inert "nothing here"
 // result. As domains land, add their defaults here (one block per domain).
-
 extension ControlCommandContext {
     /// Test default for the worker-lane resolution hop primitive: run the
     /// body on the main actor (inline when the test is already there, else a
@@ -30,14 +29,23 @@ extension ControlCommandContext {
         }
     }
 }
-
 extension ControlAppFocusContext {
     func controlSetAppFocusOverride(_ focused: Bool?) {}
     func controlSimulateAppActive() {}
 }
 
 extension ControlFeedContext {
-    func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool { false }
+    nonisolated func controlFeedInvalidJumpMessage() -> String {
+        "feed.jump requires workstream_id"
+    }
+
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool { false }
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool { false }
+    @MainActor
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] { [] }
 }
 
@@ -140,7 +148,8 @@ extension ControlNotificationContext {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationCreateResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForSurface(
@@ -148,7 +157,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForTarget(
@@ -157,7 +167,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationList() -> [ControlNotificationSnapshot] { [] }
@@ -173,6 +184,24 @@ extension ControlNotificationContext {
     func controlNotificationOpen(id: UUID) -> ControlNotificationOpenResolution { .notificationNotFound }
     func controlNotificationJumpToUnread() -> ControlNotificationSnapshot? { nil }
     func controlNotificationClear() {}
+    func controlNotificationClear(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlNotificationClearResolution {
+        .cleared(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+    func controlNotificationClearForCaller(
+        preferredWorkspaceID: UUID?,
+        preferredSurfaceID: UUID?,
+        callerTTY: String?,
+        preferTTY: Bool
+    ) -> ControlNotificationClearResolution {
+        guard let preferredWorkspaceID else {
+            return .workspaceNotFound(workspaceID: nil)
+        }
+        return .cleared(workspaceID: preferredWorkspaceID, surfaceID: preferredSurfaceID)
+    }
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
@@ -182,7 +211,17 @@ extension ControlNotificationContext {
             markReadSelectorRequired: "",
             surfaceIDInvalid: "",
             surfaceIDRequiresWorkspace: "",
-            targetNotFound: ""
+            targetNotFound: "",
+            clearCallerInvalid: "Missing or invalid caller",
+            clearCallerSelectorsRequireCaller: "caller-only selectors require caller=true",
+            clearCallerScopeConflict: "",
+            clearPreferredWorkspaceIDInvalid: "",
+            clearPreferredSurfaceIDInvalid: "",
+            clearSurfaceIDRequiresWorkspace: "",
+            clearWorkspaceIDInvalid: "",
+            workspaceNotFound: "Workspace not found",
+            surfaceNotFound: "Surface not found",
+            clearUnavailable: "Notifications are unavailable. Try again."
         )
     }
 }
@@ -193,7 +232,8 @@ extension ControlWorkspaceGroupContext {
             allChildrenAreAnchors: "",
             workspaceIsOtherGroupAnchor: "",
             invalidReferenceWorkspace: "invalid reference workspace",
-            closeWorkspacesMustBeBoolean: "close workspaces must be boolean"
+            closeWorkspacesMustBeBoolean: "close workspaces must be boolean",
+            emptyPinnedCannotUngroup: "empty pinned group cannot be ungrouped"
         )
     }
 
@@ -205,10 +245,15 @@ extension ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID]
+        childWorkspaceIDs: [UUID],
+        externalID: String?
     ) -> ControlWorkspaceGroupCreateResolution { .tabManagerUnavailable }
 
-    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
+    func controlUngroupWorkspaceGroup(
+        routing: ControlRoutingSelectors,
+        groupID: UUID,
+        removeGeneratedAnchor: Bool
+    ) -> ControlWorkspaceGroupUngroupResolution { .tabManagerUnavailable }
     func controlDeleteWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlRenameWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID, name: String) -> Bool? { nil }
     func controlSetWorkspaceGroupCollapsed(routing: ControlRoutingSelectors, groupID: UUID, isCollapsed: Bool) -> Bool? { nil }
@@ -248,9 +293,12 @@ extension ControlWorkspaceContext {
             closeProtected: "", closeFailed: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
-            reorderManyWorkspaceNotFound: "",
-            reorderManyInvalidWorkspace: "",
-            reorderManyTabManagerUnavailable: ""
+            workspaceNotFound: "",
+            invalidWorkspaceRef: "",
+            reorderIndexNotAnInteger: "",
+            reorderMissingWorkspaceID: "",
+            reorderTargetRequired: "",
+            reorderManyTabManagerUnavailable: "", relayOwnerUnavailable: ""
         )
     }
 
@@ -469,13 +517,19 @@ extension ControlSurfaceContext {
     ) -> ControlSurfaceTriggerFlashResolution { .tabManagerUnavailable }
 
     nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
-        ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
+        ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: "",
+            inputQueueFull: "",
+            surfaceUnavailable: "",
+            processExited: ""
+        )
     }
 
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         ControlSurfaceResumeStrings(
             agentSessionEndedMustBeBoolean: "",
-            launchCommandMustBeValid: ""
+            launchCommandMustBeValid: "",
+            restoreClaimMustBeValid: ""
         )
     }
 
@@ -503,7 +557,10 @@ extension ControlSurfaceContext {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     func controlSurfaceResumeClear(
@@ -512,6 +569,7 @@ extension ControlSurfaceContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
@@ -541,8 +599,15 @@ extension ControlSurfaceContext {
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        stateRawValue: String
+        terminalLifecycleID: UUID?,
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution { .pending }
+
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
+        "Terminal session is out of date; restart the shell and try again"
+    }
 
     func controlSurfacePortsKick(
         workspaceID: UUID,
@@ -567,5 +632,6 @@ extension ControlMobileHostContext {
     func controlMobileTerminalScroll(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileTaskAttachmentUpload(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileChatSessionsDump() -> ControlCallResult { mobileHostStubResult }
 }

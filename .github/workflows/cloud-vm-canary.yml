@@ -1,0 +1,145 @@
+name: Cloud VM canary
+
+# Every five minutes, prove against production that a new Cloud VM can be
+# created and that coderouter answers from inside it, then destroy it.
+# It spends no model tokens: the throwaway team has no subscription, so
+# /v1/responses must answer no_usable_account after authentication and
+# account selection (smoke-vm-api.mjs --zero-token). A 503
+# coderouter_unavailable, a failed create, or a guest that cannot reach the
+# edge fails the run. Slack hears about a new failure and about recovery,
+# not about every failing run.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cloud-vm-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    # Only the Stack keys and the notify token live here: no reviewers (a
+    # scheduled run cannot wait for approval), deployments from main only.
+    environment: cloud-vm-canary
+    defaults:
+      run:
+        working-directory: web
+    env:
+      CMUX_CLOUD_VM_ENV_SOURCE: process
+      NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+      NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+      STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-cloud-vm-canary-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-cloud-vm-canary-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Sweeps smoke users older than 30 minutes (and their VMs) first, so a
+      # run killed mid-flight is cleaned up by the next one.
+      - name: Create a VM and reach coderouter from it
+        id: canary
+        run: |
+          set -o pipefail
+          bun scripts/cloud-vm/smoke-vm-api.mjs production --create --provider default --paid \
+            --edge-check --skip-attach --zero-token --sweep-older-than-minutes 30 \
+            --result-file "$RUNNER_TEMP/canary-result.json" 2>&1 | tee "$RUNNER_TEMP/canary.log"
+
+      # One cmux.synthetic.check event per run, the contract the cmux admin
+      # /synthetics page graphs. The token can only ingest.
+      - name: Send the run to Axiom
+        if: ${{ always() && github.event_name == 'schedule' }}
+        working-directory: .
+        env:
+          AXIOM_INGEST_TOKEN: ${{ secrets.AXIOM_INGEST_TOKEN }}
+          AXIOM_DATASET: cmux-prod-otel-traces
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AXIOM_INGEST_TOKEN:-}" ]; then
+            echo "::warning::AXIOM_INGEST_TOKEN is not set; no metrics sent"
+            exit 0
+          fi
+          result="$RUNNER_TEMP/canary-result.json"
+          # No result file means the runner failed before the check ran.
+          [ -s "$result" ] || echo '{"ok":false,"stage":"runner","error":"the check did not start"}' > "$result"
+          jq -c --arg run_url "$RUN_URL" --arg revision "$REVISION" '[{
+              name: "cmux.synthetic.check",
+              synthetic_check: "cloud_vm_canary",
+              synthetic_target: (.target // "production"),
+              synthetic_outcome: (if .ok then "pass" else "fail" end),
+              synthetic_failure_stage: (if .ok then null else .stage end),
+              synthetic_error: (if .ok then null else .error end),
+              synthetic_duration_ms: .durationMs,
+              synthetic_sweep_ms: .sweepMs,
+              synthetic_create_ms: .createMs,
+              synthetic_edge_ms: .edgeMs,
+              synthetic_destroy_ms: .destroyMs,
+              synthetic_run_url: $run_url,
+              synthetic_revision: $revision,
+              synthetic_host: "github-actions"
+            } | with_entries(select(.value != null))]' "$result" |
+            curl -fsS -X POST -H "authorization: Bearer $AXIOM_INGEST_TOKEN" -H 'content-type: application/json' \
+              --data @- "https://api.axiom.co/v1/datasets/$AXIOM_DATASET/ingest" | jq -e '.failed == 0' >/dev/null
+
+      - name: Tell Slack when the state changes
+        if: ${{ always() && github.event_name == 'schedule' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The same notify-only token the iOS connectivity monitor uses; the
+          # Slack bot token stays in the cmux Internal Tools worker
+          # (cmuxterm-hq tools/testflight-slackbot, POST /api/notify).
+          CMUX_NOTIFY_TOKEN: ${{ secrets.CMUX_NOTIFY_TOKEN }}
+          CMUX_NOTIFY_URL: https://cmux-testflight-founders.debussy.workers.dev
+          # #cmux-automations
+          CMUX_NOTIFY_CHANNEL: C0BA32V49FD
+          OUTCOME: ${{ steps.canary.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-vm-canary.yml --event schedule \
+            --status completed --limit 1 --json conclusion --jq '.[0].conclusion // "success"')
+          # A cancelled or skipped run says nothing about production.
+          [ "$previous" = "failure" ] || previous=success
+          if [ "$OUTCOME" = "success" ] && [ "$previous" = "failure" ]; then
+            text=":white_check_mark: Cloud VM canary recovered: VM create and coderouter from the VM work again. <$RUN_URL|run>"
+          elif [ "$OUTCOME" != "success" ] && [ "$previous" = "success" ]; then
+            detail=$(grep -v -E '^(Retrieving|Downloading|✓|Vercel CLI)' "$RUNNER_TEMP/canary.log" 2>/dev/null | tail -c 1200 || true)
+            fence='```'
+            text=$(printf ':rotating_light: Cloud VM canary failed on production (VM create or coderouter from the VM). <%s|run>\n%s%s%s' "$RUN_URL" "$fence" "$detail" "$fence")
+          else
+            echo "state unchanged ($previous -> $OUTCOME); no message"
+            exit 0
+          fi
+          if [ -z "${CMUX_NOTIFY_TOKEN:-}" ]; then
+            echo "::error::CMUX_NOTIFY_TOKEN is not set; not posting: $text"
+            exit 1
+          fi
+          jq -n --arg text "$text" --arg channel "$CMUX_NOTIFY_CHANNEL" '{text: $text, sender: "cloud-vm-canary", channel: $channel}' |
+            curl -fsS -X POST -H "authorization: Bearer $CMUX_NOTIFY_TOKEN" -H 'content-type: application/json' \
+              --data @- "$CMUX_NOTIFY_URL/api/notify" | jq -e '.ok == true' >/dev/null

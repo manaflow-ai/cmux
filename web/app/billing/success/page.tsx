@@ -12,18 +12,25 @@ import {
   validatedNativeCallbackScheme,
 } from "../../lib/native-callback";
 import { appPricingNativeReturnURL } from "../../lib/billing";
+import { requestOrigin } from "../../lib/request-origin";
 import {
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   latestStripeSubscriptionForSession,
 } from "../../../services/billing/purchase";
 import { captureBillingError } from "../../../services/errors";
-import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
+import {
+  isStripeBillingConfigured,
+  stripe,
+} from "../../../services/billing/stripe";
 
 type BillingSuccessMessages = {
   metaTitle: string;
   title: string;
   body: string;
+  purchaseComplete: string;
+  proLabel: string;
+  dashboardLink: string;
   emailLabel: string;
   whatUnlockedTitle: string;
   openCmux: string;
@@ -33,10 +40,7 @@ type BillingSuccessMessages = {
 };
 
 type BillingSuccessFeatureKey =
-  | "cloudAgents"
-  | "modelGateway"
-  | "aiAccounts"
-  | "iosApp";
+  "cloudAgents" | "modelGateway" | "aiAccounts" | "iosApp";
 
 type BillingSuccessFeatureMessage = {
   title: string;
@@ -44,7 +48,6 @@ type BillingSuccessFeatureMessage = {
   action: string;
 };
 
-export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { messages } = await billingSuccessMessages(await headers());
@@ -79,14 +82,16 @@ export default async function BillingSuccessPage({
     });
     redirect("/pricing?billing=error");
   }
-  if (!isCmuxCheckoutSession(session)) {
+  if (!isCmuxCheckoutSession(session, expandedSubscription(session))) {
     redirect("/pricing?billing=error");
   }
   const scheme =
     trustedNativeCallbackScheme(session.metadata?.nativeCallbackScheme) ??
     requestedScheme;
   const subscription = expandedSubscription(session);
-  let recordedSubscription: Awaited<ReturnType<typeof latestStripeSubscriptionForSession>> = null;
+  let recordedSubscription: Awaited<
+    ReturnType<typeof latestStripeSubscriptionForSession>
+  > = null;
   try {
     recordedSubscription = await latestStripeSubscriptionForSession(session);
   } catch (error) {
@@ -98,63 +103,92 @@ export default async function BillingSuccessPage({
   }
   const active =
     (subscription && isActiveStripeSubscriptionStatus(subscription.status)) ||
-    (recordedSubscription && isActiveStripeSubscriptionStatus(recordedSubscription.status));
+    (recordedSubscription &&
+      isActiveStripeSubscriptionStatus(recordedSubscription.status));
   if (!active) redirect("/pricing?welcome=pending");
 
   const email = purchaseEmail(session) ?? "";
   const { locale, messages } = await billingSuccessMessages(requestHeaders);
   const openCmuxHref = appPricingNativeReturnURL(
-    new URL("/handler/after-sign-in", request.nextUrl.origin),
+    new URL("/handler/after-sign-in", requestOrigin(request)),
     nativeCallbackHrefForScheme(scheme),
     sessionId,
   );
+  const dashboardBillingHref = localizedDashboardPath(locale, "/dashboard/billing");
+  const dashboardHref = localizedDashboardPath(locale, "/dashboard");
   const featureCards: readonly {
     key: BillingSuccessFeatureKey;
     href: string;
   }[] = [
     { key: "cloudAgents", href: openCmuxHref.toString() },
-    { key: "modelGateway", href: "/dashboard/subrouter" },
-    { key: "aiAccounts", href: "/dashboard/ai-accounts" },
-    { key: "iosApp", href: "/dashboard/testflight" },
+    { key: "modelGateway", href: localizedDashboardPath(locale, "/dashboard/coderouter") },
+    { key: "aiAccounts", href: localizedDashboardPath(locale, "/dashboard/ai-accounts") },
+    { key: "iosApp", href: localizedDashboardPath(locale, "/dashboard/testflight") },
   ];
 
   return (
-    <main className="min-h-screen bg-[#fafafa] px-4 py-10 text-[#171717] sm:px-6 sm:py-16">
-      <div className="mx-auto max-w-5xl" lang={locale}>
-        <section className="border-b border-black/10 pb-8">
-          <p className="mb-3 text-sm font-medium text-[#5f6368]">{messages.emailLabel}</p>
-          <p className="mb-8 break-words text-base">{email}</p>
-          <h1 className="text-3xl font-medium tracking-tight">{messages.title}</h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-[#4b5563]">
+    <main className="min-h-[calc(100vh-2.75rem)] bg-background px-3 py-6 text-foreground sm:px-6 sm:py-10" lang={locale}>
+      <div className="mx-auto w-full max-w-5xl">
+        <section className="border-b border-border pb-8">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
+            <div className="flex items-center gap-2">
+              <span className="grid size-5 place-items-center border border-foreground text-[11px]" aria-hidden="true">
+                ✓
+              </span>
+              <span>{messages.purchaseComplete}</span>
+            </div>
+            <span className="font-mono tabular-nums">{messages.proLabel}</span>
+          </div>
+          <h1 className="mt-5 max-w-2xl text-2xl font-medium tracking-[-0.03em] sm:text-4xl">
+            {messages.title}
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted sm:text-base">
             {messages.body.replace("{email}", email)}
           </p>
-          <a
-            className="mt-8 inline-flex rounded-md bg-[#171717] px-4 py-2 text-sm font-medium text-white"
-            href={openCmuxHref.toString()}
-          >
-            {messages.openCmux}
-          </a>
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <a
+              className="inline-flex min-h-10 items-center border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+              href={openCmuxHref.toString()}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {messages.openCmux}
+              <span aria-hidden="true" className="ml-3">→</span>
+            </a>
+            <a
+              className="inline-flex min-h-10 items-center border border-border px-4 py-2 text-sm font-medium hover:border-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+              href={dashboardBillingHref}
+            >
+              {messages.manageBilling}
+            </a>
+          </div>
         </section>
 
-        <section className="py-8">
-          <h2 className="text-xl font-medium tracking-tight">{messages.whatUnlockedTitle}</h2>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {featureCards.map((card) => {
+        <section className="border-b border-border py-8">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-medium tracking-[-0.02em]">{messages.whatUnlockedTitle}</h2>
+              <p className="mt-2 text-sm text-muted">{messages.emailLabel}: {email}</p>
+            </div>
+            <a className="text-sm text-muted underline decoration-border underline-offset-4 hover:text-foreground" href={dashboardHref}>
+              {messages.dashboardLink}
+            </a>
+          </div>
+          <div className="mt-6 grid border border-border md:grid-cols-2">
+            {featureCards.map((card, index) => {
               const feature = messages.features[card.key];
               return (
                 <article
                   key={card.key}
-                  className="flex min-h-48 flex-col justify-between rounded-lg border border-black/10 bg-white p-5 shadow-sm"
+                  className={`group flex min-h-40 flex-col justify-between p-5 hover:bg-code-bg ${index < featureCards.length - 1 ? "border-b border-border md:border-b-0" : ""} ${index % 2 === 0 ? "md:border-r md:border-border" : ""}`}
                 >
                   <div>
-                    <h3 className="text-base font-medium">{feature.title}</h3>
-                    <p className="mt-3 text-sm leading-6 text-[#4b5563]">{feature.body}</p>
+                    <h3 className="text-sm font-medium sm:text-base">{feature.title}</h3>
+                    <p className="mt-3 max-w-md text-sm leading-6 text-muted">{feature.body}</p>
                   </div>
-                  <a
-                    className="mt-5 inline-flex w-fit rounded-md bg-[#171717] px-3 py-2 text-sm font-medium text-white"
-                    href={card.href}
-                  >
+                  <a className="mt-5 inline-flex w-fit items-center text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground" href={card.href} target={card.key === "cloudAgents" ? "_blank" : undefined} rel={card.key === "cloudAgents" ? "noreferrer" : undefined}>
                     {feature.action}
+                    <span aria-hidden="true" className="ml-2">→</span>
                   </a>
                 </article>
               );
@@ -162,30 +196,31 @@ export default async function BillingSuccessPage({
           </div>
         </section>
 
-        <div className="flex flex-wrap gap-3 border-t border-black/10 pt-6">
-          <a
-            className="inline-flex rounded-md border border-black/15 px-4 py-2 text-sm font-medium text-[#171717]"
-            href="/api/billing/portal"
-          >
-            {messages.manageBilling}
-          </a>
-          <a
-            className="inline-flex rounded-md border border-black/15 px-4 py-2 text-sm font-medium text-[#171717]"
-            href="/handler/account-settings"
-          >
+        <footer className="flex flex-wrap gap-x-6 gap-y-2 pt-5 text-sm text-muted">
+          {/* The handler owns a full-document auth-settings transition. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a className="underline decoration-border underline-offset-4 hover:text-foreground" href="/handler/account-settings">
             {messages.manageSignInMethods}
           </a>
-        </div>
+          <a className="underline decoration-border underline-offset-4 hover:text-foreground" href={dashboardBillingHref}>
+            {messages.manageBilling}
+          </a>
+        </footer>
       </div>
     </main>
   );
+}
+
+function localizedDashboardPath(locale: Locale, path: string): string {
+  return locale === routing.defaultLocale ? path : `/${locale}${path}`;
 }
 
 async function billingSuccessMessages(
   headersList: Headers,
 ): Promise<{ locale: Locale; messages: BillingSuccessMessages }> {
   const locale = preferredLocale(headersList);
-  const messages = (await import(`../../../messages/${locale}.json`)).default as {
+  const messages = (await import(`../../../messages/${locale}.json`))
+    .default as {
     billingSuccess?: BillingSuccessMessages;
   };
   if (messages.billingSuccess) {
@@ -211,23 +246,40 @@ function preferredLocale(headersList: Headers): Locale {
     .map((part) => part.split(";")[0]?.trim())
     .filter(Boolean);
   for (const language of requested) {
-    const exact = locales.find((locale) => locale.toLowerCase() === language.toLowerCase());
+    const exact = locales.find(
+      (locale) => locale.toLowerCase() === language.toLowerCase(),
+    );
     if (exact) return exact;
     const base = language.split("-")[0]?.toLowerCase();
-    const baseMatch = locales.find((locale) => locale.toLowerCase().split("-")[0] === base);
+    const baseMatch = locales.find(
+      (locale) => locale.toLowerCase().split("-")[0] === base,
+    );
     if (baseMatch) return baseMatch;
   }
   return routing.defaultLocale;
 }
 
-function requestFromHeaders(headersList: Headers, pathname: string): NextRequest {
-  const host = headersList.get("x-forwarded-host") ?? headersList.get("host") ?? "cmux.com";
-  const proto = headersList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return new NextRequest(`${proto}://${host}${pathname}`, { headers: headersList });
+function requestFromHeaders(
+  headersList: Headers,
+  pathname: string,
+): NextRequest {
+  const host =
+    headersList.get("x-forwarded-host") ??
+    headersList.get("host") ??
+    "cmux.com";
+  const proto =
+    headersList.get("x-forwarded-proto") ??
+    (host.startsWith("localhost") ? "http" : "https");
+  return new NextRequest(`${proto}://${host}${pathname}`, {
+    headers: headersList,
+  });
 }
 
-function expandedSubscription(session: Stripe.Checkout.Session): Stripe.Subscription | null {
-  return typeof session.subscription === "object" && session.subscription !== null
+function expandedSubscription(
+  session: Stripe.Checkout.Session,
+): Stripe.Subscription | null {
+  return typeof session.subscription === "object" &&
+    session.subscription !== null
     ? session.subscription
     : null;
 }
