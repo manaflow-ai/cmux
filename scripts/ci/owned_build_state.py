@@ -24,9 +24,10 @@ This keeps two things under STORE (CMUX_OWNED_STATE_ROOT,
   swift-driver still decides what to recompile by modification time, so the
   kept DerivedData also carries the input times it was built against (below).
 - `source-packages`: the resolved `.ci-source-packages`, so the resolve
-  fetches what changed instead of restoring the whole cache. It is not
-  handed to the resolve as an exact hit: that would change the Resolve step,
-  which is part of the product key (product_input_identity.py). Packages hold
+  needs no cache restore. The resolve stamps them with the Package.resolved
+  it resolved, and a matching stamp resolves offline
+  (compile-app-host-test-product.sh `resolve`); otherwise it fetches what
+  changed. Packages hold
   no absolute build paths, so they live in PACKAGE_STORE, one per Mac, which
   every compile slot shares (STORE is per slot, ci-macos.yml's build-slot).
 
