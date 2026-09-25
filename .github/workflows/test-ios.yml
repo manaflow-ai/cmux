@@ -613,9 +613,11 @@ jobs:
         # An owned Mac outlives the job, so it keeps this job's DerivedData and
         # resolved packages instead of downloading the packages from R2 and
         # compiling cold every time: on cmux7s the R2 restore took 273 s and
-        # the resolve 282 s (run 36108107919). The state is per runner
-        # instance (one job at a time, and the kept packages carry this
-        # instance's paths), under a separate root from ci-macos.yml's.
+        # the resolve 282 s (run 36108107919). DerivedData is per runner
+        # instance (one job at a time, and it carries this instance's paths);
+        # the packages are per Mac, so every instance on it starts with them
+        # (the sanitize step below drops the one file with absolute paths).
+        # Both live under a separate root from ci-macos.yml's.
         # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
         id: owned-state
         continue-on-error: true
@@ -626,10 +628,12 @@ jobs:
             *) echo "Not an owned Mac: $RUNNER_NAME"; exit 0 ;;
           esac
           store="/Users/Shared/cmux-build-fleet/ci-ios/$RUNNER_NAME"
+          packages="/Users/Shared/cmux-build-fleet/ci-ios-packages"
           fingerprint="$( { echo ios-owned-v1; xcodebuild -version; echo "$PWD"; echo "$RUNNER_TEMP"; } | shasum -a 256 | cut -d' ' -f1)"
           echo "IOS_OWNED_STORE=$store" >> "$GITHUB_ENV"
+          echo "IOS_OWNED_PACKAGES=$packages" >> "$GITHUB_ENV"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-          python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$PWD"
+          python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$PWD" "$packages"
           # check clones the kept packages to ci-macos.yml's directory name.
           if [ -d .ci-source-packages ]; then
             rm -rf .ci-ios-source-packages
@@ -647,8 +651,8 @@ jobs:
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
-        # Kept packages have only ever lived at this runner's paths.
-        if: ${{ steps.owned-state.outputs.packages != 'true' }}
+        # R2's and a Mac's kept packages were resolved at another checkout's
+        # paths; the resolve recreates the dropped state from the checkouts.
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
 
       - name: Ensure iOS simulator runtime
@@ -900,7 +904,7 @@ jobs:
       - name: Save this owned Mac's iOS packages
         if: ${{ always() && steps.owned-state.outputs.fingerprint != '' }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_build_state.py save "$IOS_OWNED_STORE" "$IOS_SPM_CACHE" "$PWD"
+        run: python3 scripts/ci/owned_build_state.py save "$IOS_OWNED_STORE" "$IOS_SPM_CACHE" "$PWD" "$IOS_OWNED_PACKAGES"
 
       - name: Upload producer log
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
