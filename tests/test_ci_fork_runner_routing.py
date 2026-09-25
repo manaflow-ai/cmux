@@ -91,6 +91,11 @@ FORK_GATE_EXEMPT = {
         "ignores it for a fork head, and every runs-on reading its output takes "
         "the fork branch first"
     ),
+    ("test-ios.yml", "RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}"): (
+        "ios_runner_pool.py's input: for a fork head (--fork) the picker returns "
+        "its hosted 6vcpu pool without reading this default, and every runs-on "
+        "reads its output"
+    ),
 }
 
 
@@ -489,7 +494,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "  b:\n"
             "    runs-on: ${{ " + FORK_MACOS_BRANCH + " || inputs.runner || 'blacksmith-6vcpu-macos-26' }}\n"
             "    steps:\n"
-            "      - if: ${{ startsWith(" + FORK_MACOS_BRANCH + " || 'blacksmith-6vcpu-macos-26', 'tart-') }}\n"
+            "      - if: ${{ startsWith(" + FORK_MACOS_BRANCH + " || 'blacksmith-6vcpu-macos-26', 'glaeda-') }}\n"
             "        run: ./scripts/blacksmith-bounded-command.sh\n"
             "  c:\n"
             "    " + OWNER_ONLY_JOB_IF + "\n"

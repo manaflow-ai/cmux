@@ -78,7 +78,11 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
                 "Hidden/tiny first-responder handoff should defer Ghostty focus until geometry is usable"
             )
 
-            await AppKitTestEventPump().drain()
+            // Run the deferred apply's body in this turn, against the same 0x0 surface. A drain
+            // here let the window's layout pass restore the surface first on macOS 26 CI, and
+            // the apply then correctly focused usable geometry.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
             #expect(
                 !panel.surface.debugDesiredFocusState(),
                 "The first deferred apply can fire while geometry is still unusable"
@@ -154,17 +158,17 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.suppressReparentFocus()
             #expect(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
             #expect(window.makeFirstResponder(surfaceView))
-            await AppKitTestEventPump().drain()
-            _ = await AppKitTestEventPump().waitUntil {
-                !panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting()
-            }
-            #expect(!panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
+            try #require(panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
+            // Run the queued reapply now against the 0x0 surface. A drain let the window's layout
+            // pass restore the surface first on macOS 26 CI, and the reapply then focused it.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
             #expect(!panel.surface.debugDesiredFocusState())
 
             panel.hostedView.clearSuppressReparentFocus()
 
             #expect(
-                panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting(),
+                panel.hostedView.debugHasPendingSuppressedFirstResponderFocusReapplyForTesting(),
                 "Forced reparent focus reassert should keep a deferred retry queued while surface geometry is tiny"
             )
             #expect(!panel.surface.debugDesiredFocusState())
@@ -319,14 +323,24 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             // Only a hidden-to-visible transition schedules the automatic apply. The panel can be
             // visible again after setup, which would turn the reveal below into a no-op.
             panel.hostedView.setVisibleInUI(false)
-            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             try #require(!panel.hostedView.debugPortalVisibleInUI, "The reveal below must start from a hidden panel")
 
             panel.hostedView.setVisibleInUI(true)
             try #require(panel.hostedView.debugPortalVisibleInUI, "Portal authority should let the selected workspace's panel reveal")
-            await AppKitTestEventPump().drain()
+            try #require(
+                panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting(),
+                "The reveal should queue the automatic first-responder apply"
+            )
 
-            _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
+            // Run that apply against a 0x0 surface in this same turn. Left on the queue, the
+            // reveal's layout pass can resize the surface back to the portal first (seen on
+            // macOS 26 CI), and the apply then correctly focuses a usable surface.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
+            #expect(
+                panel.hostedView.debugHasPendingSuppressedFirstResponderFocusReapplyForTesting(),
+                "The apply should leave a hidden/tiny deferral pending for geometry recovery"
+            )
             #expect(
                 panel.hostedView.isSurfaceViewFirstResponder(),
                 "First responder after the reveal: \(String(describing: window.firstResponder))"
@@ -439,14 +453,24 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
 
             // Only a hidden-to-visible transition schedules the automatic apply.
             panel.hostedView.setVisibleInUI(false)
-            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             try #require(!panel.hostedView.debugPortalVisibleInUI, "The reveal below must start from a hidden panel")
 
             panel.hostedView.setVisibleInUI(true)
             try #require(panel.hostedView.debugPortalVisibleInUI, "Portal authority should let the selected workspace's panel reveal")
-            await AppKitTestEventPump().drain()
+            try #require(
+                panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting(),
+                "The reveal should queue the automatic first-responder apply"
+            )
 
-            _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
+            // Run that apply against a 0x0 surface in this same turn. Left on the queue, the
+            // reveal's layout pass can resize the surface back to the portal first (seen on
+            // macOS 26 CI), and the apply then correctly focuses a usable surface.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
+            #expect(
+                panel.hostedView.debugHasPendingSuppressedFirstResponderFocusReapplyForTesting(),
+                "The apply should leave a hidden/tiny deferral pending for geometry recovery"
+            )
             #expect(
                 panel.hostedView.isSurfaceViewFirstResponder(),
                 "First responder after the reveal: \(String(describing: window.firstResponder))"

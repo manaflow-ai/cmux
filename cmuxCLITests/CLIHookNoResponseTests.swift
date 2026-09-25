@@ -48,6 +48,8 @@ struct CLIHookNoResponseTests {
     @Test func nonActionableFeedHooksDoNotWaitForSocketResponseAcrossAgents() throws {
         let cases = [
             FeedHookCase(source: "codex", event: "PreToolUse", toolName: "apply_patch", pidKey: "CMUX_CODEX_PID"),
+            FeedHookCase(source: "codex", event: "PreToolUse", toolName: "mcp__cmux_cua__get_app_state", pidKey: "CMUX_CODEX_PID"),
+            FeedHookCase(source: "claude", event: "PreToolUse", toolName: "mcp__cmux-cua__get_window_state", pidKey: "CMUX_CLAUDE_PID"),
             FeedHookCase(source: "gemini", event: "PreToolUse", toolName: "read", pidKey: "CMUX_GEMINI_PID"),
             FeedHookCase(source: "kiro", event: "postToolUse", toolName: "fs_write", pidKey: "CMUX_KIRO_PID"),
             FeedHookCase(source: "hermes-agent", event: "pre_tool_call", toolName: "terminal", pidKey: "CMUX_HERMES_AGENT_PID"),
@@ -112,6 +114,13 @@ struct CLIHookNoResponseTests {
             #expect(result.status == 0, "\(testCase.source): \(result.stderr)")
             #expect(result.stdout == "{}\n")
             #expect(state.snapshot().filter { $0.contains(#""method":"feed.push""#) }.count == 1)
+            let request = try #require(state.snapshot().compactMap(Self.jsonObject).first {
+                $0["method"] as? String == "feed.push"
+            })
+            let params = try #require(request["params"] as? [String: Any])
+            let event = try #require(params["event"] as? [String: Any])
+            #expect(event["workspace_id"] as? String == environment["CMUX_WORKSPACE_ID"])
+            #expect(event["surface_id"] as? String == environment["CMUX_SURFACE_ID"])
         }
     }
 

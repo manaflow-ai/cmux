@@ -103,6 +103,20 @@ path = "tests/test_cmux_cua_helper_identity.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_cua_drag_cursor_harness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_cua_drag_cursor.py"
+lane = "manual"
+reason = "Requires an isolated macOS GUI session, a running cmux-cua helper with capture/input permissions, and observed window/divider coordinates."
+
+[[test]]
+path = "tests/test_cmux_cua_divider_drags.py"
+lane = "manual"
+reason = "Requires an isolated tagged cmux app and helper, two prepared split workspaces, and a plan with observed divider coordinates for native drags."
+
+[[test]]
 path = "tests/test_hermes_wrapper_hooks.py"
 lane = "macos-cli-no-socket"
 
@@ -344,6 +358,14 @@ path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cli_lane_in_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reverse_test_impact.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
@@ -416,7 +438,15 @@ path = "tests/test_ci_prune_xcode_compilation_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_owned_build_state.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_warm_labels.py"
 lane = "linux-guard"
 
 [[test]]
@@ -433,6 +463,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_repo_variable_defaults.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_cache_public_url.py"
 lane = "linux-guard"
 
 [[test]]
@@ -820,6 +854,10 @@ path = "tests/test_cli_version_memory_guard.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cli_version_memory_guard_harness.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_cli_vm_create_name.py"
 lane = "legacy"
 
@@ -861,10 +899,6 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_codex_wrapper_hook_append.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_current_cli_workflow.py"
 lane = "legacy"
 
 [[test]]
@@ -1117,6 +1151,10 @@ path = "tests/test_update_release_tag.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_publication_marker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
@@ -1178,4 +1216,24 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_git_seed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_13766_terminal_history.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_surface_scoped_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_merge_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_bisect.py"
 lane = "linux-guard"

@@ -63,9 +63,21 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate the report-only reverse test impact selector
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reverse_test_impact.py
+
+      - name: Require the R2 public URL wherever the R2 cache actions run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_public_url.py
+
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
+
+      - name: Validate v0.64.25 rpath repair workflow contract
+        if: ${{ matrix.group == 'ci' }}
+        run: bash tests/test_repair_v06425_workflow.sh
 
       - name: Validate Xcode build metrics receipt
         if: ${{ matrix.group == 'ci' }}
@@ -82,6 +94,10 @@ jobs:
       - name: Validate seeded macOS checkout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_git_seed.py
+
+      - name: Validate the CLI lane runs in compile admission
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cli_lane_in_admission.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -113,6 +129,10 @@ jobs:
       - name: Validate build-only reload keeps the tagged app bundle
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_build_only_keeps_tagged_app.sh
+
+      - name: Validate reload resolves the cmux-tui client before building
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_resolves_cmux_tui_client_before_build.sh
 
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
@@ -175,6 +195,10 @@ jobs:
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Test Computer Use drag regression harness
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_cua_drag_cursor_harness.py
 
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
@@ -340,6 +364,18 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
+      - name: Validate main full-suite failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_attribution.py
+
+      - name: Validate merge receipts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_receipt.py
+
+      - name: Validate main full-suite failure reruns and bisects
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_bisect.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -348,9 +384,17 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate owned Mac build state
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_build_state.py
+
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
+
+      - name: Validate the owned Mac warm labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_warm_labels.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -427,6 +471,10 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate Homebrew cask macOS dependency syntax
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
 
       - name: Validate app bundle license compliance
         if: ${{ matrix.group == 'release-notary' }}
@@ -663,6 +711,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_download_stall.sh
 
+      - name: Validate the owned-Mac GhosttyKit archive cache
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_ghosttykit_archive_cache.sh
+
       - name: Validate GhosttyKit release check behavior
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_release_check.sh
@@ -693,7 +745,13 @@ jobs:
 
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_update_release_tag.py
+        run: |
+          python3 tests/test_update_release_tag.py
+          python3 tests/test_nightly_publication_marker.py
+
+      - name: Validate nightly tag permission probe
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_tag_permission_probe.sh
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}
@@ -839,6 +897,10 @@ jobs:
       - name: Validate bash shell integration job control
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
+
+      - name: Validate shell surface-scoped environment keys
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_shell_surface_scoped_keys.py
 
       - name: Validate focused Dock shortcut routing guard
         if: ${{ matrix.group == 'quality-determinism' }}

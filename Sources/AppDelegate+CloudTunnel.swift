@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 /// Composition of the app-managed Cloud tunnel: built once at startup next to
@@ -12,7 +13,10 @@ extension AppDelegate {
     @MainActor
     func makeCloudTunnelCoordinator() -> CloudTunnelCoordinator {
         let tunnelManager = VMTunnelManager()
-        let activation = CloudActivationPolicy.live(browserTunnel: tunnelManager)
+        let activation = CloudActivationPolicy.live(
+            browserTunnel: tunnelManager,
+            remoteEnabled: { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) }
+        )
         let coordinator = CloudTunnelCoordinator.live(
             consumers: CloudTunnelAppConsumers(),
             tunnelManager: tunnelManager,
