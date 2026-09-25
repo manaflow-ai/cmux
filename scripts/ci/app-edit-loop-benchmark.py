@@ -134,6 +134,7 @@ def run_reload(tag: str, derived: str, log_path: Path, extra_env: dict[str, str]
     env = dict(os.environ, CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS="1", **extra_env)
     marks: dict[str, float] = {}
     log_path.unlink(missing_ok=True)  # never match the previous run's markers
+    Path(f"{log_path}.incremental.json").unlink(missing_ok=True)
     started = time.monotonic()
     proc = subprocess.Popen(["./scripts/reload.sh", "--tag", tag, "--derived-data", derived,
                              "--swift-frontend-workaround"], cwd=ROOT, env=env, text=True,
@@ -192,14 +193,14 @@ def main() -> int:
             log = log_path.read_text(errors="replace") if log_path.exists() else ""
             record = {"variant": variant, "scenario": name, "models": what, "seconds": round(seconds, 1),
                       "exit": code, "split": split, **parse_log(log)}
-        # The standalone driver prints no per-file SwiftCompile lines; reload.sh's driver
-        # diagnostics summary counts what it scheduled for every driver alike.
-        diag = Path(f"{log_path}.incremental.json")
-        if diag.exists():
-            try:
-                record["driver_counts"] = json.loads(diag.read_text()).get("counts")
-            except ValueError:
-                pass
+            # The standalone driver prints no per-file SwiftCompile lines; reload.sh's driver
+            # diagnostics summary counts what it scheduled for every driver alike.
+            diag = Path(f"{log_path}.incremental.json")
+            if diag.exists():
+                try:
+                    record["driver_counts"] = json.loads(diag.read_text()).get("counts")
+                except ValueError:
+                    pass
             (Path(args.out).parent / f"reload-{variant}-{name}.log").write_text(log)
             results.append(record)
             print(json.dumps(record), flush=True)
@@ -219,7 +220,8 @@ def main() -> int:
                 top = ", ".join(f"{k} {v:.1f}s" for k, v in list(r["phases"].items())[:4])
                 dc = r.get("driver_counts") or {}
                 sched = dc.get("initial_files", 0) + dc.get("dependency_cascade_files", 0) if dc else "-"
-                handle.write(f"| {r['variant']} | {r['scenario']} | {r['seconds']} | {" / ".join(str(v) for v in r["split"].values()) or "-"} | {r['swift_files_compiled']} | {sched} | "
+                split = " / ".join(str(v) for v in r["split"].values()) or "-"
+                handle.write(f"| {r['variant']} | {r['scenario']} | {r['seconds']} | {split} | {r['swift_files_compiled']} | {sched} | "
                              f"{', '.join(r['modules_emitted']) or '-'} | {top} |\n")
     return 0 if all(r["exit"] == 0 for r in results) else 1
 
