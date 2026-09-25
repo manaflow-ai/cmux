@@ -147,7 +147,9 @@ export async function GET(request: Request): Promise<Response> {
         ? vmFreeAccessWindowDays()
         : 0;
       const vms = entries.map((entry) => {
-        const entryFreeAccessWindowDays = !entry.billingPlanId || !isPaidVmPlan(entry.billingPlanId)
+        const entryFreeAccessWindowDays = entry.billingPlanId === undefined
+          ? freeAccessWindowDays
+          : !entry.billingPlanId || !isPaidVmPlan(entry.billingPlanId)
           ? vmFreeAccessWindowDays()
           : 0;
         return {
