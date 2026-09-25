@@ -3979,7 +3979,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var selectionTranslationHostView: NSView?
     var firstResponderFocusTransactionId: UUID?
     /// Marks the synchronous AppKit request that may be replayed after reparent suppression.
-    fileprivate var isExplicitFirstResponderRequestInFlight = false
+    private var isExplicitFirstResponderRequestInFlight = false
     var onFocus: (() -> Void)?
     private var pendingSuppressedFirstResponderFocus = false
     private var pendingSuppressedFirstResponderFocusTransactionId: UUID?
