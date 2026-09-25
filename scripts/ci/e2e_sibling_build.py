@@ -9,9 +9,9 @@ compiled while an identical compile was still running in an earlier run.
 `wait` runs in test-e2e.yml's Linux `sibling` job, before the build job asks
 for a macOS runner. It finds the oldest unfinished earlier dispatch of this
 revision on the same macOS and polls that run's build job. Exit status 0 means
-the job succeeded, so the build job's reuse step restores its product; 1 means
-there is nothing to wait for, the other compile failed, or the budget ran out,
-and the build job compiles as before. Only a later run waits on an earlier one,
+the job published its product, so the build job's reuse step restores it; 1
+means there is nothing to wait for, the other compile failed, or the budget ran
+out, and the build job compiles as before. Only a later run waits on an earlier one,
 so two runs never wait on each other.
 """
 from __future__ import annotations
@@ -26,6 +26,10 @@ from typing import Callable
 
 WORKFLOW = "test-e2e.yml"
 BUILD_JOB = "build"
+# The build job uploads its product with this step and then runs the tests on
+# the same runner, so the product is adoptable once the step succeeds, however
+# long the tests take and whether or not they pass.
+PUBLISH_STEP = "Upload the compiled test product"
 UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
 # "<selectors> on <runner> @ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
 TITLE = re.compile(r" on (\S+) @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
@@ -62,7 +66,15 @@ def earlier_sibling(runs: list[dict], run_id: str, revision: str, runner: str) -
 
 def build_state(jobs: list[dict]) -> str:
     job = next((job for job in jobs if job.get("name") == BUILD_JOB), None)
-    if job is None or job.get("status") != "completed":
+    if job is None:
+        return "running"
+    steps = job.get("steps")
+    if isinstance(steps, list) and any(
+        isinstance(step, dict) and step.get("name") == PUBLISH_STEP and step.get("conclusion") == "success"
+        for step in steps
+    ):
+        return "success"
+    if job.get("status") != "completed":
         return "running"
     return "success" if job.get("conclusion") == "success" else "failed"
 
@@ -94,7 +106,7 @@ def wait(
     while True:
         state = build_state(get(jobs).get("jobs", []))
         if state == "success":
-            print(f"Run {sibling['id']} compiled {revision}.")
+            print(f"Run {sibling['id']} published its product of {revision}.")
             return True
         if state == "failed":
             print(f"Run {sibling['id']} did not compile {revision}; compiling here.")

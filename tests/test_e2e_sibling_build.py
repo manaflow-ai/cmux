@@ -29,7 +29,7 @@ def run(run_id: int, revision: str = SHA, runner: str = SMALL, status: str = "in
 class Fake:
     """The Actions API as a sequence of build-job states for one sibling run."""
 
-    def __init__(self, runs: list[dict], states: list[tuple[str, str | None]], run_status: str = "in_progress"):
+    def __init__(self, runs: list[dict], states: list[tuple], run_status: str = "in_progress"):
         self.runs = runs
         self.states = list(states)
         self.run_status = run_status
@@ -41,9 +41,11 @@ class Fake:
             assert path == sibling.RUNNING, path
             return {"workflow_runs": self.runs}
         if path.endswith("/jobs?filter=latest&per_page=100"):
-            status, conclusion = self.states.pop(0) if len(self.states) > 1 else self.states[0]
-            return {"jobs": [{"name": "build", "status": status, "conclusion": conclusion},
-                             {"name": "test", "status": "queued", "conclusion": None}]}
+            status, conclusion, *steps = self.states.pop(0) if len(self.states) > 1 else self.states[0]
+            build = {"name": "build", "status": status, "conclusion": conclusion}
+            if steps:
+                build["steps"] = steps[0]
+            return {"jobs": [build, {"name": "test", "status": "queued", "conclusion": None}]}
         return {"status": self.run_status}
 
     def sleep(self, seconds: float) -> None:
@@ -59,6 +61,20 @@ class SiblingWaitTests(unittest.TestCase):
         fake = Fake([run(90)], [("in_progress", None), ("in_progress", None), ("completed", "success")])
         self.assertTrue(fake.wait())
         self.assertEqual(fake.sleeps, 2)
+
+    def test_a_published_product_ends_the_wait_while_its_tests_run(self) -> None:
+        # The build job runs the tests after uploading, so waiting for the job
+        # would wait for someone else's tests, and a failing test would look
+        # like a failed compile.
+        compiling = [{"name": sibling.PUBLISH_STEP, "status": "pending", "conclusion": None}]
+        published = [{"name": sibling.PUBLISH_STEP, "status": "completed", "conclusion": "success"},
+                     {"name": "Run selected tests on the build runner", "status": "in_progress", "conclusion": None}]
+        fake = Fake([run(90)], [("in_progress", None, compiling), ("in_progress", None, published)])
+        self.assertTrue(fake.wait())
+        self.assertEqual(fake.sleeps, 1)
+        tests_failed = [{"name": sibling.PUBLISH_STEP, "status": "completed", "conclusion": "success"},
+                        {"name": "Run selected tests on the build runner", "status": "completed", "conclusion": "failure"}]
+        self.assertTrue(Fake([run(90)], [("completed", "failure", tests_failed)]).wait())
 
     def test_a_failed_compile_is_not_waited_for_again(self) -> None:
         fake = Fake([run(90)], [("in_progress", None), ("completed", "failure")])
@@ -130,7 +146,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_a_failed_wait_never_skips_the_tests(self) -> None:
         # The implicit success() on test reads every upstream job, sibling too.
-        self.assertEqual(self.jobs["test"]["if"], "${{ !cancelled() && needs.build.result == 'success' }}")
+        # The build job runs the tests itself, so test is its fallback.
+        self.assertEqual(self.jobs["test"]["if"],
+                         "${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.tested != 'true' }}")
+        self.assertNotIn("sibling", self.jobs["test"]["needs"])
+
+    def test_the_publish_step_the_wait_watches_exists(self) -> None:
+        names = [step.get("name") for step in self.jobs[sibling.BUILD_JOB]["steps"]]
+        self.assertIn(sibling.PUBLISH_STEP, names)
 
     def test_the_helper_comes_from_the_workflow_revision(self) -> None:
         checkout = self.jobs["sibling"]["steps"][0]
