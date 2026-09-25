@@ -23,14 +23,15 @@ public final class BrowserLocalFileEncodingPolicy {
     /// Waits for the local-file probe, then applies either UTF-8 or the captured WebKit fallback.
     ///
     /// - Parameter url: The main-frame destination whose bytes should be classified.
-    public func prepare(for url: URL) async {
+    public func prepare(for url: URL) async -> Bool {
         guard preferences.responds(to: Self.defaultTextEncodingSelector),
-              fallbackEncodingName != nil else { return }
+              fallbackEncodingName != nil else { return true }
         preparationID &+= 1
         let currentPreparationID = preparationID
         let encodingName = await Self.preferredEncodingName(for: url)
-        guard currentPreparationID == preparationID else { return }
+        guard currentPreparationID == preparationID else { return false }
         setDefaultTextEncodingName(encodingName ?? fallbackEncodingName)
+        return true
     }
 
     /// Returns UTF-8 only for a regular, bounded local file whose bytes are valid UTF-8.

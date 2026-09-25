@@ -649,7 +649,10 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
-                await owner.localFileEncodingPolicy.prepare(for: url)
+                guard await owner.localFileEncodingPolicy.prepare(for: url) else {
+                    decisionHandler(.cancel)
+                    return
+                }
                 guard let webView,
                       owner.webView === webView else {
                     decisionHandler(.cancel)
