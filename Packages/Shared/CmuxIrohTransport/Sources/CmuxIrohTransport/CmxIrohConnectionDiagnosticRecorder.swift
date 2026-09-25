@@ -4,6 +4,7 @@ public import CMUXMobileCore
 public struct CmxIrohConnectionDiagnosticRecorder: Sendable {
     private let diagnosticLog: DiagnosticLog
     private let sessionID: Int
+    private let peerAlias: UInt32?
 
     /// Creates a recorder for one process-local session.
     ///
@@ -12,11 +13,13 @@ public struct CmxIrohConnectionDiagnosticRecorder: Sendable {
     ///   - sessionID: The positive ID shared with session lifecycle events.
     public init(
         diagnosticLog: DiagnosticLog,
-        sessionID: Int
+        sessionID: Int,
+        peerAlias: UInt32? = nil
     ) {
         precondition(sessionID > 0)
         self.diagnosticLog = diagnosticLog
         self.sessionID = sessionID
+        self.peerAlias = peerAlias
     }
 
     /// Records one classified terminal connection cause.
@@ -27,11 +30,18 @@ public struct CmxIrohConnectionDiagnosticRecorder: Sendable {
     ) {
         diagnosticLog.record(DiagnosticEvent(
             .transportCloseAttribution,
+            surface: peerAlias,
             ms: Self.diagnosticApplicationErrorCode(
                 attribution.applicationErrorCode
             ),
             a: attribution.initiator.rawValue,
             b: attribution.failureKind.rawValue,
+            c: sessionID
+        ))
+        diagnosticLog.record(DiagnosticEvent(
+            .transportCloseReason,
+            surface: peerAlias,
+            a: attribution.remoteReason.rawValue,
             c: sessionID
         ))
     }
@@ -42,6 +52,7 @@ public struct CmxIrohConnectionDiagnosticRecorder: Sendable {
     public func record(_ event: CmxIrohConnectionPathEvent) {
         diagnosticLog.record(DiagnosticEvent(
             .transportPathEvent,
+            surface: peerAlias,
             a: event.kind.rawValue,
             b: event.pathKind.rawValue,
             c: sessionID

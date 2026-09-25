@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
@@ -20,13 +21,23 @@ use cmux_tui_core::terminal_host_protocol::{
     PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
-    TerminalHostLiveness, TerminalHostRecord, adopt_terminal_host, decode_terminal_color_overrides,
+    TerminalHostLiveness, TerminalHostRecord, acknowledge_terminal_host_exit_record,
+    adopt_terminal_host, decode_terminal_color_overrides, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_record_liveness,
     terminal_host_root,
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
+
+fn test_timeout(timeout: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 16);
+    timeout.saturating_mul(scale)
+}
 
 struct RecoveryHarness {
     child: Option<Child>,
@@ -37,6 +48,8 @@ struct RecoveryHarness {
     host_ready_delay_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
     adoption_insert_failures: Option<u64>,
+    template_completion_failures: Option<u64>,
+    adopt_template_terminal: bool,
 }
 
 impl RecoveryHarness {
@@ -53,6 +66,8 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            template_completion_failures: None,
+            adopt_template_terminal: false,
             dir,
         };
         harness.restart();
@@ -111,6 +126,8 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            template_completion_failures: None,
+            adopt_template_terminal: false,
             dir,
         }
     }
@@ -140,6 +157,14 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.adoption_insert_failures {
             command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
+        }
+        if let Some(failures) = self.template_completion_failures {
+            command.env("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES", failures.to_string());
+        }
+        if self.adopt_template_terminal {
+            command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
+            command.env("CMUX_TUI_TEMPLATE_BOUND_FILE", self.dir.join("bound"));
+            command.env("CMUX_TUI_TEMPLATE_WORKSPACE_NAME", "Cloud");
         }
         command
     }
@@ -196,7 +221,7 @@ impl Drop for RecoveryHarness {
         let endpoints =
             records.iter().map(|(_, record)| PathBuf::from(&record.endpoint)).collect::<Vec<_>>();
         for (path, record) in &records {
-            if let Ok(host) = adopt_terminal_host(record.clone(), path.clone()) {
+            if let Ok(mut host) = adopt_terminal_host(record.clone(), path.clone()) {
                 let _ = host.terminate();
                 host.disconnect();
             }
@@ -229,21 +254,796 @@ impl Drop for RecoveryHarness {
 }
 
 #[test]
-fn short_lived_terminal_launch_returns_its_final_snapshot() {
+fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     let harness = RecoveryHarness::start("short-lived-launch");
-    let marker = format!("short-lived-marker-{}", std::process::id());
     let created = request(
         &harness.socket,
         serde_json::json!({
             "id": 1,
             "cmd": "run",
-            "argv": ["/bin/sh", "-c", format!("printf '{marker}\\n'")],
+            "argv": ["/bin/sh", "-c", "exit 23"],
             "new_workspace": true,
             "name": "short-lived-command",
         }),
     );
-    let surface = created["surface"].as_u64().expect("short-lived command returned a surface");
-    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let already_exited = created["already_exited"].as_bool().unwrap();
+    assert_eq!(created["lifecycle"], if already_exited { "exited" } else { "running" });
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert_eq!(created[field].is_null(), already_exited, "unexpected {field}: {created}");
+    }
+    if already_exited {
+        assert_eq!(created["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
+    } else {
+        assert!(created["exit"].is_null());
+    }
+    assert!(created["terminal_revision"].as_u64().is_some());
+
+    let terminal_id = created["terminal_id"].as_str().expect("run omitted terminal id").to_string();
+    assert!(created["terminal_incarnation"].as_str().is_some());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let resolved = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            break resolved;
+        }
+        assert!(Instant::now() < deadline, "short-lived terminal did not exit: {resolved}");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(resolved["surface"], serde_json::Value::Null);
+    assert_eq!(resolved["lifecycle"], "exited");
+    assert_eq!(resolved["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
+    assert!(resolved["exit"]["exited_at"].as_str().is_some());
+    assert!(resolved["exit"]["revision"].as_str().is_some());
+}
+
+#[test]
+fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
+    let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
+    let marker = format!("fast-journal-marker-{}", std::process::id());
+    let created = resource_request(
+        &harness.socket,
+        "journal-initial-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Journal initial output",
+            "initial_content":"empty",
+        }),
+        Some("journal-initial-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let run = resource_request(
+        &harness.socket,
+        "journal-initial-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",format!("printf '{marker}\\n'")],
+        }),
+        Some("journal-initial-run"),
+    );
+    let path = &run["value"];
+    let terminal = path["terminal_id"].as_str().unwrap();
+    resource_request(
+        &harness.socket,
+        "journal-initial-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"5000",
+        }),
+        None,
+    );
+
+    let stream = transport::connect(&harness.socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"journal-initial-subscribe",
+            "operation":"session.journal.subscribe",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_11111111111141118111111111111111",
+                "start":"beginning",
+                "filter":{
+                    "kinds":["workspace.run","terminal.output","terminal.exited"],
+                    "subjects":[{"kind":"terminal","id":terminal}],
+                    "max_sensitivity":"sensitive",
+                },
+            },
+        })
+    )
+    .unwrap();
+
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let opened: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
+
+    let mut run_sequence = None;
+    let mut output_sequence = None;
+    let mut exit_sequence = None;
+    while exit_sequence.is_none() {
+        line.clear();
+        reader.read_line(&mut line).expect("journal stream omitted short-lived terminal output");
+        let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let record = &envelope["item"];
+        let sequence = record["sequence"].as_str().unwrap().parse::<u64>().unwrap();
+        match record["kind"].as_str().unwrap() {
+            "workspace.run" => run_sequence = Some(sequence),
+            "terminal.output" => {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(record["payload"]["data"].as_str().unwrap())
+                    .unwrap();
+                assert!(
+                    bytes.windows(marker.len()).any(|window| window == marker.as_bytes()),
+                    "journal output omitted marker: {:?}",
+                    String::from_utf8_lossy(&bytes)
+                );
+                for (kind, id) in [
+                    ("terminal", terminal),
+                    ("tab", path["tab_id"].as_str().unwrap()),
+                    ("pane", path["pane_id"].as_str().unwrap()),
+                    ("screen", path["screen_id"].as_str().unwrap()),
+                    ("workspace", path["workspace_id"].as_str().unwrap()),
+                ] {
+                    assert!(
+                        record["subjects"].as_array().unwrap().iter().any(|subject| {
+                            subject["kind"].as_str() == Some(kind)
+                                && subject["id"].as_str() == Some(id)
+                        }),
+                        "terminal output omitted {kind}:{id}: {record}"
+                    );
+                }
+                output_sequence = Some(sequence);
+            }
+            "terminal.exited" => exit_sequence = Some(sequence),
+            other => panic!("unexpected journal record {other}: {record}"),
+        }
+    }
+    assert!(
+        run_sequence < output_sequence && output_sequence < exit_sequence,
+        "journal order was run={run_sequence:?}, output={output_sequence:?}, exit={exit_sequence:?}"
+    );
+}
+
+#[test]
+fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart() {
+    let mut harness = RecoveryHarness::start("keep-on-exit");
+    let marker = format!("keep-on-exit-marker-{}", std::process::id());
+    let created = resource_request(
+        &harness.socket,
+        "keep-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Keep on exit",
+            "initial_content":"empty",
+        }),
+        Some("keep-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+
+    // The catalog constrains on_exit to its supported enum values.
+    let unsupported = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-run-unsupported",
+            "operation":"workspace.run",
+            "idempotency_key":"keep-run-unsupported",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "workspace":workspace,
+                "argv":["/bin/sh","-c","exit 0"],
+                "on_exit":"shell",
+            },
+        }),
+    );
+    assert_eq!(unsupported["ok"], false, "on_exit shell must be rejected: {unsupported}");
+    assert_eq!(unsupported["error"]["code"], "validation.invalid");
+
+    let run = resource_request(
+        &harness.socket,
+        "keep-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",format!("printf '{marker}\\n'; exit 9")],
+            "on_exit":"keep",
+        }),
+        Some("keep-run"),
+    );
+    let path = run["value"].clone();
+    let terminal = path["terminal_id"].as_str().unwrap().to_string();
+    let tab = path["tab_id"].as_str().unwrap().to_string();
+    let waited = resource_request(
+        &harness.socket,
+        "keep-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["state"], "exited");
+    assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":9}));
+
+    // The exit is latched, but the tab and the final screen stay live.
+    resource_request(
+        &harness.socket,
+        "keep-tab-show",
+        "tab.get",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        None,
+    );
+    let screen = resource_request(
+        &harness.socket,
+        "keep-screen-read",
+        "terminal.screen.read",
+        serde_json::json!({"machine":"current","session":"current","terminal":terminal}),
+        None,
+    );
+    assert!(
+        screen["text"].as_str().unwrap().contains(&marker),
+        "kept terminal lost its final screen: {screen}"
+    );
+    let history = resource_request(
+        &harness.socket,
+        "keep-history-read",
+        "terminal.history.read",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "limit":100,
+        }),
+        None,
+    );
+    assert!(history["rows"].is_array(), "kept terminal lost its history: {history}");
+
+    // Input to the dead PTY is a harmless no-op, not an error.
+    resource_request(
+        &harness.socket,
+        "keep-dead-write",
+        "terminal.input.write",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "text":"ignored\n",
+        }),
+        Some("keep-dead-write"),
+    );
+    let latched = resource_request(
+        &harness.socket,
+        "keep-wait-again",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"0",
+        }),
+        None,
+    );
+    assert_eq!(latched, waited, "kept terminal re-minted its exit receipt");
+
+    // A daemon restart drops the in-memory VT, so the kept terminal degrades
+    // to the normal detach while the durable receipt survives.
+    harness.sigkill();
+    harness.restart();
+    let after_restart = resource_request(
+        &harness.socket,
+        "keep-wait-restarted",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"5000",
+        }),
+        None,
+    );
+    assert_eq!(after_restart["state"], "exited");
+    assert_eq!(after_restart["outcome"], serde_json::json!({"kind":"exit","code":9}));
+    let detached_read = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-screen-read-restarted",
+            "operation":"terminal.screen.read",
+            "params":{"machine":"current","session":"current","terminal":terminal},
+        }),
+    );
+    assert_eq!(
+        detached_read["ok"], false,
+        "restart must degrade the kept screen to a detached receipt: {detached_read}"
+    );
+    let detached_tab = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-tab-show-restarted",
+            "operation":"tab.get",
+            "params":{"machine":"current","session":"current","tab":tab},
+        }),
+    );
+    assert_eq!(detached_tab["ok"], false, "restart left a kept tab behind: {detached_tab}");
+}
+
+/// Regression for https://github.com/manaflow-ai/cmux/issues/11974.
+///
+/// The issue's Linux reproduction is intentionally kept verbatim here:
+///
+/// ```sh
+/// cmux server start --session repro --state /tmp/repro-state &
+///
+/// cmux --session repro workspace create --name w1   # creates screen+pane+tab+terminal
+/// cmux --session repro tab create terminal          # second tab, note its tab_id + terminal_id
+///
+/// # 1) detach the only view (documented behaviour: the terminal survives)
+/// cmux --session repro tab <tab_id> close
+/// cmux --session repro terminal list                # -> that terminal now has "tab_id": null
+///
+/// # 2) close the now view-less terminal -> session breaks
+/// cmux --session repro terminal <terminal_id> close # reports success, revision advances
+/// ```
+///
+/// Exercise the same lifecycle through the public resource API, then stop and
+/// restart the durable owner. Every list must remain usable and the unrelated
+/// first terminal must survive both the close and restart.
+#[test]
+fn tabless_terminal_close_tombstones_every_resource_row_and_restarts() {
+    let mut harness = RecoveryHarness::start("tabless-terminal-close");
+    let created = resource_request(
+        &harness.socket,
+        "tabless-workspace-create",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"w1",
+            "initial_content":"terminal",
+        }),
+        Some("tabless-workspace-create"),
+    );
+    let surviving_terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    let second = resource_request(
+        &harness.socket,
+        "tabless-tab-create",
+        "tab.create_terminal",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("tabless-tab-create"),
+    );
+    let tab = second["value"]["tab_id"].as_str().unwrap().to_string();
+    let closing_terminal = second["value"]["terminal_id"].as_str().unwrap().to_string();
+
+    resource_request(
+        &harness.socket,
+        "tabless-tab-close",
+        "tab.close",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        Some("tabless-tab-close"),
+    );
+    let terminals = resource_request(
+        &harness.socket,
+        "tabless-terminal-list-before-close",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let detached = terminals
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["id"] == closing_terminal)
+        .expect("detached terminal disappeared before explicit close");
+    assert!(
+        detached["tab_ids"].as_array().is_none_or(Vec::is_empty),
+        "terminal still had a tab view after tab.close: {detached}"
+    );
+
+    resource_request(
+        &harness.socket,
+        "tabless-terminal-close",
+        "terminal.close",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":closing_terminal,
+        }),
+        Some("tabless-terminal-close"),
+    );
+
+    for (index, operation) in [
+        "workspace.list",
+        "screen.list",
+        "pane.list",
+        "tab.list",
+        "terminal.list",
+        "notification.list",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let listed = resource_request(
+            &harness.socket,
+            &format!("tabless-list-{index}"),
+            operation,
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(listed.is_array(), "{operation} failed after tab-less close: {listed}");
+    }
+    let terminals = resource_request(
+        &harness.socket,
+        "tabless-survivor-before-restart",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert!(
+        terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
+        "surviving terminal disappeared after tab-less close: {terminals}"
+    );
+    assert!(
+        !terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
+
+    let stop = Command::new(bin())
+        .args(["--json", "--session", &harness.session, "server", "stop", "--socket"])
+        .arg(&harness.socket)
+        .output()
+        .unwrap();
+    assert!(stop.status.success(), "server stop failed: {}", String::from_utf8_lossy(&stop.stderr));
+    let mut child = harness.child.take().unwrap();
+    child.wait().unwrap();
+    harness.restart();
+
+    let restarted = resource_request(
+        &harness.socket,
+        "tabless-survivor-after-restart",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert!(
+        restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
+        "surviving terminal did not recover after restart: {restarted}"
+    );
+    assert!(
+        !restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
+}
+
+#[test]
+fn keep_on_exit_terminal_close_cleans_up_the_live_tab_and_surface() {
+    let harness = RecoveryHarness::start("keep-on-exit-close");
+    let run = resource_request(
+        &harness.socket,
+        "keep-close-run",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Keep close",
+            "initial_content":"terminal",
+        }),
+        Some("keep-close-workspace"),
+    );
+    let workspace = run["value"]["workspace_id"].as_str().unwrap();
+    let run = resource_request(
+        &harness.socket,
+        "keep-close-run-terminal",
+        "pane.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "screen":"current",
+            "pane":"current",
+            "argv":["/bin/sh","-c","exit 0"],
+            "on_exit":"keep",
+        }),
+        Some("keep-close-run-terminal"),
+    );
+    let path = run["value"].clone();
+    let terminal = path["terminal_id"].as_str().unwrap().to_string();
+    let tab = path["tab_id"].as_str().unwrap().to_string();
+    resource_request(
+        &harness.socket,
+        "keep-close-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    resource_request(
+        &harness.socket,
+        "keep-close-tab-show",
+        "tab.get",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        None,
+    );
+
+    // The existing close path cleans up the kept-exited terminal fully.
+    resource_request(
+        &harness.socket,
+        "keep-close-close",
+        "terminal.close",
+        serde_json::json!({"machine":"current","session":"current","terminal":terminal}),
+        Some("keep-close-close"),
+    );
+    let closed_tab = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-close-tab-closed",
+            "operation":"tab.get",
+            "params":{"machine":"current","session":"current","tab":tab},
+        }),
+    );
+    assert_eq!(closed_tab["ok"], false, "terminal close left the kept tab behind: {closed_tab}");
+    let closed_read = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-close-screen-read",
+            "operation":"terminal.screen.read",
+            "params":{"machine":"current","session":"current","terminal":terminal},
+        }),
+    );
+    assert_eq!(closed_read["ok"], false, "terminal close left the kept screen live: {closed_read}");
+}
+
+fn output_read(
+    socket: &Path,
+    id: &str,
+    terminal: &str,
+    after: Option<&str>,
+    max_bytes: Option<u64>,
+) -> serde_json::Value {
+    let mut params = serde_json::json!({
+        "machine":"current",
+        "session":"current",
+        "terminal":terminal,
+    });
+    if let Some(after) = after {
+        params["after"] = serde_json::json!(after);
+    }
+    if let Some(max_bytes) = max_bytes {
+        params["max_bytes"] = serde_json::json!(max_bytes);
+    }
+    resource_request(socket, id, "terminal.output_read", params, None)
+}
+
+#[test]
+fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
+    let harness = RecoveryHarness::start("output-read");
+    let created = resource_request(
+        &harness.socket,
+        "output-read-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Output read",
+            "initial_content":"empty",
+        }),
+        Some("output-read-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+
+    // The command prints colored output, waits for one input line so the
+    // live window is observable, then prints more colored output and exits
+    // under the default close policy.
+    let script = "printf 'live \\033[32mgreen marker\\033[0m line\\n'; \
+                  read line; \
+                  printf 'post \\033[31mred marker\\033[0m line\\n'; exit 7";
+    let run = resource_request(
+        &harness.socket,
+        "output-read-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",script],
+        }),
+        Some("output-read-run"),
+    );
+    let terminal = run["value"]["terminal_id"].as_str().unwrap().to_string();
+    resource_request(
+        &harness.socket,
+        "output-read-wait-live",
+        "terminal.wait",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "pattern":"green marker",
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+
+    // Output reaches the journal asynchronously; poll the read until the
+    // window carries the first line.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let live = loop {
+        let live = output_read(&harness.socket, "output-read-live", &terminal, None, None);
+        if live["text"].as_str().unwrap().contains("green marker") {
+            break live;
+        }
+        assert!(Instant::now() < deadline, "live window never observed the output: {live}");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let live_text = live["text"].as_str().unwrap();
+    assert!(!live_text.contains('\u{1b}'), "live text carries escapes: {live}");
+    assert_eq!(live["start_offset"], "0", "live window must start at the stream head: {live}");
+    assert_eq!(live["complete"], true, "un-truncated live window must be complete: {live}");
+    let live_next = live["next_offset"].as_str().unwrap().parse::<u64>().unwrap();
+    assert!(live_next > 0);
+
+    resource_request(
+        &harness.socket,
+        "output-read-release",
+        "terminal.input.write",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "text":"go\n",
+        }),
+        Some("output-read-release"),
+    );
+    let waited = resource_request(
+        &harness.socket,
+        "output-read-wait-exit",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":7}));
+
+    // Close policy detached every view, but the read keeps answering
+    // through the durable receipt: the exit snapshot plus retained records.
+    let screen_read = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"output-read-screen-after-exit",
+            "operation":"terminal.screen.read",
+            "params":{"machine":"current","session":"current","terminal":terminal},
+        }),
+    );
+    assert_eq!(screen_read["ok"], false, "close policy must detach the screen: {screen_read}");
+    let after_exit = output_read(&harness.socket, "output-read-after-exit", &terminal, None, None);
+    let text = after_exit["text"].as_str().unwrap();
+    assert!(
+        text.contains("green marker") && text.contains("red marker"),
+        "post-exit read lost output: {after_exit}"
+    );
+    assert!(!text.contains('\u{1b}'), "post-exit text carries escapes: {after_exit}");
+    assert_eq!(after_exit["complete"], true);
+    let stream_end = after_exit["next_offset"].as_str().unwrap().parse::<u64>().unwrap();
+    assert!(stream_end > live_next, "the exit tail extended the stream: {after_exit}");
+
+    // A cursor inside the snapshot's coverage answers with the snapshot's
+    // screen projection: everything after the cursor is present, and the
+    // reported start offset exposes the projection to the caller.
+    let resumed = output_read(
+        &harness.socket,
+        "output-read-resume",
+        &terminal,
+        Some(&live_next.to_string()),
+        None,
+    );
+    assert!(
+        resumed["text"].as_str().unwrap().contains("red marker"),
+        "resume lost the tail: {resumed}"
+    );
+    assert!(!resumed["text"].as_str().unwrap().contains('\u{1b}'));
+    assert_eq!(
+        resumed["start_offset"], "0",
+        "a cursor under snapshot coverage answers with the snapshot projection: {resumed}"
+    );
+    assert_eq!(resumed["next_offset"], stream_end.to_string());
+    assert_eq!(resumed["complete"], true);
+
+    // Resuming at the stream end is exact: empty and complete.
+    let drained = output_read(
+        &harness.socket,
+        "output-read-drained",
+        &terminal,
+        Some(&stream_end.to_string()),
+        None,
+    );
+    assert_eq!(drained["text"], "");
+    assert_eq!(drained["start_offset"], stream_end.to_string());
+    assert_eq!(drained["next_offset"], stream_end.to_string());
+    assert_eq!(drained["complete"], true);
+
+    // Keep policy: the exited terminal retains its views, and the same read
+    // serves its output without escapes.
+    let kept_run = resource_request(
+        &harness.socket,
+        "output-read-kept-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c","printf 'kept \\033[35mmagenta marker\\033[0m line\\n'; exit 3"],
+            "on_exit":"keep",
+        }),
+        Some("output-read-kept-run"),
+    );
+    let kept_terminal = kept_run["value"]["terminal_id"].as_str().unwrap().to_string();
+    let kept_tab = kept_run["value"]["tab_id"].as_str().unwrap().to_string();
+    let kept_wait = resource_request(
+        &harness.socket,
+        "output-read-kept-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":kept_terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(kept_wait["outcome"], serde_json::json!({"kind":"exit","code":3}));
+    resource_request(
+        &harness.socket,
+        "output-read-kept-tab",
+        "tab.get",
+        serde_json::json!({"machine":"current","session":"current","tab":kept_tab}),
+        None,
+    );
+    let kept_read = output_read(&harness.socket, "output-read-kept", &kept_terminal, None, None);
+    let kept_text = kept_read["text"].as_str().unwrap();
+    assert!(kept_text.contains("magenta marker"), "kept read lost output: {kept_read}");
+    assert!(!kept_text.contains('\u{1b}'), "kept text carries escapes: {kept_read}");
+    assert_eq!(kept_read["complete"], true);
 }
 
 #[test]
@@ -292,8 +1092,7 @@ fn hosted_exit_detaches_existing_and_later_render_streams() {
             "text": "go\n",
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
-    wait_for_detached(&mut attached_reader, surface);
+    wait_for_render_text_then_detached(&mut attached_reader, surface, &marker);
 
     let later = transport::connect(&harness.socket).unwrap();
     later.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -310,8 +1109,16 @@ fn hosted_exit_detaches_existing_and_later_render_streams() {
         })
     )
     .unwrap();
-    wait_for_attach_response(&mut later_reader, 4);
-    wait_for_detached(&mut later_reader, surface);
+    loop {
+        let mut line = String::new();
+        later_reader.read_line(&mut line).expect("later attach stream closed before response");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == 4 {
+            assert_eq!(value["ok"], false, "later attach unexpectedly succeeded: {value}");
+            assert!(value["error"].as_str().unwrap().contains("unknown surface"));
+            break;
+        }
+    }
 }
 
 #[test]
@@ -347,9 +1154,13 @@ fn terminal_host_survives_daemon_process_group_hangup() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Live,
     );
-    let host = adopt_terminal_host(record, record_path).unwrap();
-    host.terminate().unwrap();
+    let mut host = adopt_terminal_host(record, record_path.clone()).unwrap();
+    let exit = host.terminate_and_wait_for_exit().unwrap();
     host.disconnect();
+    assert!(
+        acknowledge_terminal_host_exit_record(&record_path.with_extension("exit"), &exit).unwrap(),
+        "terminated host exit receipt was not acknowledged"
+    );
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -534,7 +1345,7 @@ fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
 
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     let shell_pid = host.snapshot.pid.unwrap() as libc::pid_t;
     host.terminate().unwrap();
     host.disconnect();
@@ -591,7 +1402,7 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Live,
     );
-    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
@@ -734,10 +1545,7 @@ fn c1_output_is_normalized_once_before_host_and_frontend_mirrors_observe_it() {
     let state = attach_state(&harness.socket, surface);
     assert_eq!(state["colors"]["palette"]["9"], "#090909");
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 2);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -953,10 +1761,7 @@ fn hosted_clear_history_encodes_fallback_from_authoritative_keyboard_mode() {
         }
     }
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 3, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 3);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1139,17 +1944,7 @@ fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
     wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
 
-    let resized = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 4,
-            "cmd": "resize-surface",
-            "surface": surface,
-            "cols": 101,
-            "rows": 37,
-        }),
-    );
-    assert_eq!(resized["accepted"], true);
+    attach_claim_and_resize_surface(&harness.socket, surface, 101, 37, 4);
     wait_for_host_size(&harness.host_root(), 101, 37);
     wait_for_vt_size(&harness.socket, surface, 101, 37);
     wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
@@ -1177,24 +1972,11 @@ fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     }
     wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
 
-    let resized = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 6,
-            "cmd": "resize-surface",
-            "surface": surface,
-            "cols": 99,
-            "rows": 35,
-        }),
-    );
-    assert_eq!(resized["accepted"], true);
+    attach_claim_and_resize_surface(&harness.socket, surface, 99, 35, 6);
     wait_for_host_size(&harness.host_root(), 99, 35);
     wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 7, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 7);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1296,10 +2078,7 @@ fn mint_capability_fences_prior_admin_input_before_renderer_input() {
 
     drop(renderer);
     drop(admin);
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 2);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1544,17 +2323,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     );
     assert!(wait_for_screen(&harness.socket, adopted_surface, &after).contains(&after));
 
-    let resized = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 6,
-            "cmd": "resize-surface",
-            "surface": adopted_surface,
-            "cols": 101,
-            "rows": 37,
-        }),
-    );
-    assert_eq!(resized["accepted"], true);
+    attach_claim_and_resize_surface(&harness.socket, adopted_surface, 101, 37, 6);
     let state = wait_for_vt_size(&harness.socket, adopted_surface, 101, 37);
     assert_eq!(state["cols"].as_u64(), Some(101));
     assert_eq!(state["rows"].as_u64(), Some(37));
@@ -1829,6 +2598,63 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
 }
 
 #[test]
+fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology() {
+    let harness = RecoveryHarness::start("reserved-short-lived-create");
+    let workspace = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"create-workspace",
+            "name":"Short-lived",
+            "key":"018f6e21-7b70-7e70-8000-000000000046",
+            "origin":"browser",
+            "mutation_id":"workspace-create",
+            "expected_revision":0,
+        }),
+    );
+    let terminal_id = TerminalId::random().unwrap().to_hex();
+    let create = serde_json::json!({
+        "id":2,
+        "cmd":"create-terminal",
+        "key":"018f6e21-7b70-7e70-8000-000000000046",
+        "argv":["/bin/sh","-c","exit 17"],
+        "terminal_id":terminal_id,
+        "origin":"browser",
+        "mutation_id":"terminal-create",
+        "expected_generation":workspace["generation"],
+        "expected_terminal_revision":0,
+        "cols":80,
+        "rows":24,
+    });
+
+    let first = request(&harness.socket, create.clone());
+    assert_eq!(first["terminal_id"], terminal_id);
+    assert_eq!(first["replayed"], false);
+    let already_exited = first["already_exited"].as_bool().unwrap();
+    assert_eq!(first["lifecycle"], if already_exited { "exited" } else { "running" });
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert_eq!(first[field].is_null(), already_exited, "unexpected {field}: {first}");
+    }
+    if already_exited {
+        assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    } else {
+        assert!(first["exit"].is_null());
+    }
+    wait_for_no_host_records(&harness.host_root());
+
+    let retry = request(&harness.socket, create);
+    assert_eq!(retry["replayed"], true);
+    assert_eq!(retry["terminal_id"], terminal_id);
+    assert_eq!(retry["already_exited"], true);
+    assert_eq!(retry["lifecycle"], "exited");
+    assert_eq!(retry["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    assert_eq!(retry["surface"], serde_json::Value::Null);
+    assert_eq!(retry["pane"], serde_json::Value::Null);
+    assert_eq!(retry["screen"], serde_json::Value::Null);
+    assert_eq!(retry["workspace"], serde_json::Value::Null);
+}
+
+#[test]
 fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     let harness = RecoveryHarness::start("stalled-renderer");
     let created = request(
@@ -1868,9 +2694,10 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "cmd": "send",
             "surface": surface,
             // A finite burst can fit in Darwin's dynamically sized socket
-            // buffers under some scheduler interleavings. Keep producing
-            // until the bounded host tap closes this unread renderer.
-            "text": "while :; do /usr/bin/head -c 1048576 /dev/zero; done\n",
+            // buffers under some scheduler interleavings. One streaming
+            // process fills the bounded host tap without per-megabyte process
+            // launches competing with the parallel recovery suite.
+            "text": "/bin/cat /dev/zero\n",
         }),
     );
     assert!(
@@ -1899,10 +2726,7 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
     assert_eq!(wait_for_host_records(&harness.host_root(), 1).len(), 1);
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 5, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 5);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2015,7 +2839,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
 
     let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
     drain.join().unwrap();
-    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 4);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2084,7 +2908,7 @@ fn failed_reconnect_completion_disconnects_and_retries_without_freezing() {
     assert_eq!(after_record.host_start_nonce, before_record.host_start_nonce);
     assert_eq!(after_record.incarnation, before_record.incarnation);
 
-    request(&harness.socket, serde_json::json!({"id":6,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 6);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2108,7 +2932,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     );
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
 
-    let disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     disconnected.disconnect();
     assert!(disconnected.terminate().is_err());
     assert!(record_path.exists(), "failed Terminate unlinked a live host record");
@@ -2224,12 +3048,12 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
         }),
     );
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
-    request(&harness.socket, serde_json::json!({"id":5,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 5);
     wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
-fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
+fn direct_renderer_geometry_ignores_passive_control_viewers() {
     let harness = RecoveryHarness::start("renderer-sole-viewer");
     let created = request(
         &harness.socket,
@@ -2278,9 +3102,8 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
     assert_eq!(state["cols"], 120);
     assert_eq!(state["rows"], 40);
 
-    // Re-registering the daemon mirror at the already-canonical grid must
-    // still create a real host viewer lease. Otherwise a later direct resize
-    // would silently bypass the TUI's smallest-viewer arbitration.
+    // A control attachment mirrors the terminal without acquiring geometry
+    // authority. Its viewport must not reduce the canonical PTY grid.
     let attach_stream = transport::connect(&harness.socket).unwrap();
     let mut attach_writer = attach_stream.try_clone_box().unwrap();
     let mut attach_reader = BufReader::new(attach_stream);
@@ -2311,35 +3134,31 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
     largest.extend_from_slice(&160u16.to_le_bytes());
     largest.extend_from_slice(&50u16.to_le_bytes());
     write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, largest)).unwrap();
-    let clamped = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-    assert_eq!(clamped.kind, MessageKind::Resized);
-    assert_eq!(&clamped.payload[..4], &[120, 0, 40, 0]);
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(&resized.payload[..4], &[160, 0, 50, 0]);
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
-    let state = wait_for_vt_size(&harness.socket, surface, 120, 40);
-    assert_eq!(state["cols"], 120);
-    assert_eq!(state["rows"], 40);
-
-    drop(attach_writer);
-    drop(attach_reader);
-    // The legacy renderer stream may still contain an unchanged 120x40
-    // replay acknowledged while the attach lease was being installed. Drain
-    // complete resize/color pairs until detach restores the direct request.
-    loop {
-        let restored = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-        assert_eq!(restored.kind, MessageKind::Resized);
-        assert!(matches!(&restored.payload[..4], [120, 0, 40, 0] | [160, 0, 50, 0]));
-        let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-        assert_eq!(colors.kind, MessageKind::Colors);
-        if restored.payload[..4] == [160, 0, 50, 0] {
-            break;
-        }
-    }
     let state = wait_for_vt_size(&harness.socket, surface, 160, 50);
     assert_eq!(state["cols"], 160);
     assert_eq!(state["rows"], 50);
 
-    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    drop(attach_writer);
+    drop(attach_reader);
+    let mut final_size = Vec::new();
+    final_size.extend_from_slice(&150u16.to_le_bytes());
+    final_size.extend_from_slice(&45u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, final_size)).unwrap();
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(&resized.payload[..4], &[150, 0, 45, 0]);
+    let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    let state = wait_for_vt_size(&harness.socket, surface, 150, 45);
+    assert_eq!(state["cols"], 150);
+    assert_eq!(state["rows"], 45);
+
+    close_terminal_surface(&harness.socket, surface, 4);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2462,7 +3281,7 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     changed_ack.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
     assert_eq!(ack.payload, changed_ack);
 
-    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 3);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2581,7 +3400,7 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
     assert_eq!(resolved["terminal_incarnation"], incarnation);
     let adopted = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
     assert_eq!(adopted.host_pid, host_pid);
-    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 3);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2589,7 +3408,7 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
     let create = serde_json::json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"request",
         "id":"public-create-request",
         "operation":"workspace.create",
@@ -2704,7 +3523,82 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
 }
 
 #[test]
-fn running_host_sigkill_retains_read_only_exited_binding() {
+fn rapid_public_create_close_acknowledges_every_exit_sidecar() {
+    let harness = RecoveryHarness::start("public-create-close-stress");
+    for index in 0..12 {
+        let created = resource_request(
+            &harness.socket,
+            &format!("rapid-create-{index}"),
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "name":format!("Rapid close {index}"),
+                "initial_content":"terminal",
+                "correlation_key":format!("rapid-close-{index}"),
+            }),
+            Some(&format!("rapid-create-{index}")),
+        );
+        resource_request(
+            &harness.socket,
+            &format!("rapid-close-{index}"),
+            "terminal.close",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":created["value"]["terminal_id"],
+            }),
+            Some(&format!("rapid-close-{index}")),
+        );
+    }
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
+    let harness = RecoveryHarness::start("ctrl-d-exit");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh","-i"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let workspace_id = created["workspace"].as_u64().unwrap();
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"send-key","surface":surface,"keys":["ctrl+d"]}),
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
+            break;
+        }
+        assert!(Instant::now() < deadline, "Ctrl-D never exited the shell");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let tree = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
+    let workspace = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
+        .expect("Ctrl-D removed the workspace identity");
+    assert!(first_tab(workspace).is_none(), "Ctrl-D left an exited terminal tab behind");
+}
+
+#[test]
+fn running_host_sigkill_detaches_exited_terminal_topology() {
     let harness = RecoveryHarness::start("running-host-sigkill");
     let created = request(
         &harness.socket,
@@ -2727,7 +3621,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
             serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
         );
         if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["surface"].as_u64(), Some(surface));
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
             break;
         }
         assert!(Instant::now() < deadline, "running host never transitioned to Exited");
@@ -2740,7 +3634,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
         }),
     );
     assert_eq!(write["ok"], false);
-    assert!(write["error"].as_str().unwrap().contains("exited"));
+    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
     assert_eq!(
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead
@@ -2757,7 +3651,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
 }
 
 #[test]
-fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_binding() {
+fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
     let created = request(
         &harness.socket,
@@ -2766,6 +3660,7 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
             "cols":80,"rows":24,
         }),
     );
+    let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
     let workspace_id = created["workspace"].as_u64().unwrap();
@@ -2791,20 +3686,19 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
     harness.restart();
 
     let deadline = Instant::now() + Duration::from_secs(15);
-    let exited_surface = loop {
+    loop {
         let resolved = request(
             &harness.socket,
             serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
         );
-        if resolved["lifecycle"] == "exited"
-            && let Some(surface) = resolved["surface"].as_u64()
-        {
+        if resolved["lifecycle"] == "exited" {
             assert_eq!(resolved["terminal_incarnation"], incarnation);
-            break surface;
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
+            break;
         }
         assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
         std::thread::sleep(Duration::from_millis(25));
-    };
+    }
     wait_for_no_host_records(&harness.host_root());
     let recovered = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
     let workspace = recovered["workspaces"]
@@ -2813,17 +3707,16 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    let tab = first_tab(workspace).expect("Exited terminal placeholder was not materialized");
-    assert_eq!(tab["surface"].as_u64(), Some(exited_surface));
-    assert_eq!(tab["terminal_id"].as_str(), Some(terminal_id.as_str()));
+    assert!(first_tab(workspace).is_none(), "Exited terminal was rematerialized after restart");
 
     let write = request_response(
         &harness.socket,
         serde_json::json!({
-            "id":5,"cmd":"send","surface":exited_surface,"text":"must-not-respawn\\n",
+            "id":5,"cmd":"send","surface":surface,"text":"must-not-respawn\\n",
         }),
     );
     assert_eq!(write["ok"], false);
+    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
     request(
         &harness.socket,
         serde_json::json!({
@@ -2833,10 +3726,164 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
     );
 }
 
+#[test]
+fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
+    let mut harness = RecoveryHarness::start("dead-hosts-restart");
+    let first = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let pane = first["pane"].as_u64().unwrap();
+    let workspace_id = first["workspace"].as_u64().unwrap();
+    let first_terminal = first["terminal_id"].as_str().unwrap().to_string();
+    let second = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"run","argv":["/bin/cat"],"pane":pane,
+            "cols":80,"rows":24,
+        }),
+    );
+    let second_terminal = second["terminal_id"].as_str().unwrap().to_string();
+    assert_eq!(second["pane"].as_u64(), Some(pane), "second terminal left the first pane");
+    let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    let workspace_key = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
+        .unwrap()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let records = wait_for_host_records(&harness.host_root(), 2);
+
+    // Stop the mux first so it observes neither Exit. Startup then has to
+    // reconcile two dead hosts behind the same pane. Recovery of the first
+    // one must not depend on the second one already having a live surface.
+    harness.signal_daemon(libc::SIGSTOP);
+    for (_, record) in &records {
+        // SAFETY: the record PIDs are the harness-owned terminal hosts.
+        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
+    harness.sigkill();
+    harness.restart();
+
+    for terminal_id in [&first_terminal, &second_terminal] {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+            );
+            if resolved["lifecycle"] == "exited" {
+                assert_eq!(resolved["surface"], serde_json::Value::Null);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "dead startup host {terminal_id} was not projected as Exited"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    wait_for_no_host_records(&harness.host_root());
+    let recovered = request(&harness.socket, serde_json::json!({"id":5,"cmd":"list-workspaces"}));
+    let workspace = recovered["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
+        .expect("original workspace was not recovered");
+    assert!(first_tab(workspace).is_none(), "Exited terminals were rematerialized after restart");
+}
+
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
     let response = request_response(path, value);
     assert_eq!(response["ok"], true, "request failed: {response}");
     response["data"].clone()
+}
+
+fn attach_claim_and_resize_surface(
+    path: &Path,
+    surface: u64,
+    cols: u16,
+    rows: u16,
+    request_id: u64,
+) {
+    let stream = transport::connect(path).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let attach_id = request_id.saturating_mul(2);
+    let claim_id = attach_id.saturating_add(1);
+    stream_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id":attach_id,
+            "cmd":"attach-surface",
+            "surface":surface,
+            "cols":cols,
+            "rows":rows,
+        }),
+    );
+    stream_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id":claim_id,
+            "cmd":"set-client-sizing",
+            "surface":surface,
+            "enabled":true,
+            "exclusive":true,
+        }),
+    );
+}
+
+fn stream_request(
+    writer: &mut Box<dyn transport::Stream>,
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let request_id = value["id"].clone();
+    writeln!(writer, "{value}").unwrap();
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if response["id"] == request_id {
+            assert_eq!(response["ok"], true, "request failed: {response}");
+            return response["data"].clone();
+        }
+        assert!(response["event"].is_string(), "unexpected control message: {response}");
+    }
+}
+
+fn close_terminal_surface(path: &Path, surface: u64, request_id: u64) {
+    let tree = request(path, serde_json::json!({"id":request_id,"cmd":"list-workspaces"}));
+    let tab = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["surface"].as_u64() == Some(surface))
+        .unwrap_or_else(|| panic!("surface {surface} was absent from the workspace tree"));
+    let terminal_id = tab["terminal_id"].as_str().expect("terminal view has a host identity");
+    let incarnation =
+        tab["terminal_incarnation"].as_str().expect("terminal view has an incarnation");
+    request(
+        path,
+        serde_json::json!({
+            "id":request_id,
+            "cmd":"close-terminal",
+            "terminal_id":terminal_id,
+            "terminal_incarnation":incarnation,
+        }),
+    );
 }
 
 fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value {
@@ -2849,6 +3896,39 @@ fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value 
     serde_json::from_str(&line).unwrap()
 }
 
+#[test]
+fn terminal_launch_rejection_preserves_the_host_error() {
+    let mut harness = RecoveryHarness::start_unstarted("launch-rejection-detail");
+    let child = harness.daemon_command().spawn().unwrap();
+    harness.child = Some(child);
+    wait_for_socket(&harness.socket);
+
+    let missing = format!("/tmp/cmux-terminal-host-missing-{}", std::process::id());
+    let response = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [missing],
+            "new_workspace": true,
+            "name": "must-fail",
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+
+    assert_eq!(response["ok"], false, "missing command unexpectedly launched: {response}");
+    let error = response["error"].as_str().expect("rejection includes an error string");
+    assert!(
+        error.contains("No such file") || error.contains("not found"),
+        "terminal host discarded its launch error: {error}"
+    );
+    assert!(
+        !error.contains("closed before launch ready"),
+        "launcher exposed transport fallout instead of the host error: {error}"
+    );
+}
+
 fn resource_request(
     path: &Path,
     id: &str,
@@ -2857,7 +3937,7 @@ fn resource_request(
     idempotency_key: Option<&str>,
 ) -> serde_json::Value {
     let mut value = serde_json::json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"request",
         "id":id,
         "operation":operation,
@@ -2867,7 +3947,7 @@ fn resource_request(
         value["idempotency_key"] = serde_json::json!(idempotency_key);
     }
     let response = request_response(path, value);
-    assert_eq!(response["protocol"], "cmux.protocol/1", "request failed: {response}");
+    assert_eq!(response["protocol"], "cmux.protocol/2", "request failed: {response}");
     assert_eq!(response["type"], "response", "request failed: {response}");
     assert_eq!(response["id"], id, "request failed: {response}");
     assert_eq!(response["ok"], true, "request failed: {response}");
@@ -2875,7 +3955,7 @@ fn resource_request(
 }
 
 fn wait_for_socket(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
     while Instant::now() < deadline {
         if transport::connect(path).is_ok() {
             return;
@@ -2886,7 +3966,7 @@ fn wait_for_socket(path: &Path) {
 }
 
 fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     let mut last = String::new();
     while Instant::now() < deadline {
         last = request(path, serde_json::json!({"cmd": "read-screen", "surface": surface}))["text"]
@@ -2902,7 +3982,7 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
 }
 
 fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, TerminalHostRecord)> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let records = load_terminal_host_records(root).unwrap();
         if records.len() == expected {
@@ -2914,14 +3994,18 @@ fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, Terminal
 }
 
 fn wait_for_no_host_records(root: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     while Instant::now() < deadline {
-        if load_terminal_host_records(root).unwrap().is_empty() {
+        if load_terminal_host_records(root).unwrap().is_empty()
+            && load_terminal_host_exit_records(root).unwrap().is_empty()
+        {
             return;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    panic!("terminal host record was not removed after close");
+    let records = load_terminal_host_records(root).unwrap();
+    let exits = load_terminal_host_exit_records(root).unwrap();
+    panic!("terminal host records or exit sidecars remained after close: {records:?}; {exits:?}");
 }
 
 fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {
@@ -3113,13 +4197,30 @@ fn wait_for_attach_response(reader: &mut BufReader<Box<dyn transport::Stream>>, 
     }
 }
 
-fn wait_for_detached(reader: &mut BufReader<Box<dyn transport::Stream>>, surface: u64) {
+fn wait_for_render_text_then_detached(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    surface: u64,
+    marker: &str,
+) {
+    let mut saw_marker = false;
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).expect("timed out waiting for hosted detach");
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if matches!(value["event"].as_str(), Some("render-state" | "render-delta")) {
+            saw_marker |= value["rows"].as_array().into_iter().flatten().any(|row| {
+                row["runs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|run| run["text"].as_str())
+                    .collect::<String>()
+                    .contains(marker)
+            });
+        }
         if value["event"] == "detached" {
             assert_eq!(value["surface"], surface);
+            assert!(saw_marker, "hosted exit detached before its final render frame: {value}");
             return;
         }
     }
@@ -3336,4 +4437,348 @@ fn decode_hex<const N: usize>(text: &str) -> anyhow::Result<[u8; N]> {
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+/// Every per-machine file the daemon creates under its state root. A cloned
+/// VM must never serve these from the snapshot it was restored from.
+fn state_identity(state: &Path) -> (Vec<u8>, Vec<u8>, String) {
+    let machine_id = fs::read(state.join("machine-id")).unwrap();
+    let pepper = fs::read(state.join("resource-effect-pepper")).unwrap();
+    let registry = walk_files(state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("workspace registry");
+    let connection = rusqlite::Connection::open_with_flags(
+        &registry,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let session: String = connection
+        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
+        .unwrap();
+    (machine_id, pepper, session)
+}
+
+/// The durable launch spec the registry recorded for a terminal host.
+fn registry_launch_spec(state: &Path, terminal_id: &str) -> serde_json::Value {
+    let registry = walk_files(state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("workspace registry");
+    let connection = rusqlite::Connection::open_with_flags(
+        &registry,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let spec: String = connection
+        .query_row(
+            "SELECT launch_spec_json FROM terminal_hosts WHERE terminal_id = ?1",
+            [terminal_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    serde_json::from_str(&spec).unwrap()
+}
+
+fn walk_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                pending.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// What a parked template host looked like before its daemon was wiped.
+struct ParkedTemplate {
+    terminal_id: String,
+    incarnation: String,
+    marker: String,
+    host_pid: u32,
+    identity: (Vec<u8>, Vec<u8>, String),
+    registry_id: serde_json::Value,
+}
+
+/// Start a terminal, then park its daemon the way the Cloud bake does: a
+/// fenced shutdown leaves the host alive, and everything under the state
+/// root except the host records is wiped.
+fn park_template_host(harness: &mut RecoveryHarness) -> ParkedTemplate {
+    let marker = format!("template-shell-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({"id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true}),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": original_surface, "text": format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, original_surface, &marker).contains(&marker));
+    let before = state_identity(&harness.state);
+    let registry_before = request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "list-workspaces"}),
+    )["registry_id"]
+        .clone();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid;
+
+    // Park the daemon the way the bake does: a fenced shutdown leaves the
+    // host alive, then everything but the host records is wiped.
+    let identify = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "identify"}));
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"].as_u64().unwrap(),
+            "generation": identify["generation"].as_str().unwrap(),
+        }),
+    );
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after fenced shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let host_root = harness.host_root();
+    for entry in fs::read_dir(&harness.state).unwrap().flatten() {
+        let path = entry.path();
+        if path == host_root {
+            continue;
+        }
+        if path.is_dir() {
+            fs::remove_dir_all(&path).unwrap();
+        } else {
+            fs::remove_file(&path).unwrap();
+        }
+    }
+    let _ = fs::remove_file(&harness.socket);
+
+    ParkedTemplate {
+        terminal_id,
+        incarnation,
+        marker,
+        host_pid,
+        identity: before,
+        registry_id: registry_before,
+    }
+}
+
+/// A memory snapshot keeps the terminal host (and its shell) running while
+/// the daemon is parked and its per-machine state is wiped. A clone's daemon
+/// must adopt that warm host into a brand-new registry: same PTY and screen,
+/// fresh machine id, pepper, session id, and registry.
+#[test]
+fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
+    let mut harness = RecoveryHarness::start("template-adopt");
+    let ParkedTemplate {
+        terminal_id,
+        incarnation,
+        marker,
+        host_pid,
+        identity: before,
+        registry_id: registry_before,
+    } = park_template_host(&mut harness);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    // The binding is written before the daemon listens, and the public
+    // terminal list must already show the terminal it names. A client that
+    // listed nothing here (the Cloud prompt sync) created a second workspace.
+    // The warm host is claimed through the Cloud template path, not the
+    // migration import for hosts that predate the SQLite registry.
+    let spec = registry_launch_spec(&harness.state, &terminal_id);
+    assert_eq!(spec, serde_json::json!({"template_terminal": true}), "{spec}");
+    let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
+    let bound_terminal = bound
+        .lines()
+        .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
+        .unwrap()
+        .to_string();
+    let listed = resource_request(
+        &harness.socket,
+        "template-terminal-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let listed_ids = listed
+        .as_array()
+        .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
+        .iter()
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(listed_ids, vec![bound_terminal.as_str()], "{listed}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    let adopted_surface = loop {
+        let resolved = request_response(
+            &harness.socket,
+            serde_json::json!({"id": 6, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        let data = &resolved["data"];
+        if resolved["ok"] == true
+            && data["lifecycle"] == "running"
+            && data["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = data["surface"].as_u64()
+        {
+            break surface;
+        }
+        if Instant::now() >= deadline {
+            let workspaces = request_response(
+                &harness.socket,
+                serde_json::json!({"id": 60, "cmd": "list-workspaces"}),
+            );
+            let records = load_terminal_host_records(&harness.host_root()).unwrap_or_default();
+            panic!(
+                "fresh daemon did not adopt the template host: resolved={resolved} workspaces={workspaces} records={}",
+                records.len()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &marker).contains(&marker));
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, host_pid);
+
+    let workspaces =
+        request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
+    assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
+    assert_eq!(workspaces["workspaces"][0]["name"], "Cloud", "{workspaces}");
+    // The template settings configure this daemon only. A terminal it spawns
+    // must not inherit them (the Cloud user's shells and agents).
+    let env_file = harness.dir.join("template-child-env");
+    let run = resource_request(
+        &harness.socket,
+        "template-child-env",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspaces["workspaces"][0]["resource_id"],
+            "argv":["/bin/sh","-c",format!("env > '{}.tmp' && mv '{0}.tmp' '{0}'", env_file.display())],
+        }),
+        Some("template-child-env"),
+    );
+    assert!(run["value"]["terminal_id"].is_string(), "{run}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !env_file.exists() {
+        assert!(Instant::now() < deadline, "child never wrote its environment");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let child_env = fs::read_to_string(&env_file).unwrap();
+    for key in [
+        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+        "CMUX_TUI_TEMPLATE_BOUND_FILE",
+        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+    ] {
+        assert!(
+            !child_env.lines().any(|line| line.starts_with(&format!("{key}="))),
+            "{key} leaked"
+        );
+    }
+    assert_ne!(workspaces["registry_id"], registry_before);
+    let after = state_identity(&harness.state);
+    assert_ne!(after.0, before.0, "machine id carried over from the template");
+    assert_ne!(after.1, before.1, "resource-effect pepper carried over from the template");
+    assert_ne!(after.2, before.2, "session id carried over from the template");
+    // The warm shell learns its new identity from the bound file.
+    let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
+    let term =
+        workspaces["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["content_resource_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+    assert_eq!(bound, format!("CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={term}\n", after.2),);
+
+    let typed = format!("after-template-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 8, "cmd": "send", "surface": adopted_surface, "text": format!("{typed}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &typed).contains(&typed));
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 9, "cmd": "close-terminal", "terminal_id": terminal_id, "terminal_incarnation": incarnation}),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// Wait for the template binding, then check that it names the one listed
+/// terminal and that the warm host was adopted, not replaced.
+fn assert_template_bound_and_listed(harness: &RecoveryHarness, parked: &ParkedTemplate) {
+    let bound_path = harness.dir.join("bound");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !bound_path.exists() {
+        assert!(Instant::now() < deadline, "the template adoption never published its binding");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let bound = fs::read_to_string(&bound_path).unwrap();
+    let bound_terminal = bound
+        .lines()
+        .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
+        .unwrap()
+        .to_string();
+    let listed = resource_request(
+        &harness.socket,
+        "template-bound-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let listed_ids = listed
+        .as_array()
+        .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
+        .iter()
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(listed_ids, vec![bound_terminal.as_str()], "{listed}");
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, parked.host_pid);
+    let spec = registry_launch_spec(&harness.state, &parked.terminal_id);
+    assert_eq!(spec, serde_json::json!({"template_terminal": true}), "{spec}");
+}
+
+#[test]
+fn template_binding_is_published_when_adoption_succeeds_on_retry() {
+    let mut harness = RecoveryHarness::start("template-adopt-retry");
+    let parked = park_template_host(&mut harness);
+    // The first topology insert fails, so the host is adopted by the
+    // asynchronous retry instead of the startup pass. That path must still
+    // commit the placement and tell the template shell its new identity.
+    harness.adoption_insert_failures = Some(1);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+}
+
+#[test]
+fn template_completion_failure_at_startup_is_retried_without_aborting_the_daemon() {
+    let mut harness = RecoveryHarness::start("template-complete-startup");
+    let parked = park_template_host(&mut harness);
+    // Publishing the adopted template fails twice on the startup pass. The
+    // daemon must still start, and the completion must be retried until the
+    // placement is committed and the binding written.
+    harness.template_completion_failures = Some(2);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+}
+
+#[test]
+fn template_completion_failure_after_adoption_retry_is_retried() {
+    let mut harness = RecoveryHarness::start("template-complete-retry");
+    let parked = park_template_host(&mut harness);
+    harness.adoption_insert_failures = Some(1);
+    harness.template_completion_failures = Some(2);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
 }

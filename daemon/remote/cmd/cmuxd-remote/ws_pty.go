@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -52,15 +53,8 @@ type wsLease struct {
 }
 
 type wsLeaseInstallRequest struct {
-	PTYLease  *wsLease            `json:"pty_lease,omitempty"`
-	RPCLease  *wsLease            `json:"rpc_lease,omitempty"`
-	RPCClient *wsRPCClientPayload `json:"rpc_client,omitempty"`
-}
-
-type wsRPCClientPayload struct {
-	Token         string `json:"token"`
-	SessionID     string `json:"sessionId"`
-	ExpiresAtUnix int64  `json:"expiresAtUnix"`
+	PTYLease *wsLease `json:"pty_lease,omitempty"`
+	RPCLease *wsLease `json:"rpc_lease,omitempty"`
 }
 
 type wsAuthFrame struct {
@@ -189,30 +183,33 @@ func anonymousPTYSessionKey(sessionID string, anonymousID uint64) wsPTYSessionKe
 }
 
 type wsPTYSession struct {
-	id             string
-	key            wsPTYSessionKey
-	cmd            *exec.Cmd
-	tmpScript      string // temp file path for large startup scripts; cleaned up on exit
-	ptyFile        *os.File
-	ttyFile        *os.File
-	attachments    map[string]*wsPTYAttachment
-	effectiveCols  int
-	effectiveRows  int
-	lastKnownCols  int
-	lastKnownRows  int
-	resizeConfirms int
-	scrollback     []byte
-	input          chan wsPTYInputChunk
-	inputEnqueueMu sync.Mutex
-	done           chan struct{}
-	idleTimer      *time.Timer
-	closed         bool
-	ptyWriteMu     sync.Mutex
-	ptyFileMu      sync.Mutex
-	closeTTYOnce   sync.Once
-	closePTYOnce   sync.Once
-	terminateOnce  sync.Once
-	initialPhase   wsPTYSessionInitialPhase
+	id              string
+	key             wsPTYSessionKey
+	cmd             *exec.Cmd
+	tmpScript       string // temp file path for large startup scripts; cleaned up on exit
+	ptyFile         *os.File
+	ttyFile         *os.File
+	attachments     map[string]*wsPTYAttachment
+	effectiveCols   int
+	effectiveRows   int
+	lastKnownCols   int
+	lastKnownRows   int
+	resizeConfirms  int
+	scrollback      []byte
+	scrollbackStart int
+	input           chan wsPTYInputChunk
+	inputEnqueueMu  sync.Mutex
+	done            chan struct{}
+	idleTimer       *time.Timer
+	closed          bool
+	ptyWriteMu      sync.Mutex
+	// Resize must remain usable when a foreground process stops reading input.
+	ptyResizeMu   sync.Mutex
+	ptyFileMu     sync.Mutex
+	closeTTYOnce  sync.Once
+	closePTYOnce  sync.Once
+	terminateOnce sync.Once
+	initialPhase  wsPTYSessionInitialPhase
 	// initialClaims counts the start owner and live joiners that must consume
 	// this exact generation rather than interpreting an early exit as absence.
 	initialClaims int
@@ -248,14 +245,20 @@ type wsPTYHub struct {
 	// rather than only per connection, so one stalled same-session start cannot
 	// retain unbounded goroutines across reconnect churn.
 	sessionStartWaiterSlots chan struct{}
-	closed                  bool
-	closedCh                chan struct{}
-	nextAttachmentID        uint64
-	nextAnonymousID         uint64
-	shell                   string
-	stderr                  io.Writer
-	scrollbackLimit         int
-	sessionIdleTTL          time.Duration
+	// sessionTeardownCount keeps a session active for daemon-retirement
+	// decisions after the idle reaper removes it from sessions and until its
+	// processes and PTY files are fully torn down. sessionTeardowns lets
+	// closeAll wait for that same ownership boundary before the process exits.
+	sessionTeardownCount int
+	sessionTeardowns     sync.WaitGroup
+	closed               bool
+	closedCh             chan struct{}
+	nextAttachmentID     uint64
+	nextAnonymousID      uint64
+	shell                string
+	stderr               io.Writer
+	scrollbackLimit      int
+	sessionIdleTTL       time.Duration
 	// openPTY allocates a PTY master/slave pair. It defaults to creack/pty.Open
 	// (which opens /dev/ptmx) and exists as a field so tests can simulate a
 	// hardened devpts where allocation is denied.
@@ -408,12 +411,7 @@ func handleWebSocketLeaseInstall(w http.ResponseWriter, r *http.Request, cfg wsP
 			return
 		}
 	}
-	if request.RPCClient != nil {
-		if err := writeJSONFile("/tmp/cmux/attach-rpc-client.json", request.RPCClient); err != nil {
-			http.Error(w, "write rpc client failed", http.StatusInternalServerError)
-			return
-		}
-	}
+
 	w.Header().Set("content-type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
 }
@@ -524,7 +522,11 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 
 	attachment, err := cfg.PTYHub.attach(r.Context(), conn, auth)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "ws pty attach failed: %v\n", err)
+		logPersistentDaemonEvent(
+			stderr,
+			"ws_pty_attach_failed",
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		_ = conn.Close(websocket.StatusInternalError, truncateWebSocketCloseReason(err.Error()))
 		return
 	}
@@ -1178,7 +1180,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 	// connection. Once published, the attachment follows the connection
 	// lifetime and can be canceled independently by its identity token.
 	attachmentCtx, cancel := context.WithCancel(attachmentLifetimeCtx)
-	replay := append([]byte(nil), session.scrollback...)
+	replay := session.scrollbackSnapshot()
 	clientToken = strings.TrimSpace(clientToken)
 	attachment := &wsPTYAttachment{
 		sessionKey:  sessionKey,
@@ -1230,10 +1232,26 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 
 	if superseded != nil {
 		superseded.closeNow()
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_detach",
+			"session_id", sessionID,
+			"attachment_id", superseded.id,
+			"reason", "superseded",
+		)
 	}
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_attach",
+		"session_id", sessionID,
+		"attachment_id", attachment.id,
+		"persistent", strconv.FormatBool(persistent),
+		"require_existing", strconv.FormatBool(requireExisting),
+		"replay_bytes", strconv.Itoa(attachment.replayBytes),
+	)
 	return attachment, attachmentCtx, sessionDone, nil
 }
 
@@ -1307,9 +1325,12 @@ func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, co
 		if tmpScript != "" {
 			_ = os.Remove(tmpScript)
 		}
-		if h.stderr != nil {
-			_, _ = fmt.Fprintf(h.stderr, "pty session start failed session=%s: %v\n", sessionID, err)
-		}
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_start_fault",
+			"session_id", sessionID,
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		return nil, err
 	}
 	session := &wsPTYSession{
@@ -1526,6 +1547,13 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_detach",
+		"session_id", session.id,
+		"attachment_id", attachment.id,
+		"reason", "attachment_removed",
+	)
 	return true
 }
 
@@ -1579,6 +1607,7 @@ func (h *wsPTYHub) closeAll() {
 		session.terminateProcesses()
 		session.closePTYFiles()
 	}
+	h.sessionTeardowns.Wait()
 }
 
 type wsPTYInputWriteResult struct {
@@ -1627,6 +1656,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	if start := h.startingSessions[sessionKey]; start != nil {
 		start.closeRequested = true
 		h.mu.Unlock()
+		logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "starting")
 		return true
 	}
 	session := h.sessions[sessionKey]
@@ -1638,6 +1668,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	h.cancelIdleReapLocked(session)
 	session.closed = true
 	h.mu.Unlock()
+	logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "running")
 
 	session.terminateProcesses()
 	session.closePTYFiles()
@@ -1884,7 +1915,7 @@ func (session *wsPTYSession) ptyFileSnapshot() *os.File {
 func (h *wsPTYHub) activeSessionCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	count := 0
+	count := h.sessionTeardownCount
 	for _, session := range h.sessions {
 		if session != nil && !session.closed {
 			count++
@@ -1930,6 +1961,9 @@ func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) finishSession(session *wsPTYSession) {
+	// Record the exit before closing session.done so an attachment cannot
+	// observe pty.exit ahead of the corresponding persistent diagnostic.
+	logPersistentDaemonEvent(h.stderr, "pty_exit", "session_id", session.id)
 	session.closePTYFiles()
 
 	h.mu.Lock()
@@ -1982,27 +2016,47 @@ func (h *wsPTYHub) appendScrollbackLocked(session *wsPTYSession, data []byte) {
 		return
 	}
 	if len(data) >= limit {
-		session.scrollback = append(make([]byte, 0, limit), data[len(data)-limit:]...)
+		if cap(session.scrollback) != limit {
+			session.scrollback = make([]byte, limit)
+		} else {
+			session.scrollback = session.scrollback[:limit]
+		}
+		copy(session.scrollback, data[len(data)-limit:])
+		session.scrollbackStart = 0
 		return
 	}
-	if len(session.scrollback)+len(data) > limit {
-		keep := limit - len(data)
-		if keep > len(session.scrollback) {
-			keep = len(session.scrollback)
+	needed := min(limit, len(session.scrollback)+len(data))
+	if cap(session.scrollback) < needed || cap(session.scrollback) > limit {
+		previous := session.scrollback
+		if session.scrollbackStart != 0 {
+			previous = session.scrollbackSnapshot()
 		}
-		next := make([]byte, 0, limit)
-		if keep > 0 {
-			next = append(next, session.scrollback[len(session.scrollback)-keep:]...)
+		if len(previous) > limit {
+			previous = previous[len(previous)-limit:]
 		}
-		session.scrollback = append(next, data...)
-		return
+		capacity := min(limit, max(needed, 2*cap(session.scrollback)))
+		session.scrollback = append(make([]byte, 0, capacity), previous...)
+		session.scrollbackStart = 0
 	}
-	if cap(session.scrollback) > limit {
-		next := make([]byte, len(session.scrollback), limit)
-		copy(next, session.scrollback)
-		session.scrollback = next
+	if available := limit - len(session.scrollback); available > 0 {
+		count := min(available, len(data))
+		session.scrollback = append(session.scrollback, data[:count]...)
+		data = data[count:]
 	}
-	session.scrollback = append(session.scrollback, data...)
+	if len(data) > 0 {
+		// Keep a fixed-size ring: steady output only copies the new bytes.
+		// Chronological replay is materialized once per attachment below.
+		count := copy(session.scrollback[session.scrollbackStart:], data)
+		copy(session.scrollback, data[count:])
+		session.scrollbackStart = (session.scrollbackStart + len(data)) % limit
+	}
+}
+
+func (session *wsPTYSession) scrollbackSnapshot() []byte {
+	replay := make([]byte, len(session.scrollback))
+	count := copy(replay, session.scrollback[session.scrollbackStart:])
+	copy(replay[count:], session.scrollback[:session.scrollbackStart])
+	return replay
 }
 
 func (h *wsPTYHub) recomputeSessionSizeLocked(session *wsPTYSession) bool {
@@ -2058,13 +2112,21 @@ func (h *wsPTYHub) cancelIdleReapLocked(session *wsPTYSession) {
 
 func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
 	h.mu.Lock()
-	if h.sessions[session.key] != session || session.closed || len(session.attachments) > 0 {
+	if h.closed || h.sessions[session.key] != session || session.closed || len(session.attachments) > 0 {
 		h.mu.Unlock()
 		return
 	}
 	delete(h.sessions, session.key)
 	session.idleTimer = nil
+	h.sessionTeardownCount++
+	h.sessionTeardowns.Add(1)
 	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.sessionTeardownCount--
+		h.mu.Unlock()
+		h.sessionTeardowns.Done()
+	}()
 
 	session.terminateProcesses()
 	session.closePTYFiles()
@@ -2083,8 +2145,8 @@ func (h *wsPTYHub) confirmPTYSizeAfterOutput(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) applyCurrentPTYSize(session *wsPTYSession) bool {
-	session.ptyWriteMu.Lock()
-	defer session.ptyWriteMu.Unlock()
+	session.ptyResizeMu.Lock()
+	defer session.ptyResizeMu.Unlock()
 
 	h.mu.Lock()
 	current := h.sessions[session.key] == session && !session.closed && len(session.attachments) > 0
@@ -2095,11 +2157,11 @@ func (h *wsPTYHub) applyCurrentPTYSize(session *wsPTYSession) bool {
 		return false
 	}
 
-	h.applyPTYSizeWithWriteLock(session, cols, rows)
+	h.applyPTYSizeWithResizeLock(session, cols, rows)
 	return true
 }
 
-func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, rows int) bool {
+func (h *wsPTYHub) applyPTYSizeWithResizeLock(session *wsPTYSession, cols int, rows int) bool {
 	desired := &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
@@ -2126,7 +2188,12 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 		lastErr = fmt.Errorf("pty size remained %dx%d after resize to %dx%d", actual.Cols, actual.Rows, cols, rows)
 	}
 	if h.stderr != nil && lastErr != nil {
-		_, _ = fmt.Fprintf(h.stderr, "ws pty resize failed session=%s: %v\n", session.id, lastErr)
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_resize_fault",
+			"session_id", session.id,
+			"error_category", persistentDaemonErrorCategory(lastErr),
+		)
 	}
 	return false
 }
@@ -2231,8 +2298,7 @@ func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk)
 	if !ackOK {
 		// enqueueInputAck canceled the attachment because its send queue
 		// was saturated; finish the cleanup like the output path does.
-		// Must run outside ptyWriteMu: dropAttachment can resize via
-		// applyCurrentPTYSize, which takes ptyWriteMu.
+		// Finish attachment cleanup after releasing the input writer.
 		h.dropAttachment(chunk.attachment)
 	}
 	return written

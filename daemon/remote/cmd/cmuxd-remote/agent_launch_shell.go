@@ -75,24 +75,24 @@ func configureClaudeTeamsShellWrapper(shimDir string) error {
 	if reentrant {
 		originalShell = strings.TrimSpace(os.Getenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL"))
 		if originalShell == "" {
-			return fmt.Errorf("managed Claude Teams shell wrapper is active but CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL is missing")
+			return fmt.Errorf("Claude Teams shell integration lost its original shell; start from a fresh terminal")
 		}
 	}
 	if originalShell == "" {
 		originalShell = "/bin/sh"
 	}
 	if !filepath.IsAbs(originalShell) {
-		return fmt.Errorf("SHELL must be an absolute path, got %q", originalShell)
+		return fmt.Errorf("Claude Teams requires a shell configured with an absolute path")
 	}
 	info, err := os.Stat(originalShell)
 	if err != nil {
-		return fmt.Errorf("resolve original shell %q: %w", originalShell, err)
+		return fmt.Errorf("Claude Teams could not find the configured shell; select an installed shell")
 	}
 	if info.IsDir() || info.Mode()&0111 == 0 {
-		return fmt.Errorf("original shell is not executable: %q", originalShell)
+		return fmt.Errorf("Claude Teams requires an executable shell")
 	}
 	if !claudeTeamsShellWrapperSupports(filepath.Base(originalShell)) {
-		return fmt.Errorf("unsupported SHELL for managed Claude Teams snapshots: %q", originalShell)
+		return fmt.Errorf("unsupported shell for Claude Teams; select sh, bash, zsh, fish, or another supported Unix shell")
 	}
 
 	if err := os.MkdirAll(wrapperDir, 0755); err != nil {

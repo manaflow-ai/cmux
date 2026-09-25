@@ -35,12 +35,22 @@ struct CmxAuthoritativeDiscoveryResolver: Sendable {
         let response = try await authority.syncConnectivity(
             knownRevision: cached?.revision
         )
-        if let snapshot = response.snapshot {
+        if let snapshot = response.snapshot,
+           response.snapshotIsComplete {
             try Self.requireRevision(snapshot, atLeast: minimumRevision)
             if !response.reset {
                 try Self.requireRevision(snapshot, atLeast: cached?.revision)
             }
             return snapshot
+        }
+        if response.snapshot != nil {
+            let discovery = try await broker.discover()
+            try Self.requireRevision(discovery, atLeast: response.revision)
+            try Self.requireRevision(discovery, atLeast: minimumRevision)
+            if !response.reset {
+                try Self.requireRevision(discovery, atLeast: cached?.revision)
+            }
+            return discovery
         }
         guard !response.reset,
               let cached,

@@ -4,17 +4,22 @@ import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import { parseBearer, jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
   FREE_PLAN_ID,
+  PRO_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
+  isPaidPlanId,
+  isStripePortalRecoverable,
+  manualVmPlanOverride,
   resolveProPlanStatus,
+  stripeBillingStatusForTeam,
   type BillingManagementKind,
 } from "../../../../services/billing/pro";
 import {
   resolveBillingTeam,
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
-export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -24,6 +29,7 @@ export async function GET(request: NextRequest) {
       authenticated: false,
       billingAvailable: false,
       planId: FREE_PLAN_ID,
+      subscriptionPlanId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
       teamPlanId: FREE_PLAN_ID,
@@ -35,23 +41,30 @@ export async function GET(request: NextRequest) {
   const billingAvailable = isStripeBillingConfigured();
   const stackServerApp = getStackServerApp();
   const bearer = parseBearer(request);
-  const user = bearer
-    ? await stackServerApp.getUser({
+  const loadUser = () => bearer
+    ? stackServerApp.getUser({
         tokenStore: {
           accessToken: bearer.accessToken,
           refreshToken: bearer.refreshToken,
         },
       })
-    : await stackServerApp.getUser({
+    : stackServerApp.getUser({
         or: ANONYMOUS_IF_EXISTS,
         tokenStore: request as unknown as { headers: { get(name: string): string | null } },
       });
+  let user: Awaited<ReturnType<typeof loadUser>>;
+  try {
+    user = await loadUser();
+  } catch (error) {
+    return authProviderErrorResponse(error, "billing.plan.auth");
+  }
 
   if (!user) {
     return jsonResponse({
       authenticated: false,
       billingAvailable,
       planId: FREE_PLAN_ID,
+      subscriptionPlanId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
       teamPlanId: FREE_PLAN_ID,
@@ -65,7 +78,11 @@ export async function GET(request: NextRequest) {
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable,
-    planId: status.planId,
+    // `planId` stays "free" | "pro" for installed clients that decode it as a
+    // two-value enum; `subscriptionPlanId` carries the exact personal plan
+    // (free, go, pro, or max) for clients that know the exact plan.
+    planId: status.isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+    subscriptionPlanId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     teamPlanId: teamStatus.planId,
@@ -94,5 +111,17 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
   if (stripeActive) {
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
   }
-  return { planId: FREE_PLAN_ID, billingManagement: "none" };
+  // An operator team grant (`cmuxVmPlan` on the team) is the Team plan
+  // without a subscription to manage.
+  if (isPaidPlanId(manualVmPlanOverride(team.clientReadOnlyMetadata))) {
+    return { planId: TEAM_PLAN_ID, billingManagement: "none" };
+  }
+  // Mirror the personal-plan rule: the portal is only useful when it has a
+  // recoverable subscription to manage. Terminally canceled teams and
+  // customer-only rows must keep the checkout path.
+  const teamBilling = await stripeBillingStatusForTeam(team.id);
+  return {
+    planId: FREE_PLAN_ID,
+    billingManagement: isStripePortalRecoverable(teamBilling) ? "stripe" : "none",
+  };
 }

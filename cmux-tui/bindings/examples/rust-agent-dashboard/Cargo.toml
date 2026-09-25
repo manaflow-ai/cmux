@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
-cmux-client = { path = "../../rust" }
+cmux-sdk = { path = "../../rust" }
 
 [dev-dependencies]
 serde_json = "1"

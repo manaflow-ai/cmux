@@ -21,6 +21,22 @@ pub const UndoLayoutOptions = resource.UndoLayoutOptions;
 pub const ClientMetadataUpdate = resource.ClientMetadataUpdate;
 pub const OptionalStringUpdate = resource.OptionalStringUpdate;
 pub const Cursor = resource.Cursor;
+pub const JournalClass = resource.JournalClass;
+pub const JournalReplayPolicy = resource.JournalReplayPolicy;
+pub const JournalSensitivity = resource.JournalSensitivity;
+pub const JournalSubject = resource.JournalSubject;
+pub const JournalEventSchema = resource.JournalEventSchema;
+pub const JournalProducerManifest = resource.JournalProducerManifest;
+pub const JournalIngress = resource.JournalIngress;
+pub const JournalProducerPutResult = resource.JournalProducerPutResult;
+pub const JournalProducerListResult = resource.JournalProducerListResult;
+pub const JournalAppendResult = resource.JournalAppendResult;
+pub const AgentPluginEventSchema = resource.AgentPluginEventSchema;
+pub const AgentPluginManifest = resource.AgentPluginManifest;
+pub const AgentPluginSubject = resource.AgentPluginSubject;
+pub const AgentPluginIngress = resource.AgentPluginIngress;
+pub const AgentPluginListResult = resource.AgentPluginListResult;
+pub const JournalEventSubject = resource.JournalEventSubject;
 pub const CreatedPath = resource.CreatedPath;
 pub const CreatedWorkspaceOnly = resource.CreatedWorkspaceOnly;
 pub const CreatedTerminalPath = resource.CreatedTerminalPath;
@@ -96,6 +112,8 @@ pub const BrowserSnapshot = resource.BrowserSnapshot;
 pub const PixelSize = resource.PixelSize;
 pub const BrowserViewerResizeResult =
     resource.BrowserViewerResizeResult;
+pub const ViewAttachmentOutcome = resource.ViewAttachmentOutcome;
+pub const ViewerReleaseResult = resource.ViewerReleaseResult;
 pub const CellPixelFailure = resource.CellPixelFailure;
 pub const CellPixelsResult = resource.CellPixelsResult;
 pub const LayoutDirection = resource.LayoutDirection;
@@ -126,6 +144,7 @@ pub const TerminalCopyResult = resource.TerminalCopyResult;
 pub const ProcessInfoResult = resource.ProcessInfoResult;
 pub const Size = resource.Size;
 pub const ViewerResizeResult = resource.ViewerResizeResult;
+pub const ProjectionPutOptions = resource.ProjectionPutOptions;
 pub const OwnedMachineSnapshot = resource.OwnedMachineSnapshot;
 pub const OwnedSessionSnapshot = resource.OwnedSessionSnapshot;
 pub const OwnedWorkspaceSnapshot = resource.OwnedWorkspaceSnapshot;
@@ -138,6 +157,8 @@ pub const OwnedPingResult = resource.OwnedPingResult;
 pub const OwnedEmptyResult = resource.OwnedEmptyResult;
 pub const OwnedTerminalScreenResult =
     resource.OwnedTerminalScreenResult;
+pub const OwnedJournalProducerListResult =
+    resource.OwnedJournalProducerListResult;
 pub const OwnedTerminalStateResult =
     resource.OwnedTerminalStateResult;
 pub const OwnedTerminalHistoryResult =
@@ -146,6 +167,7 @@ pub const OwnedTerminalWaitResult = resource.OwnedTerminalWaitResult;
 pub const OwnedTerminalCopyResult = resource.OwnedTerminalCopyResult;
 pub const OwnedProcessInfoResult = resource.OwnedProcessInfoResult;
 pub const OwnedViewerResizeResult = resource.OwnedViewerResizeResult;
+pub const OwnedViewerReleaseResult = resource.OwnedViewerReleaseResult;
 pub const OwnedBrowserViewerResizeResult =
     resource.OwnedBrowserViewerResizeResult;
 pub const OwnedCellPixelsResult = resource.OwnedCellPixelsResult;
@@ -208,6 +230,7 @@ pub const CreatePaneOptions = resource.CreatePaneOptions;
 pub const Direction = resource.Direction;
 pub const SplitOptions = resource.SplitOptions;
 pub const MoveDestination = resource.MoveDestination;
+pub const TerminalProjectOptions = resource.TerminalProjectOptions;
 pub const TerminalMouseKind = resource.TerminalMouseKind;
 pub const BrowserKeyKind = resource.BrowserKeyKind;
 pub const BrowserMouseKind = resource.BrowserMouseKind;
@@ -238,6 +261,7 @@ pub const NotificationLevel = resource.NotificationLevel;
 pub const NotificationSnapshot = resource.NotificationSnapshot;
 pub const AgentState = resource.AgentState;
 pub const AgentSource = resource.AgentSource;
+pub const AgentReportSource = resource.AgentReportSource;
 pub const AgentSnapshot = resource.AgentSnapshot;
 pub const PairingStatus = resource.PairingStatus;
 pub const PairingDecision = resource.PairingDecision;
@@ -284,6 +308,10 @@ pub const TerminalMutationResult = resource.TerminalMutationResult;
 pub const NotificationMutationResult =
     resource.NotificationMutationResult;
 pub const AgentMutationResult = resource.AgentMutationResult;
+pub const JournalProducerPutMutationResult =
+    resource.JournalProducerPutMutationResult;
+pub const JournalAppendMutationResult =
+    resource.JournalAppendMutationResult;
 pub const PairingResolutionMutationResult =
     resource.PairingResolutionMutationResult;
 pub const FrontendProjectionMutationResult =

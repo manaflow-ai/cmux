@@ -11,13 +11,20 @@
 #include <limits>
 #include <mutex>
 #include <random>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #if defined(CMUX_CPP_TESTING)
 #include "resource_test_hooks.hpp"
 #endif
+
+#include "socket_path_internal.hpp"
+#include "journal_validation_internal.hpp"
 
 #if defined(__APPLE__)
 #include <stdlib.h>
@@ -82,6 +89,10 @@ struct OperationInfo {
     X(session_snapshot, "session.snapshot", read)                                     \
     X(session_creation_resolve, "session.creation.resolve", read)                     \
     X(session_events, "session.events", stream_open)                                  \
+    X(session_journal_subscribe, "session.journal.subscribe", stream_open)            \
+    X(session_journal_producer_list, "session.journal.producer.list", read)           \
+    X(session_journal_producer_put, "session.journal.producer.put", mutation)          \
+    X(session_journal_append, "session.journal.append", mutation)                      \
     X(session_ping, "session.ping", read)                                             \
     X(session_shutdown, "session.shutdown", mutation)                                 \
     X(session_reload_config, "session.reload_config", mutation)                       \
@@ -159,6 +170,7 @@ struct OperationInfo {
     X(terminal_viewer_release, "terminal.viewer.release", connection_control)         \
     X(terminal_viewport_scroll, "terminal.viewport.scroll", mutation)                 \
     X(terminal_move, "terminal.move", mutation)                                       \
+    X(terminal_project, "terminal.project", mutation)                                 \
     X(terminal_attach, "terminal.attach", stream_open)                                \
     X(terminal_close, "terminal.close", mutation)                                     \
     X(browser_list, "browser.list", read)                                             \
@@ -222,15 +234,7 @@ struct OperationInfo {
 }
 
 [[nodiscard]] bool supports_expected_revision(Operation operation) noexcept {
-    if (info_for(operation).operation_class != OperationClass::mutation) {
-        return false;
-    }
-    switch (operation) {
-        case Operation::workspace_create:
-            return false;
-        default:
-            return true;
-    }
+    return info_for(operation).operation_class == OperationClass::mutation;
 }
 
 void inject_routing(
@@ -469,11 +473,11 @@ void inject_routing(
             std::string(context) + " must be an object");
     }
     auto protocol = require_string(response, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
             std::string(context) +
-                " protocol must be cmux.protocol/1");
+                " protocol must be cmux.protocol/2");
     }
     auto type = require_string(response, "type");
     if (!type || type.value() != "response") {
@@ -608,6 +612,160 @@ void inject_routing(
         {"generation", Json(cursor.generation)},
         {"revision", Json(std::to_string(cursor.revision))},
     });
+}
+
+[[nodiscard]] const char* journal_class_wire(JournalClass value) noexcept {
+    switch (value) {
+        case JournalClass::state: return "state";
+        case JournalClass::observation: return "observation";
+        case JournalClass::effect: return "effect";
+        case JournalClass::checkpoint: return "checkpoint";
+    }
+    return "state";
+}
+
+[[nodiscard]] const char* journal_replay_wire(JournalReplayPolicy value) noexcept {
+    switch (value) {
+        case JournalReplayPolicy::required: return "required";
+        case JournalReplayPolicy::advisory: return "advisory";
+        case JournalReplayPolicy::never: return "never";
+    }
+    return "required";
+}
+
+[[nodiscard]] const char* journal_sensitivity_wire(
+    JournalSensitivity value) noexcept {
+    switch (value) {
+        case JournalSensitivity::public_: return "public";
+        case JournalSensitivity::metadata: return "metadata";
+        case JournalSensitivity::sensitive: return "sensitive";
+        case JournalSensitivity::secret: return "secret";
+    }
+    return "sensitive";
+}
+
+[[nodiscard]] Result<void> validate_journal_manifest(
+    const JournalProducerManifest& manifest) {
+    if (!journal_detail::valid_component(manifest.producer_id)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "producer_id must match [a-z0-9][a-z0-9_-]* and contain at most 64 bytes");
+    }
+    if (manifest.namespace_ != "plugin." + manifest.producer_id) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer namespace must be plugin.<producer_id>");
+    }
+    if (manifest.manifest_version == 0 || manifest.events.empty() ||
+        manifest.events.size() > 64 || manifest.permissions.empty() ||
+        manifest.permissions.size() > 32) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "manifest_version must be positive, permissions must contain 1 to 32 entries, and events must contain 1 to 64 entries");
+    }
+    if (!journal_detail::valid_journal_sensitivity(manifest.max_sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer manifest has an invalid max_sensitivity");
+    }
+    if (manifest.max_sensitivity == JournalSensitivity::secret) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "secret journal payload storage is unavailable");
+    }
+    const auto required_permission = "journal.append." + manifest.namespace_;
+    bool has_valid_permission = false;
+    for (const auto& permission : manifest.permissions) {
+        if (permission.empty() || permission.size() > 128) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal producer permissions must contain 1 to 128 bytes");
+        }
+        if (permission == required_permission) has_valid_permission = true;
+    }
+    if (!has_valid_permission) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer manifest requires its journal append permission");
+    }
+    std::set<std::pair<std::string, std::uint32_t>> identities;
+    const auto prefix = manifest.namespace_ + ".";
+    for (const auto& event : manifest.events) {
+        if (!journal_detail::valid_kind(event.kind) ||
+            !event.kind.starts_with(prefix)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event kind must be a dotted lowercase name inside the producer namespace");
+        }
+        if (event.schema_version == 0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event schema_version must be positive");
+        }
+        if (!journal_detail::valid_journal_class(event.class_) ||
+            !journal_detail::valid_journal_replay(event.replay) ||
+            !journal_detail::valid_journal_sensitivity(event.sensitivity)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event schema contains an invalid enum value");
+        }
+        if (event.sensitivity == JournalSensitivity::secret ||
+            journal_detail::sensitivity_rank(event.sensitivity) >
+                journal_detail::sensitivity_rank(manifest.max_sensitivity)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event sensitivity exceeds producer authority");
+        }
+        if (!identities.emplace(event.kind, event.schema_version).second) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal producer declares a duplicate event schema");
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] Result<void> validate_journal_ingress(const JournalIngress& event) {
+    if (!journal_detail::valid_component(event.producer_id) ||
+        event.manifest_version == 0 || event.schema_version == 0 ||
+        !journal_detail::valid_kind(event.kind) ||
+        !event.kind.starts_with("plugin." + event.producer_id + ".")) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal event envelope is invalid");
+    }
+    if (event.subjects.size() > 64) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal event subjects must contain at most 64 entries");
+    }
+    for (const auto& subject : event.subjects) {
+        if (!journal_detail::valid_component(subject.kind) || subject.id.empty() ||
+            subject.id.size() > 512) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event subject is invalid");
+        }
+    }
+    for (const auto& identifier : {event.causation_id, event.correlation_id}) {
+        if (identifier && (identifier->empty() || identifier->size() > 128)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal correlation identifiers must contain 1 to 128 bytes");
+        }
+    }
+    if (event.sensitivity &&
+        !journal_detail::valid_journal_sensitivity(*event.sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal event sensitivity is invalid");
+    }
+    if (event.sensitivity == JournalSensitivity::secret) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "secret journal payload storage is unavailable");
+    }
+    return {};
 }
 
 [[nodiscard]] Result<void> put_correlation_key(
@@ -886,6 +1044,17 @@ Result<Json::Object> SplitPaneOptions::to_params() const {
         }
         params.emplace("ratio", Json(*ratio));
     }
+    if (viewport_width) {
+        if (direction != PaneDirection::right ||
+            !std::isfinite(*viewport_width) || *viewport_width < 0.1 ||
+            *viewport_width > 1.0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "viewport width requires a right split and a finite value "
+                "between 0.1 and 1");
+        }
+        params.emplace("viewport_width", Json(*viewport_width));
+    }
     if (cwd) {
         params.emplace("cwd", Json(*cwd));
     }
@@ -1012,6 +1181,192 @@ Result<Json::Object> TerminalHistoryOptions::to_params() const {
         params.emplace("styled", Json(*styled));
     }
     return params;
+}
+
+Result<Json::Object> SessionJournalOptions::to_params() const {
+    if (cursor && start) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal cursor and start are mutually exclusive");
+    }
+    if (start && *start != JournalStart::tail &&
+        *start != JournalStart::beginning) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal start is invalid");
+    }
+    if (filter.max_sensitivity &&
+        !journal_detail::valid_journal_sensitivity(*filter.max_sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal max_sensitivity is invalid");
+    }
+    if (filter.max_sensitivity == JournalSensitivity::secret) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "secret journal records are unavailable in v1");
+    }
+    Json::Object params;
+    if (cursor) {
+        params.emplace("cursor", cursor_json(*cursor));
+    }
+    if (start) {
+        params.emplace(
+            "start",
+            Json(*start == JournalStart::tail ? "tail" : "beginning"));
+    }
+    if (follow) {
+        params.emplace("follow", Json(*follow));
+    }
+    Json::Object encoded_filter;
+    if (!filter.kinds.empty()) {
+        Json::Array values;
+        for (const auto& value : filter.kinds) values.emplace_back(value);
+        encoded_filter.emplace("kinds", Json(std::move(values)));
+    }
+    if (!filter.classes.empty()) {
+        Json::Array values;
+        for (const auto value : filter.classes) {
+            if (!journal_detail::valid_journal_class(value)) {
+                return make_error(
+                    ErrorCode::invalid_argument,
+                    "journal class filter contains an invalid enum value");
+            }
+            switch (value) {
+                case JournalClass::state: values.emplace_back("state"); break;
+                case JournalClass::observation: values.emplace_back("observation"); break;
+                case JournalClass::effect: values.emplace_back("effect"); break;
+                case JournalClass::checkpoint: values.emplace_back("checkpoint"); break;
+            }
+        }
+        encoded_filter.emplace("classes", Json(std::move(values)));
+    }
+    if (!filter.subjects.empty()) {
+        Json::Array values;
+        for (const auto& subject : filter.subjects) {
+            if (!subject.kind && !subject.id) {
+                return make_error(
+                    ErrorCode::invalid_argument,
+                    "journal subject filters require kind or id");
+            }
+            Json::Object encoded;
+            if (subject.kind) encoded.emplace("kind", Json(*subject.kind));
+            if (subject.id) encoded.emplace("id", Json(*subject.id));
+            values.emplace_back(std::move(encoded));
+        }
+        encoded_filter.emplace("subjects", Json(std::move(values)));
+    }
+    if (filter.max_sensitivity) {
+        const char* value = "sensitive";
+        if (*filter.max_sensitivity == JournalSensitivity::public_) value = "public";
+        if (*filter.max_sensitivity == JournalSensitivity::metadata) value = "metadata";
+        encoded_filter.emplace("max_sensitivity", Json(value));
+    }
+    if (filter.regex) {
+        if (filter.regex->pattern.empty() || filter.regex->pattern.size() > 1024) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal regex must contain 1 to 1024 UTF-8 bytes");
+        }
+        const char* field = nullptr;
+        switch (filter.regex->field) {
+            case JournalRegexField::kind: field = "kind"; break;
+            case JournalRegexField::subjects: field = "subjects"; break;
+            case JournalRegexField::payload: field = "payload"; break;
+            case JournalRegexField::record: field = "record"; break;
+            case JournalRegexField::terminal_output: field = "terminal_output"; break;
+        }
+        if (field == nullptr) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal regex field is invalid");
+        }
+        encoded_filter.emplace(
+            "regex",
+            Json(Json::Object{
+                {"pattern", Json(filter.regex->pattern)},
+                {"field", Json(field)},
+                {"case_sensitive", Json(filter.regex->case_sensitive)},
+            }));
+    }
+    if (!encoded_filter.empty()) {
+        params.emplace("filter", Json(std::move(encoded_filter)));
+    }
+    return params;
+}
+
+Result<Json> JournalProducerManifest::to_json() const {
+    auto valid = validate_journal_manifest(*this);
+    if (!valid) return std::move(valid).error();
+
+    Json::Array permissions;
+    permissions.reserve(this->permissions.size());
+    for (const auto& permission : this->permissions) {
+        permissions.emplace_back(permission);
+    }
+    Json::Array events;
+    events.reserve(this->events.size());
+    for (const auto& event : this->events) {
+        events.emplace_back(Json::Object{
+            {"kind", Json(event.kind)},
+            {"schema_version", Json(static_cast<std::uint64_t>(event.schema_version))},
+            {"class", Json(journal_class_wire(event.class_))},
+            {"replay", Json(journal_replay_wire(event.replay))},
+            {"sensitivity", Json(journal_sensitivity_wire(event.sensitivity))},
+            {"payload_schema", event.payload_schema},
+        });
+    }
+    Json result(Json::Object{
+        {"producer_id", Json(producer_id)},
+        {"namespace", Json(namespace_)},
+        {"manifest_version", Json(static_cast<std::uint64_t>(manifest_version))},
+        {"max_sensitivity", Json(journal_sensitivity_wire(max_sensitivity))},
+        {"permissions", Json(std::move(permissions))},
+        {"events", Json(std::move(events))},
+    });
+    auto encoded = result.encode();
+    if (!encoded) return std::move(encoded).error();
+    if (encoded.value().size() > 1024U * 1024U) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer manifest exceeds 1048576 bytes");
+    }
+    return result;
+}
+
+Result<Json> JournalIngress::to_json() const {
+    auto valid = validate_journal_ingress(*this);
+    if (!valid) return std::move(valid).error();
+
+    Json::Array subjects;
+    subjects.reserve(this->subjects.size());
+    for (const auto& subject : this->subjects) {
+        subjects.emplace_back(Json::Object{
+            {"kind", Json(subject.kind)},
+            {"id", Json(subject.id)},
+        });
+    }
+    Json::Object result{
+        {"producer_id", Json(producer_id)},
+        {"manifest_version", Json(static_cast<std::uint64_t>(manifest_version))},
+        {"kind", Json(kind)},
+        {"schema_version", Json(static_cast<std::uint64_t>(schema_version))},
+        {"payload", payload},
+    };
+    if (!this->subjects.empty()) {
+        result.emplace("subjects", Json(std::move(subjects)));
+    }
+    if (occurred_at_ms) {
+        result.emplace("occurred_at_ms", Json(std::to_string(*occurred_at_ms)));
+    }
+    if (sensitivity) {
+        result.emplace(
+            "sensitivity",
+            Json(journal_sensitivity_wire(*sensitivity)));
+    }
+    if (causation_id) result.emplace("causation_id", Json(*causation_id));
+    if (correlation_id) result.emplace("correlation_id", Json(*correlation_id));
+    return Json(std::move(result));
 }
 
 Result<Json::Object> TerminalAttachOptions::to_params() const {
@@ -1208,11 +1563,11 @@ public:
             auto protocol = require_string(parsed.value(), "protocol");
             auto type = require_string(parsed.value(), "type");
             auto response_id = require_string(parsed.value(), "id");
-            if (!protocol || protocol.value() != "cmux.protocol/1" ||
+            if (!protocol || protocol.value() != "cmux.protocol/2" ||
                 !type || type.value() != "response" || !response_id) {
                 return make_error(
                     ErrorCode::protocol,
-                    "request cleanup requires a cmux.protocol/1 response");
+                    "request cleanup requires a cmux.protocol/2 response");
             }
             if (response_id.value() == target_request_id) {
                 if (target_seen) {
@@ -1478,7 +1833,7 @@ public:
         Timeout timeout = std::chrono::seconds(10),
         JsonLimits limits = {}) {
         Json::Object envelope{
-            {"protocol", Json("cmux.protocol/1")},
+            {"protocol", Json("cmux.protocol/2")},
             {"type", Json("request")},
             {"id", Json(std::string(request_id))},
             {"operation", Json(std::string(operation_name(operation)))},
@@ -1604,11 +1959,23 @@ Result<Client> Client::connect(ClientOptions options) {
             return std::move(path).error();
         }
         auto resolved_path = std::move(path).value();
+        const bool implicit = options.socket_path.empty() && socket_path_from_environment().empty();
+        std::string legacy;
+        if (implicit && ::cmux::detail::is_hashed_socket_path_for_uid(
+                resolved_path, static_cast<unsigned long>(::getuid()))) {
+            legacy = "/tmp/cmux-tui-" + std::to_string(static_cast<unsigned long>(::getuid())) + "/" + options.session + ".sock";
+            if (legacy.size() >= sizeof(sockaddr_un{}.sun_path)) legacy.clear();
+        }
+        auto effective = std::make_shared<std::string>(resolved_path);
+        options.transport_factory = [effective, legacy, timeout = options.timeout, limits = options.transport_limits]() mutable {
+            auto first = UnixTransport::connect(*effective, timeout, limits);
+            if (first || legacy.empty() || (first.error().system_errno != ENOENT && first.error().system_errno != ECONNREFUSED)) return first;
+            auto fallback = UnixTransport::connect(legacy, timeout, limits);
+            if (fallback) *effective = legacy;
+            return fallback;
+        };
         options.socket_path = resolved_path;
-        options.transport_factory = unix_transport_factory(
-            std::move(resolved_path),
-            options.timeout,
-            options.transport_limits);
+        if (!legacy.empty()) options.stream_transport_factory = [effective, timeout = options.timeout, limits = options.transport_limits]() { return UnixTransport::connect(*effective, timeout, limits); };
     }
     if (!options.stream_transport_factory) {
         options.stream_transport_factory = options.transport_factory;
@@ -1680,6 +2047,19 @@ Result<SessionEventStream> Client::open_session_events(
         return std::move(stream).error();
     }
     return SessionEventStream(std::move(stream).value());
+}
+
+Result<SessionJournalStream> Client::open_session_journal(
+    Json::Object params,
+    CallOptions call) const {
+    auto stream = open_stream(
+        Operation::session_journal_subscribe,
+        std::move(params),
+        std::move(call));
+    if (!stream) {
+        return std::move(stream).error();
+    }
+    return SessionJournalStream(std::move(stream).value());
 }
 
 Result<TerminalAttachmentStream> Client::open_terminal_attachment(
@@ -1825,6 +2205,37 @@ FrontendProjection Client::projection(
 FrontendProjection Client::projection(FrontendProjectionId id) const {
     return projection(
         Selector<FrontendProjectionId>::by_id(std::move(id)));
+}
+
+Result<FrontendProjectionSnapshot> FrontendProjection::refresh() const {
+    return read(Operation::frontend_projection_get);
+}
+
+Result<MutationResult<FrontendProjectionSnapshot>> FrontendProjection::put(
+    ProjectionPutOptions projection,
+    MutationOptions options) const {
+    if (projection.frontend_id.empty() || projection.frontend_id.size() > 128 ||
+        projection.window_id.empty() || projection.window_id.size() > 128 ||
+        projection.generation.empty() || projection.generation.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "frontend, window, and generation IDs must contain 1 to 128 bytes");
+    }
+    Json::Object params{
+        {"frontend_id", Json(std::move(projection.frontend_id))},
+        {"window_id", Json(std::move(projection.window_id))},
+        {"generation", Json(std::move(projection.generation))},
+        {"projection", std::move(projection.projection)},
+    };
+    if (projection.expected_projection_revision) {
+        params.emplace(
+            "expected_projection_revision",
+            Json(std::to_string(*projection.expected_projection_revision)));
+    }
+    return mutate(
+        Operation::frontend_projection_put,
+        std::move(params),
+        std::move(options));
 }
 
 SidebarView Client::sidebar_view(
@@ -1990,6 +2401,71 @@ Result<SessionEventStream> Session::events(
         return std::move(stream).error();
     }
     return SessionEventStream(std::move(stream).value());
+}
+
+Result<SessionJournalStream> Session::journal(
+    SessionJournalOptions options,
+    CallOptions call) const {
+    auto encoded = options.to_params();
+    if (!encoded) {
+        return std::move(encoded).error();
+    }
+    auto params = routed_params();
+    params.merge(std::move(encoded).value());
+    auto stream = detail::resource_open_stream(
+        state_,
+        Operation::session_journal_subscribe,
+        std::move(params),
+        std::move(call));
+    if (!stream) {
+        return std::move(stream).error();
+    }
+    return SessionJournalStream(std::move(stream).value());
+}
+
+Result<JournalProducerListResult> Session::journal_producers() const {
+    return read(Operation::session_journal_producer_list);
+}
+
+Result<std::vector<JournalProducerManifest>> Session::list_journal_producers() const {
+    auto result = journal_producers();
+    if (!result) return std::move(result).error();
+    return std::move(result).value().producers;
+}
+
+Result<MutationResult<JournalProducerPutResult>> Session::put_journal_producer(
+    JournalProducerManifest manifest,
+    MutationOptions mutation) const {
+    auto encoded = manifest.to_json();
+    if (!encoded) return std::move(encoded).error();
+    return mutate(
+        Operation::session_journal_producer_put,
+        Json::Object{{"manifest", std::move(encoded).value()}},
+        std::move(mutation));
+}
+
+Result<MutationResult<JournalProducerPutResult>>
+Session::put_journal_producer_manifest(
+    JournalProducerManifest manifest,
+    MutationOptions mutation) const {
+    return put_journal_producer(std::move(manifest), std::move(mutation));
+}
+
+Result<MutationResult<JournalAppendResult>> Session::append_journal(
+    JournalIngress event,
+    MutationOptions mutation) const {
+    auto encoded = event.to_json();
+    if (!encoded) return std::move(encoded).error();
+    return mutate(
+        Operation::session_journal_append,
+        Json::Object{{"event", std::move(encoded).value()}},
+        std::move(mutation));
+}
+
+Result<MutationResult<JournalAppendResult>> Session::append_journal_event(
+    JournalIngress event,
+    MutationOptions mutation) const {
+    return append_journal(std::move(event), std::move(mutation));
 }
 
 Result<MutationResult<ShutdownResult>> Session::shutdown(MutationOptions options) const {
@@ -2508,6 +2984,7 @@ Result<RendererGrant> Terminal::renderer_grant(Json::Object params) const {
 }
 
 Result<ViewerResizeResult> Terminal::resize_viewer(
+    std::string attachment_lease,
     std::uint16_t columns,
     std::uint16_t rows) const {
     if (columns == 0 || rows == 0) {
@@ -2515,21 +2992,35 @@ Result<ViewerResizeResult> Terminal::resize_viewer(
             ErrorCode::invalid_argument,
             "terminal cell dimensions must be positive");
     }
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::terminal_viewer_resize,
         routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
             {"cols", Json(static_cast<std::uint64_t>(columns))},
             {"rows", Json(static_cast<std::uint64_t>(rows))},
         }),
         {}));
 }
 
-Result<EmptyResult> Terminal::release_viewer() const {
+Result<ViewerReleaseResult> Terminal::release_viewer(
+    std::string attachment_lease) const {
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::terminal_viewer_release,
-        routed_params(),
+        routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
+        }),
         {}));
 }
 
@@ -2553,6 +3044,25 @@ Result<MutationResult<TerminalSnapshot>> Terminal::move(
             {"destination_pane", Json(destination.pane.wire())},
             {"index", Json(static_cast<std::uint64_t>(destination.index))},
         },
+        std::move(options));
+}
+
+Result<MutationResult<TabSnapshot>> Terminal::project(
+    PaneDestination destination,
+    std::optional<std::string> name,
+    MutationOptions options) const {
+    Json::Object params{
+        {"destination_workspace", Json(destination.workspace.wire())},
+        {"destination_screen", Json(destination.screen.wire())},
+        {"destination_pane", Json(destination.pane.wire())},
+        {"index", Json(static_cast<std::uint64_t>(destination.index))},
+    };
+    if (name.has_value()) {
+        params.emplace("name", Json(std::move(name).value()));
+    }
+    return mutate(
+        Operation::terminal_project,
+        std::move(params),
         std::move(options));
 }
 
@@ -2665,6 +3175,7 @@ Result<MutationResult<EmptyResult>> Browser::wheel(
 }
 
 Result<BrowserViewerResizeResult> Browser::resize_viewer(
+    std::string attachment_lease,
     std::uint32_t width_px,
     std::uint32_t height_px) const {
     if (width_px == 0 || height_px == 0) {
@@ -2672,21 +3183,35 @@ Result<BrowserViewerResizeResult> Browser::resize_viewer(
             ErrorCode::invalid_argument,
             "browser pixel dimensions must be positive");
     }
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::browser_viewer_resize,
         routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
         }),
         {}));
 }
 
-Result<EmptyResult> Browser::release_viewer() const {
+Result<ViewerReleaseResult> Browser::release_viewer(
+    std::string attachment_lease) const {
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::browser_viewer_release,
-        routed_params(),
+        routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
+        }),
         {}));
 }
 
@@ -2915,10 +3440,10 @@ namespace {
         return std::move(exact).error();
     }
     auto protocol = require_string(envelope, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
-            "stream end protocol must be cmux.protocol/1");
+            "stream end protocol must be cmux.protocol/2");
     }
     auto type = require_string(envelope, "type");
     if (!type || type.value() != "stream_end") {
@@ -2998,10 +3523,10 @@ namespace {
         return std::move(exact).error();
     }
     auto protocol = require_string(envelope, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
-            "stream item protocol must be cmux.protocol/1");
+            "stream item protocol must be cmux.protocol/2");
     }
     auto type = require_string(envelope, "type");
     if (!type || type.value() != "stream_item") {
@@ -3061,6 +3586,8 @@ template <typename T>
     switch (operation) {
         case Operation::session_events:
             return &validate_typed_stream_item<SessionEvent>;
+        case Operation::session_journal_subscribe:
+            return &validate_typed_stream_item<SessionJournalRecord>;
         case Operation::terminal_attach:
             return &validate_typed_stream_item<TerminalAttachmentItem>;
         case Operation::browser_attach:
@@ -3074,10 +3601,10 @@ template <typename T>
 
 [[nodiscard]] Result<std::string> envelope_type(const Json& envelope) {
     auto protocol = require_string(envelope, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
-            "server protocol must be cmux.protocol/1");
+            "server protocol must be cmux.protocol/2");
     }
     return require_string(envelope, "type");
 }
@@ -3120,6 +3647,7 @@ struct ResourceStream::Impl {
     std::unique_ptr<Transport> transport;
     ClientOptions options;
     StreamId stream_id;
+    std::optional<std::string> attachment_lease;
     std::string machine_selector;
     std::string session_selector;
     Json::Object connection_route;
@@ -3337,9 +3865,16 @@ detail::ResourceClientState::open_stream(
             if (!response) {
                 return std::move(response).error();
             }
+            const bool view_attachment =
+                operation == Operation::terminal_attach ||
+                operation == Operation::browser_attach;
             auto exact = require_exact_fields(
                 response.value(),
-                {"stream_id", "cursor"},
+                view_attachment
+                    ? std::initializer_list<std::string_view>{
+                          "stream_id", "attachment_lease"}
+                    : std::initializer_list<std::string_view>{
+                          "stream_id", "cursor"},
                 "stream open result");
             if (!exact) {
                 return std::move(exact).error();
@@ -3351,7 +3886,21 @@ detail::ResourceClientState::open_stream(
                     ErrorCode::protocol,
                     "stream open result ID mismatch");
             }
-            if (const Json* cursor = response.value().find("cursor")) {
+            if (view_attachment) {
+                auto lease = require_string(
+                    response.value(), "attachment_lease");
+                if (!lease || lease.value().empty() || lease.value().size() > 128) {
+                    return make_error(
+                        ErrorCode::decode,
+                        "stream attachment lease must contain 1 to 128 bytes");
+                }
+                impl->attachment_lease = std::string(lease.value());
+            }
+            if (!view_attachment) {
+                const Json* cursor = response.value().find("cursor");
+                if (!cursor) {
+                    return impl;
+                }
                 if (cursor->is_null()) {
                     return make_error(
                         ErrorCode::decode,
@@ -3407,6 +3956,11 @@ ResourceStream::~ResourceStream() {
 const StreamId& ResourceStream::id() const noexcept {
     static const StreamId empty;
     return impl_ ? impl_->stream_id : empty;
+}
+
+const std::optional<std::string>& ResourceStream::attachment_lease() const noexcept {
+    static const std::optional<std::string> empty;
+    return impl_ ? impl_->attachment_lease : empty;
 }
 
 Result<std::optional<RawStreamItem>> ResourceStream::next() {
@@ -3556,17 +4110,27 @@ Result<ViewerResizeResult> TerminalAttachmentStream::resize_viewer(
             ErrorCode::invalid_argument,
             "terminal cell dimensions must be positive");
     }
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "terminal attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
         Operation::terminal_viewer_resize,
         Json::Object{
+            {"attachment_lease", Json(*lease)},
             {"cols", Json(static_cast<std::uint64_t>(columns))},
             {"rows", Json(static_cast<std::uint64_t>(rows))},
         }));
 }
 
-Result<EmptyResult> TerminalAttachmentStream::release_viewer() {
+Result<ViewerReleaseResult> TerminalAttachmentStream::release_viewer() {
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "terminal attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
-        Operation::terminal_viewer_release));
+        Operation::terminal_viewer_release,
+        Json::Object{{"attachment_lease", Json(*lease)}}));
 }
 
 Result<BrowserViewerResizeResult> BrowserAttachmentStream::resize_viewer(
@@ -3577,17 +4141,27 @@ Result<BrowserViewerResizeResult> BrowserAttachmentStream::resize_viewer(
             ErrorCode::invalid_argument,
             "browser pixel dimensions must be positive");
     }
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "browser attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
         Operation::browser_viewer_resize,
         Json::Object{
+            {"attachment_lease", Json(*lease)},
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
         }));
 }
 
-Result<EmptyResult> BrowserAttachmentStream::release_viewer() {
+Result<ViewerReleaseResult> BrowserAttachmentStream::release_viewer() {
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "browser attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
-        Operation::browser_viewer_release));
+        Operation::browser_viewer_release,
+        Json::Object{{"attachment_lease", Json(*lease)}}));
 }
 
 Result<StreamEnd> ResourceStream::cancel() {

@@ -161,10 +161,11 @@ extension TerminalController {
         }
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
-        guard let newPaneId = tab.bonsplitController.splitPane(
+        guard let newPaneId = tab.splitPaneMovingTab(
             orientation: orientation,
             movingTab: bonsplitTabId,
-            insertFirst: insertFirst
+            insertFirst: insertFirst,
+            focusIntent: .preserveCurrent
         ) else {
             return .splitFailed
         }
@@ -354,18 +355,25 @@ extension TerminalController {
 
     @discardableResult
     func controlSidebarReloadConfigWithAdmission(
+        /// Runs after surface propagation completes.
         completion:
-            GhosttyApp.ConfigurationReloadCompletion? = nil
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        /// Runs as soon as the validated app configuration commits. `false`
+        /// means preparation failed and no new configuration was committed.
+        commitCompletion:
+            GhosttyApp.ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
         if let appDelegate = AppDelegate.shared {
             return appDelegate.reloadConfiguration(
                 source: "socket.reload_config",
-                completion: completion
+                completion: completion,
+                commitCompletion: commitCompletion
             )
         }
         return GhosttyApp.shared.reloadConfiguration(
             source: "socket.reload_config",
-            completion: completion
+            completion: completion,
+            commitCompletion: commitCompletion
         )
     }
 
@@ -380,8 +388,9 @@ extension TerminalController {
         // (resets cached metrics so the Metal layer drawable resizes correctly)
         var refreshedCount = 0
         for panel in tab.panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
+            if panel is TerminalPanel,
+               let target = tab.controlSocketTerminalTarget(for: panel.id) {
+                target.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
                 refreshedCount += 1
             }
         }

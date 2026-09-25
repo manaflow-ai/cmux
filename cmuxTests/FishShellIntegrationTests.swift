@@ -132,6 +132,7 @@ struct FishShellIntegrationTests {
                 "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
             ]
         )
 
@@ -149,7 +150,7 @@ struct FishShellIntegrationTests {
             result.stdout
         )
         expectTrue(
-            result.stdout.contains("report_shell_state running --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout.contains("report_shell_state running --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --terminal-lifecycle-id=33333333-3333-3333-3333-333333333333"),
             result.stdout
         )
         expectTrue(
@@ -157,9 +158,37 @@ struct FishShellIntegrationTests {
             result.stdout
         )
         expectTrue(
-            result.stdout.contains("report_shell_state prompt --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout.contains("report_shell_state prompt --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --terminal-lifecycle-id=33333333-3333-3333-3333-333333333333"),
             result.stdout
         )
+    }
+
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testFishClaudeIntegrationToggleControlsWrapperAndShim() throws {
+        _ = try requireFishExecutable()
+        let probe = """
+        if functions -q claude
+            printf 'function=1\\n'
+        else
+            printf 'function=0\\n'
+        end
+        if set -q CMUX_CLAUDE_WRAPPER_SHIM; and test -x "$CMUX_CLAUDE_WRAPPER_SHIM"
+            printf 'shim=1\\n'
+        else
+            printf 'shim=0\\n'
+        end
+        """
+
+        let enabled = try runInteractiveFish(command: probe)
+        expectTrue(enabled.stdout.contains("function=1"), enabled.stdout)
+        expectTrue(enabled.stdout.contains("shim=1"), enabled.stdout)
+
+        let disabled = try runInteractiveFish(
+            command: probe,
+            extraEnvironment: ["CMUX_CLAUDE_INTEGRATION_DISABLED": "1"]
+        )
+        expectTrue(disabled.stdout.contains("function=0"), disabled.stdout)
+        expectTrue(disabled.stdout.contains("shim=0"), disabled.stdout)
     }
 
     @Test(.enabled(if: fishExecutablePath != nil))
@@ -462,16 +491,11 @@ struct FishShellIntegrationTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
 
         return ProcessRunResult(

@@ -4,7 +4,7 @@ set -euo pipefail
 PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 
 # Verify a built/exported IPA's single .app is strictly signed AND carries
-# aps-environment == "production" in its actual code signature. A config-level
+# production APNs plus Time Sensitive delivery in its actual code signature. A config-level
 # entitlement only delivers push if it survives into the SIGNED binary; only
 # `codesign -d --entitlements` on the .app proves it (see the #5496 regression
 # note below). The VALUE matters, not just presence: a "development" value
@@ -15,7 +15,7 @@ PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 # automatic pre-upload gate) so the two paths can't drift.
 verify_ipa_aps_environment_production() {
   local ipa="$1"
-  local workdir app ent aps apple_sign_in
+  local workdir app ent aps time_sensitive apple_sign_in
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
     echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
@@ -36,7 +36,7 @@ verify_ipa_aps_environment_production() {
   # Read the signed entitlements and assert aps-environment == production.
   ent="$workdir/signed-entitlements.plist"
   if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
-    echo "error: could not read entitlements from signed app: $app" >&2
+    echo "error: could not read entitlements from signed app: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -44,20 +44,150 @@ verify_ipa_aps_environment_production() {
   # require exact entitlement values so the error explains the missing capability.
   aps="$("$PLISTBUDDY" -c 'Print :aps-environment' "$ent" 2>/dev/null || true)"
   if [[ "$aps" != "production" ]]; then
-    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
+    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $ipa" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  time_sensitive="$("$PLISTBUDDY" -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$ent" 2>/dev/null || true)"
+  if [[ "$time_sensitive" != "true" ]]; then
+    echo "error: signed app com.apple.developer.usernotifications.time-sensitive is '${time_sensitive:-<absent>}', expected 'true' (Time Sensitive delivery would be stripped): $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
   apple_sign_in="$("$PLISTBUDDY" -c 'Print :com.apple.developer.applesignin:0' "$ent" 2>/dev/null || true)"
   if [[ "$apple_sign_in" != "Default" ]]; then
-    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $app" >&2
+    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
+  while IFS= read -r -d '' extension_app; do
+    extension_ent="$workdir/$(basename "$extension_app").entitlements.plist"
+    if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
+      ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
+      echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    extension_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+    extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
+    extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
+    expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
+    if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+      echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+      plutil -p "$extension_ent" >&2 || true
+      rm -rf "$workdir"
+      return 1
+    fi
+  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
   rm -rf "$workdir"
   return 0
+}
+
+# The notification service extension decrypts the payload with key material
+# stored in the host app's keychain group. Xcode's App Store export can sign an
+# extension with a wildcard profile while dropping the requested keychain
+# entitlement from the extension signature. Re-sign every extension from its
+# profile baseline and the checked-in entitlement contract, reducing list
+# capabilities to what the profile authorizes and claiming the host's exact
+# group. The host app is signed after this function so its nested code seal is
+# rebuilt around the repaired extension.
+resign_notification_service_extensions() {
+  local app="$1"
+  local resign_dir="$2"
+  local identity="$3"
+  local host_bundle_id="$4"
+  local entitlements_source="$5"
+  local extension extension_candidate extension_bundle_id profile profile_entitlements merged_entitlements candidate_bundle_id
+  local expected_extension_bundle_id
+  expected_extension_bundle_id="$(bash "$SCRIPT_DIR/notification-service-bundle-id.sh" "$host_bundle_id")"
+
+  if [[ ! -f "$entitlements_source" ]]; then
+    echo "error: notification extension entitlements are missing: $entitlements_source" >&2
+    return 1
+  fi
+  extension=""
+  while IFS= read -r -d '' extension_candidate; do
+    candidate_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension_candidate/Info.plist" 2>/dev/null || true)"
+    if [[ "$candidate_bundle_id" == "$expected_extension_bundle_id" ]]; then
+      extension="$extension_candidate"
+      break
+    fi
+  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
+  if [[ -z "$extension" || ! -d "$extension" ]]; then
+    echo "error: exported app has no NotificationService.appex to sign" >&2
+    return 1
+  fi
+  extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension/Info.plist" 2>/dev/null || true)"
+  if [[ "$extension_bundle_id" != "$expected_extension_bundle_id" ]]; then
+    echo "error: notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$expected_extension_bundle_id'" >&2
+    return 1
+  fi
+
+  profile="$resign_dir/notification-service-profile.plist"
+  profile_entitlements="$resign_dir/notification-service-profile-entitlements.plist"
+  merged_entitlements="$resign_dir/notification-service-entitlements.plist"
+  if ! security cms -D -i "$extension/embedded.mobileprovision" > "$profile"; then
+    echo "error: could not decode notification extension provisioning profile" >&2
+    return 1
+  fi
+  if ! plutil -extract Entitlements xml1 -o "$profile_entitlements" "$profile"; then
+    echo "error: notification extension provisioning profile has no Entitlements dictionary" >&2
+    return 1
+  fi
+  cp "$profile_entitlements" "$merged_entitlements"
+  python3 - "$merged_entitlements" "$entitlements_source" "$DEVELOPMENT_TEAM" "$host_bundle_id" <<'PY'
+import plistlib
+import sys
+
+merged_path, source_path, team_id, host_bundle_id = sys.argv[1:]
+with open(merged_path, "rb") as handle:
+    profile = plistlib.load(handle)
+with open(source_path, "rb") as handle:
+    source = plistlib.load(handle)
+
+expected_group = f"{team_id}.{host_bundle_id}"
+groups = profile.get("keychain-access-groups", [])
+authorized = any(
+    group == expected_group
+    or (isinstance(group, str) and group.endswith(".*") and expected_group.startswith(group[:-1]))
+    for group in groups
+)
+if not authorized:
+    raise SystemExit(
+        "notification extension provisioning profile does not authorize "
+        f"the host keychain group {expected_group}"
+    )
+
+# Keep profile metadata as the source of truth. Copy only requested values that
+# the profile already authorizes, intersecting list capabilities so a stale
+# entitlement file cannot make ASC reject the bundle with error 90163.
+for key, value in source.items():
+    if key not in profile:
+        continue
+    profile_value = profile[key]
+    if isinstance(value, list) and isinstance(profile_value, list):
+        profile[key] = [item for item in value if item in profile_value]
+    else:
+        profile[key] = value
+profile["keychain-access-groups"] = [expected_group]
+
+with open(merged_path, "wb") as handle:
+    plistlib.dump(profile, handle)
+PY
+  if ! plutil -lint "$merged_entitlements" >/dev/null; then
+    echo "error: generated notification extension entitlements are invalid" >&2
+    return 1
+  fi
+  if "$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$extension/Info.plist" >/dev/null 2>&1; then
+    "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$host_bundle_id" "$extension/Info.plist"
+  else
+    "$PLISTBUDDY" -c "Add :CMUXKeychainAccessGroup string $DEVELOPMENT_TEAM.$host_bundle_id" "$extension/Info.plist"
+  fi
+  codesign --force --sign "$identity" --entitlements "$merged_entitlements" --timestamp "$extension"
+  codesign --verify --strict --verbose=2 "$extension"
 }
 
 verify_ipa_bundle_identity() {
@@ -66,7 +196,9 @@ verify_ipa_bundle_identity() {
   local team_id="$3"
   local expected_crash_reporting="${4:-}"
   local expected_app_id="$team_id.$expected_bundle_id"
-  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id ent ent_app_id
+  local expected_extension_bundle_id
+  expected_extension_bundle_id="$(bash "$SCRIPT_DIR/notification-service-bundle-id.sh" "$expected_bundle_id")"
+  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id profile_aps profile_time_sensitive ent ent_app_id extension extension_bundle_id extension_entitlements extension_app_id extension_group
 
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
@@ -81,16 +213,22 @@ verify_ipa_bundle_identity() {
     return 1
   fi
 
+  if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$app"; then
+    echo "error: exported IPA runtime origins are not production-only: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
   plist_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
-    echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $app" >&2
+    echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   if [[ -n "$expected_crash_reporting" ]]; then
     plist_crash_reporting="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$app/Info.plist" 2>/dev/null || true)"
     if [[ "$plist_crash_reporting" != "$expected_crash_reporting" ]]; then
-      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $app" >&2
+      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $ipa" >&2
       rm -rf "$workdir"
       return 1
     fi
@@ -98,27 +236,107 @@ verify_ipa_bundle_identity() {
 
   profile_plist="$workdir/profile.plist"
   if ! security cms -D -i "$app/embedded.mobileprovision" > "$profile_plist"; then
-    echo "error: could not decode embedded.mobileprovision from signed IPA: $app" >&2
+    echo "error: could not decode embedded.mobileprovision from signed IPA: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   profile_app_id="$("$PLISTBUDDY" -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
   if [[ "$profile_app_id" != "$expected_app_id" ]]; then
-    echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  profile_aps="$("$PLISTBUDDY" -c 'Print :Entitlements:aps-environment' "$profile_plist" 2>/dev/null || true)"
+  if [[ "$profile_aps" != "production" ]]; then
+    echo "error: signed IPA provisioning profile aps-environment is '${profile_aps:-<absent>}', expected 'production': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  profile_time_sensitive="$("$PLISTBUDDY" -c 'Print :Entitlements:com.apple.developer.usernotifications.time-sensitive' "$profile_plist" 2>/dev/null || true)"
+  if [[ "$profile_time_sensitive" != "true" ]]; then
+    echo "error: signed IPA provisioning profile com.apple.developer.usernotifications.time-sensitive is '${profile_time_sensitive:-<absent>}', expected 'true': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
 
   ent="$workdir/signed-entitlements.plist"
   if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
-    echo "error: could not read signed IPA entitlements: $app" >&2
+    echo "error: could not read signed IPA entitlements: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   ent_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
   if [[ "$ent_app_id" != "$expected_app_id" ]]; then
-    echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $ipa" >&2
     plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! python3 - "$ent" "$expected_app_id" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as f:
+    entitlements = plistlib.load(f)
+raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2]] else 1)
+PY
+  then
+    echo "error: signed IPA keychain-access-groups must contain exactly '$expected_app_id': $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  # The runtime reads CMUXKeychainAccessGroup verbatim for kSecAttrAccessGroup.
+  # An unsigned archive bakes it without the $(AppIdentifierPrefix) team prefix,
+  # a group the signature never grants, which kills every SecItem call at
+  # runtime (silent dead transport). Fail the upload instead of shipping it.
+  plist_keychain_group="$("$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$app/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$plist_keychain_group" && "$plist_keychain_group" != "$expected_app_id" ]]; then
+    echo "error: Info.plist CMUXKeychainAccessGroup is '$plist_keychain_group', expected '$expected_app_id' (unsigned-archive AppIdentifierPrefix bake); refusing to upload a keychain-broken build: $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  extension="$app/PlugIns/NotificationService.appex"
+  if [[ ! -d "$extension" ]]; then
+    echo "error: signed IPA is missing NotificationService.appex: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension/Info.plist" 2>/dev/null || true)"
+  if [[ "$extension_bundle_id" != "$expected_extension_bundle_id" ]]; then
+    echo "error: signed IPA notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$expected_extension_bundle_id': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! codesign --verify --strict --verbose=2 "$extension" >&2; then
+    echo "error: signed IPA notification extension has an invalid signature: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_entitlements="$workdir/notification-service-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$extension" > "$extension_entitlements" 2>/dev/null; then
+    echo "error: could not read signed notification extension entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$extension_entitlements" 2>/dev/null || true)"
+  if [[ "$extension_app_id" != "$team_id.$expected_extension_bundle_id" ]]; then
+    echo "error: signed IPA notification extension application-identifier is '${extension_app_id:-<absent>}', expected '$team_id.$expected_extension_bundle_id': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! python3 - "$extension_entitlements" "$expected_app_id" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as handle:
+    entitlements = plistlib.load(handle)
+raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2]] else 1)
+PY
+  then
+    echo "error: signed IPA notification extension keychain-access-groups must contain exactly '$expected_app_id': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_group="$($PLISTBUDDY -c 'Print :CMUXKeychainAccessGroup' "$extension/Info.plist" 2>/dev/null || true)"
+  if [[ "$extension_group" != "$expected_app_id" ]]; then
+    echo "error: signed IPA notification extension CMUXKeychainAccessGroup is '${extension_group:-<absent>}', expected '$expected_app_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -316,8 +534,9 @@ of relying on bundle-id lookup. Apple ID credentials keep using altool.
 
 Options:
   --lane <beta|appstore>    Distribution lane. beta is the existing TestFlight
-                            path. appstore uploads the production App Store
-                            build and skips TestFlight notes/group assignment.
+                            path. appstore uploads the production bundle to its
+                            TestFlight lane and sets the changelog notes without
+                            assigning a beta group.
   --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmmss.
                             Self-healed up to (App Store Connect max + 1) if it
                             would not be the highest build (TestFlight only offers
@@ -541,7 +760,7 @@ case "$LANE" in
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-cmux}"
-    CRASH_REPORTING_ENABLED="NO"
+    CRASH_REPORTING_ENABLED="YES"
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
@@ -571,6 +790,8 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
+NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER="$(bash "$SCRIPT_DIR/notification-service-bundle-id.sh" "$PRODUCT_BUNDLE_IDENTIFIER")"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
@@ -588,9 +809,30 @@ case "$LANE" in
 esac
 require_marketing_version "$LANE" "$LANE_MARKETING_VERSION"
 
+# All distribution lanes are production-level artifacts, including the
+# INTERNAL TestFlight app. Keep the four runtime authorities together and pass
+# them explicitly to every archive invocation. This prevents a runner's
+# staging environment, a stale shell export, or a reused archive from silently
+# producing a production-auth app that talks to staging Iroh infrastructure.
+PRODUCTION_RUNTIME_BUILD_ARGS=(
+  CMUX_IOS_AUTH_ENV=production
+  CMUX_API_BASE_URL=https://cmux.com
+  CMUX_IROH_BROKER_BASE_URL=https://cmux.com
+  CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
+)
+
 # Notes audience is driven by the testing lane (External block for --external).
 NOTES_AUDIENCE="internal"
 [[ "$EXTERNAL_TESTING" == "1" ]] && NOTES_AUDIENCE="external"
+
+# Both beta and the official com.cmux.app upload are TestFlight lanes. The
+# production marketing version has its own independent sequence, so its notes
+# use the current changelog entry without requiring that entry's version to
+# equal the production version.
+TESTFLIGHT_NOTES_LANE=0
+[[ "$LANE" == "beta" || "$LANE" == "appstore" ]] && TESTFLIGHT_NOTES_LANE=1
+NOTES_VERSION_GUARD=1
+[[ "$LANE" == "appstore" ]] && NOTES_VERSION_GUARD=0
 
 # Stamp the lane's marketing version at archive time. Release.xcconfig defaults
 # to the beta value for normal TestFlight builds, but the App Store lane shares
@@ -666,12 +908,10 @@ fi
 # deterministic local error (missing ios/CHANGELOG.md, empty audience block) fails
 # fast here instead of being discovered only AFTER the build is already uploaded
 # (where the notes step is non-fatal). This validate-only call contacts NO network
-# and needs no ASC credentials. The version-match check (changelog top == the
-# build's marketing version) happens later for a reused --archive-path / post-build,
-# where the actual marketing version is known. Skipped when there is no upload to
-# annotate (--export-only), notes are turned off (--skip-notes), or notes come from
-# a commit range (range-notes mode) rather than the changelog.
-if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
+# and needs no ASC credentials. Skipped when there is no upload to annotate
+# (--export-only), notes are turned off (--skip-notes), or notes come from a commit
+# range (range-notes mode) rather than the changelog.
+if [[ "$TESTFLIGHT_NOTES_LANE" -eq 1 && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only --audience "$NOTES_AUDIENCE"; then
     echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes to upload without notes." >&2
     exit 1
@@ -818,6 +1058,24 @@ EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
 
 mkdir -p "$OUT_DIR"
 
+# CI caches, both opt-in. CMUX_IOS_SPM_CACHE_DIR reuses cloned Swift packages
+# (the ios-spm- cache test-ios.yml seeds). CMUX_IOS_COMPILATION_CACHE=1 turns
+# on Xcode's compilation cache, stored under $DERIVED_DATA/CompilationCache.noindex
+# so the workflow can restore and save it around this script.
+BUILD_CACHE_ARGS=()
+if [[ -n "${CMUX_IOS_SPM_CACHE_DIR:-}" ]]; then
+  BUILD_CACHE_ARGS+=(
+    -clonedSourcePackagesDirPath "$CMUX_IOS_SPM_CACHE_DIR"
+    -packageCachePath "$CMUX_IOS_SPM_CACHE_DIR/.package-cache"
+  )
+fi
+if [[ "${CMUX_IOS_COMPILATION_CACHE:-0}" == "1" ]]; then
+  BUILD_CACHE_ARGS+=(
+    COMPILATION_CACHE_ENABLE_CACHING=YES
+    COMPILATION_CACHE_LIMIT_SIZE=3221225472
+  )
+fi
+
 XCODE_AUTH_ARGS=()
 if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
   XCODE_AUTH_ARGS=(
@@ -842,14 +1100,18 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      ${BUILD_CACHE_ARGS[@]+"${BUILD_CACHE_ARGS[@]}"} \
       -allowProvisioningUpdates \
-      "${XCODE_AUTH_ARGS[@]}" \
+      ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
@@ -866,12 +1128,16 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      ${BUILD_CACHE_ARGS[@]+"${BUILD_CACHE_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -890,6 +1156,10 @@ if [[ -n "$ARCHIVE_BUNDLE_IDENTIFIER" && "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODU
   exit 1
 fi
 ARCHIVE_APP="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+if [[ -z "$ARCHIVE_APP" || ! -d "$ARCHIVE_APP" ]]; then
+  echo "error: archive has no Products/Applications/*.app to verify runtime origins: $ARCHIVE_PATH" >&2
+  exit 1
+fi
 if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   ARCHIVE_APP_BUNDLE_IDENTIFIER="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
   if [[ -n "$ARCHIVE_APP_BUNDLE_IDENTIFIER" && "$ARCHIVE_APP_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
@@ -898,11 +1168,16 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   fi
   if [[ "$LANE" == "appstore" ]]; then
     ARCHIVE_CRASH_REPORTING_ENABLED="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
-    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "NO" ]]; then
-      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected 'NO'; refusing to export" >&2
+    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "$CRASH_REPORTING_ENABLED" ]]; then
+      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected '$CRASH_REPORTING_ENABLED'; refusing to export" >&2
       exit 1
     fi
   fi
+fi
+
+if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$ARCHIVE_APP"; then
+  echo "error: archive runtime origins are not production-only; refusing to export or upload" >&2
+  exit 1
 fi
 
 ARCHIVE_MARKETING_VERSION="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
@@ -927,21 +1202,28 @@ if ! find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -type d -name '*.dSYM' -print -quit 
   exit 1
 fi
 
-# Now that the archive exists, its marketing version (CFBundleShortVersionString)
-# is the version testers will see. Re-run the notes preflight WITH that version so
-# a deterministic mismatch (changelog top is 1.0.3 but the archived build is 1.0.0)
-# fails BEFORE the export/upload, not after (when the notes step is non-fatal and
-# would just ship an opaque build). Skipped for --export-only / --skip-notes. If the
-# archive's version is unreadable, the lane version guard above fails closed
-# before this notes-specific check.
+# For beta, the archived marketing version (CFBundleShortVersionString) must
+# match the changelog entry before export/upload, so a build never gets notes for
+# the wrong beta version. The official com.cmux.app lane has an independent
+# production version stream and validates the changelog structure without this
+# equality check. Skipped for --export-only / --skip-notes. If the archive's
+# version is unreadable, the lane version guard above fails closed before this
+# notes-specific check.
 # Skipped in range-notes mode: the notes come from the commit range, not the
 # changelog, and --auto-version intentionally stamps a version the changelog would
 # not match.
-if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
+if [[ "$TESTFLIGHT_NOTES_LANE" -eq 1 && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
-    if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
-        --audience "$NOTES_AUDIENCE" --expect-marketing-version "$ARCHIVE_MARKETING_VERSION"; then
-      echo "error: ios/CHANGELOG.md top entry does not match the archived marketing version $ARCHIVE_MARKETING_VERSION (see above); refusing to upload a build whose What to Test notes would be for the wrong version. Update ios/CHANGELOG.md, or pass --skip-notes." >&2
+    NOTES_VALIDATE_ARGS=(--validate-only --audience "$NOTES_AUDIENCE")
+    if [[ "$NOTES_VERSION_GUARD" -eq 1 ]]; then
+      NOTES_VALIDATE_ARGS+=(--expect-marketing-version "$ARCHIVE_MARKETING_VERSION")
+    fi
+    if ! "$SCRIPT_DIR/set-testflight-notes.sh" "${NOTES_VALIDATE_ARGS[@]}"; then
+      if [[ "$NOTES_VERSION_GUARD" -eq 1 ]]; then
+        echo "error: ios/CHANGELOG.md top entry does not match the archived marketing version $ARCHIVE_MARKETING_VERSION (see above); refusing to upload a build whose What to Test notes would be for the wrong version. Update ios/CHANGELOG.md, or pass --skip-notes." >&2
+      else
+        echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes." >&2
+      fi
       exit 1
     fi
   fi
@@ -976,12 +1258,29 @@ if [[ "$SIGNING" == "automatic" ]]; then
   # naming a profile that isn't installed makes -exportArchive fail.
   plutil -insert signingStyle -string automatic "$EXPORT_OPTIONS"
 else
-  # Manual signing: requires the "Apple Distribution" certificate and the named
+  # Manual signing: requires the distribution certificate and the named
   # provisioning profile to already be present in the local keychain.
+  # IOS_SIGNING_CERTIFICATE selects the certificate TYPE name Xcode matches
+  # against ("Apple Distribution" default; set "iPhone Distribution" when the
+  # keychain only holds an iOS-only distribution cert, whose identity string
+  # uses the legacy prefix).
   plutil -insert signingStyle -string manual "$EXPORT_OPTIONS"
-  plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
+  plutil -insert signingCertificate -string "${IOS_SIGNING_CERTIFICATE:-Apple Distribution}" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
+  if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
+    EXTENSION_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER"
+    if [[ "$LANE" == "appstore" ]]; then
+      EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    else
+      EXTENSION_PROFILE_NAME="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    fi
+    if [[ -z "$EXTENSION_PROFILE_NAME" ]]; then
+      echo "error: manual beta/App Store export needs a provisioning profile name for $EXTENSION_BUNDLE_IDENTIFIER" >&2
+      exit 1
+    fi
+    "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
+  fi
 fi
 
 xcodebuild -exportArchive \
@@ -989,7 +1288,7 @@ xcodebuild -exportArchive \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_OPTIONS" \
   -allowProvisioningUpdates \
-  "${XCODE_AUTH_ARGS[@]}" \
+  ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
   | tee "$OUT_DIR/export.log"
 
 IPA_PATH="$EXPORT_PATH/cmux.ipa"
@@ -1033,12 +1332,11 @@ fi
 #
 # This runs on the MANUAL signing path only: it re-signs with the named
 # distribution cert from the local keychain ("Apple Distribution: Manaflow,
-# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
-# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
-# static), so only the top-level .app is signed; there is no nested code to
-# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
-# "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
-# fleet would put distribution material on shared Macs.
+# Inc."), which is present for local/fleet-archive beta cuts. The notification
+# service extension is nested code and must be re-signed before the host app.
+# Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY "-")
+# is rejected by the iOS SDK for an entitled app, and signing on the shared fleet
+# would put distribution material on shared Macs.
 if [[ "$SIGNING" == "manual" ]]; then
   # Resolve the Release entitlements file. Release.xcconfig statically sets
   # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
@@ -1048,6 +1346,11 @@ if [[ "$SIGNING" == "manual" ]]; then
 
   if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
     echo "error: re-sign needs the Release entitlements file but it is missing: $RELEASE_ENTITLEMENTS (set IOS_RELEASE_ENTITLEMENTS to override)" >&2
+    exit 1
+  fi
+  NOTIFICATION_SERVICE_ENTITLEMENTS="${IOS_NOTIFICATION_SERVICE_ENTITLEMENTS:-$IOS_DIR/Config/NotificationService.entitlements}"
+  if [[ ! -f "$NOTIFICATION_SERVICE_ENTITLEMENTS" ]]; then
+    echo "error: re-sign needs the notification extension entitlements file but it is missing: $NOTIFICATION_SERVICE_ENTITLEMENTS (set IOS_NOTIFICATION_SERVICE_ENTITLEMENTS to override)" >&2
     exit 1
   fi
   if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$RESIGN_IDENTITY"; then
@@ -1132,6 +1435,16 @@ if [[ "$SIGNING" == "manual" ]]; then
   # bundle matches the historical no-Frameworks layout.
   rmdir "$RESIGN_APP/Frameworks" 2>/dev/null || true
 
+  if ! resign_notification_service_extensions \
+    "$RESIGN_APP" \
+    "$RESIGN_DIR" \
+    "$RESIGN_IDENTITY" \
+    "$PRODUCT_BUNDLE_IDENTIFIER" \
+    "$NOTIFICATION_SERVICE_ENTITLEMENTS"; then
+    echo "error: could not re-sign NotificationService.appex with the host keychain group" >&2
+    exit 1
+  fi
+
   # Start from the exported app's current (profile-baseline) entitlements, then
   # MERGE the profile's authorized Entitlements dict, then every key from the
   # Release entitlements file. The merge is GENERIC: PlistBuddy Merge copies all
@@ -1183,16 +1496,41 @@ for key in [k for k in merged if k not in profile]:
 with open(merged_path, "wb") as f:
     plistlib.dump(merged, f)
 PY
+  # A wildcard in the provisioning profile is only an authorization envelope.
+  # The app signature must claim the one exact group for this bundle, otherwise
+  # sibling cmux apps signed by the same team can read each other's items.
+  plutil -replace keychain-access-groups \
+    -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
+    "$MERGED_ENTITLEMENTS"
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
+
+  # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist
+  # expanded to an empty string and CMUXKeychainAccessGroup baked as the bare
+  # bundle id. The runtime reads that key verbatim for kSecAttrAccessGroup, and
+  # the entitlements above never grant a prefix-less group, so every SecItem
+  # call fails with errSecMissingEntitlement and the iroh transport dies before
+  # any broker fetch. Rewrite the key to the exact group the entitlements
+  # grant, then sign, so the signature covers the corrected plist.
+  if "$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$RESIGN_APP/Info.plist" >/dev/null 2>&1; then
+    "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" \
+      "$RESIGN_APP/Info.plist"
+    echo "Patched CMUXKeychainAccessGroup -> $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER"
+  fi
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
 
-  # HARD GATES on the signed .app: the entitlement we are fixing must be present,
-  # and the signature must be strictly valid. A config-level check cannot prove
-  # either; only codesign on the actual binary does.
-  if ! codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
-    echo "error: re-signed app is still missing aps-environment; refusing to upload a push-broken build" >&2
-    codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - >&2 || true
+  # HARD GATES on the signed .app. Presence is insufficient: TestFlight needs
+  # production APNs and the Time Sensitive value must remain true.
+  SIGNED_ENTITLEMENTS="$RESIGN_DIR/signed-entitlements.plist"
+  codesign -d --entitlements :- --xml "$RESIGN_APP" > "$SIGNED_ENTITLEMENTS" 2>/dev/null || {
+    echo "error: could not read re-signed app entitlements" >&2
+    exit 1
+  }
+  SIGNED_APS="$("$PLISTBUDDY" -c 'Print :aps-environment' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
+  SIGNED_TIME_SENSITIVE="$("$PLISTBUDDY" -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
+  if [[ "$SIGNED_APS" != "production" || "$SIGNED_TIME_SENSITIVE" != "true" ]]; then
+    echo "error: re-signed app push entitlements are invalid (aps-environment='${SIGNED_APS:-<absent>}', com.apple.developer.usernotifications.time-sensitive='${SIGNED_TIME_SENSITIVE:-<absent>}'); refusing upload" >&2
+    plutil -p "$SIGNED_ENTITLEMENTS" >&2 || true
     exit 1
   fi
   codesign --verify --strict --verbose=2 "$RESIGN_APP"
@@ -1218,15 +1556,15 @@ PY
 
   # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
   # silently, and the whole point is that aps-environment survives. Re-verify the
-  # produced IPA (strict signature + aps-environment) so altool is not the first
+  # produced IPA (strict signature + production push entitlements) so altool is not the first
   # thing to notice. Same shared check the automatic path uses.
   if ! verify_ipa_aps_environment_production "$RESIGNED_IPA"; then
-    echo "error: re-signed IPA failed verification (corrupt bundle, or aps-environment not production); refusing to upload" >&2
+    echo "error: re-signed IPA failed verification (corrupt bundle, or production push entitlements missing); refusing to upload" >&2
     exit 1
   fi
 
   IPA_PATH="$RESIGNED_IPA"
-  echo "re-signed IPA with full entitlements (aps-environment=production): $IPA_PATH"
+  echo "re-signed IPA with production APNs and Time Sensitive entitlements: $IPA_PATH"
 else
   # Automatic (cloud-managed) signing: there is no named distribution cert in the
   # keychain to re-sign with, so we cannot re-add a dropped entitlement here. The
@@ -1247,10 +1585,10 @@ else
   # exists). That is a security-relevant workflow + secrets decision, deliberately
   # out of scope here; this gate just stops shipping a broken artifact until then.
   if ! verify_ipa_aps_environment_production "$IPA_PATH"; then
-    echo "error: --signing automatic produced an IPA without aps-environment=production; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
+    echo "error: --signing automatic produced an IPA without production APNs and Time Sensitive entitlements; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
     exit 1
   fi
-  echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
+  echo "automatic-signed IPA verified to carry production APNs and Time Sensitive entitlements: $IPA_PATH"
 fi
 
 if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
@@ -1268,7 +1606,7 @@ echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash s
 echo "IPA_PATH=$IPA_PATH"
 
 EXPECTED_IPA_CRASH_REPORTING=""
-[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="NO"
+[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="$CRASH_REPORTING_ENABLED"
 if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM" "$EXPECTED_IPA_CRASH_REPORTING"; then
   echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
   exit 1
@@ -1465,21 +1803,25 @@ fi
 # Audience: --external uses the External audience; the default internal cut uses
 # the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that
 # actually shipped (post-guard, or the reused archive's embedded version).
-if [[ "$LANE" != "beta" ]]; then
+if [[ -n "${CMUX_TESTFLIGHT_NOTES_REQUEST_FILE:-}" ]]; then
+  # Reused runner directories must never upload a previous build's request.
+  rm -f "$CMUX_TESTFLIGHT_NOTES_REQUEST_FILE"
+fi
+if [[ "$TESTFLIGHT_NOTES_LANE" -ne 1 ]]; then
   echo "note: lane '$LANE' is not a TestFlight lane; skipping TestFlight What to Test notes" >&2
 elif [[ "$SKIP_NOTES" -eq 1 ]]; then
   echo "note: --skip-notes set; not setting TestFlight What to Test notes" >&2
 elif [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
   echo "note: no ASC API key (JWT) available; skipping TestFlight What to Test notes (set ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH, or run ios/scripts/set-testflight-notes.sh later)" >&2
 else
-  # The local preconditions (changelog present, audience block non-empty, top
-  # version == the archived marketing version) were already enforced FATALLY before
-  # the upload. This post-upload step is the ONLY non-fatal part: it just performs
-  # the App Store Connect mutation, which can legitimately fail transiently (build
-  # still processing past the timeout, network/API hiccup) without that meaning the
+  # The local preconditions (changelog present, audience block non-empty, and the
+  # beta-only version match) were already enforced FATALLY before the upload.
+  # This post-upload step is the ONLY non-fatal part: it just performs the App
+  # Store Connect mutation, which can legitimately fail transiently (build still
+  # processing past the timeout, network/API hiccup) without that meaning the
   # release is broken. The binary is already on TestFlight; the notes can be
   # re-applied later. NOTES_AUDIENCE was set early. Re-read the archived marketing
-  # version so the mutation still carries the version-match guard.
+  # version for the beta guard when applicable.
   NOTES_MARKETING_VERSION="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   # In range-notes mode the notes come from the commit range (not the changelog),
   # so pass them via --notes and skip the changelog version-match
@@ -1490,6 +1832,7 @@ else
   # changelog-driven behavior + version-match guard.
   NOTES_SOURCE_ARGS=()
   NOTES_SOURCE_DESC="ios/CHANGELOG.md"
+  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md (production version stream)"
   if [[ "$RANGE_NOTES_MODE" -eq 1 ]]; then
     # Keep generator stderr on the CI transcript (its fallback/unreachable-base
     # diagnostics are useful); only swallow a non-zero EXIT so a generator hiccup
@@ -1508,17 +1851,35 @@ else
     else
       NOTES_SOURCE_DESC="auto-generated notes (no previous beta; fallback)"
     fi
-  elif [[ "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+  elif [[ "$NOTES_VERSION_GUARD" -eq 1 && "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     NOTES_SOURCE_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
   fi
   echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ${NOTES_SOURCE_DESC}" >&2
-  if ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+  # CI can release the Mac before Apple's processing wait. Keep the exact
+  # validated/generated arguments; credentials stay in the downstream job.
+  # Standalone callers retain the synchronous behavior below.
+  if [[ -n "${CMUX_TESTFLIGHT_NOTES_REQUEST_FILE:-}" ]]; then
+    if ! python3 - "$CMUX_TESTFLIGHT_NOTES_REQUEST_FILE" \
+      --build-number "$SHIPPED_BUILD_NUMBER" \
+      --audience "$NOTES_AUDIENCE" \
+      --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+      ${NOTES_SOURCE_ARGS[@]+"${NOTES_SOURCE_ARGS[@]}"} <<'PY_NOTES'
+import json
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]) + "\n")
+PY_NOTES
+    then
+      echo "warning: could not defer TestFlight notes (the upload succeeded); re-run set-testflight-notes.sh later" >&2
+    fi
+  elif ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
      ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
      "$SCRIPT_DIR/set-testflight-notes.sh" \
        --build-number "$SHIPPED_BUILD_NUMBER" \
        --audience "$NOTES_AUDIENCE" \
        --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-       "${NOTES_SOURCE_ARGS[@]}"; then
+       ${NOTES_SOURCE_ARGS[@]+"${NOTES_SOURCE_ARGS[@]}"}; then
     echo "TestFlight What to Test notes set for build $SHIPPED_BUILD_NUMBER" >&2
   else
     echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
@@ -1551,6 +1912,6 @@ if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && 
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
       --build-number "$SHIPPED_BUILD_NUMBER" \
-      "${EXTERNAL_GROUP_SELECTOR[@]}" \
+      ${EXTERNAL_GROUP_SELECTOR[@]+"${EXTERNAL_GROUP_SELECTOR[@]}"} \
       --additional-group-id "$PRO_TESTFLIGHT_GROUP_ID"
 fi
