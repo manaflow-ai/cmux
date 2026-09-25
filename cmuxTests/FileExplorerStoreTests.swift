@@ -311,7 +311,7 @@ struct FileExplorerStoreTests {
     @Test
     func testMutationsAllowRootPathWithTrailingSlash() async throws {
         let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-file-explorer-trailing-root-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-file-explorer-trailing-root-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
