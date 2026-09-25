@@ -5431,10 +5431,6 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         leftPanel.hostedView.setActive(true)
 
         var focusCallbackCount = 0
-        leftPanel.hostedView.setFocusHandler {
-            focusCallbackCount += 1
-            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
-        }
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -5448,6 +5444,10 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         guard let leftSurfaceView = surfaceView(in: leftPanel.hostedView) else {
             XCTFail("Expected left terminal surface view")
             return
+        }
+        leftPanel.hostedView.setFocusHandler {
+            focusCallbackCount += 1
+            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
         }
 
         window.makeFirstResponder(nil)
