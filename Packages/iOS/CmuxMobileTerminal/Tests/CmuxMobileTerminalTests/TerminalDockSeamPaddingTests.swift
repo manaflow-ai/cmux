@@ -37,5 +37,19 @@ struct TerminalDockSeamPaddingTests {
         )
         #expect(size.height == 874)
     }
+
+    @Test("alternate-screen container reserves the settled keyboard overlap")
+    func alternateScreenReservesSettledKeyboard() {
+        let size = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: Self.phoneBounds,
+            composerBandHeight: 120,
+            toolbarHeight: 44,
+            bottomSafeAreaInset: 34,
+            chromeHidden: false,
+            keyboardHeight: 300
+        )
+        // 874 - (300 keyboard + 44 toolbar + 120 composer + 8 seam) = 402.
+        #expect(size.height == 402)
+    }
 }
 #endif

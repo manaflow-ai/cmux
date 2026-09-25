@@ -2,6 +2,7 @@ import { Popover } from "@base-ui-components/react/popover";
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
+import { agentChatText } from "../i18n";
 import { activityIndicatorState, activityTailKey } from "../activity";
 import { ChatMarkdown, MarkdownCodeBlock } from "../ChatMarkdown";
 import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
@@ -225,6 +226,8 @@ export function TurnActions({
   actions,
   onFork,
   forkPending,
+  onHandoff,
+  handoffPending,
   copiedPreview,
 }: {
   stats: string;
@@ -232,6 +235,8 @@ export function TurnActions({
   actions: SessionActions;
   onFork: () => void;
   forkPending: boolean;
+  onHandoff?: () => void;
+  handoffPending?: boolean;
   copiedPreview?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -259,10 +264,16 @@ export function TurnActions({
             <Popover.Positioner sideOffset={6} align="start">
               <Popover.Popup className="turn-menu menu" data-agent-popup="true">
                 {stats ? <div className="turn-menu-stats tabular-nums">{stats}</div> : null}
-                {actions.fork ? (
+                {actions.fork && !actions.handoff ? (
                   <button className="turn-menu-item" type="button" disabled={forkPending} onClick={onFork}>
                     {forkPending ? <PinwheelSpinner size={11} /> : null}
-                    <span>Fork chat</span>
+                    <span>{agentChatText("continueNewChat")}</span>
+                  </button>
+                ) : null}
+                {actions.handoff && onHandoff ? (
+                  <button className="turn-menu-item" type="button" disabled={handoffPending} onClick={onHandoff}>
+                    {handoffPending ? <PinwheelSpinner size={11} /> : null}
+                    <span>{agentChatText("continueElsewhere")}</span>
                   </button>
                 ) : null}
               </Popover.Popup>
@@ -828,6 +839,8 @@ function TurnGroupView({
   actions,
   onFork,
   forkPending,
+  onHandoff,
+  handoffPending,
   fileDiffs,
   onFileDiff,
   thinkingDefaultOpen,
@@ -841,6 +854,8 @@ function TurnGroupView({
   actions: SessionActions;
   onFork: () => void;
   forkPending: boolean;
+  onHandoff?: () => void;
+  handoffPending?: boolean;
   fileDiffs: Record<string, string>;
   onFileDiff: (path: string) => void;
   thinkingDefaultOpen: boolean;
@@ -870,7 +885,7 @@ function TurnGroupView({
           />
         )}
       {group.assistant ? <div className="msg assistant"><div className="body selectable"><ChatMarkdown text={group.assistant.text} streaming={group.assistant.open} /></div></div> : null}
-      {group.footer ? <TurnActions stats={group.footer.text} text={group.assistant?.text ?? ""} actions={actions} onFork={onFork} forkPending={forkPending} /> : null}
+      {group.footer ? <TurnActions stats={group.footer.text} text={group.assistant?.text ?? ""} actions={actions} onFork={onFork} forkPending={forkPending} onHandoff={onHandoff} handoffPending={handoffPending} /> : null}
     </div>
   );
 }
@@ -881,6 +896,8 @@ export function Blocks({
   actions,
   onFork,
   forkPending,
+  onHandoff,
+  handoffPending,
   fileDiffs = {},
   onFileDiff = () => {},
   thinkingDefaultOpen = false,
@@ -892,6 +909,8 @@ export function Blocks({
   actions: SessionActions;
   onFork: () => void;
   forkPending: boolean;
+  onHandoff?: () => void;
+  handoffPending?: boolean;
   fileDiffs?: Record<string, string>;
   onFileDiff?: (path: string) => void;
   thinkingDefaultOpen?: boolean;
@@ -922,6 +941,8 @@ export function Blocks({
               actions={actions}
               onFork={onFork}
               forkPending={forkPending}
+              onHandoff={onHandoff}
+              handoffPending={handoffPending}
               fileDiffs={fileDiffs}
               onFileDiff={onFileDiff}
               thinkingDefaultOpen={thinkingDefaultOpen}

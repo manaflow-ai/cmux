@@ -24,7 +24,7 @@ private actor CollectingSink: SimStreamMessageSending {
         var accumulator = SimStreamFrameAccumulator()
         accumulator.append(data)
         while let body = try accumulator.nextMessageBody() {
-            messages.append(try SimStreamWireCodec.decode(body))
+            messages.append(try SimStreamWireCodec().decode(body))
         }
     }
 

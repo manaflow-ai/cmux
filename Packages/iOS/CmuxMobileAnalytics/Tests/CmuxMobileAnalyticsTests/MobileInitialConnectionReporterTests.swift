@@ -111,7 +111,7 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         #expect(productEvents[0].properties["transport"] == .string("tailscale"))
     }
 
-    @Test func reconnectAndTimeoutAreBoundedOutcomes() async {
+    @Test func reconnectAndTimeoutAreBoundedOutcomes() async throws {
         let (product, operational, productUploader, operationalUploader) = makeEmitters()
         let reporter = MobileInitialConnectionReporter(
             productEmitter: product,
@@ -124,11 +124,13 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
             tNanos: 1_000_000_000,
             a: DiagnosticAppEventKind.appForegrounded.rawValue
         ))
-        // Advance the diagnostic clock with a queued event instead of waiting
-        // on wall time. The reporter expires attempts from event timestamps.
+        // Advance the reporter through its diagnostic clock instead of waiting
+        // for wall-clock time. Processing this later lifecycle edge exercises
+        // the same timeout path deterministically.
         reporter.ingest(DiagnosticEvent(
-            code: .rpcFailed,
-            tNanos: 1_020_000_001
+            code: .appFeatureAction,
+            tNanos: 1_020_000_000,
+            a: DiagnosticAppEventKind.appBackgrounded.rawValue
         ))
         await reporter.flush()
 

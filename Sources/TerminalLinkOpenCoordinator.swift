@@ -54,6 +54,13 @@ struct TerminalLinkOpenCoordinator {
 
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
+        if let sourcePanelId = request.sourcePanelId, let container,
+           container.terminalLinkIsRemoteTerminal(sourcePanelId),
+           RemoteTerminalPathResolver().isFileReference(trimmed),
+           container.deferRemoteTerminalFileLinkOpen(sourcePanelId: sourcePanelId, rawValue: trimmed) {
+            // A managed SSH path must never resolve to an unrelated file on this Mac.
+            return true
+        }
         var normalizedOpenURLString = request.rawValue
         let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
 

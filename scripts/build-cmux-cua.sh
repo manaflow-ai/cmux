@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="7a57a7c79522ece017a3ae4ef7884a24d7eec270"
+CMUX_CUA_PINNED_SHA="a1f88669fb936c3cad643fe25c5d522962e714bb"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
@@ -371,10 +371,32 @@ for arch in "${ARCHS[@]}"; do
   # by source dir prevents cross-revision reuse. Concurrent builds of one
   # revision serialize on Cargo's own lock.
   target_dir="$SRC_ROOT/.cmux-cargo-target"
-  CARGO_TARGET_DIR="$target_dir" \
-    cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"
+  cargo_status=0
+  for cargo_attempt in 1 2 3; do
+    if CARGO_TARGET_DIR="$target_dir" \
+      CARGO_NET_RETRY="${CARGO_NET_RETRY:-5}" \
+      CARGO_HTTP_MULTIPLEXING="${CARGO_HTTP_MULTIPLEXING:-false}" \
+      cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"; then
+      cargo_status=0
+      break
+    else
+      cargo_status=$?
+    fi
+    if [ "$cargo_attempt" -lt 3 ]; then
+      echo "cmux-cua Cargo build failed for $target (attempt $cargo_attempt/3); retrying transient dependency fetches" >&2
+      sleep $((cargo_attempt * 5))
+    fi
+  done
+  if [ "$cargo_status" -ne 0 ]; then
+    exit "$cargo_status"
+  fi
   arch_output="$TMPDIR_BUILD/cmux-cua-$arch"
   cp "$target_dir/$target/release/cmux-cua" "$arch_output"
+  # Cargo's Swift bridge can inherit absolute Xcode toolchain rpaths from the
+  # runner. Strip those from each thin slice before lipo and signing so a
+  # changed upstream build script cannot reintroduce a Gatekeeper-invalid
+  # bundled helper.
+  "$REPO_ROOT/scripts/strip-cmux-cua-rpaths.sh" "$arch_output"
   BUILT+=("$arch_output")
 done
 

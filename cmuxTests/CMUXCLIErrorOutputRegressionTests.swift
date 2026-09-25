@@ -1,3 +1,5 @@
+import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxSettings
 import Darwin
 import Foundation
@@ -593,7 +595,7 @@ import Testing
                     "working_directory": root.path,
                 ],
             ],
-        ])
+        ], workspaceID: workspaceID, surfaceID: surfaceID)
         let socketPath = "/tmp/cmux-hermes-restore-recovery-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
@@ -607,6 +609,8 @@ import Testing
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
         try writeHermesStateDatabase(
             homeDirectory: root,
             sessionID: realSessionID,
@@ -636,6 +640,8 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
         #!/bin/sh
+        # Resumed Hermes pins its profile before the config subcommand.
+        if [ "$1" = "--profile" ]; then shift 2; fi
         if [ "$1" = "config" ]; then
           printf 'preflight stdout chatter\\n'
           printf 'preflight stderr chatter\\n' >&2
@@ -681,12 +687,26 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
+        // The preflight child below never exits on its own, so restore has to reach its
+        // timeout for this test to observe the quiet failure. The size of that window is
+        // production policy, asserted as a value; the run itself narrows it.
+        #expect(AgentRestorePreflightInvocation.defaultTimeoutSeconds == 10)
+        #expect(
+            AgentRestorePreflightInvocation.timeoutSeconds(environment: [:])
+                == AgentRestorePreflightInvocation.defaultTimeoutSeconds
+        )
+        environment[AgentRestorePreflightInvocation.timeoutEnvironmentKey] = "0.5"
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["restore", "hermes-agent", checkpointID],
             environment: environment,
-            timeout: 15
+            // A deliberate cap, not a hang guard: the preflight window above is 0.5s, so
+            // the run has to finish well inside 5s.
+            timeout: 5
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
@@ -1553,7 +1573,7 @@ import Testing
                 ) else {
                     return
                 }
-                // Keep the bound TCP endpoint unavailable through the waiter's
+                // Keep the TCP endpoint unavailable through the waiter's
                 // first connection attempt. Without relay error classification,
                 // that attempt fails permanently instead of reaching a retry.
                 usleep(100_000)
@@ -2344,6 +2364,16 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CFFIXED_USER_HOME"] = home.path
+        // restore and fork deliberately outwait a launching app before they report
+        // that cmux is still opening. This test is about which dispatch path the
+        // commands reach, not about the size of that window, so it narrows the
+        // window instead of spending the production default twice.
+        #expect(SocketStartupWaiter.appStartupTimeoutDefaultSeconds == 45)
+        #expect(
+            SocketStartupWaiter.appStartupTimeoutSeconds(environment: [:])
+                == SocketStartupWaiter.appStartupTimeoutDefaultSeconds
+        )
+        environment[SocketStartupWaiter.appStartupTimeoutEnvironmentKey] = "0.2"
 
         let cases: [(arguments: [String], expectedError: String)] = [
             (["settings", "invalid-target"], "Unknown settings subcommand 'invalid-target'"),
@@ -3286,10 +3316,43 @@ import Testing
     }
 
     @Test func testBrowserDownloadWaitDefaultTimeoutMatchesServerDefaultWindow() throws {
+        // The window itself is a value, not a latency: the app-side handler and the
+        // CLI client both take it from BrowserDownloadWaitTimeout.standard, so the
+        // client outwaits the handler by the reply slack rather than by coincidence.
+        // Spending the real window here would mean a >10s test that still could not
+        // tell 15s from a minute.
+        let window = BrowserDownloadWaitTimeout.standard
+        #expect(window.defaultTimeoutMilliseconds == 10_000)
+        #expect(
+            window.handlerTimeoutMilliseconds(requestedMilliseconds: nil)
+                == window.defaultTimeoutMilliseconds
+        )
+        #expect(
+            window.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                == TimeInterval(window.defaultTimeoutMilliseconds) / 1000.0
+                    + window.clientResponseSlackSeconds
+        )
+        #expect(window.clientResponseSlackSeconds > 0)
+        // The agreement is a property of the pair, not of the shipped numbers: a
+        // narrower window the client still outwaits keeps the same invariant.
+        let narrow = BrowserDownloadWaitTimeout(
+            defaultTimeoutMilliseconds: 50,
+            maximumTimeoutMilliseconds: 200,
+            clientResponseSlackSeconds: 0.1
+        )
+        #expect(
+            narrow.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                > TimeInterval(narrow.handlerTimeoutMilliseconds(requestedMilliseconds: nil))
+                    / 1000.0
+        )
+
+        // And the default path really uses that window: with no --timeout-ms the CLI
+        // must ignore the generic response timeout below, which is short enough that
+        // a CLI falling back to it would give up before the responder answers.
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"ok":true,"result":{"downloaded":true}}"#
-        let responder = try UnixSocketResponder(path: socketPath, response: response, responseDelay: 10.5)
+        let responder = try UnixSocketResponder(path: socketPath, response: response, responseDelay: 0.4)
         defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
@@ -3309,12 +3372,9 @@ import Testing
                 "wait",
             ],
             environment: environment,
-            // A deliberate cap, and the only upper bound that gives this test meaning: the
-            // responder answers after 10.5s, so waiting the server's default window has to
-            // land between there and 16s. Under the suite default a CLI that waited a full
-            // minute would still pass, and "matches the server default window" would stop
-            // being a claim about anything.
-            timeout: 16
+            // A deliberate cap, not a hang guard: the responder answers after 0.4s, so
+            // this run has to finish well inside 3s.
+            timeout: 3
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
@@ -3773,8 +3833,27 @@ import Testing
         )
         guard kevent(queue, &event, 1, nil, 0, nil) == 0 else { return false }
 
+        var fileFD: Int32 = -1
+        defer { if fileFD >= 0 { close(fileFD) } }
         let deadline = Date.now.addingTimeInterval(max(timeout, 0))
         while true {
+            // A directory event observes file creation, not later appends.
+            // Watch the log itself before reading so a marker appended after
+            // its first line cannot be missed until the deadline.
+            if fileFD < 0 {
+                fileFD = open(url.path, O_EVTONLY)
+                if fileFD >= 0 {
+                    var fileEvent = kevent(
+                        ident: UInt(fileFD),
+                        filter: Int16(EVFILT_VNODE),
+                        flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+                        fflags: UInt32(NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME),
+                        data: 0,
+                        udata: nil
+                    )
+                    guard kevent(queue, &fileEvent, 1, nil, 0, nil) == 0 else { return false }
+                }
+            }
             if let contents = try? String(contentsOf: url, encoding: .utf8),
                contents.contains(expected) {
                 return true
@@ -4528,6 +4607,7 @@ final class RelaySocketResponder {
     private var stopped = false
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
+    private var deferredBindAddress: sockaddr_in?
 
     init(
         relayID: String,
@@ -4582,6 +4662,13 @@ final class RelaySocketResponder {
         endpoint = "127.0.0.1:\(UInt16(bigEndian: boundAddress.sin_port))"
         if startListening {
             self.startListening()
+        } else {
+            // A bound, non-listening TCP socket can leave macOS connects in
+            // SYN_SENT. Close the reservation so startup observes refusal and
+            // enters its retry path before this fixture begins listening.
+            close(fd)
+            listenerFD = -1
+            deferredBindAddress = boundAddress
         }
     }
 
@@ -4597,7 +4684,32 @@ final class RelaySocketResponder {
 
     func startListening() {
         lock.lock()
-        guard !stopped, listenerFD >= 0 else {
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        if listenerFD < 0, var address = deferredBindAddress {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                lock.unlock()
+                return
+            }
+            var reuse: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+            let bindResult = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                    Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bindResult == 0 else {
+                close(fd)
+                lock.unlock()
+                return
+            }
+            listenerFD = fd
+            deferredBindAddress = nil
+        }
+        guard listenerFD >= 0 else {
             lock.unlock()
             return
         }

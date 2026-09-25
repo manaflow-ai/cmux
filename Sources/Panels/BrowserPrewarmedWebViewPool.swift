@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxSettings
 import Foundation
 import WebKit

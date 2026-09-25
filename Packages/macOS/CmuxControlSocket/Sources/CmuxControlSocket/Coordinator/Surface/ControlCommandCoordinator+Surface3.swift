@@ -1,5 +1,4 @@
 internal import Foundation
-
 /// The surface-domain resume (`surface.resume.*`) and reporting
 /// (`surface.report_tty` / `report_pwd` / `report_shell_state` / `ports_kick`)
 /// bodies, plus the shared resume-binding payload helper, split out of
@@ -7,7 +6,6 @@ internal import Foundation
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
     // MARK: - resume target param validation
-
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
     /// `invalid_params` error when any of `window_id` / `workspace_id` /
     /// `surface_id` / `terminal_id` / `tab_id` is present-but-non-null yet
@@ -22,16 +20,13 @@ extension ControlCommandCoordinator {
         }
         return nil
     }
-
     /// The legacy `v2PublicSurfaceResumeSource`: `process-detected` → `manual`.
     private func publicResumeSource(_ params: [String: JSONValue]) -> String? {
         let source = optionalTrimmedRawString(params, "source")
         return source == "process-detected" ? "manual" : source
     }
-
     // MARK: - resume.set
-
-    /// `surface.resume.set` — set (and run the approval flow for) a resume binding.
+    /// `surface.resume.set` — set a resume binding; never waits on approval UI (#13369).
     func surfaceResumeSet(_ params: [String: JSONValue]) -> ControlCallResult {
         if let error = surfaceResumeTargetValidationError(params) { return error }
         let routing = routingSelectors(params)
@@ -43,7 +38,6 @@ extension ControlCommandCoordinator {
             !command.isEmpty else {
             return .err(code: "invalid_params", message: "Missing command", data: nil)
         }
-
         let source = publicResumeSource(params)
         let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
         if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
@@ -216,9 +210,8 @@ extension ControlCommandCoordinator {
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]
-            if let resumeClaimed = snapshot.resumeClaimed {
-                result["resume_claimed"] = .bool(resumeClaimed)
-            }
+            result["resume_claimed"] = snapshot.resumeClaimed.map(JSONValue.bool)
+            result["approval_required"] = snapshot.approvalRequired.map(JSONValue.bool)
             return .ok(.object(result))
         }
     }
@@ -440,7 +433,13 @@ extension ControlCommandCoordinator {
             workspaceID: workspaceID,
             requestedSurfaceID: requestedSurfaceID,
             terminalLifecycleID: terminalLifecycleID,
-            stateRawValue: stateRawValue
+            stateRawValue: stateRawValue,
+            remoteRelayOwnerWorkspaceID: params["_cmux_remote_workspace_id"].flatMap { value in
+                self.uuid(["value": value], "value")
+            },
+            remoteRelayConnectionID: params["_cmux_remote_connection_id"].flatMap { value in
+                self.uuid(["value": value], "value")
+            }
         ) ?? .pending
         switch resolution {
         case .explicit(let surfaceID, let published):

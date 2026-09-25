@@ -8,12 +8,24 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 PBXPROJ="cmux.xcodeproj/project.pbxproj"
 
-# Only run when the pbxproj is part of this commit.
+cd "$REPO_ROOT"
+
+# Register new Python tests that a workflow already runs, so adding a test and
+# its ci-guards.yml step is all a commit needs. Best effort: CI still validates.
+REGISTRY="tests/test-execution.toml"
+if git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
+    && git diff --quiet -- "$REGISTRY"; then
+    python3 scripts/ci/validate_test_execution_registry.py --write >/dev/null 2>&1 || true
+    if ! git diff --quiet -- "$REGISTRY"; then
+        git add "$REGISTRY"
+        echo "pre-commit: registered new tests in $REGISTRY"
+    fi
+fi
+
+# Only normalize when the pbxproj is part of this commit.
 if ! git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
     exit 0
 fi
-
-cd "$REPO_ROOT"
 
 # Refuse to normalize when the working-tree pbxproj has unstaged changes.
 # Otherwise the `git add` at the end would silently stage hunks the

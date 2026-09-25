@@ -1,5 +1,7 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -35,6 +37,18 @@ struct CloudSidebarOrderingTests {
         try fixture.attachScreenshot(named: "cloud-sidebar-after-pin")
         #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty && fixture.provider.projected.isEmpty)
         #expect(fixture.provider.refreshCount == 0)
+    }
+
+    @Test("An organization pin committed by another entrypoint repaints the right sidebar immediately")
+    func externalPinCommitRepaintsImmediately() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(fixture.coordinator.outlineView)
+        let folder = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.id == fixture.folderID("ws_2") })
+        #expect(fixture.catalog.sidebarOrganization.perform(.pin, id: folder.id, nodes: fixture.nodes()))
+        let current = try #require(outline.item(atRow: outline.row(forItem: folder)) as? CloudTreeNode)
+        #expect(current.isPinned)
     }
     @Test("Pins and relative moves survive reconnect, restart, and renamed duplicate titles")
     func preferencesSurviveFreshSnapshots() throws {
@@ -168,14 +182,15 @@ final class CloudSidebarOrderingFixture {
     let defaultsName = "cloud-sidebar-ordering-\(UUID().uuidString)"
     let catalog: SurfaceCatalog
     let provider: CloudPlacementTestProvider
-    let transferRegistry = TabDragTransferRegistry()
+    let transferRegistry: TabDragTransferRegistry
     let coordinator: CloudTreeOutlineView.Coordinator
     let container: CloudTreeContainerView
     let window: NSWindow
 
-    init() {
+    init(transferRegistry: TabDragTransferRegistry? = nil) {
         defaults = UserDefaults(suiteName: defaultsName)!
         provider = CloudPlacementTestProvider(machine: machine)
+        self.transferRegistry = transferRegistry ?? TabDragTransferRegistry()
         catalog = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: defaults))
         let catalog = catalog
         coordinator = CloudTreeOutlineView.Coordinator(
@@ -185,6 +200,7 @@ final class CloudSidebarOrderingFixture {
                 promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { catalog }, selectedWorkspaceID: { nil },
                 selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
                 onDidMutate: {}, onFailure: { _ in }, refresh: {}
@@ -211,7 +227,21 @@ final class CloudSidebarOrderingFixture {
         container.layoutSubtreeIfNeeded()
         let bitmap = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
         container.cacheDisplay(in: container.bounds, to: bitmap)
-        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        // NSView caching preserves transparency. Composite onto the window's
+        // background so black sidebar ink stays readable in artifact viewers.
+        let context = try #require(CGContext(
+            data: nil, width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
+            bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let bounds = CGRect(x: 0, y: 0, width: CGFloat(bitmap.pixelsWide), height: CGFloat(bitmap.pixelsHigh))
+        window.effectiveAppearance.performAsCurrentDrawingAppearance {
+            context.setFillColor(window.backgroundColor.cgColor)
+        }
+        context.fill(bounds)
+        context.draw(try #require(bitmap.cgImage), in: bounds)
+        let opaque = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+        let png = try #require(opaque.representation(using: .png, properties: [:]))
         #if compiler(>=6.2)
         Attachment.record(png, named: name + ".png")
         #endif

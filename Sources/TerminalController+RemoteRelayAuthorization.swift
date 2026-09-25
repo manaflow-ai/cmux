@@ -3,6 +3,17 @@ import CmuxRemoteWorkspace
 import Foundation
 
 extension TerminalController {
+    /// Resolve product text in the app while keeping the package policy pure.
+    private nonisolated func remoteRelayAuthorizationPolicy() -> RemoteRelayAuthorizationPolicy {
+        RemoteRelayAuthorizationPolicy(invalidSelectorMessage: String(
+            localized: "socket.remoteRelay.invalidSelector", defaultValue: "Relay selector is invalid"
+        ))
+    }
+
+    private nonisolated var remoteRelayAuthenticationFailedMessage: String {
+        String(localized: "socket.remoteRelay.authenticationFailed", defaultValue: "Relay request authentication failed")
+    }
+
     private struct RemoteRelayAuthorizationSnapshot: Sendable {
         let ownerWorkspaceID: UUID
         let relayTokenHex: String
@@ -99,15 +110,15 @@ extension TerminalController {
             return deniedRemoteRelayRequest(
                 request,
                 code: "remote_relay_authentication_failed",
-                message: "Relay request authentication failed"
+                message: remoteRelayAuthenticationFailedMessage
             )
         }
         guard foundationParams[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] as? String
                 == snapshot.connectionID.uuidString else {
             return deniedRemoteRelayRequest(request, code: "remote_relay_authentication_failed",
-                message: "Relay request authentication failed")
+                message: remoteRelayAuthenticationFailedMessage)
         }
-        switch RemoteRelayAuthorizationPolicy().validate(
+        switch remoteRelayAuthorizationPolicy().validate(
             method: request.method,
             parameters: foundationParams,
             ownerWorkspaceID: snapshot.ownerWorkspaceID,
@@ -156,7 +167,13 @@ extension TerminalController {
         // workspace can also contain local/browser panels created by the user;
         // container membership alone must never authorize local input, shell
         // creation, or scrollback reads for those panels.
-        var surfaceIDs = workspace.activeRemoteTerminalSurfaceIds
+        // A moved remote terminal may remain in the destination's remote
+        // lifecycle set when both workspaces share a relay namespace. Its
+        // launch provenance is still owned by the original workspace, so it
+        // must not enter the destination relay's authorized surface set.
+        var surfaceIDs = workspace.activeRemoteTerminalSurfaceIds.filter {
+            workspace.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[$0] == ownerWorkspaceID
+        }
         for mirror in workspace.remoteTmuxWindowMirrors.values {
             surfaceIDs.formUnion(mirror.surfaceIDsInLayoutOrder)
         }
@@ -203,17 +220,58 @@ extension TerminalController {
         return workspace.isRemoteTerminalContext(surfaceID)
     }
 
+    /// A destination workspace can retain a moved remote surface for local
+    /// lifecycle handling while the relay owner remains the launch workspace.
+    /// Read paths must apply that same provenance boundary before returning
+    /// surface IDs or summaries.
+    func remoteRelaySurfaceIsOwnedByWorkspace(
+        _ surfaceID: UUID,
+        workspace: Workspace,
+        ownerWorkspaceID: UUID
+    ) -> Bool {
+        guard workspace.id == ownerWorkspaceID,
+              workspace.isRemoteTerminalContext(surfaceID) else {
+            return false
+        }
+        if let origin = workspace.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[surfaceID] {
+            return origin == ownerWorkspaceID
+        }
+        if case .pane = workspace.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+            return true
+        }
+        return false
+    }
+
     /// Checks an ingress-authorized request again in the same main-actor turn
     /// as its mutation. Controller retirement and live surface changes revoke it.
     func controlRemoteRelayDispatchError(method: String, params: [String: JSONValue]) -> ControlCallResult? {
         guard params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil else { return nil }
         guard case .string(let ownerRaw)? = params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey],
-              let owner = UUID(uuidString: ownerRaw),
-              let snapshot = remoteRelayAuthorizationSnapshot(ownerWorkspaceID: owner),
-              params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] == .string(snapshot.connectionID.uuidString) else {
-            return .err(code: "remote_relay_authentication_failed", message: "Relay request authentication failed", data: nil)
+              let owner = UUID(uuidString: ownerRaw) else {
+            return .err(code: "remote_relay_authentication_failed", message: remoteRelayAuthenticationFailedMessage, data: nil)
         }
-        switch RemoteRelayAuthorizationPolicy().validate(method: method,
+        guard let snapshot = remoteRelayAuthorizationSnapshot(ownerWorkspaceID: owner),
+              params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] == .string(snapshot.connectionID.uuidString) else {
+            // `workspace.list` owns its stale-owner response shaping. Let the
+            // authoritative app-side read path distinguish a retired/unknown
+            // owner from local socket authentication without exposing local
+            // TabManager details. Every other method remains fail-closed here.
+            if method == "workspace.list" {
+                switch remoteRelayAuthorizationPolicy().validate(
+                    method: method,
+                    parameters: params.mapValues(\.foundationObject),
+                    ownerWorkspaceID: owner,
+                    surfaceIDs: []
+                ) {
+                case .allowed:
+                    return nil
+                case .denied(let code, let message):
+                    return .err(code: code, message: message, data: nil)
+                }
+            }
+            return .err(code: "remote_relay_authentication_failed", message: remoteRelayAuthenticationFailedMessage, data: nil)
+        }
+        switch remoteRelayAuthorizationPolicy().validate(method: method,
             parameters: params.mapValues(\.foundationObject), ownerWorkspaceID: owner, surfaceIDs: snapshot.surfaceIDs) {
         case .allowed: return nil
         case .denied(let code, let message): return .err(code: code, message: message, data: nil)
