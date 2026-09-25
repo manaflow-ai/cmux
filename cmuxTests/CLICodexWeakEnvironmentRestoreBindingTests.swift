@@ -352,6 +352,100 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual((persisted["launchCommand"] as? [String: Any])?["source"] as? String, "default")
     }
 
+    func testCodexHookDoesNotPublishDefaultResumeBindingWhenLaunchEvidenceIsUnknown() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-unknown-launch")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-unknown-launch-\(UUID().uuidString)", isDirectory: true)
+        let repo = root.appendingPathComponent("cmuxterm-hq", isDirectory: false)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-unknown-launch-session"
+        let rolloutDirectory = root.appendingPathComponent(".codex/sessions/2026/09/25", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rolloutDirectory, withIntermediateDirectories: true)
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(
+                to: rolloutDirectory.appendingPathComponent("rollout-\(sessionId).jsonl"),
+                atomically: true,
+                encoding: .utf8
+            )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [["tty": "ttys308", "workspace_id": workspaceId, "surface_id": surfaceId]]]
+                )
+            case "surface.resume.set", "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CMUX_CODEX_") }
+        environment["HOME"] = root.path
+        environment["PWD"] = repo.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_TTY_NAME"] = "ttys308"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        for key in [
+            "ANTHROPIC_BASE_URL",
+            "CLAUDE_CONFIG_DIR",
+            "CODEX_HOME",
+            "CMUX_AGENT_LAUNCH_KIND",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+        ] {
+            environment.removeValue(forKey: key)
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(repo.path)","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let commands = state.snapshot()
+        XCTAssertFalse(
+            commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "an indexed Codex rollout must not turn unknown launch provenance into a default resume binding: \(commands)"
+        )
+    }
+
     private func writeCodexHookStore(
         root: URL,
         sessionId: String,
