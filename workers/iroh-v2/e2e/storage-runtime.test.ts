@@ -196,8 +196,9 @@ test("socket reservations aggregate across teams and survive retries", async () 
   expect((await output(user, "a2", 1, 2 * 1024 * 1024, 1024)).status).toBe(200);
   expect((await output(user, "b2", 1, 2 * 1024 * 1024, 1024)).status).toBe(200);
   expect((await reserve(user, "team-a", "a3", deviceKey("a"))).status).toBe(200);
-  expect((await output(user, "a3", 1, 1, 1)).status).toBe(500);
-  expect((await output(user, "a1", 3, 1, 1)).status).toBe(500);
+  // The aggregate cap is a retryable slow-consumer signal, not an internal error.
+  expect(await output(user, "a3", 1, 1, 1)).toEqual({ status: 500, body: { code: "slow_consumer" } });
+  expect(await output(user, "a1", 3, 1, 1)).toEqual({ status: 500, body: { code: "revision_conflict" } });
   expect((await post("/socket/release", { userId: user, sessionId: "a1" })).status).toBe(200);
   expect((await post("/socket/release", { userId: user, sessionId: "a1" })).status).toBe(200);
   expect((await post("/socket/list", { userId: user })).body.length).toBe(4);
@@ -211,7 +212,7 @@ test("different users have independent socket output and connection limits", asy
   const fullUser = "socket-capacity";
   for (let index = 0; index < 500; index += 1) expect((await reserve(fullUser, "team-cap", `s-${index}`)).status).toBe(200);
   expect((await reserve(fullUser, "team-cap", "replacement", deviceKey("e"))).status).toBe(200);
-  expect((await reserve(fullUser, "team-cap", "overflow", deviceKey("f"))).status).toBe(500);
+  expect(await reserve(fullUser, "team-cap", "overflow", deviceKey("f"))).toEqual({ status: 500, body: { code: "rate_limited" } });
 });
 
 test("socket reservations survive a second workerd restart", async () => {

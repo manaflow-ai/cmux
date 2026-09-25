@@ -5,6 +5,7 @@ import { applyStorageMigrations as applyDeployedMigrations } from "./fixtures/sc
 import { applyStorageMigrations } from "../src/storage/migrations";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { sql } from "drizzle-orm";
+import { OperationError } from "../src/errors";
 
 const scope: TeamScope = { environment: "test", projectId: "iroh-v2-test", teamId: "team-e2e" };
 
@@ -89,7 +90,9 @@ export class StorageTestDO {
       }
       return new Response("not found", { status: 404 });
     } catch (error) {
-      const code = error instanceof Error ? error.message : "unknown";
+      // Classified failures report their public code so tests can tell a
+      // retryable capacity signal from an unclassified internal error.
+      const code = error instanceof OperationError ? error.code : error instanceof Error ? error.message : "unknown";
       return Response.json({ code }, { status: 500 });
     }
   }
