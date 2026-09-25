@@ -104,7 +104,8 @@ extension TerminalController {
                             self.v2Result(
                                 id: authorizedRequest.id?.foundationObject,
                                 self.v2SurfaceSyncNativeTitle(
-                                    params: authorizedRequest.params.mapValues(\.foundationObject)
+                                    params: authorizedRequest.params.mapValues(\.foundationObject),
+                                    prefersNativeTitle: authorizedRequest.method == "surface.sync_grok_native_title"
                                 )
                             )
                         }

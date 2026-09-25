@@ -19,9 +19,6 @@ extension DockSplitStore {
             discardPanelStateAndClose(panelId: panelId)
         }
         removeAllDetachedSurfaceTransfers()
-        for panelId in agentRuntimeByPanelId.keys {
-            syncTerminalTabAgentLoading(forPanelId: panelId)
-        }
         agentRuntimeByPanelId.removeAll()
         agentNeedsInputAttention.replace(with: [])
         restoredTerminalScrollbackByPanelId.removeAll()

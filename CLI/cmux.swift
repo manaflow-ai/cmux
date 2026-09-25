@@ -35361,6 +35361,19 @@ export default CMUXSessionRestore;
                 }
             }
 
+            if def.name == "grok", !relayOrigin, !suppressVisibleMutations, !sessionId.isEmpty {
+                spawnDetachedGrokNativeTitleSync(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword,
+                    environment: env,
+                    telemetry: telemetry
+                )
+            }
+
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -36359,6 +36372,8 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: cwd,
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword,
                     environment: env,
                     telemetry: telemetry
                 )
@@ -36535,6 +36550,22 @@ export default CMUXSessionRestore;
                 env: env
             )
 #endif
+            if def.name == "grok", !relayOrigin, !sessionId.isEmpty,
+               !shouldSuppressNestedAgentVisibleMutations(
+                   currentAgentPID: liveAgentPID(localAgentPID(mapped: mapped)),
+                   env: env
+               ) {
+                spawnDetachedGrokNativeTitleSync(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: notificationCwd,
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword,
+                    environment: env,
+                    telemetry: telemetry
+                )
+            }
             if def.name == "grok",
                let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input) {
                 if isGrokInternalSessionNotification(notificationMessage) {

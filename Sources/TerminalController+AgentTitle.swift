@@ -4,13 +4,11 @@ import Foundation
 
 /// Agent callbacks name stable projections through the Cloud authority boundary.
 extension TerminalController {
-    /// `surface.sync_*_native_title`: applies an agent's already-resolved
-    /// native session title to the panel's raw title tier, the same tier used
-    /// by OSC terminal-title updates. The detached CLI hook owns the provider
-    /// state read; this app-side handler only resolves the panel and mutates
-    /// in-memory workspace state.
-    /// Applies the title on the main actor for the asynchronous socket bridge.
-    func v2SurfaceSyncNativeTitle(params: [String: Any]) -> V2CallResult {
+    /// Applies an agent's persisted title on the main actor because panel and
+    /// tab metadata are UI-owned. Provider I/O stays in the detached CLI hook.
+    /// Grok uses the automatic custom tier so OSC activity titles cannot mask
+    /// its session name; Codex retains its existing raw-title behavior.
+    func v2SurfaceSyncNativeTitle(params: [String: Any], prefersNativeTitle: Bool = false) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(
                 code: "unavailable",
@@ -65,10 +63,21 @@ extension TerminalController {
                 : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
             guard let resolvedPanelId else { return }
             found = true
-            applied = SurfaceCatalog.shared.submitCloudPanelRename(
+            if let cloudApplied = SurfaceCatalog.shared.submitCloudPanelRename(
                 workspace: workspace, panelID: resolvedPanelId, title: title, source: .auto,
                 context: CloudAgentNameContext(wire: params["cloud_name_context"])
-            ) ?? tabManager.updatePanelTitle(tabId: workspaceId, panelId: resolvedPanelId, title: title)
+            ) {
+                applied = cloudApplied
+            } else if prefersNativeTitle {
+                // Replace the old LLM auto-name and keep transient OSC activity
+                // titles from masking Grok's persisted name. User names still win.
+                applied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
+                if applied {
+                    _ = tabManager.updatePanelTitle(tabId: workspaceId, panelId: resolvedPanelId, title: title)
+                }
+            } else {
+                applied = tabManager.updatePanelTitle(tabId: workspaceId, panelId: resolvedPanelId, title: title)
+            }
         }
 
         guard found else {
@@ -98,10 +107,10 @@ extension TerminalController {
     }
 
     /// `surface.sync_grok_native_title` is the Grok counterpart to the
-    /// historical Codex method. Keep both names so older Codex hooks remain
-    /// wire-compatible while new providers use an honest method name.
+    /// historical Codex method, with the native title preferred over transient
+    /// OSC activity titles and older automatic panel names.
     func v2SurfaceSyncGrokNativeTitle(params: [String: Any]) -> V2CallResult {
-        v2SurfaceSyncNativeTitle(params: params)
+        v2SurfaceSyncNativeTitle(params: params, prefersNativeTitle: true)
     }
 
     // MARK: - V2 Workspace Methods

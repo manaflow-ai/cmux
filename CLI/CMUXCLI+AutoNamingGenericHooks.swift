@@ -20,7 +20,7 @@ struct GrokSessionSummary {
                 .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !title.isEmpty {
-                return String(title.prefix(200))
+                return title
             }
         }
         return nil
@@ -28,9 +28,9 @@ struct GrokSessionSummary {
 
     static func preferredTitle(at sessionURL: URL) -> String? {
         let summaryURL = sessionURL.appendingPathComponent("summary.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: summaryURL, options: [.mappedIfSafe]) else {
-            return nil
-        }
+        guard let handle = try? FileHandle(forReadingFrom: summaryURL) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 128 * 1024 + 1) else { return nil }
         return preferredTitle(from: data)
     }
 }
@@ -83,11 +83,21 @@ extension CMUXCLI {
             telemetry.breadcrumb("grok-hook.native-title-sync.invalid-target")
             return
         }
-        let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        let sessionStore = ClaudeHookSessionStore(processEnv: env.merging(
+            ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: "grok", env: env)],
+            uniquingKeysWith: { _, new in new }
+        ))
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("grok-hook.native-title-sync.stale")
             return
         }
+        // Capture Cloud ownership before reading provider state so a concurrent
+        // rename cannot turn this observation into a fresh naming intent.
+        let probe = try? client.sendV2(method: "surface.sync_grok_native_title", params: [
+            "probe": true,
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId
+        ])
         let mapped = try? sessionStore.lookup(sessionId: sessionId)
         guard let title = grokSessionTitle(
             cwd: normalizedHookValue(optionValue(commandArgs, name: "--cwd")) ?? mapped?.cwd,
@@ -97,11 +107,10 @@ extension CMUXCLI {
             telemetry.breadcrumb("grok-hook.native-title-sync.no-title")
             return
         }
-        let probe = try? client.sendV2(method: "surface.sync_grok_native_title", params: [
-            "probe": true,
-            "workspace_id": workspaceId,
-            "panel_id": surfaceId
-        ])
+        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
+            telemetry.breadcrumb("grok-hook.native-title-sync.stale")
+            return
+        }
         do {
             let result = try client.sendV2(method: "surface.sync_grok_native_title", params: [
                 "workspace_id": workspaceId,
@@ -119,13 +128,15 @@ extension CMUXCLI {
         }
     }
 
-    /// Starts the native title lookup after the synchronous Grok Stop hook
-    /// returns.  Summary I/O stays outside the short hook timeout.
+    /// Starts a detached native-title lookup at a Grok lifecycle boundary.
+    /// Summary I/O stays outside the short hook timeout.
     func spawnDetachedGrokNativeTitleSync(
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
+        socketPath: String,
+        socketPassword: String?,
         environment: [String: String],
         telemetry: CLISocketSentryTelemetry
     ) {
@@ -153,7 +164,12 @@ extension CMUXCLI {
             surfaceId,
             cwd ?? ""
         ]
-        process.environment = environment
+        var childEnvironment = environment
+        childEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        if let socketPassword {
+            childEnvironment["CMUX_SOCKET_PASSWORD"] = socketPassword
+        }
+        process.environment = childEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -213,7 +229,6 @@ extension CMUXCLI {
         }
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        let mapped = try? sessionStore.lookup(sessionId: sessionId)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.stale")
             return

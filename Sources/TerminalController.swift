@@ -1244,9 +1244,12 @@ class TerminalController {
                 return v2Error(
                     id: request.id,
                     code: "invalid_dispatch",
-                    message: String(
-                        localized: "socket.surfaceSyncCodexNativeTitle.asyncDispatchRequired",
-                        defaultValue: "surface.sync_codex_native_title requires asynchronous socket dispatch"
+                    message: String.localizedStringWithFormat(
+                        String(
+                            localized: "socket.surfaceSyncNativeTitle.asyncDispatchRequired",
+                            defaultValue: "%@ requires asynchronous socket dispatch"
+                        ),
+                        request.method
                     )
                 )
             }
