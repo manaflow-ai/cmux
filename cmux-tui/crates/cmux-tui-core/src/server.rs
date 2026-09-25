@@ -13916,6 +13916,21 @@ mod tests {
         assert!(mux.with_state(|state| state.surfaces.is_empty()));
     }
 
+    #[test]
+    fn cloud_bootstrap_returns_the_same_creation_receipt_to_concurrent_first_opens() {
+        let mux = test_mux();
+        mux.reserve_cloud_initial_workspace().unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let first = handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
+            .unwrap();
+        assert!(first["created_path"]["terminal_id"].as_str().is_some());
+        let replay = handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
+            .unwrap();
+        assert_eq!(first["created_path"], replay["created_path"]);
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), 1);
+    }
+
     fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {
         mux.new_browser_tab("about:blank#client-sizing".to_string(), None, Some(size)).unwrap()
     }
