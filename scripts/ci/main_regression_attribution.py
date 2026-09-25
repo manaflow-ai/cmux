@@ -9,8 +9,9 @@ shard ratchet reported as RATCHET_NEW_FAILURE, or xcodebuild listed under
 known-failures catalog and did not fail in the previous full-suite run whose app-host
 shards all finished. A failure in a shard that run did not fully grade (a
 dedicated lane failed first, or the batch stopped early) is listed as having
-no baseline instead, and so is every failure when such a shard exists and the
-test list or shard packing changed between the runs.
+no baseline instead. Such a run is only used while the test list and shard
+packing are unchanged; otherwise an older, fully graded run is the baseline,
+and tests the skipped runs saw failing are not new either.
 
 Each new failure is attributed to the commits between the two runs' head
 SHAs, mapped to the pull requests merged into main by those commits. One pull
@@ -553,29 +554,34 @@ def command_report(args: argparse.Namespace) -> int:
     # finished. A shard of it that stopped before grading every test cannot
     # show a test was already failing, so failures in that shard get no verdict.
     previous = None
-    previous_failures: set[str] = set()
     previous_ungraded: set[str] = set()
     earlier = earlier_tested_runs(
         suite_run.list_runs(args.repo, args.branch, ["-f", "status=completed"]), run, args.branch,
     )
+    # A run with an ungraded shard is a usable baseline only while shard
+    # numbers still name the same tests: shards are packed from the test list
+    # and timings, so a change to either can move a test into a shard it never
+    # ran in. Otherwise look further back for a fully graded run, keeping what
+    # the skipped runs saw fail, since a test failing there is not new either.
+    seen_failing: set[str] = set()
     for candidate in earlier[:MAX_BASELINE_CANDIDATES]:
         candidate_jobs = run_jobs(args.repo, candidate["id"])
         if not app_host_ran(candidate_jobs):
             continue
+        failed: dict[str, list[str]] = {}
+        ungraded: set[str] = set()
         if candidate.get("conclusion") == "failure":
-            failed, _, previous_ungraded = job_failures(args.repo, candidate_jobs, known)
-            previous_failures = set(failed)
-        previous = candidate
+            failed, _, ungraded = job_failures(args.repo, candidate_jobs, known)
+        seen_failing |= set(failed)
+        if ungraded and shard_map_changed(args.root, str(candidate["head_sha"]), str(run["head_sha"])):
+            continue
+        previous, previous_ungraded = candidate, ungraded
         break
+    previous_failures = seen_failing
 
     failures: dict[str, list[str]] = {}
     no_baseline: list[str] = []
     if previous:
-        if previous_ungraded and shard_map_changed(args.root, str(previous["head_sha"]), str(run["head_sha"])):
-            # Shards are packed from the test list and timings, so a change to
-            # either can move a test into a shard it never ran in before. With
-            # an ungraded baseline shard, no shard number can then be trusted.
-            previous_ungraded = {shard_of(job) for job in app_host_jobs(jobs)}
         failures, no_baseline = new_failures(current, current_shards, previous_failures, previous_ungraded)
     prs: list[PullRequest] = []
     direct: list[str] = []
