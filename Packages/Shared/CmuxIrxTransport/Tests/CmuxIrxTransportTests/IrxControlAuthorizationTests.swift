@@ -56,7 +56,7 @@ struct IrxControlAuthorizationTests {
                 // QUIC can terminate a revoked lane with EOF or a close error.
             }
             #expect(unexpectedBytes.isEmpty, "revoked application bytes reached the peer")
-            _ = await fixture.serverConnection.underlying.closed()
+            _ = await fixture.serverConnection.carrier.closed()
             #expect(await fixture.serverConnection.isClosed)
         }
     }
