@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
@@ -34,7 +36,7 @@ extension CmuxTuiSurfaceProvider {
     private func createFileReceiverWorkspace() async throws -> String {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let result = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(
+        let result = try await link.run(arguments: CloudTuiRequests.createWorkspaceArguments(
             socketPath: connected.socketPath,
             name: "\(CloudFileDelivery.receiverTitle) \(UUID().uuidString)",
             empty: true

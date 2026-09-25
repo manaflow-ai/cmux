@@ -383,18 +383,21 @@ struct SessionIndexViewTests {
                     agent: .grok,
                     sessionId: "grok-match",
                     title: "grok match",
+                    cwd: "/repos/grok",
                     modified: Date(timeIntervalSince1970: 30)
                 ),
                 makeEntry(
                     agent: .claude,
                     sessionId: "claude-match",
                     title: "claude match",
+                    cwd: "/repos/claude",
                     modified: Date(timeIntervalSince1970: 20)
                 ),
                 makeEntry(
                     agent: .codex,
                     sessionId: "codex-match",
                     title: "codex match",
+                    cwd: "/repos/codex",
                     modified: Date(timeIntervalSince1970: 10)
                 )
             ])

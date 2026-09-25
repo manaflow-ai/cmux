@@ -71,6 +71,20 @@ test("unsupported paths, methods, oversized setup and mismatched aliases fail be
   expect(calls).toEqual({ stack: 0, open: 0, team: 0 });
 });
 
+test("the health route answers without Stack or a team object and rejects other methods", async () => {
+  const { calls, dependencies } = fixture();
+  const revision = "a".repeat(40);
+  const ok = await routeControl(new Request("https://api.example/v2/health"), { ...dependencies, sourceRevision: revision });
+  expect(ok.status).toBe(200);
+  expect(ok.headers.get("cache-control")).toBe("no-store");
+  expect(await ok.json() as Record<string, unknown>).toEqual({ schemaId: "health.v1", environment: device.identity.environment, sourceRevision: revision, rules: ["cmux.mac-peer-inbound.v1"], storage: { maxSchemaVersion: 7, writeSchemaVersion: 6 } });
+  const unpublished = await routeControl(new Request("https://api.example/v2/health"), { ...dependencies, sourceRevision: "not a sha" });
+  expect((await unpublished.json() as { sourceRevision: string }).sourceRevision).toBe("unknown");
+  expect((await routeControl(new Request("https://api.example/v2/health", { method: "POST" }), dependencies)).status).toBe(405);
+  expect((await routeControl(new Request("https://api.example/v2/health?probe=1"), dependencies)).status).toBe(404);
+  expect(calls).toEqual({ stack: 0, open: 0, team: 0 });
+});
+
 test("cross-environment setup never reaches Stack or a team object", async () => {
   const { calls, dependencies } = fixture();
   const result = await routeControl(new Request("https://api.example/v2/control/session", {

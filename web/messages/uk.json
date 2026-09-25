@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Виявлено конфігурацію harness",
+    "selectionNotice": "Вибір постачальника не запускає і не вмикає ці harness.",
+    "selectProvider": "Вибрати {provider}",
+    "foundPath": "Знайдено {path}",
+    "foundCommand": "Знайдено команду {command}",
+    "installed": "Постачальник встановлений",
+    "missing": "Постачальник не встановлений",
+    "install": "Встановити за допомогою: {command}",
+    "benefitPi": "Стиснення, пам’ять і маршрутизація постачальників",
+    "benefitOpenagent": "Паралельні спеціалісти та відновлення для OpenCode",
+    "benefitClaude": "Команди та перевірка для Claude Code",
+    "benefitSuperpowers": "Планування, TDD, субагенти та перевірка"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Налаштування Cloud VM не завершено",
+      "reason": "Налаштування гостьового середовища Cloud VM не завершено.",
+      "message": "cmux не вдалося завершити налаштування Cloud VM.",
+      "action": "Повторіть операцію. Якщо проблема не зникає, зверніться до служби підтримки."
+    },
+    "createCleanupPending": {
+      "title": "Очищення Cloud VM очікується",
+      "message": "Не вдалося налаштувати Cloud VM. Очищення ще не завершено.",
+      "action": "Перш ніж створювати іншу машину, зверніться до підтримки та вкажіть ідентифікатор трасування."
+    },
     "unsupported": {
       "title": "Операція Cloud VM недоступна",
       "reason": "Цей тип машини не підтримує цю операцію.",
@@ -23,6 +48,11 @@
       "message": "Для Cloud VM потрібен план cmux Pro.",
       "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
     },
+    "displayName": {
+      "title": "Неприпустима назва машини",
+      "message": "Назва машини має бути друкованим текстом довжиною не більше {maxLength} символів.",
+      "action": "Використайте коротшу назву без керівних символів або залиште поле порожнім, щоб очистити її."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Для машин із {memory} ГіБ потрібен cmux {plan}. Ваш тариф підтримує до {max} ГіБ.",
@@ -35,8 +65,7 @@
     "memoryUnavailable": {
       "message": "Цей розмір машини недоступний. Виберіть до {max} ГіБ.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go включає дві збережені ВМ, зокрема запущену.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +75,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Якщо ми знайшли обліковий запис, перевірте електронну пошту, щоб дізнатися про наступні кроки"
   },
@@ -81,6 +111,7 @@
   "authError": {
     "emailUnverifiedTitle": "Підтвердьте електронну пошту, щоб продовжити",
     "emailUnverifiedBody": "Увійдіть способом, який ви використовували спочатку, а потім підтвердьте електронну пошту перед використанням цього способу входу.",
+    "signupPendingBody": "Якщо у вас уже є обліковий запис, увійдіть способом, яким ви користувалися раніше. Якщо ви щойно створили обліковий запис, підтвердьте електронну пошту перед входом.",
     "genericTitle": "Не вдалося увійти",
     "genericBody": "Спробуйте ще раз. Якщо проблема не зникне, зверніться до служби підтримки.",
     "backToSignIn": "Повернутися до входу"
@@ -318,7 +349,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "огляд",
       "team": "команда",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Мобільні пристрої"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,30 +394,84 @@
         "loading": "Завантаження…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "Мобільні пристрої",
+      "description": "Керуйте доступом до підключених комп’ютерів, телефонів і планшетів.",
+      "team": "Команда",
+      "teamSwitchError": "Не вдалося змінити команду. Повторіть спробу.",
+      "loading": "Завантаження пристроїв…",
+      "empty": "Для цієї команди немає зареєстрованих пристроїв.",
+      "unavailable": "Не вдалося завантажити пристрої. Оновіть сторінку й повторіть спробу.",
+      "retry": "Повторити",
+      "mutationError": "Не вдалося завершити зміну пристрою.",
+      "revoke": "Відкликати доступ",
+      "deviceId": "Пристрій",
+      "revision": "Версія",
+      "status": "Стан",
+      "active": "Активний",
+      "revoked": "Відкликано",
+      "relaySettings": "Налаштування ретрансляції",
+      "relaySettingsDescription": "Виберіть сервери ретрансляції для цієї команди. Вводьте по одному URL у рядку.",
+      "saveRelaySettings": "Зберегти налаштування ретрансляції",
+      "eyebrow": "хмара / пристрої",
+      "scopeActive": "Показано цю команду",
+      "emptyTitle": "Підключених пристроїв ще немає",
+      "emptyDescription": "Після сполучення пристрою cmux із цією командою тут з’являться його платформа, версія та налаштування доступу.",
+      "revoking": "Відкликання доступу…",
+      "registeredDevices": "Зареєстровані пристрої",
+      "activeDevices": "Активні пристрої",
+      "directoryRevision": "Ревізія каталогу",
+      "savingRelaySettings": "Збереження…"
     },
     "coderouterAccounts": {
+      "transferAction": "Перенести",
+      "transferringAction": "Перенесення…",
+      "transferDialogTitle": "Перенести акаунт до іншої команди",
+      "transferChooseBody": "Виберіть команду, яка отримає {account}. Зараз він належить команді {source}.",
+      "transferDestinationLabel": "Команда призначення",
+      "continueAction": "Продовжити",
+      "backAction": "Назад",
+      "transferConfirmTitle": "Перенести {account}?",
+      "transferConfirmBody": "{account} переходить з команди {source} до команди {destination}. Хмарні машини та учасники {source} одразу перестануть ним користуватися. У {destination} збережеться його поточне налаштування спільного доступу.",
+      "transferConfirmAction": "Перенести акаунт",
+      "transferSuccess": "{account} перенесено до {destination}.",
+      "transferError": "Не вдалося перенести цей акаунт. Спробуйте ще раз.",
+      "transferForbiddenError": "Ви більше не можете переносити акаунти до цієї команди.",
+      "transferNotFoundError": "Цього акаунта більше немає в цій команді. Оновіть сторінку, щоб побачити, де він.",
+      "transferConflictError": "Акаунт змінився під час перенесення. Оновіть сторінку й спробуйте ще раз.",
+      "transferUnavailableError": "Перенесення тимчасово недоступне або акаунт оновлюється. Спробуйте ще раз за мить.",
       "shareWithTeam": "Поділитися з командою",
       "makePrivate": "Зробити приватним",
       "privateImportHint": "Нові облікові записи приватні. Поділіться записом, щоб він став доступним хмарним ВМ цієї команди.",
       "description": "Спільні облікові записи доступні хмарним ВМ цієї команди. Приватні облікові записи доступні лише тому, хто їх додав.",
-      "cancelAction": "Скасувати"
+      "cancelAction": "Скасувати",
+      "apiKeysTitle": "Ключі API",
+      "apiKeysDescription": "Створюйте довготривалі ключі для скриптів і агентів. Секрет показується один раз.",
+      "apiKeysCount": "{count, plural, one {# ключ} few {# ключі} many {# ключів} other {# ключа}}",
+      "apiKeysLoading": "Завантаження ключів API…",
+      "apiKeysLoadError": "Не вдалося завантажити ключі API. Спробуйте ще раз незабаром.",
+      "apiKeysRetry": "Повторити",
+      "apiKeysEmptyBody": "Ключів API ще немає. Створіть ключ для автентифікації клієнта CodeRouter.",
+      "apiKeyPrefixColumn": "Ключ",
+      "apiKeyStatusColumn": "Стан",
+      "apiKeySecretTitle": "Скопіюйте цей ключ зараз",
+      "apiKeySecretBody": "Цей секрет більше не буде показано.",
+      "apiKeyCopy": "Копіювати ключ API",
+      "apiKeyCopied": "Скопійовано",
+      "apiKeyCreatedAt": "створено {at}",
+      "apiKeyLastUsed": "останнє використання {at}",
+      "apiKeyRevoked": "Відкликано",
+      "apiKeyLabelPlaceholder": "Наприклад, CI або продакшен",
+      "createApiKeyAction": "Створити ключ API",
+      "creatingApiKeyAction": "Створення",
+      "apiKeyCreateError": "Не вдалося створити ключ API.",
+      "revokeApiKeyAction": "Відкликати",
+      "revokingApiKeyAction": "Відкликання",
+      "apiKeyRevokeError": "Не вдалося відкликати ключ API.",
+      "revokeApiKeyConfirmTitle": "Відкликати цей ключ API?",
+      "apiKeyUsageDetail": "останні 30 днів: {completions} завершень · {tokens} токенів ({input} вхід / {output} вихід) · API-еквівалент {value}",
+      "apiKeyUsageUnavailable": "Дані використання недоступні",
+      "revokeApiKeyConfirmBody": "Клієнти, які використовують цей ключ, одразу втратять автентифікацію."
     }
   },
   "community": {
@@ -1186,6 +1271,12 @@
       "browserHostsHttp": "HTTP-хости, дозволені у вбудованому браузері: застосовується тільки до HTTP (не HTTPS) URL. Хости з цього списку можуть відкриватися в cmux без попередження. За замовчуванням включено localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 та *.localtest.me.",
       "exampleConfig": "Приклад конфігурації",
       "schemaDescriptions": {
+        "root": "Конфігурація cmux. Глобальний cmux.json підтримує налаштування застосунку, скорочення, дії, власні команди, хуки сповіщень і макети робочих просторів. Проєктний .cmux/cmux.json або cmux.json підтримує дії, команди, хуки сповіщень, прив’язування дій інтерфейсу, перевизначення Agent Chat, агентів vault, перевизначення груп робочих просторів і налаштування запуску та кнопок робочого простору.",
+        "rightSidebar": "Застаріла та належна розширенням конфігурація правої бічної панелі, що зберігається в cmux.json.",
+        "packs": {
+          "description": "Локальні файли або каталоги пакетів cmux, що завантажуються перед цією конфігурацією. Каталоги вказують на cmux.pack.json. Використовуйте рядок шляху або об’єкт із полем path.",
+          "path": "Шлях до локального файлу або каталогу, відносний до цього файлу конфігурації, якщо він не абсолютний."
+        },
         "paneBorderColor": "Перевизначає колір розділювача панелей cmux у розділених робочих просторах. Це впливає на межі панелей cmux, а не на внутрішні розділення Ghostty.",
         "activePaneBorderColor": "Необов’язковий колір рамки, що малюється навколо сфокусованої панелі cmux у розділених робочих просторах.",
         "automation": {
@@ -1197,6 +1288,7 @@
         "app": {
           "confirmQuit": "Керує тим, коли cmux запитує підтвердження перед виходом. DEV-збірки завжди завершуються одразу незалежно від цього налаштування. Застарілий app.warnBeforeQuit і надалі приймається як булевий запасний варіант.",
           "windowTitleTemplate": "Необов'язковий шаблон заголовка NSWindow. Порожнє значення зберігає наявну стандартну поведінку заголовка cmux, включно з використанням поточного каталогу як запасного варіанта. Підтримувані заповнювачі: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Назва дисплея, що використовується лише у DEBUG-збірках під час відкриття нових вікон. Порожнє значення використовує системне значення за замовчуванням.",
           "warnBeforeQuit": "Застарілий булевий запасний варіант для підтвердження виходу. Для нових конфігурацій використовуйте app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Показувати підтвердження перед закриттям вкладки кнопкою закриття вкладки.",
           "hideTabCloseButton": "Приховувати кнопки закриття вкладок на панелі вкладок області.",
@@ -1319,7 +1411,7 @@
       "plusButtonScreenshotAlt": "Меню правого кліку кнопки плюс у cmux показує Worktree Agents, New Terminal і New Browser",
       "plusButtonScreenshotCaption": "Меню правого кліку дотримується порядку з ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Користувацькі дії кнопки плюс",
-      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines.",
+      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines. New Cloud Workspace використовує машину останнього вибраного робочого простору Cloud, а потім першу машину на правій бічній панелі; New Cloud Machine навмисно створює машину.",
       "newWorkspaceWorktreeNote": "У цьому прикладі звичайний клік по плюсу запускає дію <action>worktree-agents</action>. Команда робочого простору з <commands>commands</commands> використовує видимий термінал налаштування, щоб спочатку створити Git <worktree>worktree</worktree>. Codex і Claude запускаються одночасно, чекають файл стану для цього робочого простору, а потім переходять у створений каталог перед exec.",
       "simpleCommands": "Прості команди",
       "simpleCommandsDesc": "Проста команда виконує shell-команду в поточному активному терміналі:",
@@ -1372,6 +1464,7 @@
       "restartNew": "Створити новий workspace (за замовчуванням)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Перемкнути перенесення рядків у редакторі файлів (Option+Z).",
       "title": "Клавіатурні скорочення",
       "description": "Усі клавіатурні скорочення cmux, згруповані за категоріями.",
       "metaTitle": "Клавіатурні скорочення",
@@ -4054,5 +4147,15 @@
     "organization": "Організація",
     "personalAccount": "особистий обліковий запис",
     "switchAccountButton": "Використати інший обліковий запис"
+  },
+  "MobileRelease106": {
+    "title": "Що нового у 1.0.6",
+    "releaseLabel": "1.0.6 · Вересень 2026",
+    "connectionTitle": "Оновлені підключення до Mac",
+    "connectionDetail": "Це оновлення використовує новий сервіс підключення та транспорт Iroh. Старі збірки для Mac потрібно оновити, щоб підключатися.",
+    "updateTitle": "Оновіть cmux на Mac",
+    "updateDetail": "Потрібен cmux {stableVersion} або новіший чи NIGHTLY {nightlyVersion} або новіший. Увімкніть спарювання з iOS у Параметри > Мобільні пристрої на кожному Mac.",
+    "rollbackTitle": "Потрібно зберегти стару збірку для Mac?",
+    "rollbackDetail": "Використовуйте cmux BETA 1.0.5 ({rollbackBuild}) із TestFlight > Попередні збірки, доки вона доступна. Виберіть саме цю збірку, оскільки пізніші використовують новіший сервіс підключення."
   }
 }

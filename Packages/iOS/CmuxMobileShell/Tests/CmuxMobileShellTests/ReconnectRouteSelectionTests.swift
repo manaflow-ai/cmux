@@ -45,6 +45,108 @@ import Testing
         )
     }
 
+    @Test(arguments: [MobileConnectionMethod.automatic.rawValue, nil] as [String?])
+    func coldStartUsesStoredComputerMethodDespiteLegacyTailscaleDefault(
+        storedMethod: String?
+    ) async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac", routes: [try iroh()],
+            instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default", rawValue: storedMethod,
+            stackUserID: "user-1", teamID: nil
+        )
+        let defaults = UserDefaults(suiteName: "cold-start-method-\(UUID().uuidString)")!
+        defaults.set(MobileConnectionMethod.tailscale.rawValue,
+                     forKey: MobileConnectionMethodStore.methodKey)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory, now: { clock.now }, supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true, pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(), pairingHintDefaults: defaults
+        )
+        // Restore starts before the published computer list has loaded.
+        #expect(shell.pairedMacs.isEmpty)
+        #expect(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(shell.activeRoute?.kind == .iroh)
+        await shell.remoteClient?.disconnect()
+    }
+
+    @Test func startupReconnectWaitsForPairedMacHydrationBeforeDialing() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let mac = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try iroh()],
+            createdAt: clock.now,
+            lastSeenAt: clock.now,
+            isActive: true,
+            stackUserID: "user-1",
+            instanceTag: "default"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [mac]],
+            blockedTeams: [""]
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability()
+        )
+
+        let reconnect = Task {
+            await shell.reconnectActiveMacIfAvailable(
+                stackUserID: "user-1",
+                hydratePairedMacs: true
+            )
+        }
+        await pairedStore.waitUntilLoadStarted(teamID: nil)
+        #expect(factory.attemptedKinds().isEmpty)
+
+        // The hydration gate and the authoritative reconnect snapshot each read
+        // storage. Keep releasing any read that becomes parked, so this test
+        // does not race the store actor's continuation setup or assume a fixed
+        // number of startup readers.
+        let releaser = Task {
+            for _ in 0 ..< 500 {
+                if await pairedStore.isLoadBlocked(teamID: nil) {
+                    await pairedStore.release(teamID: nil)
+                }
+                await Task.yield()
+            }
+        }
+        #expect(await reconnect.value)
+        releaser.cancel()
+        #expect(shell.pairedMacLoadState == .loaded)
+        #expect(factory.attemptedKinds() == [.iroh])
+        await shell.remoteClient?.disconnect()
+    }
+
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
@@ -656,70 +758,44 @@ import Testing
     }
 
     @Test func tailscaleSetupIsRequiredImmediatelyWhenNoMacIsKnown() {
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-setup-method-\(UUID().uuidString)"
-        )!
-        methodDefaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
-            forKey: MobileConnectionMethodStore.methodKey
-        )
         let pairingDefaults = UserDefaults(
             suiteName: "tailscale-setup-pairing-\(UUID().uuidString)"
         )!
         let store = MobileShellComposite(
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            ),
             pairingHintDefaults: pairingDefaults
         )
 
         #expect(store.pairedMacLoadState == .notLoaded)
         #expect(!store.hasKnownPairedMac)
-        #expect(store.tailscaleSetupStatus == .pairingRequired)
-        #expect(store.tailscalePairingRequired)
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(!store.tailscalePairingRequired)
     }
 
     @Test func knownMacWaitsForRouteLoadBeforeRequiringTailscaleSetup() {
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-load-method-\(UUID().uuidString)"
-        )!
-        methodDefaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
-            forKey: MobileConnectionMethodStore.methodKey
-        )
         let pairingDefaults = UserDefaults(
             suiteName: "tailscale-load-pairing-\(UUID().uuidString)"
         )!
         pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
         let store = MobileShellComposite(
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            ),
             pairingHintDefaults: pairingDefaults
         )
 
-        #expect(store.tailscaleSetupStatus == .loadingAuthorization)
+        #expect(store.tailscaleSetupStatus == .notSelected)
         #expect(!store.tailscalePairingRequired)
         store.pairedMacLoadState = .failed
-        #expect(store.tailscaleSetupStatus == .pairingRequired)
-        #expect(store.tailscalePairingRequired)
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(!store.tailscalePairingRequired)
     }
 
     @Test func projectedTailscaleSetupStatusEvaluatesBeforeMethodSelection() {
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-projected-method-\(UUID().uuidString)"
-        )!
         let pairingDefaults = UserDefaults(
             suiteName: "tailscale-projected-pairing-\(UUID().uuidString)"
         )!
         pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
         let store = MobileShellComposite(
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            ),
             pairingHintDefaults: pairingDefaults
         )
 
@@ -767,10 +843,6 @@ import Testing
             teamID: nil,
             routes: [tailscale]
         )
-        let methodDefaults = UserDefaults(
-            suiteName: "connection-method-live-switch-\(UUID().uuidString)"
-        )!
-        let methodStore = MobileConnectionMethodStore(defaults: methodDefaults)
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -779,7 +851,6 @@ import Testing
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
@@ -850,11 +921,6 @@ import Testing
             teamID: nil,
             routes: [tailscale]
         )
-        let methodStore = MobileConnectionMethodStore(
-            defaults: UserDefaults(
-                suiteName: "connection-method-strict-failure-\(UUID().uuidString)"
-            )!
-        )
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -863,7 +929,6 @@ import Testing
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
@@ -961,11 +1026,6 @@ import Testing
             instanceTag: "default",
             displayName: "Other Mac"
         )
-        let methodStore = MobileConnectionMethodStore(
-            defaults: UserDefaults(
-                suiteName: "connection-method-strict-other-mac-\(UUID().uuidString)"
-            )!
-        )
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -974,7 +1034,6 @@ import Testing
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(

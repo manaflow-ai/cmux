@@ -25,10 +25,20 @@
 set -euo pipefail
 
 REPO_ROOT=""
+TARGET_NAME="cmuxTests"
+TESTS_DIR_ARG=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo-root)
       REPO_ROOT="$2"
+      shift 2
+      ;;
+    --target)
+      TARGET_NAME="$2"
+      shift 2
+      ;;
+    --tests-dir)
+      TESTS_DIR_ARG="$2"
       shift 2
       ;;
     -h|--help)
@@ -47,7 +57,8 @@ if [ -z "$REPO_ROOT" ]; then
 fi
 
 PBXPROJ="$REPO_ROOT/cmux.xcodeproj/project.pbxproj"
-TESTS_DIR="$REPO_ROOT/cmuxTests"
+TESTS_REL="${TESTS_DIR_ARG:-$TARGET_NAME}"
+TESTS_DIR="$REPO_ROOT/$TESTS_REL"
 
 if [ ! -f "$PBXPROJ" ]; then
   echo "lint-pbxproj-test-wiring: not found: $PBXPROJ" >&2
@@ -77,8 +88,8 @@ fi
 # only care about the native-target block. Use awk to capture every
 # `/* cmuxTests */ = { ... };` block and keep only the one whose `isa =
 # PBXNativeTarget;` line is present.
-tests_target_block="$(awk '
-  /\/\* cmuxTests \*\/ = \{/ { capture = 1; buf = "" }
+tests_target_block="$(awk -v target="$TARGET_NAME" '
+  $0 ~ "/\\* " target " \\*/ = \\{" { capture = 1; buf = "" }
   capture { buf = buf $0 "\n" }
   capture && /^[[:space:]]*\};[[:space:]]*$/ {
     if (buf ~ /isa = PBXNativeTarget;/) {
@@ -91,7 +102,7 @@ tests_target_block="$(awk '
 ' "$PBXPROJ")"
 
 if [ -z "$tests_target_block" ]; then
-  echo "lint-pbxproj-test-wiring: could not locate cmuxTests PBXNativeTarget in $PBXPROJ" >&2
+  echo "lint-pbxproj-test-wiring: could not locate $TARGET_NAME PBXNativeTarget in $PBXPROJ" >&2
   exit 2
 fi
 
@@ -104,7 +115,7 @@ tests_sources_uuid="$(printf '%s\n' "$tests_target_block" \
   | awk '{print $1}')"
 
 if [ -z "$tests_sources_uuid" ]; then
-  echo "lint-pbxproj-test-wiring: cmuxTests target has no Sources build phase reference" >&2
+  echo "lint-pbxproj-test-wiring: $TARGET_NAME target has no Sources build phase reference" >&2
   exit 2
 fi
 
@@ -118,7 +129,7 @@ tests_sources_block="$(awk -v uuid="$tests_sources_uuid" '
 ' "$PBXPROJ")"
 
 if [ -z "$tests_sources_block" ]; then
-  echo "lint-pbxproj-test-wiring: could not slice cmuxTests Sources build phase (uuid=$tests_sources_uuid)" >&2
+  echo "lint-pbxproj-test-wiring: could not slice $TARGET_NAME Sources build phase (uuid=$tests_sources_uuid)" >&2
   exit 2
 fi
 
@@ -146,24 +157,31 @@ if [ "${#missing[@]}" -eq 0 ]; then
   exit 0
 fi
 
-echo "lint-pbxproj-test-wiring: ${#missing[@]} test file(s) not a member of the cmuxTests target's Sources build phase (uuid=$tests_sources_uuid) in cmux.xcodeproj/project.pbxproj"
+echo "lint-pbxproj-test-wiring: ${#missing[@]} test file(s) not a member of the $TARGET_NAME target's Sources build phase (uuid=$tests_sources_uuid) in cmux.xcodeproj/project.pbxproj"
 for entry in "${missing[@]}"; do
   echo "  - $entry"
 done
 echo ""
-echo "Each cmuxTests/<file>.swift must be wired into cmux.xcodeproj/project.pbxproj"
-echo "as a full target member of cmuxTests:"
+echo "Each $TESTS_REL/<file>.swift must be wired into cmux.xcodeproj/project.pbxproj"
+echo "as a full target member of $TARGET_NAME:"
 echo "  1. a PBXBuildFile entry (line ends with '<file>.swift in Sources */ = { ... };')"
 echo "  2. a PBXFileReference entry"
-echo "  3. an entry in the cmuxTests group children list"
-echo "  4. an entry in the cmuxTests target's PBXSourcesBuildPhase files"
+echo "  3. an entry in the $TARGET_NAME group children list"
+echo "  4. an entry in the $TARGET_NAME target's PBXSourcesBuildPhase files"
 echo "     (line ends with '<file>.swift in Sources */,')"
 echo ""
-echo "This lint slices the cmuxTests Sources phase and looks for entry 4 there."
+echo "This lint slices the $TARGET_NAME Sources phase and looks for entry 4 there."
 echo "Files wired only into cmuxUITests, cmux, or the project tree (without"
-echo "cmuxTests target membership) are silently skipped by Xcode and will be"
+echo "$TARGET_NAME target membership) are silently skipped by Xcode and will be"
 echo "flagged here."
 echo ""
-echo "Add via Xcode (drag the file into the cmuxTests target) or hand-edit"
-echo "the four blocks (see any wired sibling test as a template)."
+if [ "$TARGET_NAME" = "cmuxTests" ] && [ "$TESTS_REL" = "cmuxTests" ]; then
+  echo "Run ./scripts/sync-test-wiring to reconcile direct $TESTS_REL/*.swift files."
+  echo "Use ./scripts/sync-test-wiring --check for a read-only authoring/CI check."
+else
+  # sync-test-wiring only reconciles cmuxTests. Other targets are wired by hand.
+  echo "sync-test-wiring only reconciles cmuxTests; add the four $TARGET_NAME"
+  echo "entries above by hand (or in Xcode) for $TESTS_REL/*.swift."
+fi
+echo "This lint remains the defensive $TARGET_NAME Sources-phase guard."
 exit 1

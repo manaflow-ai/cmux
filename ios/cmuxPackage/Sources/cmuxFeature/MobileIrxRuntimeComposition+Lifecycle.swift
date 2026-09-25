@@ -65,6 +65,8 @@ extension MobileIrxRuntimeComposition {
             deviceID: deviceID, environment: configuration.environment,
             projectID: configuration.projectID, teamID: scope.teamID, userID: scope.session.accountID)
         let key = try await installation.key(identity: tuple)
+        let stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory,
+            fileManager: FileManager(), identityKey: key)
         // A corrupt disposable cache is recoverable through a signed v2 setup;
         // the identity seed and Stack authentication are never erased.
         let restored = try? await stateStore.load(identity: tuple)
@@ -72,7 +74,8 @@ extension MobileIrxRuntimeComposition {
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let supervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
             identity: identity, pathMode: forceRelayOnly ? .relayOnly : .automatic,
-            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal)
+            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal,
+            diagnosticLog: diagnosticLog)
         self.identity = identity
         endpointSupervisor = supervisor
         cache = restored ?? V2CachedState(identity: tuple)
@@ -158,7 +161,7 @@ extension MobileIrxRuntimeComposition {
         lastFailure = snapshot.failure.map { String(describing: $0) }
         publish()
         if snapshot.cache.authorityRevoked {
-            await MainActor.run { MobileMacListAuthState.shared.clear() }
+            await MainActor.run { self.macListAuthState.clear() }
             guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             let engines = Array(enginesByPeer.values)
             let supervisor = endpointSupervisor
@@ -275,7 +278,7 @@ extension MobileIrxRuntimeComposition {
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll(); controlLaneClaims.removeAll(); claimedEventSessions.removeAll()
         publish()
-        await MainActor.run { MobileMacListAuthState.shared.clear() }
+        await MainActor.run { self.macListAuthState.clear() }
         return DetachedRuntime(
             control: oldControl,
             endpointSupervisor: oldSupervisor,

@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
@@ -12,12 +13,14 @@ struct CloudTreeMachineRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                Image(systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
+                    tint: CloudTreeIconPalette.machine
+                )
+                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {
                         Text(subtitle)
@@ -26,16 +29,6 @@ struct CloudTreeMachineRowContent: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(height: scaled(style.machineSubtitleLineHeight))
-                    }
-                    if style.machineRowLayout == .twoLine && style.showsMachineStats {
-                        CloudTreeMachineResourceView(
-                            metrics: CloudMachineResourcePresentation(machine: machine, now: now),
-                            style: style
-                        )
-                        .frame(minHeight: scaled(style.machineResourceHeight))
-                    }
-                    if style.machineRowLayout == .twoLine {
-                        CloudTreeMachineDetailView(line: usageSummary, style: style)
                     }
                 }
             }
@@ -47,27 +40,14 @@ struct CloudTreeMachineRowContent: View {
 
     /// Machine identity retains its own line at every sidebar width.
     private var nameRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+        HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+            HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
                 Text(machine.displayName)
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
-                if machine.isDefault {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
-                }
-                if style.machineRowLayout == .singleLine, let fact = inlineFact {
-                    Text(fact)
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
             }
             Spacer(minLength: 0)
         }
@@ -78,9 +58,6 @@ struct CloudTreeMachineRowContent: View {
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
         parts.append(usageSummary)
-        if machine.isDefault {
-            parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
-        }
         return parts.joined(separator: ", ")
     }
 
@@ -156,25 +133,21 @@ struct CloudTreeMachineRowContent: View {
         return parts.joined(separator: " · ")
     }
 
-    /// The original compact summary follows the name; full details remain on hover.
+    /// Legacy summary retained for callers that use the machine row model;
+    /// rendering now places these details in the Resources section.
     var inlineFact: String? {
         if machine.freeAccess == .expired {
             return String(localized: "machines.row.locked", defaultValue: "Locked")
         }
         var parts: [String] = []
+        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
         if style.showsMachineStats {
-            parts.append(resourceLine)
+            parts.append([metrics.cpu, metrics.memory, metrics.disk]
+                .map { "\($0.label)\u{00A0}\($0.value)" }
+                .joined(separator: " · "))
         }
         parts.append(usageSummary)
         return parts.joined(separator: " · ")
-    }
-
-    /// Compact labels and percentages match the original machine header line.
-    private var resourceLine: String {
-        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
-        return [metrics.cpu, metrics.memory, metrics.disk]
-            .map { "\($0.label)\u{00A0}\($0.value)" }
-            .joined(separator: " · ")
     }
 
     private func scaled(_ size: CGFloat) -> CGFloat {
