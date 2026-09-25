@@ -586,9 +586,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     subject = ("an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"pull request #{target.pr_number}"
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
-    # One watch deadline for every attempt this job watches. A rescue may run
-    # past it, within the job's own timeout, so a cancel is never started
-    # without the time to settle and re-run.
+    # A watch deadline for attempt 1, and a fresh one (capped by the job's
+    # timeout) for an attempt it re-ran and follows. A rescue may run past it,
+    # within the job's own timeout, so a cancel is never started without the
+    # time to settle and re-run.
     started = clock()
     deadline = started + dt.timedelta(seconds=target.watch_limit)
     rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
@@ -614,6 +615,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             if not failed_only and not light_retry:
                 return finish("done")
             target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only)
+            # The followed attempt gets its own watch: a late rescue of attempt 1
+            # would otherwise leave it the tail of attempt 1's, ending before its
+            # owned jobs even queue. The job's timeout still caps watch plus grace.
+            deadline = min(clock() + dt.timedelta(seconds=target.watch_limit), started + dt.timedelta(
+                seconds=JOB_TIMEOUT_SECONDS - RESCUE_GRACE_SECONDS - JOB_TIMEOUT_MARGIN_SECONDS))
+            rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
             outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
                                     deadline=deadline)
             if outcome not in ("rescue", "refused"):

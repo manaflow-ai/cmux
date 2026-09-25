@@ -437,6 +437,28 @@ class Rescuing(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("stopped watching attempt 2: the run is on an ephemeral pool", summary)
 
+    def test_a_late_rescue_gives_the_followed_attempt_its_own_watch(self):
+        # Attempt 1 queues at minute 40 and is rescued; attempt 2's light job
+        # queues 25 minutes into the re-run, past attempt 1's 60-minute
+        # deadline. The followed attempt must still be watched and moved.
+        clock = Clock()
+        late = persistent_run(queued_at=2400)
+
+        def rerun_jobs(seconds):
+            found = persistent_run(queued_at=1500)(seconds)
+            for queued in found[1:]:
+                queued["labels"] = [LIGHT]
+            # A Linux job keeps the re-run going until its macOS jobs queue.
+            return found + [job("linux-preflight", status="in_progress", labels=["blacksmith-4vcpu-ubuntu-2404"])]
+
+        api = FakeAPI(clock, late, marker=lambda name: True, rerun_jobs=rerun_jobs)
+        code, summary = run_main(api, clock, env_extra={"OWNED_LIGHT_RETRY": "1"})
+        self.assertEqual(code, 0)
+        self.assertGreater(clock.seconds, rescue.WATCH_LIMIT_SECONDS)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {LIGHT}", summary)
+        self.assertNotIn("watch limit reached", summary)
+
     def test_a_full_re_run_is_not_watched_with_the_light_retry_off(self):
         clock = Clock()
         api = FakeAPI(clock, persistent_run(), marker=True)
