@@ -40,11 +40,15 @@ inputs:
     description: The full SHA the product was compiled from.
     required: true
   artifact-id:
-    description: The uploaded product artifact's id.
-    required: true
+    description: >-
+      The uploaded product artifact's id. Empty when the build job tests on an
+      owned Mac, which uploads after the tests.
+    required: false
+    default: ""
   artifact-digest:
-    description: The uploaded product artifact's provider digest.
-    required: true
+    description: The uploaded product artifact's provider digest; empty with artifact-id.
+    required: false
+    default: ""
   sha256:
     description: The product archive's SHA-256.
     required: true
@@ -227,9 +231,10 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # The build job restores the archive it just packaged and uploaded,
-        # as compile admission does for its changed suites, so the tests run
-        # the exact bytes every other consumer downloads.
+        # The build job restores the archive it just packaged, as compile
+        # admission does for its changed suites, so the tests run the exact
+        # bytes every other consumer downloads. It uploads them before the
+        # tests, or after them on an owned Mac.
         if [ "$CMUX_PRODUCT_FROM_PRODUCER" = true ]; then
           mkdir -p "$RUNNER_TEMP/app-host-products"
           ln -f "$RUNNER_TEMP/app-host-products.tar.gz" "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"

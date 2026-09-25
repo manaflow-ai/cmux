@@ -142,17 +142,23 @@ mini's root while it ran; on cmux7s and cmux9s, with one root, it blocked the
 mini's only compile. A pool without a root count keeps the pool label.
 
 Warm affinity: an owned Mac keeps compile admission's DerivedData
-(owned_build_state.py), and ci-owned-warm-labels.yml labels its root runner
-`glaeda-warm-<sha12>` for each main commit that build starts from cheaply
-(owned_warm_labels.py). When admission is placed on a pool with a root count
-and the runners were read live, the picker looks for an idle root runner of
-that pool carrying the label of this run's merge base (MERGED_ONTO, the merge
-commit's first parent) and, if one does, writes `admission_runner`, the JSON
-array `["<root label>", "glaeda-warm-<sha12>"]`, which admission's attempt 1
-takes as its runs-on. Otherwise it is empty and admission takes the root
-label. The match is exact: v1 does not rank runners by commit distance. A
-warm runner taken between the pick and the queue leaves admission waiting on
-the label, and ci-owned-pool-rescue.yml moves it to Blacksmith.
+(owned_build_state.py), and the queue janitor's snapshot carries `warm`: for
+each root runner, the main commits its kept build starts from cheaply
+(owned_warm_state.py, from the `owned-warm-keys` artifact admission uploads).
+When `vars.CI_OWNED_WARM == '1'`, admission is placed on a pool with a root
+count and the runners were read live, the picker looks for an idle runner of
+that root label that the snapshot calls warm for this run's merge base
+(MERGED_ONTO, the merge commit's first parent), or failing that for this
+pull request (`pr-<PR_NUMBER>`, a re-push), and that carries its own
+static label, `glaeda-runner-<runner name>` (glaeda-cmux-runner gives every
+root runner one at install). If one does, it writes `admission_runner`, the
+JSON array `["<root label>", "glaeda-runner-<name>"]`, which admission's
+attempt 1 takes as its runs-on. Otherwise it is empty and admission takes the
+root label. Nothing writes a runner label at job time, so the routing App
+needs only "Self-hosted runners: Read-only". The match is exact: v1 does not
+rank runners by commit distance. A warm runner taken between the pick and
+the queue leaves admission waiting on its label, and
+ci-owned-pool-rescue.yml moves it to Blacksmith.
 
 GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 `vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
@@ -266,9 +272,12 @@ SIDE_PREFIX = "glaeda-side-"
 # pools: slots() leaves them out, and capability_slots() reads their count
 # (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
 CAPABILITY_LABELS = ("glaeda-ios-sim",)
-# `glaeda-warm-<sha12>`: a root runner whose kept build starts from that main commit.
-WARM_PREFIX = "glaeda-warm-"
-WARM_KEY = re.compile(r"[0-9a-f]{12}")
+# A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
+# `pr-<number>` for a kept build of that pull request.
+WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
+# `glaeda-runner-<runner name>`: the static label naming one root runner
+# (glaeda-cmux-runner runner_label()), which warm affinity puts in runs-on.
+RUNNER_LABEL_PREFIX = "glaeda-runner-"
 XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
@@ -940,23 +949,49 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
     return free
 
 
-def warm_label(commit: str | None) -> str:
-    """The warm label for a commit (its first 12 hex digits), or "" for anything else."""
-    key = (commit or "").strip().lower()[:12]
-    return WARM_PREFIX + key if WARM_KEY.fullmatch(key) else ""
+def warm_key(commit: str | None) -> str:
+    """A commit's warm key (its first 12 hex digits), a `pr-<n>` key as is, or "" for anything else."""
+    key = (commit or "").strip().lower()
+    key = key if key.startswith("pr-") else key[:12]
+    return key if WARM_KEY.fullmatch(key) else ""
 
 
-def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None) -> str:
-    """Admission's runs-on labels as JSON when an idle `root` runner is warm for `merged_onto`, else ""."""
-    warm = warm_label(merged_onto)
-    if not warm or not root.startswith(ROOT_PREFIX):
+def pr_warm_key(number: str | None) -> str:
+    """The warm key of pull request NUMBER, or ""."""
+    return warm_key(f"pr-{(number or '').strip()}")
+
+
+def runner_label(name: str) -> str:
+    """The static label only runner `name` carries: glaeda-cmux-runner's runner_label()."""
+    return RUNNER_LABEL_PREFIX + re.sub(r"[^a-z0-9._-]+", "-", name.lower())
+
+
+def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
+                          warm: Any, pr_number: str | None = None) -> str:
+    """Admission's runs-on labels as JSON when an idle `root` runner is warm for this run, else "".
+
+    Warm for this run: its keys hold `merged_onto`'s key, or else this pull
+    request's `pr-<n>` key (a re-push starts from the previous push's build).
+    `warm` is the snapshot's `warm` (owned_warm_state.py). The runner must
+    carry its own runner_label(), or a job naming it would wait forever.
+    """
+    kept = warm.get("runners") if isinstance(warm, Mapping) else None
+    if not root.startswith(ROOT_PREFIX) or not isinstance(kept, Mapping):
         return ""
-    for runner in runners:
-        if runner.get("status") != "online" or runner.get("busy"):
+    for key in (warm_key(merged_onto), pr_warm_key(pr_number)):
+        if not key:
             continue
-        names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
-        if root in names and warm in names:
-            return json.dumps([root, warm], separators=(",", ":"))
+        for runner in runners:
+            if runner.get("status") != "online" or runner.get("busy"):
+                continue
+            name = str(runner.get("name") or "")
+            entry = kept.get(name)
+            if not name or not isinstance(entry, Mapping) or key not in (entry.get("keys") or []):
+                continue
+            names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+            own = runner_label(name)
+            if root in names and own in names:
+                return json.dumps([root, own], separators=(",", ":"))
     return ""
 
 
@@ -1804,11 +1839,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # Admission on a root runner whose kept build is of this run's merge base
     # (see "Warm affinity" above); attempt 1 only, since only it is placed.
     admission_runner = ""
-    # CI_OWNED_WARM_LABELS off ignores labels already set, so the switch alone
-    # turns affinity off without clearing them.
-    if (env.get("WARM_LABELS") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
-            and live_runners is not None):
-        admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"))
+    # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
+    # turns affinity off.
+    if (env.get("OWNED_WARM") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
+            and live_runners is not None and snapshot):
+        admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
+                                                 snapshot.get("warm"), env.get("PR_NUMBER"))
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
@@ -1833,7 +1869,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"side_runner={side}\n"
                          # JSON labels for admission's attempt 1: the root label
-                         # and the warm label of this run's merge base, or "".
+                         # and the static label of the runner warm for this
+                         # run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
