@@ -52,6 +52,11 @@ permissions:
   pull-requests: read
   contents: read
 
+env:
+  # The file behind the `CI` display name in on.workflow_run.workflows;
+  # tests/test_ci_workflow_run_sources.py derives the expected name from it.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
 # One sweep at a time; a second sweep waits rather than racing the first
 # one's cancellations, and never cancels it.
 concurrency:

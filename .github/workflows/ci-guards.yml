@@ -62,6 +62,9 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+      - name: Require the R2 public URL wherever the R2 cache actions run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_public_url.py
 
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ matrix.group == 'ci' }}
