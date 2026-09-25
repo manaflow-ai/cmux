@@ -75,15 +75,17 @@ holds for an explicit owned runner too: it is the one pick that is moved.
 Live owned capacity: with the org App's token (ROUTE_TOKEN; test-e2e.yml mints
 it for this repository's runs while owned pools are on), the owned pools are
 counted from the runners API as pull request CI counts them
-(pr_runner_pool.live_owned_free and live_pools): idle runners carrying the
-label are its free machines. Only the pull request runs of the last
+(pr_runner_pool.live_owned_free, live_online and live_pools): idle runners
+carrying the label are its free machines, and the online ones its capacity.
+An App without the organization runners permission gets a repository-only
+token (test-e2e.yml's second mint), as pull request CI does. Only the pull request runs of the last
 pr_runner_pool.LIVE_WINDOW_MINUTES are charged to the owned pools, since an
 older run's jobs are already on runners and show busy there; the rest of the
 snapshot window counts on the Blacksmith pools only. Every in-flight E2E run
 naming an owned pool is still charged there: one can wait in its `sibling`
 job for a same-commit compile for up to 30 minutes holding no Mac yet, so the
-runners API cannot see it. That errs high by the few E2E runs already running. Without the token, or on
-any error listing runners, the snapshot decides as before. The listing uses
+runners API cannot see it. That errs high by the few E2E runs already
+running. Without the token, or on any error listing runners, the snapshot decides as before. The listing uses
 the App's own request budget, not the GITHUB_TOKEN's.
 An `auto` run started from the Actions UI is titled with the 6vcpu default,
 so the replay counts it there even when it took an owned Mac; run-e2e.sh
@@ -142,10 +144,11 @@ class PoolLoad:
     e2e_since: Mapping[str, int] = dataclasses.field(default_factory=dict)
     # In-flight pull request CI runs created since the snapshot.
     pull_requests_since: int = 0
-    # Idle runners per owned label, read live (None: the snapshot decides), and
-    # the pull request runs of the live window, the only ones charged to an
-    # owned pool then.
+    # Idle runners per owned label, read live (None: the snapshot decides),
+    # the online ones (its capacity; None: the slot counts), and the pull
+    # request runs of the live window, the only ones charged to an owned pool then.
     live_owned: Mapping[str, int] | None = None
+    live_online: Mapping[str, int] | None = None
     pull_requests_recent: int = 0
 
 
@@ -216,11 +219,12 @@ def e2e_by_pool(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None
 
 
 def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | None = None,
-                 live_owned: Mapping[str, int] | None = None) -> PoolLoad | None:
+                 live_owned: Mapping[str, int] | None = None,
+                 live_online: Mapping[str, int] | None = None) -> PoolLoad | None:
     """The janitor snapshot and the runs since it, or None when there is no usable snapshot.
 
-    With `live_owned` (idle runners per owned label), the runs of the live
-    window are counted too. Raises (from the client) on an API failure.
+    With `live_owned` (idle runners per owned label; `live_online`, the online
+    ones), the runs of the live window are counted too. Raises (from the client) on an API failure.
     """
     snapshot = client.snapshot(now=now)
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
@@ -235,7 +239,7 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
         return load
     window = pr_runner_pool.iso(now - dt.timedelta(minutes=pr_runner_pool.LIVE_WINDOW_MINUTES))
     return dataclasses.replace(
-        load, live_owned=live_owned,
+        load, live_owned=live_owned, live_online=live_online,
         pull_requests_recent=client.pull_request_runs_since(window, exclude_run_id=exclude_run_id),
     )
 
@@ -255,8 +259,10 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
     snapshot, capacity = load.snapshot, dict(owned_slots or {})
     live = load.live_owned is not None
     if live:
-        # Idle runners replace the slot counts and the snapshot's owned counts.
-        snapshot, capacity = pr_runner_pool.live_pools(snapshot, load.live_owned or {}, capacity, {})
+        # Idle runners replace the snapshot's owned counts, and online ones
+        # the slot counts, as pull request CI reads them (pr_runner_pool.choose).
+        snapshot, capacity = pr_runner_pool.live_pools(snapshot, load.live_owned or {}, capacity, {},
+                                                       load.live_online)
     placed: dict[str, int] = {}
     owned_since: dict[str, int] = {}
     for label, count in load.e2e_since.items():
@@ -399,8 +405,8 @@ def resolve(
 
 
 def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,
-                    pr_xcode_app: str | None) -> dict[str, int] | None:
-    """Idle runners per owned label (and its root label) from the runners API, or None.
+                    pr_xcode_app: str | None) -> tuple[dict[str, int], dict[str, int]] | None:
+    """Idle and online runners per owned label (and its root label) from the runners API, or None.
 
     Needs the org App's token (ROUTE_TOKEN) and owned pools on; any error
     leaves the snapshot to decide.
@@ -413,10 +419,11 @@ def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,
     if not labels:
         return None
     try:
-        return pr_runner_pool.live_owned_free(pr_runner_pool.GitHub(token, repo).runners(), labels)
+        runners = pr_runner_pool.GitHub(token, repo).runners()
     except Exception as error:  # noqa: BLE001 - the snapshot path still decides
         print(f"could not list runners ({error}); using the snapshot", file=sys.stderr)
         return None
+    return pr_runner_pool.live_owned_free(runners, labels), pr_runner_pool.live_online(runners, labels)
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
@@ -448,9 +455,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def measure() -> PoolLoad | None:
         if not token or not repo:
             raise RuntimeError("GH_TOKEN and GH_REPO are required")
+        idle, online = read_live_owned(repo, env, args.owned, args.pr_xcode_app) or (None, None)
         return measure_load(pr_runner_pool.GitHub(token, repo), now=now,
                             exclude_run_id=int(run_id) if run_id.isdigit() else None,
-                            live_owned=read_live_owned(repo, env, args.owned, args.pr_xcode_app))
+                            live_owned=idle, live_online=online)
 
     print(resolve(
         args.requested, args.variable,
