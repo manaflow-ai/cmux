@@ -558185,7 +558185,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [選項] [--] <文字>\n\n將按鍵事件傳送至終端機表面。\n\n選項：\n  --workspace <id|ref|index>   目標工作區（未提供 --surface 時必須指定）\n  --surface <id|ref|index>     目標表面（未提供 --workspace 時必須指定）\n  --window <id|ref|index>      工作區／表面參照與索引的視窗內容\n\n範例：\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
+            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [選項] [--] <key>\n\n將按鍵事件傳送至終端機表面。\n\n選項：\n  --workspace <id|ref|index>   目標工作區（未提供 --surface 時必須指定）\n  --surface <id|ref|index>     目標表面（未提供 --workspace 時必須指定）\n  --window <id|ref|index>      工作區／表面參照與索引的視窗內容\n\n範例：\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
           }
         },
         "zh-Hans": {
