@@ -59,6 +59,16 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserAskWhereToSaveDownloads"
     )
 
+    /// Browser toolbar buttons, left to right, as newline-separated item ids
+    /// (`designMode`, `profile`, `theme`, `extensions`, `devTools`,
+    /// `extension:<id>`). An absent value means the default layout; the
+    /// stored key must match `CmuxBrowser.BrowserToolbarLayout.userDefaultsKey`.
+    public let toolbarItems = DefaultsKey<String>(
+        id: "browser.toolbarItems",
+        defaultValue: "",
+        userDefaultsKey: "browserToolbarItems"
+    )
+
     public let openTerminalLinksInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.openTerminalLinksInCmuxBrowser",
         defaultValue: true,

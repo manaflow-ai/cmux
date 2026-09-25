@@ -445,6 +445,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: String(localized: "settings.search.alias.setting.browser.url-allowlist", defaultValue: "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy")
             ),
             .init(section: .browser, id: "react-grab", title: String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"), synonyms: "React Grab Version browser.reactGrabVersion react grab npm version toolbar cmd-shift-g inspect component"),
+            .init(section: .browser, id: "toolbar-items", title: String(localized: "settings.browser.toolbarItems", defaultValue: "Toolbar Buttons"), synonyms: "Toolbar Buttons browser.toolbarItems toolbar buttons customize pin extensions hide reorder"),
             .init(section: .browser, id: "history", title: String(localized: "settings.browser.history", defaultValue: "Browsing History"), synonyms: "Browsing History browsing history clear visited pages omnibar suggestions delete"),
 
             // Browser import

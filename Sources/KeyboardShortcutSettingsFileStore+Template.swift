@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxSettings
 import Foundation
 
@@ -218,6 +219,7 @@ extension CmuxSettingsFileStore {
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "urlAllowlist": BrowserURLAllowlistPolicy.defaultPatterns,
+                    "toolbarItems": BrowserToolbarLayout.default.items.map(\.storageValue),
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
                 ],

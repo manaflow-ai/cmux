@@ -1314,7 +1314,8 @@
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",
-          "urlAllowlist": "Værts- eller URL-mønstre, der begrænser navigation i den indlejrede browser. Indstillinger foreslår lokale udviklingsoprindelser; når en liste gemmes, aktiveres den valgfri begrænsning. Fjern poster for at blokere dem, eller lad brugerværdien være tom uden en administreret politik for at deaktivere begrænsningen."
+          "urlAllowlist": "Værts- eller URL-mønstre, der begrænser navigation i den indlejrede browser. Indstillinger foreslår lokale udviklingsoprindelser; når en liste gemmes, aktiveres den valgfri begrænsning. Fjern poster for at blokere dem, eller lad brugerværdien være tom uden en administreret politik for at deaktivere begrænsningen.",
+          "toolbarItems": "Knapper på browserens værktøjslinje fra venstre mod højre. Brug designMode, profile, theme, extensions, devTools eller extension:<id> til en fastgjort Chrome-udvidelse. Udelad en knap for at skjule den; en tom liste skjuler dem alle. Menuen Flere handlinger er altid sidst."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, gruppehovedets + knap og konfigurerede gruppehandlinger placerer det nye workspace: `afterCurrent` (efter det aktive workspace i gruppen, med top som fallback), `top` (anden plads, lige efter ankeret) eller `end` (efter det sidste medlem).",

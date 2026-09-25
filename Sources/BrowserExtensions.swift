@@ -87,8 +87,14 @@ final class BrowserExtensions: NSObject, ObservableObject {
     let root: URL
     private let metadataURL: URL
     private var controllers: [String: Controller] = [:]
-    /// Toolbar anchors per browser panel, for action popups.
-    private var anchors: [UUID: WeakView] = [:]
+    /// Where a popup hangs: a pinned button, else the extensions button.
+    struct AnchorKey: Hashable {
+        let panelID: UUID
+        let extensionID: String?
+    }
+
+    /// Toolbar anchors, for action popups.
+    private var anchors: [AnchorKey: WeakView] = [:]
     private var lastFocusedPanelID: UUID?
     private let managerPages = NSHashTable<WKWebView>.weakObjects()
     private let storePages = NSHashTable<WKWebView>.weakObjects()
@@ -141,7 +147,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     func unregister(panelID: UUID) {
         for controller in controllers.values { controller.unregister(panelID: panelID) }
-        anchors[panelID] = nil
+        anchors = anchors.filter { $0.key.panelID != panelID }
         if lastFocusedPanelID == panelID { lastFocusedPanelID = nil }
     }
 
@@ -153,8 +159,21 @@ final class BrowserExtensions: NSObject, ObservableObject {
         actionRevision &+= 1
     }
 
-    func setAnchor(_ view: NSView, for panelID: UUID) {
-        anchors[panelID] = WeakView(view)
+    func setAnchor(_ view: NSView, for key: AnchorKey) {
+        anchors[key] = WeakView(view)
+    }
+
+    private func anchorView(panelID: UUID?, extensionID: String) -> NSView? {
+        func live(_ key: AnchorKey) -> NSView? {
+            guard let view = anchors[key]?.view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+            return view
+        }
+        for id in [panelID, lastFocusedPanelID].compactMap({ $0 }) {
+            if let view = live(AnchorKey(panelID: id, extensionID: extensionID)) ?? live(AnchorKey(panelID: id, extensionID: nil)) {
+                return view
+            }
+        }
+        return nil
     }
 
     fileprivate var focusedPanelID: UUID? { lastFocusedPanelID }
@@ -197,11 +216,23 @@ final class BrowserExtensions: NSObject, ObservableObject {
         context.performAction(for: tab)
     }
 
-    fileprivate func presentPopup(_ action: WKWebExtension.Action, forPanelID panelID: UUID?) {
+    fileprivate func presentPopup(
+        _ action: WKWebExtension.Action,
+        extensionID: String,
+        panel: BrowserPanel?
+    ) {
         guard let webView = action.popupWebView else { return }
-        let anchor = panelID.flatMap { anchors[$0]?.view }
-            ?? lastFocusedPanelID.flatMap { anchors[$0]?.view }
-        guard let anchor, anchor.window != nil else {
+        // A pinned button, else the extensions button. With both hidden, the
+        // popup hangs from the top trailing corner of the page.
+        let anchor: NSView
+        let anchorRect: NSRect
+        if let view = anchorView(panelID: panel?.id, extensionID: extensionID) {
+            anchor = view
+            anchorRect = view.bounds
+        } else if let page = panel?.webView, page.window != nil {
+            anchor = page
+            anchorRect = NSRect(x: page.bounds.maxX - 24, y: page.isFlipped ? 0 : page.bounds.maxY - 1, width: 1, height: 1)
+        } else {
             action.closePopup()
             return
         }
@@ -218,7 +249,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         popover.contentViewController = controller
         popover.delegate = BrowserExtensionPopoverDelegate.shared
         BrowserExtensionPopoverDelegate.shared.action = action
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        popover.show(relativeTo: anchorRect, of: anchor, preferredEdge: .maxY)
         self.popover = popover
     }
 
@@ -342,6 +373,9 @@ final class BrowserExtensions: NSObject, ObservableObject {
             installed.removeAll { $0.id == id }
             errors[id] = nil
             save()
+            var layout = BrowserToolbarLayout.load()
+            layout.hide(.pinnedExtension(id))
+            layout.save()
             for controller in controllers.values { controller.unload(id: id) }
             try? fileManager.removeItem(at: folder(for: id))
         }
@@ -451,10 +485,53 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 guard installed.first(where: { $0.id == id })?.enabled == true, controller.contexts[id] == nil else { return }
                 try controller.controller.load(context)
                 controller.contexts[id] = context
+                observeErrors(of: context, in: controller)
                 actionRevision &+= 1
             } catch {
                 noteError(Self.describe(error), for: id)
             }
+        }
+    }
+
+    private var errorObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
+    private var lastRevival: [String: Date] = [:]
+
+    /// Surfaces WebKit's own context errors on `cmux://extensions`, and
+    /// restarts an extension whose background worker failed to start. WebKit
+    /// records that failure and never retries, so without this the extension
+    /// stays dead until relaunch. Restarts are limited to one a minute.
+    private func observeErrors(of context: WKWebExtensionContext, in controller: Controller) {
+        let key = ObjectIdentifier(context)
+        if let existing = errorObservers[key] { NotificationCenter.default.removeObserver(existing) }
+        errorObservers[key] = NotificationCenter.default.addObserver(
+            forName: WKWebExtensionContext.errorsDidUpdateNotification,
+            object: context,
+            queue: .main
+        ) { [weak self, weak context, weak controller] _ in
+            MainActor.assumeIsolated {
+                guard let self, let context, let controller else { return }
+                let id = context.uniqueIdentifier
+                guard controller.contexts[id] === context else { return }
+                let messages = context.errors.map { $0.localizedDescription }
+                self.errors[id] = Array(messages.suffix(20))
+                self.objectWillChange.send()
+                let workerFailed = context.errors.contains { error in
+                    let nsError = error as NSError
+                    return nsError.domain == WKWebExtensionContext.errorDomain
+                        && nsError.code == WKWebExtensionContext.Error.backgroundContentFailedToLoad.rawValue
+                }
+                guard workerFailed,
+                      Date().timeIntervalSince(self.lastRevival[id] ?? .distantPast) > 60 else { return }
+                self.lastRevival[id] = Date()
+                controller.unload(id: id)
+                self.load(id: id, in: controller)
+            }
+        }
+    }
+
+    fileprivate func stopObservingErrors(of context: WKWebExtensionContext) {
+        if let observer = errorObservers.removeValue(forKey: ObjectIdentifier(context)) {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -691,6 +768,11 @@ final class BrowserExtensions: NSObject, ObservableObject {
         configuration.defaultWebsiteDataStore = store
         let webViewConfiguration = configuration.webViewConfiguration ?? WKWebViewConfiguration()
         webViewConfiguration.websiteDataStore = store
+        // Extension pages and service workers must present the same identity
+        // as browser tabs. WebKit gives workers the user agent of the last
+        // page that loaded and, when it differs, stops them without starting
+        // them again, which leaves popups such as Bitwarden's waiting forever.
+        webViewConfiguration.applicationNameForUserAgent = BrowserUserAgentPolicy.system.safariApplicationName
         configuration.webViewConfiguration = webViewConfiguration
         let controller = Controller(owner: self, configuration: configuration)
         controllers[key] = controller
@@ -772,6 +854,7 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
 
     func unload(id: String) {
         guard let context = contexts.removeValue(forKey: id) else { return }
+        owner.stopObservingErrors(of: context)
         try? controller.unload(context)
         owner.objectWillChange.send()
     }
@@ -852,7 +935,8 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, presentActionPopup action: WKWebExtension.Action, for context: WKWebExtensionContext) async throws {
-        owner.presentPopup(action, forPanelID: (action.associatedTab as? BrowserExtensionTab)?.panel?.id)
+        let panel = (action.associatedTab as? BrowserExtensionTab)?.panel ?? activeTab?.panel
+        owner.presentPopup(action, extensionID: context.uniqueIdentifier, panel: panel)
     }
 }
 

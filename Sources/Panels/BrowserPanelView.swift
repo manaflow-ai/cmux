@@ -334,6 +334,8 @@ struct BrowserPanelView: View {
     @State private var omnibarSelectAllRequestId: UInt64 = 0
     @State private var pendingFocusGainedSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     @State private var isBrowserProfileMenuPresented = false
+    @State private var isBrowserToolbarCustomizationPresented = false
+    @AppStorage(BrowserToolbarLayout.userDefaultsKey) private var browserToolbarStoredLayout: String?
     @State private var isBrowserThemeMenuPresented = false
     @State private var browserChromeStyle: BrowserChromeStyle
     // The browser top chrome scales with the tab bar font size so tabs and the
@@ -1187,33 +1189,28 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                if isChromeCompact {
-                    browserActiveModeButtonWithShortcutHint
-                    browserScreenshotCopiedIndicator
-                    browserProfileButton
-                    browserThemeModeButton
-                    browserExtensionsButton
-                    browserOverflowMenu
-                } else {
-                    // Keep the stable wide-row sizing and place Inspect/DevTools
-                    // immediately before the trailing More affordance.
-                    browserActiveModeButtonWithShortcutHint
-                    browserScreenshotCopiedIndicator
-                    if activeToolbarMode != .design {
-                        BrowserDesignModeToolbarButton(
-                            controller: panel.designModeController,
-                            iconPointSize: devToolsButtonIconSize,
-                            hitSize: addressBarButtonSize,
-                            inactiveColor: devToolsColorOption.color,
-                            onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "toolbar") }
-                        )
-                    }
-                    browserProfileButton
-                    browserThemeModeButton
-                    browserExtensionsButton
-                    developerToolsButton
-                    browserOverflowMenu
-                }
+                browserActiveModeButtonWithShortcutHint
+                browserScreenshotCopiedIndicator
+                // Customizable buttons (Settings, cmux.json browser.toolbarItems,
+                // or right-click). More Actions always stays last, so hidden
+                // buttons stay reachable through Customize Toolbar.
+                BrowserToolbarCustomizableItems(
+                    panel: panel,
+                    compact: isChromeCompact,
+                    style: BrowserToolbarButtonStyle(
+                        iconPointSize: devToolsButtonIconSize,
+                        hitSize: addressBarButtonSize,
+                        tint: devToolsColorOption.color,
+                        colorScheme: resolvedColorScheme
+                    ),
+                    builtIn: { AnyView(browserBuiltInToolbarItem($0)) },
+                    onCustomize: { isBrowserToolbarCustomizationPresented = true }
+                )
+                browserOverflowMenu
+            }
+            .popover(isPresented: $isBrowserToolbarCustomizationPresented, arrowEdge: .bottom) {
+                BrowserToolbarCustomizationView(extensionNames: browserToolbarExtensionNames)
+                    .browserChromePopoverAppearance(resolvedColorScheme)
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserToolbarAccessoryRow")
@@ -1513,16 +1510,33 @@ struct BrowserPanelView: View {
     }
 
     @ViewBuilder
-    private var browserExtensionsButton: some View {
-        if #available(macOS 15.4, *) {
-            BrowserExtensionsToolbarButton(
-                panel: panel,
-                iconPointSize: devToolsButtonIconSize,
-                hitSize: addressBarButtonSize,
-                tint: devToolsColorOption.color,
-                colorScheme: resolvedColorScheme
-            )
+    private func browserBuiltInToolbarItem(_ item: BrowserToolbarItem) -> some View {
+        switch item {
+        case .designMode:
+            if activeToolbarMode != .design {
+                BrowserDesignModeToolbarButton(
+                    controller: panel.designModeController,
+                    iconPointSize: devToolsButtonIconSize,
+                    hitSize: addressBarButtonSize,
+                    inactiveColor: devToolsColorOption.color,
+                    onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "toolbar") }
+                )
+            }
+        case .profile:
+            browserProfileButton
+        case .theme:
+            browserThemeModeButton
+        case .devTools:
+            developerToolsButton
+        case .extensions, .pinnedExtension:
+            EmptyView()
         }
+    }
+
+    /// Installed extensions that can be pinned, for Customize Toolbar.
+    private var browserToolbarExtensionNames: [(id: String, name: String)] {
+        guard #available(macOS 15.4, *) else { return [] }
+        return BrowserExtensions.shared.installed.filter(\.enabled).map { ($0.id, $0.name) }
     }
 
     private var browserProfileButton: some View {
@@ -1579,17 +1593,46 @@ struct BrowserPanelView: View {
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
             BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
-            if isChromeCompact {
+            Button {
+                isBrowserToolbarCustomizationPresented = true
+            } label: {
+                Label(
+                    String(localized: "browser.toolbar.customize", defaultValue: "Customize Toolbar…"),
+                    systemImage: "slider.horizontal.3"
+                )
+            }
+            .accessibilityIdentifier("BrowserOverflowCustomizeToolbarButton")
+            let toolbarLayout = BrowserToolbarLayout(storedValue: browserToolbarStoredLayout)
+            let designInOverflow = isChromeCompact || !toolbarLayout.contains(.designMode)
+            let devToolsInOverflow = isChromeCompact || !toolbarLayout.contains(.devTools)
+            if designInOverflow || devToolsInOverflow {
                 Divider()
+            }
+            if designInOverflow {
                 BrowserDesignModeOverflowMenuButton(
                     controller: panel.designModeController,
                     onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
                 )
                 .accessibilityIdentifier("BrowserOverflowDesignModeButton")
+            }
+            if devToolsInOverflow {
                 Button(action: openDevTools) {
                     Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
                 }
                 .accessibilityIdentifier("BrowserToggleDevToolsButton")
+            }
+            if !toolbarLayout.contains(.extensions) {
+                if #available(macOS 15.4, *) {
+                    Button {
+                        BrowserExtensions.shared.openManagerPage(from: panel)
+                    } label: {
+                        Label(
+                            String(localized: "browser.extensions.toolbar.manage", defaultValue: "Manage Extensions"),
+                            systemImage: "puzzlepiece.extension"
+                        )
+                    }
+                    .accessibilityIdentifier("BrowserOverflowManageExtensionsButton")
+                }
             }
         } label: {
             browserVerticalMoreIcon

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
@@ -396,6 +397,11 @@ enum BrowserSettingsFileMapping {
             jsonKey: "urlAllowlist",
             defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
             invalidPath: "browser.urlAllowlist"
+        ),
+        .init(
+            jsonKey: "toolbarItems",
+            defaultsKey: BrowserToolbarLayout.userDefaultsKey,
+            invalidPath: "browser.toolbarItems"
         ),
     ]
 }
