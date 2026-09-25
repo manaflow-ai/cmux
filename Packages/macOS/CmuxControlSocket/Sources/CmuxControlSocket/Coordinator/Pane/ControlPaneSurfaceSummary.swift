@@ -26,6 +26,7 @@ public struct ControlPaneSurfaceSummary: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - surfaceID: The surface's panel identifier, if resolved.
+    ///   - stableSurfaceID: The surface's restart-stable panel identity, if resolved.
     ///   - title: The tab's title.
     ///   - typeRawValue: The panel type's raw value, if resolved.
     ///   - isSelected: Whether this surface is selected.

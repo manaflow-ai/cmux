@@ -33,7 +33,9 @@ public struct ControlPaneSummary: Sendable, Equatable {
     ///   - paneID: The pane's stable identifier.
     ///   - isFocused: Whether this pane holds focus.
     ///   - surfaceIDs: The surfaces in the pane, in tab order.
+    ///   - stableSurfaceIDs: The restart-stable identities for the surfaces, in tab order.
     ///   - selectedSurfaceID: The selected surface, if any.
+    ///   - selectedStableSurfaceID: The selected surface's restart-stable identity, if any.
     ///   - pixelFrame: The pane's pixel frame, if known.
     ///   - gridSize: The selected surface's grid size, if available.
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted pane.

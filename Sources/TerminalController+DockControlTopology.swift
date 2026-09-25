@@ -117,8 +117,8 @@ extension TerminalController {
                     (surfaceID: panel.id, stableSurfaceID: panel.stableSurfaceId)
                 }
             }
-            let surfaceIDs = resolvedSurfaces.map(\.surfaceID)
-            let stableSurfaceIDs = resolvedSurfaces.map(\.stableSurfaceID)
+            let surfaceIDs = resolvedSurfaces.map { $0.surfaceID }
+            let stableSurfaceIDs = resolvedSurfaces.map { $0.stableSurfaceID }
             let selectedSurfaceID = dock.bonsplitController
                 .selectedTab(inPane: paneID)
                 .flatMap { dock.panel(for: $0.id)?.id }
