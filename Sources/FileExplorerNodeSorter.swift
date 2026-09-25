@@ -1,8 +1,13 @@
 import Foundation
 
+/// Orders sibling file explorer nodes for a ``FileExplorerSortOptions``.
+///
+/// Name sorting keeps folders before files. Date sorting interleaves folders and files by timestamp, places entries without that timestamp last, and breaks ties by folders first and then name so the order is stable.
 struct FileExplorerNodeSorter {
+    /// The key and direction to apply.
     let options: FileExplorerSortOptions
 
+    /// Returns `nodes` in display order. Only the given level is sorted; children keep their own order.
     func sorted(_ nodes: [FileExplorerNode]) -> [FileExplorerNode] {
         nodes.sorted { lhs, rhs in
             isOrderedBefore(lhs, rhs)

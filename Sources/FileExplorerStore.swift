@@ -292,6 +292,16 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
     var isAvailable: Bool { true }
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+        try await Self.readDirectoryEntries(path: path, showHidden: showHidden)
+    }
+
+    /// Lists `path` with the creation and modification dates the sort options need. The directory read and per-entry `resourceValues` lookups run off the caller's actor so a large folder never blocks the main thread.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func readDirectoryEntries(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         let fm = FileManager.default
         let contents = try fm.contentsOfDirectory(
             at: URL(fileURLWithPath: path, isDirectory: true),
