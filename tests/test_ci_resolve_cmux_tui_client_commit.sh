@@ -265,8 +265,8 @@ if grep -q '^::warning' "$TMP/merge.err"; then
   echo "FAIL: a commit with identical client inputs is not a fallback and must not warn"
   exit 1
 fi
-# A branch that merged main after the fact (like a PR branch) resolves the same way:
-# its own merge commit shares main's inputs, so main's published merge stands in.
+# A later commit off main that does not touch the client resolves the same way: main's
+# published merge stays the newest commit with its inputs.
 git -C "$TMP/merge" checkout -q -b later "$M"
 mcommit "later app" Sources/Other.swift "2026-09-26T00:00:00" >/dev/null
 got="$(cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER" 2>/dev/null)"
