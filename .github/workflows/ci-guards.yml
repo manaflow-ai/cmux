@@ -62,6 +62,11 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+
+      - name: Validate the report-only reverse test impact selector
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reverse_test_impact.py
+
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py
@@ -69,6 +74,10 @@ jobs:
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
+
+      - name: Validate v0.64.25 rpath repair workflow contract
+        if: ${{ matrix.group == 'ci' }}
+        run: bash tests/test_repair_v06425_workflow.sh
 
       - name: Validate Xcode build metrics receipt
         if: ${{ matrix.group == 'ci' }}
@@ -85,6 +94,10 @@ jobs:
       - name: Validate seeded macOS checkout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_git_seed.py
+
+      - name: Validate the CLI lane runs in compile admission
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cli_lane_in_admission.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -182,6 +195,10 @@ jobs:
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Test Computer Use drag regression harness
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_cua_drag_cursor_harness.py
 
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
@@ -363,6 +380,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      - name: Validate the owned Mac warm labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_warm_labels.py
+
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
@@ -438,6 +459,10 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate Homebrew cask macOS dependency syntax
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
 
       - name: Validate app bundle license compliance
         if: ${{ matrix.group == 'release-notary' }}
@@ -704,7 +729,13 @@ jobs:
 
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_update_release_tag.py
+        run: |
+          python3 tests/test_update_release_tag.py
+          python3 tests/test_nightly_publication_marker.py
+
+      - name: Validate nightly tag permission probe
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_tag_permission_probe.sh
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}

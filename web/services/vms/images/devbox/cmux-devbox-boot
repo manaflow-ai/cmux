@@ -29,9 +29,9 @@
 # is bound to that id, cloud-init style, and re-checked every tick:
 #   * /etc/cmux/daemon-instance-id names the machine whose identity the
 #     state dir holds. A different id means "this is a clone": a running
-#     daemon (another machine's identity) is stopped, its authorization state
-#     is replaced, and the daemon starts with a fresh identity bound to this
-#     id. The journaled workspace and first terminal survive the identity turn.
+#     daemon (another machine's identity) is stopped and the daemon starts
+#     with a fresh identity bound to this id; any remote identity a fork
+#     inherited is dropped first. The warm first terminal survives.
 #   * /etc/cmux/bake-instance-id is the machine a snapshot is being taken
 #     from. While it matches, the daemon is kept parked so the snapshot never
 #     carries a live identity. The bake and derive scripts write it right
@@ -114,6 +114,19 @@ BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
 BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
 METADATA=http://169.254.169.254
 PARKED_TICK=0.05
+TEMPLATE_RUN_DIR=/run/cmux
+# Warm template terminal. The snapshot keeps the first terminal's host
+# process and its initialized shell running while every per-machine daemon
+# file is wiped (devboxParkDaemonCommand). A clone's daemon creates a fresh
+# machine id, receipt pepper, session registry and remote identity, then
+# adopts that warm host as its first terminal and writes the shell's new ids
+# to the bound file; the shell's first prompt waits for it (prompt.bash).
+# Exported so the pinned daemon command line stays unchanged; the daemon
+# removes them from its own environment at start, so no terminal inherits them.
+export CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=1
+export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"
+# The bake names the template workspace Cloud; the wiped registry forgot it.
+export CMUX_TUI_TEMPLATE_WORKSPACE_NAME=Cloud
 HOUSEKEEPING_DELAY=10min
 HOUSEKEEPING_TIMERS="apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer e2scrub_all.timer fstrim.timer logrotate.timer man-db.timer motd-news.timer systemd-tmpfiles-clean.timer"
 
@@ -174,6 +187,16 @@ rekey_ssh_host() {
   rm -rf "$staging"
   [ -d /run/systemd/system ] && systemctl try-restart ssh >/dev/null 2>&1
   return 0
+}
+
+# Freestyle guests have no VM generation ID device, so the kernel is never
+# told it was restored: every clone resumes with the snapshot's CRNG state.
+# Mix this clone's instance id into the input pool and force a CRNG reseed
+# (RNDRESEEDCRNG, which also pulls RDSEED/RDRAND) before anything generates a
+# key. Perl is in Ubuntu's essential set and starts in a few milliseconds.
+reseed_kernel_rng() {
+  command -v perl >/dev/null 2>&1 || return 0
+  perl -e 'open(my $f, "+<", "/dev/urandom") or exit 1; syswrite($f, join(":", @ARGV, time, $$)); ioctl($f, 0x5207, 0) or exit 1' "$1" 2>/dev/null || true
 }
 
 announce_network() {
@@ -243,12 +266,14 @@ while true; do
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
         # Announce first: the fabric drops the Mac's SYNs until it sees a frame.
         ( announce_network & )
+        # Starts the template shell's bounded wait for the bound file.
+        mkdir -p "$TEMPLATE_RUN_DIR" 2>/dev/null && : > "$TEMPLATE_RUN_DIR/clone-started" 2>/dev/null
+        reseed_kernel_rng "$id"
         stop_daemon
-        # Keep the journaled session graph and first terminal from the warm
-        # snapshot. Only auth/connection material belongs to the builder and
-        # must be regenerated for this clone. Running PTYs are recreated by
-        # cmux-tui when it restores the journal; prompt-sync clears the resumed
-        # bytes and sends Ctrl-C once the new machine name is published.
+        # A bake snapshot carries no remote identity (devboxParkDaemonCommand
+        # wiped it), but a fork or checkpoint of a running machine carries its
+        # parent's Noise identity and connection state. Drop both so this
+        # machine's daemon creates its own.
         find "$REMOTE_STATE_DIR/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
         rm -rf "$REMOTE_STATE_DIR/connections" 2>/dev/null || true
         mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
@@ -260,8 +285,7 @@ while true; do
         start_daemon
         # The prompt sync is a clone-local oneshot. A memory snapshot can
         # carry an already-active systemd unit, so explicitly restart it after
-        # the fresh instance identity is bound. Older images simply have no
-        # unit and continue without this optional cosmetic feature.
+        # the fresh instance identity is bound.
         systemctl --no-block restart cmux-prompt-sync.service >/dev/null 2>&1 || true
         ( rekey_ssh_host & )
         [ -n "$parked" ] && { rearm_housekeeping; parked=""; }

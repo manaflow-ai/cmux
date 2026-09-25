@@ -72,11 +72,14 @@ class Check(Fixture):
         # The DerivedData stays in the store until adopt, after the resolve.
         self.assertTrue((self.store / "derived-data" / "Build" / "obj.o").is_file())
 
-    def test_another_xcode_or_layout_drops_the_derived_data_but_keeps_packages(self):
+    def test_another_xcode_or_layout_is_cold_but_keeps_the_derived_data(self):
+        # A rerun of an older merge commit must not wipe what current jobs
+        # use; the next successful keep replaces it.
         self.keep(fingerprint="old")
         result = run(state.check, self.store, "new", self.workspace)
         self.assertEqual((result["warm"], result["packages"]), ("false", "true"))
-        self.assertFalse((self.store / "derived-data").exists())
+        self.assertTrue((self.store / "derived-data" / "Build" / "obj.o").is_file())
+        self.assertEqual(run(state.check, self.store, "old", self.workspace)["warm"], "true")
 
     def test_an_oversized_derived_data_is_dropped(self):
         self.keep()
@@ -104,28 +107,77 @@ class AdoptAndSave(Fixture):
         self.assertEqual(result["replayed"], "false")
         self.assertTrue((self.derived / "Build" / "obj.o").is_file())
         self.assertFalse((self.derived / "fresh").exists())
-        self.assertFalse((self.store / "derived-data").exists())
+        # A clone: the store keeps it until a successful keep replaces it.
+        self.assertTrue((self.store / "derived-data" / "Build" / "obj.o").is_file())
 
     def test_adopt_without_a_kept_derived_data_is_a_miss(self):
         self.assertEqual(run(state.adopt, self.store, self.derived, self.source)["hit"], "false")
 
-    def test_a_failed_compile_keeps_packages_but_not_derived_data(self):
-        # adopt moved the kept DerivedData out; with no keep after a failed
-        # compile the store has none, and the next job starts from the seed.
+    def test_a_failed_or_cancelled_compile_leaves_the_mac_warm(self):
+        # No keep after a failed compile, and a cancelled job may not even
+        # reach save: the store still holds what the job started from.
         self.keep()
+        state.remove(self.packages)
         run(state.check, self.store, "fp", self.workspace)
         run(state.adopt, self.store, self.derived, self.source)
-        result = run(state.save, self.store, self.packages, self.workspace)
-        self.assertEqual(result["packages"], "true")
-        self.assertFalse((self.store / "derived-data").exists())
-        self.assertEqual(run(state.check, self.store, "fp", self.workspace)["warm"], "false")
+        (self.derived / "Build" / "half.o").write_text("interrupted")
+        state.remove(self.workspace / ".ci-source-packages")
+        result = run(state.check, self.store, "fp", self.workspace)
+        self.assertEqual((result["warm"], result["packages"]), ("true", "true"))
+        self.assertFalse((self.store / "derived-data" / "Build" / "half.o").exists())
+        self.assertTrue((self.store / "source-packages" / "checkouts").is_dir())
 
     def test_packages_a_job_never_resolved_are_still_kept(self):
         self.keep()
-        run(state.check, self.store, "fp", self.workspace)  # moved into the workspace
+        state.remove(self.packages)
+        run(state.check, self.store, "fp", self.workspace)  # cloned into the workspace
+        (self.workspace / ".ci-source-packages" / "checkouts" / "new").write_text("fetched")
         result = run(state.save, self.store, self.packages, self.workspace)
         self.assertEqual(result["packages"], "true")
+        self.assertTrue((self.store / "source-packages" / "checkouts" / "new").is_file())
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+
+    def test_a_job_without_packages_leaves_the_kept_ones(self):
+        self.keep()
+        state.remove(self.packages)
+        self.assertEqual(run(state.save, self.store, self.packages, self.workspace)["packages"], "false")
         self.assertTrue((self.store / "source-packages" / "checkouts").is_dir())
+
+    def test_every_slot_shares_the_macs_packages(self):
+        self.keep()
+        shared, slot = self.store, self.store / "cmux-ci-2"
+        state.remove(self.packages)
+        result = run(state.check, slot, "fp", self.workspace, shared)
+        self.assertEqual((result["warm"], result["packages"]), ("false", "true"))
+        self.assertFalse((slot / "source-packages").exists())
+        (self.workspace / ".ci-source-packages" / "slot2").write_text("x")
+        self.assertEqual(run(state.save, slot, self.packages, self.workspace, shared)["packages"], "true")
+        self.assertTrue((shared / "source-packages" / "slot2").is_file())
+        self.assertFalse((slot / "source-packages").exists())
+
+    def test_a_save_that_loses_a_race_leaves_nothing_behind(self):
+        self.keep()
+        (self.store / ".source-packages.incoming-1").mkdir()  # a cancelled save
+        (self.store / "cmux-ci-2" / "source-packages").mkdir(parents=True)  # pre-shared slot copy
+        self.packages.mkdir(parents=True)
+        real = Path.rename
+        def racing(path, target):
+            if Path(target).name == "source-packages":
+                raise OSError(66, "Directory not empty")
+            return real(path, target)
+        with unittest.mock.patch.object(Path, "rename", racing):
+            result = run(state.save, self.store / "cmux-ci-2", self.packages, self.workspace, self.store)
+        self.assertEqual(result["packages"], "false")
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertFalse((self.store / "cmux-ci-2" / "source-packages").exists())
+
+    def test_a_package_clone_that_loses_a_race_is_a_miss(self):
+        self.keep()
+        with unittest.mock.patch.object(state, "clone", side_effect=OSError("gone")):
+            result = run(state.check, self.store, "fp", self.workspace)
+        self.assertEqual((result["warm"], result["packages"]), ("true", "false"))
+        self.assertIn("gone", result["packages_error"])
+        self.assertFalse((self.workspace / ".ci-source-packages").exists())
 
     def test_keep_replaces_the_old_derived_data_whole(self):
         self.keep()
@@ -206,15 +258,19 @@ class Replay(Fixture):
         self.assertEqual((result["hit"], result["replayed"]), ("true", "false"))
         self.assertGreater((self.source / "Sources/a.swift").stat().st_mtime_ns, self.OLD)
 
-    def test_derived_data_kept_before_the_owned_record_is_dropped(self):
+    def test_derived_data_kept_before_the_owned_record_is_never_warm(self):
         # Stamped by the previous owned_build_state.py: bare fingerprint, and
-        # possibly the seed's record inside.
+        # possibly the seed's record inside. It stays for that script's jobs
+        # until a current job's keep replaces it.
         (self.store / "derived-data").mkdir(parents=True)
         (self.store / "derived-data" / state.seed.MANIFEST).write_text(self.seed_record_for("A"))
         (self.store / "stamp.json").write_text(json.dumps({"fingerprint": "fp"}))
         result = run(state.check, self.store, "fp", self.workspace)
         self.assertEqual(result["warm"], "false")
-        self.assertFalse((self.store / "derived-data").exists())
+        self.derived.mkdir(parents=True)
+        self.assertEqual(run(state.keep, self.store, self.derived, "fp")["kept"], "true")
+        self.assertFalse((self.store / "derived-data" / state.seed.MANIFEST).exists())
+        self.assertEqual(run(state.check, self.store, "fp", self.workspace)["warm"], "true")
 
     def test_a_failed_record_leaves_no_stale_record_behind(self):
         self.derived.mkdir(parents=True)
@@ -239,6 +295,102 @@ class Replay(Fixture):
         self.assertNotEqual(state.RECORD, state.seed.MANIFEST)
 
 
+class Prefer(Fixture):
+    """A warm Mac adopts a seed instead when the seed rebuilds less."""
+
+    def setUp(self):
+        super().setUp()
+        self.cache = Path(self.tmp.name) / "seeds"
+        self.env = unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.cache),
+                                                          "CMUX_SEED_SWIFT_JOBS": "14"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        (self.workspace / "Sources").mkdir()
+        for index in range(6):
+            (self.workspace / "Sources" / f"F{index}.swift").write_text(f"let f{index} = 0\n")
+
+    def recorded(self, changed):
+        """A record of the workspace with CHANGED files edited since."""
+        record = state.seed.warm.record(self.workspace)
+        for index in range(changed):
+            record[f"Sources/F{index}.swift"] = ["stale", 1]
+        return record
+
+    def kept(self, changed):
+        (self.store / "derived-data").mkdir(parents=True)
+        (self.store / "derived-data" / state.RECORD).write_text(json.dumps(self.recorded(changed)))
+
+    def kept_seed(self, key, changed):
+        (self.cache / key).mkdir(parents=True)
+        (self.cache / key / state.seed.MANIFEST).write_text(json.dumps(self.recorded(changed)))
+
+    def prefer(self, located=("p-j14-base", 0), max_distance=None):
+        with unittest.mock.patch.object(state.seed, "locate", return_value=located), \
+             unittest.mock.patch.object(state.seed, "lineage", return_value=["base", "older", "oldest"]):
+            return state.prefer(self.store, self.workspace, "p-", "base", max_distance)
+
+    def test_changed_inputs_counts_edits_additions_and_deletions(self):
+        now = {"a": ["1", 0], "b": ["2", 0], "dir/": ["x", 0], ".ci-source-packages/p": ["9", 0]}
+        then = {"a": ["1", 5], "b": ["3", 0], "c": ["4", 0], "dir/": ["y", 0]}
+        self.assertEqual(state.changed_inputs(now, then), 2)
+
+    def test_a_kept_seed_with_fewer_changed_inputs_wins(self):
+        self.kept(changed=5)
+        self.kept_seed("p-j14-base", changed=1)
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["kept_changed"], result["seed_changed"], result["local"]),
+                         ("true", "5", "1", "true"))
+
+    def test_the_kept_derived_data_wins_a_tie_or_better(self):
+        self.kept(changed=1)
+        self.kept_seed("p-j14-base", changed=1)
+        self.assertEqual(self.prefer()["prefer"], "false")
+
+    def test_a_seed_to_download_wins_only_within_max_distance(self):
+        self.kept(changed=3)
+        self.assertEqual(self.prefer(("p-j14-base", 2))["prefer"], "false")
+        self.assertEqual(self.prefer(("p-j14-base", 2), max_distance=2)["prefer"], "true")
+        self.assertEqual(self.prefer(("p-j14-base", 3), max_distance=2)["prefer"], "false")
+
+    def test_an_unchanged_kept_derived_data_is_never_replaced_by_a_download(self):
+        self.kept(changed=0)
+        self.assertEqual(self.prefer(("p-j14-base", 0), max_distance=5)["prefer"], "false")
+
+    def test_no_seed_or_no_record(self):
+        self.kept(changed=3)
+        self.assertEqual(self.prefer(("p-j14-base", None), max_distance=5)["prefer"], "false")
+        (self.store / "derived-data" / state.RECORD).unlink()
+        self.assertEqual(self.prefer(("p-j14-base", 9))["prefer"], "false")
+        self.assertEqual(self.prefer(("p-j14-base", 9), max_distance=10)["prefer"], "true")
+        self.kept_seed("p-j12-oldest", changed=4)
+        result = self.prefer(("p-j14-base", None))
+        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j12-oldest"))
+
+    def test_the_nearest_kept_seed_counts_not_only_the_newest_in_the_bucket(self):
+        """The bucket's nearest seed moves with every reseed; a warm Mac that
+        never downloads keeps an older one, which still counts."""
+        self.kept(changed=5)
+        self.kept_seed("p-j14-oldest", changed=4)
+        self.kept_seed("p-j12-older", changed=2)
+        result = self.prefer(("p-j14-base", 0))
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_distance"], result["local"]),
+                         ("true", "p-j12-older", "1", "true"))
+        # The adopt that follows clones exactly that seed, never a newer one.
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": result["seed_key"],
+                                                   "CMUX_SEED_DISTANCE": result["seed_distance"]}):
+            self.assertEqual(state.seed.chosen(), ("p-j12-older", 1))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": "p-j14-gone"}):
+            self.assertIsNone(state.seed.chosen())
+
+    def test_any_error_keeps_the_warm_path(self):
+        output = Path(self.tmp.name) / "output"
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
+             unittest.mock.patch.object(state.seed, "locate", side_effect=RuntimeError("boom")), \
+             unittest.mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(state.main(["x", "prefer", str(self.store), str(self.workspace), "p-", "base", "local"]), 0)
+        self.assertIn("prefer=false", output.read_text())
+
+
 class WorkflowCommandLines(unittest.TestCase):
     """Run every owned_build_state.py line of the workflow as written (run 36064525977 exited 2)."""
 
@@ -249,7 +401,8 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        self.assertEqual(len(calls), 5)
+        # check, prefer, adopt, record, keep, warm-keys (skipped until the script has it), save.
+        self.assertEqual(len(calls), 7)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / "derived").mkdir()
@@ -287,6 +440,9 @@ class Wiring(unittest.TestCase):
     def test_state_steps_run_only_on_an_owned_runner(self):
         self.assertIn(OWNED, self.by_id["owned-state"]["if"])
         self.assertIn("github.event_name == 'pull_request'", self.by_id["owned-state"]["if"])
+        # Main's full-suite dispatch may be placed on an owned Mac too (pr_runner_pool.py).
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+                      self.by_id["owned-state"]["if"])
         # Every other state step follows owned-state.
         self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", self.step("Keep this owned Mac's DerivedData")["if"])
@@ -303,6 +459,22 @@ class Wiring(unittest.TestCase):
         self.assertIn("steps.owned-state.outputs.warm != 'true'", self.step("Start the DerivedData seed download")["if"])
         self.assertIn("steps.owned-state.outputs.packages != 'true'", self.by_id["swift-package-cache"]["if"])
 
+    def test_a_near_seed_replaces_the_kept_state_only_when_asked_and_it_hits(self):
+        prefer = self.by_id["prefer-seed"]
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", prefer["if"])
+        self.assertIn("vars.CI_OWNED_PREFER_SEED != ''", prefer["if"])
+        self.assertIs(prefer.get("continue-on-error"), True)
+        for step in (self.by_id["seed-derived-data"], self.step("Start the DerivedData seed download")):
+            self.assertIn("steps.prefer-seed.outputs.prefer == 'true'", step["if"])
+            self.assertIn("CMUX_SEED_LOCAL_CACHE", step["env"])
+            self.assertIn("steps.prefer-seed.outputs.seed_key", step["env"]["CMUX_SEED_EXACT"])
+        # A preferred seed that misses still leaves the Mac warm.
+        self.assertIn("steps.seed-derived-data.outputs.hit != 'true'", self.by_id["owned-adopt"]["if"])
+        index = self.names.index
+        self.assertLess(index("Reuse this owned Mac's build state"), index("Prefer a near seed over this owned Mac's DerivedData"))
+        self.assertLess(index("Prefer a near seed over this owned Mac's DerivedData"), index("Start the DerivedData seed download"))
+        self.assertLess(index("Adopt the nightly DerivedData seed"), index("Adopt this owned Mac's DerivedData"))
+
     def test_the_product_key_does_not_see_owned_state(self):
         # product_input_identity fingerprints every step it does not list as
         # non-product, comment lines after a step included. Owned state must
@@ -310,9 +482,11 @@ class Wiring(unittest.TestCase):
         import product_input_identity as identity
 
         text = (ROOT / ".github/workflows/ci-macos.yml").read_text()
-        for name in ("Reuse this owned Mac's build state", "Adopt this owned Mac's DerivedData",
+        for name in ("Reuse this owned Mac's build state", "Prefer a near seed over this owned Mac's DerivedData",
+                     "Adopt this owned Mac's DerivedData",
                      "Record this owned Mac's build inputs", "Keep this owned Mac's DerivedData",
-                     "Keep this owned Mac's build state"):
+                     "Keep this owned Mac's build state", "List the commits this owned Mac starts from warm",
+                     "Upload the owned Mac's warm keys"):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
@@ -355,7 +529,8 @@ class Wiring(unittest.TestCase):
             self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
         code, env, out = self.slot("/private/tmp/cmux-ci-2")
         self.assertEqual(code, 0)
-        self.assertEqual(env, "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n")
+        self.assertEqual(env, "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
+                              "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n")
         self.assertEqual(out, "root=/private/tmp/cmux-ci-2\n")
         # Only an owned Mac may move the root, and only to a slot root.
         self.assertNotEqual(self.slot("/private/tmp/cmux-ci-2", "blacksmith-6vcpu-macos-26")[0], 0)

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Keep compile admission's build state on an owned Mac between jobs.
 
-    owned_build_state.py check STORE FINGERPRINT WORKSPACE
+    owned_build_state.py check STORE FINGERPRINT WORKSPACE [PACKAGE_STORE]
     owned_build_state.py adopt STORE DERIVED_DATA SOURCE
     owned_build_state.py record SOURCE DERIVED_DATA
     owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
-    owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE
+    owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
+    owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -25,15 +26,28 @@ This keeps two things under STORE (CMUX_OWNED_STATE_ROOT,
 - `source-packages`: the resolved `.ci-source-packages`, so the resolve
   fetches what changed instead of restoring the whole cache. It is not
   handed to the resolve as an exact hit: that would change the Resolve step,
-  which is part of the product key (product_input_identity.py).
+  which is part of the product key (product_input_identity.py). Packages hold
+  no absolute build paths, so they live in PACKAGE_STORE, one per Mac, which
+  every compile slot shares (STORE is per slot, ci-macos.yml's build-slot).
 
-`check` runs before the caches: it drops a DerivedData whose stamp does not
-match or that grew past MAX_DERIVED_BYTES, and moves the packages into the
-workspace, where the resolve step picks them up. Its
-`warm` output tells the workflow to skip the SwiftPM cache restore and the
-seed. `adopt` runs where the seed would: the resolve step has just recreated
-the DerivedData, so it swaps the kept one in and replays the input times
-recorded in it, as the seed's adopt does (seed_derived_data.py). Each job
+Neither is ever taken out of the store: `check` and `adopt` hand the job an
+APFS clone. A job that is cancelled or fails therefore leaves the last good
+state for the next one. When they were moved out instead, a cancelled or
+failed admission left its Mac cold, and the next job paid about 190 s of seed
+download, up to 240 s of SwiftPM cache restore and often a longer compile
+(jobs 107916039092 and 107916686710 on 2026-09-25). The clone costs about
+10 s, the same as `keep`'s.
+
+`check` runs before the caches: it drops a DerivedData that grew past
+MAX_DERIVED_BYTES and clones the packages into the workspace, where the
+resolve step picks them up. A DerivedData stamped for another fingerprint is
+not warm but stays: a rerun of an older merge commit (another STATE_VERSION
+or recipe) must not throw away the state every current job uses, and the
+next successful `keep` replaces it anyway. Its `warm` output tells the
+workflow to skip the SwiftPM cache restore and the seed. `adopt` runs where
+the seed would: the resolve step has just recreated the DerivedData, so it
+clones the kept one in and replays the input times recorded in it, as the
+seed's adopt does (seed_derived_data.py). Each job
 copies a fresh source tree into the canonical root, so without the replay
 every file is newer than the kept build and the whole `cmux` module
 recompiles: 2629 SwiftCompile tasks, 386 s, in job 107904138254, against
@@ -50,15 +64,32 @@ successful compile and clones the DerivedData as Xcode left it: the steps
 after it stage package frameworks into Build/Products and rewrite the
 xctestruns, which a later build must not start from (seed-derived-data.yml
 saves its seed before them for the same reason). A failed or cancelled
-compile keeps nothing. `save` runs last, always, and keeps the packages.
+compile keeps nothing, so the store still holds the state it started from.
+`save` runs last, always, and replaces the kept packages with the job's.
 
-Moves are renames and clones are APFS clones: the canonical root
-(/private/tmp/cmux-ci) and STORE sit on the same volume, so nothing is
-copied. A kept DerivedData is replaced by renaming the new one into place
-after the old one is out of the way, so an interrupted job leaves either
-the old state, the new one, or none, never one inside the other. One job at
-a time touches STORE, because glaeda's job-started hook holds the host lock
-for the whole job. Nothing here uploads anything: a pull request run on an owned Mac never
+A warm Mac is not always the cheapest start. Its kept DerivedData is the
+previous pull request's build, so the compile undoes that diff as well as
+building this one: warm compiles took 365 to 428 s on 2026-09-25, against 50
+to 160 s from a seed a few commits behind. `prefer` runs on a warm Mac when
+CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
+DerivedData. It digests the workspace once and counts the inputs each would
+rebuild: those whose content differs from the kept RECORD, and from the
+MANIFEST of the nearest seed in this commit's history that this Mac keeps
+(seed_derived_data.py CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the
+one with fewer changed inputs wins, and the adopt that follows clones exactly
+that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 190 s,
+so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
+given. A kept DerivedData without a record replays nothing and rebuilds the
+whole `cmux` module, so any seed beats it. Every error keeps the warm path.
+
+Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
+sit on the same volume, so nothing is copied. Kept state is replaced by
+renaming the new copy into place after the old one is out of the way, so an
+interrupted job leaves either the old state, the new one, or none, never one
+inside the other. One job at a time touches a slot's STORE, because glaeda
+grants a slot's compile token to one job. Two slots can clone PACKAGE_STORE
+while one saves; a clone that loses that race is usually a package miss, and
+at worst hands the resolve an incomplete checkout that it fetches again. Nothing here uploads anything: a pull request run on an owned Mac never
 writes a shared cache or seed, only this Mac's own state, and fork pull
 requests never reach an owned pool.
 """
@@ -162,7 +193,7 @@ def clone(source: Path, destination: Path) -> None:
         shutil.copytree(source, destination, symlinks=True)
 
 
-def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
+def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
     stamp = read_stamp(store)
     result = {"warm": "false", "packages": "false"}
@@ -170,7 +201,7 @@ def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
     if not derived.is_dir():
         result["reason"] = "no kept DerivedData"
     elif not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
-        clear(derived)
+        # Kept for the jobs it matches; the next successful keep replaces it.
         result["reason"] = "kept DerivedData is for another Xcode or layout"
     else:
         size = tree_bytes(derived)
@@ -181,10 +212,17 @@ def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
         else:
             result["warm"] = "true"
             result["reason"] = "kept DerivedData matches"
-    packages = store / PACKAGES
+    packages = (package_store or store) / PACKAGES
     if packages.is_dir():
-        move(packages, workspace / ".ci-source-packages")
-        result["packages"] = "true"
+        destination = workspace / ".ci-source-packages"
+        try:
+            clone(packages, destination)
+        except (OSError, RuntimeError, shutil.Error) as error:
+            # A save on another slot replaced them mid-clone: resolve from the cache.
+            remove(destination)
+            result["packages_error"] = f"{type(error).__name__}: {error}"[:200]
+        else:
+            result["packages"] = "true"
     return result
 
 
@@ -192,7 +230,9 @@ def adopt(store: Path, derived: Path, source: Path) -> dict[str, str]:
     kept = store / DERIVED
     if not kept.is_dir():
         return {"hit": "false", "reason": "no kept DerivedData"}
-    move(kept, derived)
+    # A clone, not a move: a cancelled or failed compile keeps nothing, and
+    # the store must still hold this state for the next job.
+    clone(kept, derived)
     result = {"hit": "true", "replayed": "false"}
     # Only the owned record: a seed's record describes the seed's source.
     manifest = derived / RECORD
@@ -250,20 +290,114 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
     return {"kept": "true"}
 
 
-def save(store: Path, source_packages: Path, workspace: Path) -> dict[str, str]:
-    store.mkdir(parents=True, exist_ok=True)
+def save(store: Path, source_packages: Path, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
+    package_store = package_store or store
+    package_store.mkdir(parents=True, exist_ok=True)
+    # Leftovers of a save that was cancelled or lost a rename race to
+    # another slot, and a slot's own packages from before PACKAGE_STORE.
+    for stale in package_store.glob(f".{PACKAGES}.*"):
+        remove(stale)
+    if package_store != store:
+        remove(store / PACKAGES)
     # The resolve moved the packages into the canonical tree; a job that
-    # stopped before it left them where check put them.
+    # stopped before it left them where check put them. A job with neither
+    # leaves the kept packages as they are.
     for packages in (source_packages, workspace / ".ci-source-packages"):
         if packages.is_dir():
-            move(packages, store / PACKAGES)
+            incoming = package_store / f".{PACKAGES}.incoming-{os.getpid()}"
+            move(packages, incoming)
+            try:
+                clear(package_store / PACKAGES)
+                incoming.rename(package_store / PACKAGES)
+            except (OSError, RuntimeError):
+                # Another slot saved first; its packages are as good.
+                remove(incoming)
+                return {"packages": "false", "reason": "another slot saved at the same time"}
             return {"packages": "true"}
     return {"packages": "false"}
 
 
+# Not build inputs of the compile, and not present at every recording.
+UNCOMPARED = (".ci-source-packages/", "GhosttyKit.xcframework/")
+
+
+def changed_inputs(current: dict[str, list], recorded: dict[str, list]) -> int:
+    """Files whose content differs between two records, or that only one has."""
+    def files(entries: dict[str, list]) -> dict[str, str]:
+        return {
+            path: entry[0] for path, entry in entries.items()
+            if not path.endswith("/") and not path.startswith(UNCOMPARED) and isinstance(entry, list) and entry
+        }
+    now, then = files(current), files(recorded)
+    return sum(1 for path in now.keys() | then.keys() if now.get(path) != then.get(path))
+
+
+def nearest_kept_seed(prefix: str, revision: str) -> tuple[str, int] | None:
+    """The nearest seed in REVISION's history that this Mac keeps, and its distance.
+
+    The nearest seed in the bucket moves with every main push that reseeds, so
+    a warm Mac that never downloads would rarely keep that exact one.
+    """
+    widths = (seed.swift_jobs(), *(width for width in seed.SEEDED_JOB_WIDTHS if width != seed.swift_jobs()))
+    for distance, commit in enumerate(seed.lineage(revision)):
+        for jobs in widths:
+            key = seed.scoped(prefix, jobs) + commit
+            if seed.cached(key):
+                return key, distance
+    return None
+
+
+def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distance: int | None) -> dict[str, str]:
+    """Whether a seed should replace this warm Mac's kept DerivedData.
+
+    `seed_key` and `local` tell seed_derived_data.py which kept seed to clone
+    (CMUX_SEED_EXACT), so it adopts the seed compared here, not a newer one.
+    """
+    result = {"prefer": "false", "local": "false"}
+    manifest = store / DERIVED / RECORD
+    kept_record = json.loads(manifest.read_text()) if manifest.is_file() else None
+    current = seed.warm.record(workspace) if kept_record is not None else {}
+    kept_changed = changed_inputs(current, kept_record) if kept_record is not None else None
+    if kept_changed is not None:
+        result["kept_changed"] = str(kept_changed)
+    kept_seed = nearest_kept_seed(prefix, revision)
+    if kept_seed:
+        key, distance = kept_seed
+        result.update(seed_key=key, seed_distance=str(distance), local="true")
+        if kept_changed is None:
+            result.update(prefer="true", reason="kept DerivedData has no input record")
+            return result
+        seed_changed = changed_inputs(current, json.loads((seed.cached(key) / seed.MANIFEST).read_text()))
+        result["seed_changed"] = str(seed_changed)
+        if seed_changed < kept_changed:
+            result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
+            return result
+        result["reason"] = "the kept DerivedData has no more changed inputs than the seed this Mac keeps"
+    if max_distance is None:
+        result.setdefault("reason", "this Mac keeps no seed in this commit's history")
+        return result
+    exact, distance = seed.locate(prefix, revision)
+    if distance is None:
+        result.setdefault("reason", "no seed in this commit's history")
+        return result
+    if kept_changed == 0:
+        result["reason"] = "the kept DerivedData has no changed inputs"
+    elif distance <= max_distance:
+        result.update(prefer="true", seed_key=exact, seed_distance=str(distance), local="false",
+                      reason=f"seed {distance} commits behind, within {max_distance}"
+                      + ("" if kept_changed is not None else "; kept DerivedData has no input record"))
+    else:
+        result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
+    return result
+
+
+def package_store(argv: list[str]) -> Path | None:
+    return Path(argv[5]) if len(argv) == 6 and argv[5] else None
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) == 5 and argv[1] == "check":
-        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4])))
+    if len(argv) in (5, 6) and argv[1] == "check":
+        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4]), package_store(argv)))
         return 0
     if len(argv) == 5 and argv[1] == "adopt":
         write_outputs(adopt(Path(argv[2]), Path(argv[3]), Path(argv[4]).resolve()))
@@ -274,8 +408,16 @@ def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "keep":
         write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))
         return 0
-    if len(argv) == 5 and argv[1] == "save":
-        write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4])))
+    if len(argv) in (5, 6) and argv[1] == "save":
+        write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4]), package_store(argv)))
+        return 0
+    if len(argv) in (6, 7) and argv[1] == "prefer":
+        max_distance = int(argv[6]) if len(argv) == 7 and argv[6].isdigit() else None
+        try:
+            result = prefer(Path(argv[2]), Path(argv[3]).resolve(), argv[4], argv[5], max_distance)
+        except Exception as error:  # noqa: BLE001 - any doubt keeps the warm path
+            result = {"prefer": "false", "reason": f"{type(error).__name__}: {error}"[:200]}
+        write_outputs(result)
         return 0
     print(__doc__, file=sys.stderr)
     return 2

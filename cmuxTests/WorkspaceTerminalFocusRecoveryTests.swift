@@ -158,17 +158,17 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.suppressReparentFocus()
             #expect(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
             #expect(window.makeFirstResponder(surfaceView))
-            await AppKitTestEventPump().drain()
-            _ = await AppKitTestEventPump().waitUntil {
-                !panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting()
-            }
-            #expect(!panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
+            try #require(panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
+            // Run the queued reapply now against the 0x0 surface. A drain let the window's layout
+            // pass restore the surface first on macOS 26 CI, and the reapply then focused it.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
             #expect(!panel.surface.debugDesiredFocusState())
 
             panel.hostedView.clearSuppressReparentFocus()
 
             #expect(
-                panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting(),
+                panel.hostedView.debugHasPendingSuppressedFirstResponderFocusReapplyForTesting(),
                 "Forced reparent focus reassert should keep a deferred retry queued while surface geometry is tiny"
             )
             #expect(!panel.surface.debugDesiredFocusState())
