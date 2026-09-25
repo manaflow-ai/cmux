@@ -3850,39 +3850,33 @@ class TabManager: ObservableObject {
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() {
         panelTitleUpdateCoalescer.flushNow()
     }
-<<<<<<< HEAD
-
     @discardableResult
     func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) -> Bool {
-        guard let tab = workspacesById[tabId] else { return false }
-        let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        let applied = tab.updatePanelTitle(panelId: panelId, title: title)
-        guard !tab.isRemoteTmuxMirror else { return applied }
-        if tab.focusedPanelId == panelId, selectedTabId == tabId {
-            updateWindowTitle(for: tab)
-=======
-    private func updatePanelTitle(
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: nil, sourceSurface: nil)
+    }
+
+    private func applyPanelTitle(
         tabId: UUID,
         panelId: UUID,
         title: String,
-        stableTitle: String,
-        sourceSurface: TerminalSurface
-    ) {
-        guard let tab = workspacesById[tabId],
-              let terminalPanel = tab.terminalPanel(for: panelId),
-              terminalPanel.surface === sourceSurface else { return }
+        stableTitle: String?,
+        sourceSurface: TerminalSurface?
+    ) -> Bool {
+        guard let tab = workspacesById[tabId] else { return false }
+        if let sourceSurface {
+            // Batched flush path: the queued surface must still own the panel.
+            guard let terminalPanel = tab.terminalPanel(for: panelId),
+                  terminalPanel.surface === sourceSurface else { return false }
+        }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        let didMutate = tab.updatePanelTitle(panelId: panelId, title: title, stableTitle: stableTitle)
-        guard !tab.isRemoteTmuxMirror else { return }
+        let applied = tab.updatePanelTitle(panelId: panelId, title: title, stableTitle: stableTitle)
+        guard !tab.isRemoteTmuxMirror else { return applied }
         // A spinner-only frame has already refreshed the AppKit tab label inside
-        // `updatePanelTitle`. Nothing below it can produce a different result, so
-        // stop before the window title and the display-title comparison.
-        guard didMutate else { return }
-        if tab.focusedPanelId == panelId {
-            if selectedTabId == tabId {
-                updateWindowTitle(for: tab)
-            }
->>>>>>> fa4f9f23e5a (fix: keep the spinner animating, stop it waking the app)
+        // `tab.updatePanelTitle`. Nothing below it can produce a different result,
+        // so stop before the window title and the display-title comparison.
+        guard applied else { return false }
+        if tab.focusedPanelId == panelId, selectedTabId == tabId {
+            updateWindowTitle(for: tab)
         }
         let currentDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         if currentDisplayTitle != previousDisplayTitle {
@@ -3898,11 +3892,18 @@ class TabManager: ObservableObject {
         return applied
     }
 
+    private func updatePanelTitle(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        stableTitle: String,
+        sourceSurface: TerminalSurface
+    ) {
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: stableTitle, sourceSurface: sourceSurface)
+    }
+
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
-        guard let tab = workspacesById[tabId],
-              let terminalPanel = tab.terminalPanel(for: panelId),
-              terminalPanel.surface === sourceSurface else { return }
-        _ = updatePanelTitle(tabId: tabId, panelId: panelId, title: title)
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: nil, sourceSurface: sourceSurface)
     }
 
     func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
