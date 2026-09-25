@@ -403,7 +403,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "enabled",
-                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
+                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable cmux Computer Use"),
                 paths: ["computerUse.enabled"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.enabled", defaultValue: "computerUse.enabled enable disable computer use cua mcp agent sessions")
             ),
@@ -416,7 +416,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "show-in-menu-bar",
-                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show Computer Use in Menu Bar"),
+                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show cmux Computer Use in Menu Bar"),
                 paths: ["computerUse.showInMenuBar"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
             ),

@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI

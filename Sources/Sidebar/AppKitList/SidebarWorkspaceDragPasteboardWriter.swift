@@ -92,7 +92,13 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
         // this one, must not make `responds(to:)` forward back here forever.
         if tableView.delegate !== self,
            !Self.forwardingChain(from: tableView.delegate, reaches: self) {
-            previousTableDelegate = tableView.delegate
+            if let previousWriter = tableView.delegate as? SidebarWorkspaceDragPasteboardWriter {
+                // Preserve the original delegate rather than retaining a
+                // superseded provisional writer in the forwarding chain.
+                previousTableDelegate = previousWriter.previousTableDelegate
+            } else {
+                previousTableDelegate = tableView.delegate
+            }
         }
         tableView.delegate = self
         controller = nil

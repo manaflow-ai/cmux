@@ -118,8 +118,11 @@ struct RemoteShellCWDRelayTests {
             _CMUX_PORTS_LAST_RUN=$(_cmux_now)
             _CMUX_PWD_LAST_PWD="/tmp/local-launch"
             _cmux_precmd
-            repeat 20; do
-              [[ -s "\(logPath.path)" ]] && break
+            # _cmux_precmd reports shell state and the pwd from separate
+            # background calls, so wait for the pwd line itself rather than
+            # for the first line of any kind.
+            repeat 100; do
+              [[ -s "\(logPath.path)" && "$(<"\(logPath.path)")" == *surface.report_pwd* ]] && break
               sleep 0.05
             done
             cat "\(logPath.path)"

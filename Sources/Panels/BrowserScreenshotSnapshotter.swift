@@ -84,9 +84,15 @@ enum BrowserScreenshotCaptureBounds {
 
 @MainActor
 enum BrowserScreenshotWebViewSnapshotter {
+    /// Upper bound on the per-tile scroll settle wait. A web view that is not
+    /// on screen never receives animation frames, so this timer — not the two
+    /// requested frames — decides how long each stitched tile waits.
+    nonisolated static let defaultScrollSettleTimeout: TimeInterval = 0.25
+
     static func captureFullPage(
         from webView: WKWebView,
         afterScreenUpdates: Bool = true,
+        scrollSettleTimeout: TimeInterval = defaultScrollSettleTimeout,
         onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
@@ -120,6 +126,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             from: webView,
             metrics: metrics,
             afterScreenUpdates: afterScreenUpdates,
+            scrollSettleTimeout: scrollSettleTimeout,
             onProgress: onProgress
         )
     }
@@ -130,6 +137,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         from webView: WKWebView,
         maximumPixelCount: Int,
         afterScreenUpdates: Bool = true,
+        scrollSettleTimeout: TimeInterval = defaultScrollSettleTimeout,
         onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
@@ -177,6 +185,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             metrics: metrics,
             maximumPixelCount: maximumPixelCount,
             afterScreenUpdates: afterScreenUpdates,
+            scrollSettleTimeout: scrollSettleTimeout,
             onProgress: onProgress
         )
     }
@@ -199,6 +208,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         _ rect: NSRect,
         from webView: WKWebView,
         afterScreenUpdates: Bool = true,
+        scrollSettleTimeout: TimeInterval = defaultScrollSettleTimeout,
         onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
@@ -225,6 +235,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             metrics: metrics,
             maximumPixelCount: Int(BrowserScreenshotCaptureBounds.maximumSelectionPixels),
             afterScreenUpdates: afterScreenUpdates,
+            scrollSettleTimeout: scrollSettleTimeout,
             onProgress: onProgress
         )
     }
@@ -274,6 +285,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         from webView: WKWebView,
         metrics: BrowserViewportContentMetrics,
         afterScreenUpdates: Bool,
+        scrollSettleTimeout: TimeInterval,
         onProgress: @escaping @MainActor () -> Void
     ) async throws -> NSImage {
         let contentSize = metrics.contentSize
@@ -309,7 +321,11 @@ enum BrowserScreenshotWebViewSnapshotter {
                     guard let origin = tilePlan.origin(column: column, row: row) else {
                         throw BrowserScreenshotError.webContentMetricsUnavailable
                     }
-                    let actualOrigin = try await scroll(webView, to: origin)
+                    let actualOrigin = try await scroll(
+                        webView,
+                        to: origin,
+                        settleTimeout: scrollSettleTimeout
+                    )
                     onProgress()
                     try Task.checkCancellation()
                     let tile = try await captureVisibleViewport(
@@ -337,7 +353,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         // must not leave the user's page scrolled to an intermediate tile.
         let restoration = Task { @MainActor [weak webView] in
             guard let webView else { return }
-            _ = try? await scroll(webView, to: metrics.scrollOffset)
+            _ = try? await scroll(
+                webView,
+                to: metrics.scrollOffset,
+                settleTimeout: scrollSettleTimeout
+            )
         }
         await restoration.value
         onProgress()
@@ -362,6 +382,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         metrics: BrowserViewportContentMetrics,
         maximumPixelCount: Int,
         afterScreenUpdates: Bool,
+        scrollSettleTimeout: TimeInterval,
         onProgress: @escaping @MainActor () -> Void
     ) async throws -> NSImage {
         let pageRect = NSRect(origin: .zero, size: metrics.contentSize)
@@ -399,7 +420,8 @@ enum BrowserScreenshotWebViewSnapshotter {
                         to: NSPoint(
                             x: captureRegion.minX + relativeOrigin.x,
                             y: captureRegion.minY + relativeOrigin.y
-                        )
+                        ),
+                        settleTimeout: scrollSettleTimeout
                     )
                     onProgress()
                     try Task.checkCancellation()
@@ -428,7 +450,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         // never leaves the page at an intermediate stitched-capture offset.
         let restoration = Task { @MainActor [weak webView] in
             guard let webView else { return }
-            _ = try? await scroll(webView, to: metrics.scrollOffset)
+            _ = try? await scroll(
+                webView,
+                to: metrics.scrollOffset,
+                settleTimeout: scrollSettleTimeout
+            )
         }
         await restoration.value
         onProgress()
@@ -749,7 +775,11 @@ enum BrowserScreenshotWebViewSnapshotter {
     }
 
     @discardableResult
-    private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws -> CGPoint {
+    private static func scroll(
+        _ webView: WKWebView,
+        to point: NSPoint,
+        settleTimeout: TimeInterval
+    ) async throws -> CGPoint {
         let value = try await webView.callAsyncJavaScript(
             """
             const doc = document.documentElement;
@@ -777,7 +807,7 @@ enum BrowserScreenshotWebViewSnapshotter {
                 if (!settled) { settled = true; resolve(); }
               };
               requestAnimationFrame(() => requestAnimationFrame(finish));
-              setTimeout(finish, 250);
+              setTimeout(finish, settleTimeoutMilliseconds);
             });
             return {
               x: window.scrollX || 0,
@@ -789,6 +819,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             arguments: [
                 "x": Double(point.x),
                 "y": Double(point.y),
+                "settleTimeoutMilliseconds": max(0, settleTimeout * 1000),
             ],
             in: nil,
             contentWorld: .page
