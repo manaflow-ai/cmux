@@ -54,7 +54,8 @@ stale history rows. The base SHA preserves cmux's Cloud loopback link-detection
 changes while adding the localhost-port punctuation fix and owned POSIX
 environment snapshots for embedded hosts.
 
-The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at `3869e81a0` into the
+The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at
+`3869e81a0` into the
 Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
 `59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
