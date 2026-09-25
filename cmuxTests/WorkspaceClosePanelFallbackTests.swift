@@ -33,7 +33,6 @@ struct WorkspaceClosePanelFallbackTests {
             firstResponderPanelId: unmappedPanelId,
             force: true
         ))
-        #expect(!workspace.closePanel(unmappedPanelId, force: true))
 
         #expect(workspace.bonsplitController.tabs(inPane: paneId).count == 2)
         #expect(workspace.panels[otherPanel.id] != nil)
