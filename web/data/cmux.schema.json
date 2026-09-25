@@ -607,7 +607,7 @@
           "enum": ["always", "multiple-tabs"],
           "default": "always",
           "descriptionKey": "schemaDescriptions.app.tabBarVisibility",
-          "description": "Control when each pane's surface tab bar is shown. \"always\" shows it even when the pane has a single tab; \"multiple-tabs\" hides the bar until the pane has two or more tabs."
+          "description": "Control when each pane's surface tab bar is shown. \"always\" shows it even when the pane has a single tab; \"multiple-tabs\" hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row."
         },
         "renameSelectsExistingName": {
           "type": "boolean",

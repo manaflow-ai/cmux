@@ -13,6 +13,8 @@ import struct CmuxSettings.NotificationSoundOverride
 import struct CmuxSettings.NotificationSoundOverrides
 import enum CmuxSettings.NotificationSoundAlertType
 import struct CmuxSettings.NotificationsCatalogSection
+import enum CmuxSettings.PaneTabBarVisibility
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -819,6 +821,15 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             XCTAssertEqual(defaults.string(forKey: key), PaneTabBarVisibility.multipleTabs.rawValue)
             XCTAssertEqual(AppCatalogSection().tabBarVisibility.value(in: defaults), .multipleTabs)
         }
+    }
+
+    func testWorkspaceTabBarVisibilityHonorsSettingOutsideMinimalMode() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cmux.tests.tabBarVisibility.\(UUID().uuidString)"))
+        defaults.set(PaneTabBarVisibility.multipleTabs.rawValue, forKey: AppCatalogSection().tabBarVisibility.userDefaultsKey)
+        XCTAssertEqual(Workspace.tabBarVisibility(defaults: defaults), .multipleTabs)
+
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        XCTAssertEqual(Workspace.tabBarVisibility(defaults: defaults), .always)
     }
 
     func testTabBarVisibilityRejectsInvalidValueFromCmuxJSON() throws {
