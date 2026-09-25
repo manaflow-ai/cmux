@@ -79,6 +79,7 @@ LEGACY_B4D3_CLA_REFRESH_DIGEST = "580ea1130f9745be686e428e45aa39c93ad290ca487363
 LEGACY_B4D3_CLA_HELPER_PATH = ".github/scripts/refresh-cla-check.sh".freeze
 # origin/main currently carries the f567 workflow and intentionally has no
 # rerun helper. This is a bounded one-time bridge to the final v3 workflow.
+# The digest is the #14668 revision, which pins runs-on to ubuntu-24.04.
 CURRENT_MAIN_CLA_WORKFLOW_DIGEST = "ce0112907844270c70c5e2cc235e20f8a45eb7a0ef42a88f054ceb6dc0198a64".freeze
 REVIEWED_CLA_BASES = {
   CLA_ACTION_LEGACY_REFS.fetch(0) => {
