@@ -31,7 +31,7 @@ jobs:
     # A CI main full suite run started by a push only dispatches; the one a
     # completed CI run starts is the one that reports.
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/ci-main-full-suite.yml')) }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # At most four dispatches, each bounded at eight minutes, plus reads.
     timeout-minutes: 45
     concurrency:
