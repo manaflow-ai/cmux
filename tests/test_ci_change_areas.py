@@ -447,6 +447,11 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     body = workflow.split("PACKAGES=(", 1)[1].split("\n          )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
     assert "CmuxSettingsUI" in packages
+    # CmuxWorkspaces was missing from the list, so its tests never ran in CI.
+    assert "CmuxWorkspaces" in packages
+    assert module.classify_files([
+        "Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift"
+    ]).swift_packages is True
     for name in packages:
         assert (ROOT / "Packages").glob(f"*/{name}/Package.swift"), name
 
@@ -595,7 +600,13 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
     release = workflow_job_block("release-build", MACOS_WORKFLOW)
     status = workflow_job_block("macos-status", MACOS_WORKFLOW)
 
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in admission
+    assert (
+        "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
+        " || github.event_name == 'pull_request'"
+        " && github.event.pull_request.head.repo.full_name != github.repository"
+        " && 'blacksmith-4vcpu-ubuntu-2404'"
+        " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
     assert "- release-admission" in release
@@ -5383,14 +5394,9 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    # ci.yml's only actions: write is owned-pool-watch, which runs no
-    # repository code: it dispatches ci-owned-pool-rescue.yml from main.
-    ci_jobs = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-    writers = [name for name, job in ci_jobs.items()
-               if (job.get("permissions") or {}).get("actions") == "write"]
-    assert writers == ["owned-pool-watch"]
-    assert CI_WORKFLOW.read_text(encoding="utf-8").count("actions: write") == 1
-    assert all("uses" not in step for step in ci_jobs["owned-pool-watch"]["steps"])
+    # ci.yml holds no actions: write: the owned-pool rescue sweeper finds its
+    # runs by marker (ci-owned-pool-rescue.yml).
+    assert "actions: write" not in CI_WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
