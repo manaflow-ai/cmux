@@ -74,10 +74,11 @@ jobs:
           # The owned std minis compile at -j14, and a j12 seed re-emits
           # every module there (cmuxterm-hq#590). Their j14 seed comes from a
           # trusted-only runner (glaeda-trusted-std-xcode-<version>, glaeda
-          # docs/CMUX_MINI_RUNNER.md 2e) on a mini that runs no pull-request
-          # jobs, since this job holds the ci-cache-writer credentials. Its
-          # job-started hook admits only a push to main, so the pool joins
-          # only then. Empty (the default) leaves it out.
+          # docs/CMUX_MINI_RUNNER.md 2e) on a mini with no pull-request
+          # runners, since this job holds the ci-cache-writer credentials
+          # (the host choice is on cmuxterm-hq#590). Its job-started hook
+          # admits only a push to main, so the pool joins only then. Empty
+          # (the default) leaves it out.
           SEED_TRUSTED_POOL: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || '' }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -114,7 +115,9 @@ jobs:
     # (CMUX_CI_XCODE_APP_MACOS_15): without a seed of its own every admission
     # there compiled cold for 17 to 25 minutes (2026-09-24). The fourth, when
     # CI_SEED_TRUSTED_POOL names one, is a trusted-only owned mini that seeds
-    # j14 for the owned std pool on the lane's Xcode. GitHub names these jobs
+    # j14 for the owned std pool on the lane's Xcode. nightly.yml writes no
+    # cold j14 seed, so the j14 chain only ever builds on its own last seed
+    # (or cold when none is near). GitHub names these jobs
     # "seed (<pool>)"; seed_decide.py and reuse_app_host_products.py match
     # that.
     strategy:
@@ -375,10 +378,12 @@ jobs:
       # macOS jobs start their checkout from these objects, so a pull request
       # fetches only what changed since this main commit instead of the whole
       # tree and its submodules (scripts/ci/git-seed.sh). A failure costs them
-      # the head start, never this seed.
+      # the head start, never this seed. Not from the trusted owned runner:
+      # its reused workspace .git grows across checkouts, and the Blacksmith
+      # pools already save the same key.
       - name: Save git object seed
         id: git-seed
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && matrix.pool != vars.CI_SEED_TRUSTED_POOL
         continue-on-error: true
         timeout-minutes: 5
         env:
