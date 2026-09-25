@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2. */
+/* cmux-tui mux protocol 12, IR e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -117,6 +117,13 @@ export type CloseTerminalResult = {
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
+};
+
+export type CloudBootstrapResult = {
+  "created_path": (JsonValue) | null;
+  "generation"?: (string) | null;
+  "occupied"?: boolean;
+  "revision"?: (string) | null;
 };
 
 export type ColorHex = string;

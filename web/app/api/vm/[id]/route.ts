@@ -54,6 +54,7 @@ export async function GET(
         displayName: vm.displayName,
         slug: vm.slug,
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
+        cloudWelcomeEligible: vm.cloudWelcomeEligible,
       });
     },
   );

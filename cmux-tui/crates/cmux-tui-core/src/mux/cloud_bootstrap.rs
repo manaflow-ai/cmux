@@ -1,5 +1,5 @@
 //! Cloud reserves its initial workspace before accepting clients, but starts
-//! the shell only after attach preparation has installed the machine's grant.
+//! the shell only at the first interactive machine-open request.
 
 use super::*;
 
@@ -39,21 +39,110 @@ impl Mux {
 
     /// Local control-plane preparation only: no caller-supplied command or
     /// workspace selector. The stored identities own retries and concurrency.
-    pub fn start_cloud_initial_terminal(self: &Arc<Self>, welcome: bool) -> anyhow::Result<()> {
-        let options = self.surface_options.lock().unwrap().clone();
-        self.start_cloud_initial_terminal_with_renderer(welcome, || render_cloud_welcome(&options))
+    pub fn start_cloud_initial_terminal(self: &Arc<Self>, welcome: bool) -> anyhow::Result<Value> {
+        self.open_cloud_initial_terminal(welcome, None, None)
     }
 
+    /// First interactive open, over the existing machine-owned control link.
+    /// The daemon's durable reservation, not a name or count, selects the target.
+    pub fn open_cloud_initial_terminal(
+        self: &Arc<Self>,
+        welcome: bool,
+        machine_id: Option<&str>,
+        workspace: Option<&str>,
+    ) -> anyhow::Result<Value> {
+        let options = self.surface_options.lock().unwrap().clone();
+        self.open_cloud_initial_terminal_with_renderer(welcome, machine_id, workspace, || {
+            render_cloud_welcome(&options)
+        })
+    }
+
+    #[cfg(test)]
     fn start_cloud_initial_terminal_with_renderer(
         self: &Arc<Self>,
         welcome: bool,
         render: impl FnOnce() -> anyhow::Result<Vec<u8>>,
     ) -> anyhow::Result<()> {
+        self.open_cloud_initial_terminal_with_renderer(welcome, None, None, render).map(|_| ())
+    }
+
+    fn open_cloud_initial_terminal_with_renderer(
+        self: &Arc<Self>,
+        welcome: bool,
+        machine_id: Option<&str>,
+        requested_workspace: Option<&str>,
+        render: impl FnOnce() -> anyhow::Result<Vec<u8>>,
+    ) -> anyhow::Result<Value> {
         let _bootstrap = self.lock_initial_bootstrap();
         let reservation = self.workspace_registry.lock().unwrap().cloud_bootstrap()?;
-        let Some(mut reservation) = reservation.filter(|entry| !entry.finished) else {
-            return Ok(());
+        let Some(mut reservation) = reservation else {
+            return Ok(json!({"created_path": null}));
         };
+        let selected = self.with_state(|state| {
+            state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.key == reservation.workspace_key)
+                .map(|workspace| (workspace.id, workspace.public_id.to_string()))
+        });
+        if requested_workspace
+            .is_some_and(|requested| selected.as_ref().is_none_or(|(_, id)| requested != id))
+        {
+            return Ok(json!({"created_path": null}));
+        }
+        if let Some(machine_id) = machine_id {
+            anyhow::ensure!(
+                !machine_id.is_empty() && machine_id.len() <= 256,
+                "invalid Cloud machine identity"
+            );
+            if reservation.machine_id.as_deref().is_some_and(|bound| bound != machine_id) {
+                // A restore/fork does not inherit the original machine's grant.
+                // Ordinary terminal creation remains available in the copied graph.
+                return Ok(json!({"created_path": null}));
+            }
+            reservation.machine_id = Some(machine_id.to_owned());
+        }
+        if reservation.finished {
+            if reservation.created_path.is_none() {
+                let occupied = self.with_state(|state| {
+                    state.surfaces.keys().any(|surface| {
+                        self.created_resource_path_in_state(state, *surface).ok().is_some_and(
+                            |path| {
+                                selected.as_ref().is_some_and(|(_, id)| path["workspace_id"] == *id)
+                            },
+                        )
+                    })
+                });
+                return Ok(json!({"created_path": null, "occupied": occupied}));
+            }
+            if let Some(id) =
+                reservation.created_path.as_ref().and_then(|path| path["terminal_id"].as_str())
+            {
+                let id = TerminalPublicId::parse(id)?;
+                let live = self.with_state(|state| state.terminal_catalog.get(&id).cloned());
+                match live {
+                    Some(terminal) if !terminal.is_dead() => {}
+                    Some(_) => return Ok(json!({"created_path": null})),
+                    None => {
+                        let topology =
+                            self.workspace_registry.lock().unwrap().resource_topology_snapshot()?;
+                        anyhow::ensure!(
+                            !topology.tabs.iter().any(|tab| {
+                                tab.content_id == ContentPublicId::Terminal(id.clone())
+                            }),
+                            "initial Cloud terminal restoration is pending"
+                        );
+                        return Ok(json!({"created_path": null}));
+                    }
+                }
+            }
+            let (_, generation) = self.registry_identity();
+            return Ok(json!({
+                "created_path": reservation.created_path,
+                "generation": generation,
+                "revision": reservation.created_revision.map(|revision| revision.to_string()),
+            }));
+        }
         let workspace = self.with_state(|state| {
             state
                 .workspaces
@@ -64,7 +153,7 @@ impl Mux {
         let Some(workspace) = workspace else {
             // An explicitly deleted starter workspace must never be recreated.
             self.workspace_registry.lock().unwrap().finish_cloud_bootstrap(reservation)?;
-            return Ok(());
+            return Ok(json!({"created_path": null}));
         };
         // Share ordinary terminal creation's handoff guard, including the
         // user-content check, so another creator cannot fill the starter slot
@@ -79,7 +168,7 @@ impl Mux {
             // A caller already supplied initial content. Never overwrite it or
             // type into it, even if the account still has an unused grant.
             self.workspace_registry.lock().unwrap().finish_cloud_bootstrap(reservation)?;
-            return Ok(());
+            return Ok(json!({"created_path": null, "occupied": true}));
         }
         let options = self.surface_options.lock().unwrap().clone();
         let command = options.command.clone();
@@ -146,13 +235,18 @@ impl Mux {
                 }) =>
             {
                 self.workspace_registry.lock().unwrap().finish_cloud_bootstrap(reservation)?;
-                return Ok(());
+                return Ok(json!({"created_path": null, "occupied": true}));
             }
             Err(error) => return Err(error),
         };
         self.emit_resource_topology_legacy_events(operation, &commit);
+        reservation.created_path = Some(commit.result.clone());
+        reservation.created_revision = Some(commit.revision);
         self.workspace_registry.lock().unwrap().finish_cloud_bootstrap(reservation)?;
-        Ok(())
+        let (_, generation) = self.registry_identity();
+        Ok(
+            json!({"created_path": commit.result, "generation": generation, "revision": commit.revision.to_string()}),
+        )
     }
 }
 
@@ -177,10 +271,11 @@ fn cloud_file(options: &SurfaceOptions, name: &str, default: &str) -> Option<Str
         .iter()
         .rev()
         .find(|(key, _)| key == name)
-        .map(|(_, value)| value.as_str())
-        .unwrap_or(default);
+        .map(|(_, value)| value.clone())
+        .or_else(|| std::env::var(name).ok())
+        .unwrap_or_else(|| default.to_owned());
     let mut value = String::new();
-    std::fs::File::open(path).ok()?.take(257).read_to_string(&mut value).ok()?;
+    std::fs::File::open(&path).ok()?.take(257).read_to_string(&mut value).ok()?;
     (value.len() <= 256).then(|| value.trim().to_owned()).filter(|value| !value.is_empty())
 }
 
@@ -189,16 +284,7 @@ fn cloud_instance(options: &SurfaceOptions) -> Option<String> {
 }
 
 pub(super) fn cloud_welcome_output_allowed(options: &SurfaceOptions, instance: &Value) -> bool {
-    let identity = cloud_file(
-        options,
-        "CMUX_CLOUD_WELCOME_IDENTITY_PATH",
-        "/etc/cmux/.cloud-welcome-machine-id",
-    );
-    let grant =
-        cloud_file(options, "CMUX_CLOUD_WELCOME_PENDING_PATH", "/etc/cmux/.cloud-welcome-pending");
     cloud_welcome_enabled(options)
-        && identity.is_some()
-        && identity == grant
         && instance.as_str().is_some_and(|identity| !identity.is_empty())
         && cloud_instance(options).as_deref() == instance.as_str()
 }
@@ -206,9 +292,17 @@ pub(super) fn cloud_welcome_output_allowed(options: &SurfaceOptions, instance: &
 #[cfg(unix)]
 fn render_cloud_welcome(options: &SurfaceOptions) -> anyhow::Result<Vec<u8>> {
     use std::process::Command;
-    let mut command = Command::new("/usr/local/bin/cmux");
+    let renderer = options
+        .extra_env
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "CMUX_CLOUD_WELCOME_CLI")
+        .map(|(_, value)| value.clone())
+        .or_else(|| std::env::var("CMUX_CLOUD_WELCOME_CLI").ok())
+        .unwrap_or_else(|| "/usr/local/bin/cmux".to_owned());
+    let mut command = Command::new(renderer);
     command
-        .args(["welcome", "--bootstrap"])
+        .args(["welcome"])
         .envs(options.extra_env.iter().map(|(key, value)| (key, value)))
         .env("COLUMNS", options.cols.to_string());
     let output = match renderer::capture(&mut command, Duration::from_secs(2)) {
@@ -216,7 +310,7 @@ fn render_cloud_welcome(options: &SurfaceOptions) -> anyhow::Result<Vec<u8>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
     };
-    // Older guest shims reject this private preparation mode. Their shell must
+    // Older guest shims reject the welcome command. Their shell must
     // remain usable; no new terminal command is typed as a fallback.
     if matches!(output.status.code(), Some(2 | 127)) {
         return Ok(Vec::new());

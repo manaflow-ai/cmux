@@ -595,6 +595,7 @@ try {
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
   );
+  await step("cmux-cloud-first-workspace-contract", "install -m 0644 /dev/null /etc/cmux/cloud-first-workspace-v1");
   await step(
     "cmux-prompt-sync-unit",
     "python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl daemon-reload && systemctl enable cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync",
@@ -609,17 +610,15 @@ try {
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
   await step("cmux-tui-ready", devboxWaitForDaemonCommand());
   await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
-  // Create the warm template terminal the snapshot carries: one armed shell,
-  // fully initialized and waiting at its first prompt. A clone's daemon adopts
-  // its host process with fresh identity, so New Machine gets a live shell
-  // without creating a workspace, terminal or PTY on its critical path.
+  // Close builder terminals and verify the deferred first-workspace contract.
+  // A clone reserves its workspace; interactive open starts its first shell.
   await step("cmux-tui-template-terminal", devboxPrepareTemplateTerminalCommand());
   // Let the daemon, first PTY and desktop settle before the memory snapshot.
   // Freestyle resumes the snapshot rather than replaying these startup steps.
   await step("cmux-tui-settle-before-snapshot", "sleep 30");
   // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
   // the machine's id equals the recorded bake id, and every per-machine file
-  // is wiped except the template terminal's host record.
+  // is wiped only after all builder terminal hosts have exited.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
   await step(

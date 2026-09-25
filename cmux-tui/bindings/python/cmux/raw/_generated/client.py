@@ -84,8 +84,11 @@ class GeneratedClientMixin:
     def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
 
-    def cloud_bootstrap(self, *, welcome: Union[bool, MissingType] = MISSING) -> EmptyResult:
+    def cloud_bootstrap(self, *, welcome: Union[bool, MissingType] = MISSING) -> CloudBootstrapResult:
         return self._invoke_command('cloud-bootstrap', CloudBootstrapRequest(welcome=welcome))
+
+    def cloud_first_workspace(self, machine_id: str, *, workspace: Union[str, None, MissingType] = MISSING, welcome: Union[bool, MissingType] = MISSING) -> CloudBootstrapResult:
+        return self._invoke_command('cloud-first-workspace', CloudFirstWorkspaceRequest(machine_id=machine_id, workspace=workspace, welcome=welcome))
 
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
@@ -377,6 +380,7 @@ GeneratedClientMixin.close_surface.__cmux_command__ = COMMANDS['close-surface']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
 GeneratedClientMixin.cloud_bootstrap.__cmux_command__ = COMMANDS['cloud-bootstrap']
+GeneratedClientMixin.cloud_first_workspace.__cmux_command__ = COMMANDS['cloud-first-workspace']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
 GeneratedClientMixin.create_surface_with_receipt.__cmux_command__ = COMMANDS['create-surface-with-receipt']
 GeneratedClientMixin.create_terminal.__cmux_command__ = COMMANDS['create-terminal']

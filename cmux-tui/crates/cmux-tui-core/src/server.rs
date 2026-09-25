@@ -200,6 +200,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
+        "cloud-first-workspace-v1",
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -1072,6 +1073,14 @@ enum Command {
     },
     /// Finish the daemon-owned first Cloud workspace after guest preparation.
     CloudBootstrap {
+        #[serde(default)]
+        welcome: bool,
+    },
+    /// Opens the reserved first Cloud terminal without typing shell input.
+    CloudFirstWorkspace {
+        machine_id: String,
+        #[serde(default)]
+        workspace: Option<String>,
         #[serde(default)]
         welcome: bool,
     },
@@ -12102,8 +12111,13 @@ fn handle_command_with_cancellation(
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("Cloud bootstrap requires a trusted local connection");
             }
-            mux.start_cloud_initial_terminal(welcome)?;
-            Ok(json!({}))
+            mux.start_cloud_initial_terminal(welcome)
+        }
+        Command::CloudFirstWorkspace { machine_id, workspace, welcome } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("Cloud startup requires the machine control link");
+            }
+            mux.open_cloud_initial_terminal(welcome, Some(&machine_id), workspace.as_deref())
         }
         Command::NewWorkspace { name, cols, rows } => {
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
@@ -13917,7 +13931,7 @@ mod tests {
     }
 
     #[test]
-    fn cloud_bootstrap_returns_the_same_creation_receipt_to_concurrent_first_opens() {
+    fn cloud_bootstrap_returns_the_same_creation_receipt_to_repeated_first_opens() {
         let mux = test_mux();
         mux.reserve_cloud_initial_workspace().unwrap();
         let writer = test_writer();

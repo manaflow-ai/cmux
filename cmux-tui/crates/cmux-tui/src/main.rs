@@ -2140,8 +2140,8 @@ fn run_server(
             )
         })?;
     // Reserve the exact first Cloud workspace before accepting clients. Guest
-    // preparation starts its shell after installing the account's first-use
-    // grant; it cannot safely add a welcome to an already-running shell.
+    // interactive open starts its shell with the account's first-use grant;
+    // it cannot safely add a welcome to an already-running shell.
     #[cfg(unix)]
     let trusted_carrier =
         args.remote && (args.remote_ws_trusted_carrier || remote_ws_trusted_carrier_from_env());

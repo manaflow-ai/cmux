@@ -14,6 +14,12 @@ pub(crate) struct CloudBootstrap {
     pub prepared_output: Option<Vec<u8>>,
     #[serde(default)]
     pub prepared_instance: Option<String>,
+    #[serde(default)]
+    pub created_path: Option<Value>,
+    #[serde(default)]
+    pub created_revision: Option<u64>,
+    #[serde(default)]
+    pub machine_id: Option<String>,
 }
 
 impl WorkspaceRegistry {
@@ -39,6 +45,9 @@ impl WorkspaceRegistry {
             finished: false,
             prepared_output: None,
             prepared_instance: None,
+            created_path: None,
+            created_revision: None,
+            machine_id: None,
         });
         self.connection.execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)",

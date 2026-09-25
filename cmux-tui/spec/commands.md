@@ -269,7 +269,47 @@ Params:
 | --- | --- | --- | --- |
 | `welcome` | `boolean` | `false` | Render the prepared Cloud guide when the machine grant and suppression policy allow it |
 
-Result: `object{}`.
+Result: `{created_path, generation?, revision?, occupied?}`. A non-null
+`created_path` is the committed terminal placement. Repeated calls return that
+receipt without rendering or starting another shell. `occupied: true` means an
+explicit user terminal won the initial slot; callers must refresh rather than
+fall through to another create.
+
+### cloud-first-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-first-workspace` |
+| status | implemented |
+| since | protocol 12 |
+| authority | local-admin |
+
+The interactive Cloud machine-open path uses its existing authenticated machine
+control link to open the daemon's reserved first workspace. It supplies the
+control plane's first-user welcome decision, never shell input. Background
+discovery, detached create, scripted exec and ordinary terminal creation do not
+send this request. The distinct command lets older images reject it before any
+mutation, then use their normal terminal path.
+
+| Parameter | Type | Notes |
+| --- | --- | --- |
+| `machine_id` | string | Stable provider identity, bound to the native reservation |
+| `workspace` | string, optional | Exact requested public workspace ID; a different workspace does not consume first use |
+| `welcome` | boolean, default false | Eligibility from the authenticated create/list response |
+
+The result is the same creation receipt as `cloud-bootstrap`. The daemon
+serializes first opens, captures bounded offline guide output, and commits it
+through the durable terminal creation pipeline before the shell can consume
+input. Renderer or creation failures remain retryable. A copied registry does
+not transfer its machine grant. `CMUX_CLOUD_WELCOME=0` suppresses automatic
+output. Manual guest `cmux welcome` only renders content and changes no state.
+
+Images marked `/etc/cmux/cloud-first-workspace-v1` ship no warm starter process
+or per-machine registry. Their prompt synchronizer only publishes the machine
+name; it cannot create a competing workspace, clear history, or send Ctrl-C.
+The first shell starts at interactive open. Existing unmarked images retain
+their warm-template behavior. The image bake verifies the new daemon capability
+before it can publish the new contract.
 
 ### shutdown-daemon
 

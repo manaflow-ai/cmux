@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2.
+// cmux-tui mux protocol 12, IR e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -355,7 +355,17 @@ pub struct CloudBootstrapRequest {
 }
 
 #[rustfmt::skip]
-pub type CloudBootstrapResult = T::EmptyResult;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudFirstWorkspaceRequest {
+    pub machine_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub welcome: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CloudFirstWorkspaceResult = T::CloudBootstrapResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1545,8 +1555,12 @@ impl CmuxClient {
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
     }
 
-    pub fn cloud_bootstrap(&mut self, request: CloudBootstrapRequest) -> Result<CloudBootstrapResult> {
+    pub fn cloud_bootstrap(&mut self, request: CloudBootstrapRequest) -> Result<T::CloudBootstrapResult> {
         self.execute(&CLOUD_BOOTSTRAP_METADATA, &request)
+    }
+
+    pub fn cloud_first_workspace(&mut self, request: CloudFirstWorkspaceRequest) -> Result<CloudFirstWorkspaceResult> {
+        self.execute(&CLOUD_FIRST_WORKSPACE_METADATA, &request)
     }
 
     pub fn copy(&mut self, request: CopyRequest) -> Result<T::CopyResult> {

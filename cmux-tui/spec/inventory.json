@@ -246,6 +246,7 @@
     ],
     "local-admin": [
       "cloud-bootstrap",
+      "cloud-first-workspace",
       "server-stats",
       "register-browser-provider",
       "get-browser-provider",

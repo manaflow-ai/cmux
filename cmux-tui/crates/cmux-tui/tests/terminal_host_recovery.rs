@@ -1,5 +1,8 @@
 #![cfg(unix)]
 
+#[path = "terminal_host_recovery/cloud_welcome.rs"]
+mod cloud_welcome;
+
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;

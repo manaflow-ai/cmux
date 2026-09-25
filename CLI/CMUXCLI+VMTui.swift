@@ -457,9 +457,9 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                // The snapshot contract creates the first remote workspace and
-                // terminal before the daemon accepts clients, so one link plus
-                // one graph read is all New Machine needs to find it.
+                // Snapshot images expose an existing starter; first-workspace
+                // images reserve its identity and defer the shell to first open.
+                // Both are read through the same machine-owned graph.
                 //
                 // `ensure_linked` is that minimum, and it is required: a machine
                 // created a moment ago has no provider and no link in this app,
@@ -481,7 +481,7 @@ extension CMUXCLI {
                     projected["remote_workspace_id"] = remoteWorkspaceID
                     opened = projected
                 case .empty(let remoteWorkspaceID):
-                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus, "initial_workspace": true, "suppress_welcome": ProcessInfo.processInfo.environment["CMUX_CLOUD_WELCOME"] == "0"]
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
                 case .unavailable:

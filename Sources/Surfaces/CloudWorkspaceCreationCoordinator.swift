@@ -178,7 +178,7 @@ final class CloudWorkspaceCreationCoordinator {
             terminal = try await operation.provider.createTerminal(
                 command: nil, cwd: nil, name: nil, remoteWorkspaceID: receipt.workspace.id, request: operation.terminalRequest
             )
-            operation.ownsRemoteTerminal = true
+            operation.ownsRemoteTerminal = !operation.terminalRequest.usesMachineStarter
         }
         // Record the identity before validation can throw so cancellation or a
         // stale placement still cleans the terminal this operation created.

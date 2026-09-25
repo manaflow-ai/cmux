@@ -130,6 +130,7 @@ export async function runBaseRoute(input: {
     kind: vmImageKindFor(entry.provider, entry.image),
     status: entry.status,
     createdAt: entry.createdAt,
+    cloudWelcomeEligible: entry.cloudWelcomeEligible === true,
     capabilities: vmCapabilitiesFor(entry.provider),
     base: {
       id: entry.baseId,

@@ -41,6 +41,16 @@ extension CmuxTuiSurfaceProvider {
         let commands = CloudTerminalMutationCommandRunner(base: link) {
             try self.validateTerminalMutationLifecycle(lifecycle)
         }
+        if let target = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines), !target.isEmpty {
+            request.bind(remoteWorkspaceID: target)
+        }
+        if command?.isEmpty != false, request.commandOverride == nil, cwd == nil, name == nil,
+           let created = try await request.prepareInitialWorkspace(
+            using: commands, machineID: machineID, welcomeEligible: summary.cloudWelcomeEligible
+           ), let workspaceID = created.workspaceID {
+            try validateTerminalMutationLifecycle(lifecycle)
+            return recordCreatedTerminal(created, workspaceID: workspaceID, name: nil, cwd: nil)
+        }
         let recovered = try await request.prepare(using: commands, socketPath: connected.socketPath)
         try validateTerminalMutationLifecycle(lifecycle)
         if let created = recovered {

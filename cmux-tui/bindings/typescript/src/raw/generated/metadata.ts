@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2. */
+/* cmux-tui mux protocol 12, IR e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2" as const;
+export const SDK_IR_SHA256 = "e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -376,6 +376,18 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Trusted local daemon control only; remote clients are rejected.",
       "The daemon owns the reserved initial workspace and creates no shell input from this request."
+    ]
+  },
+  "cloud-first-workspace": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The daemon reservation selects the exact first workspace, before shell creation.",
+      "Only interactive machine-open clients forward the authenticated control-plane welcome decision.",
+      "Retries return the same creation receipt; unsupported older daemons reject before mutation."
     ]
   },
   "copy": {
@@ -2382,6 +2394,45 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "CloudBootstrapResult": {
+    "additional_properties": false,
+    "fields": {
+      "created_path": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "generation": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "occupied": {
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "revision": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -8114,7 +8165,45 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "EmptyResult"
+      "name": "CloudBootstrapResult"
+    }
+  },
+  "cloud-first-workspace": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "welcome": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "CloudBootstrapResult"
     }
   },
   "copy": {

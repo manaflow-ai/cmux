@@ -4,11 +4,7 @@ fn mux() -> Arc<Mux> {
     let root = std::env::temp_dir()
         .join(format!("cmux-cloud-grant-{}", crate::workspace_registry::new_uuid_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let files = [
-        ("CMUX_CLOUD_WELCOME_INSTANCE_PATH", "instance", "original-instance"),
-        ("CMUX_CLOUD_WELCOME_IDENTITY_PATH", "identity", "original-vm"),
-        ("CMUX_CLOUD_WELCOME_PENDING_PATH", "pending", "original-vm"),
-    ];
+    let files = [("CMUX_CLOUD_WELCOME_INSTANCE_PATH", "instance", "original-instance")];
     let mut options = SurfaceOptions::default();
     options.extra_env.extend([
         ("CMUX_CLOUD_WELCOME".into(), "1".into()),
@@ -376,4 +372,69 @@ fn cloud_bootstrap_targets_the_reserved_workspace_without_changing_focus() {
             .count(),
         1
     );
+}
+
+#[test]
+fn cloud_bootstrap_first_open_binds_machine_and_exact_reserved_workspace() {
+    let mux = mux();
+    mux.reserve_cloud_initial_workspace().unwrap();
+    let first = mux.with_state(|state| state.workspaces[0].public_id.to_string());
+    let unrelated = mux.create_empty_workspace(None, None, None).unwrap();
+    let other = mux.with_state(|state| {
+        state
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == unrelated.workspace)
+            .unwrap()
+            .public_id
+            .to_string()
+    });
+    let skipped = mux
+        .open_cloud_initial_terminal_with_renderer(true, Some("vm-first"), Some(&other), || {
+            panic!("a later workspace cannot consume the initial grant")
+        })
+        .unwrap();
+    assert!(skipped["created_path"].is_null());
+    assert!(mux.with_state(|state| state.surfaces.is_empty()));
+    let first_open = mux
+        .open_cloud_initial_terminal_with_renderer(true, Some("vm-first"), Some(&first), || {
+            Ok(b"CLOUD-GUIDE\r\n".to_vec())
+        })
+        .unwrap();
+    assert_eq!(first_open["created_path"]["workspace_id"], first);
+    let replay = mux
+        .open_cloud_initial_terminal_with_renderer(true, Some("vm-first"), Some(&first), || {
+            panic!("the durable receipt owns repeat attachments")
+        })
+        .unwrap();
+    assert_eq!(replay["created_path"], first_open["created_path"]);
+    let copied = mux
+        .open_cloud_initial_terminal_with_renderer(
+            true,
+            Some("another-machine"),
+            Some(&first),
+            || panic!("copied machine state cannot accept the original grant"),
+        )
+        .unwrap();
+    assert!(copied["created_path"].is_null());
+}
+
+#[test]
+fn cloud_bootstrap_closed_starter_is_not_recreated_or_replayed() {
+    let mux = mux();
+    mux.reserve_cloud_initial_workspace().unwrap();
+    let first = mux.with_state(|state| state.workspaces[0].public_id.to_string());
+    mux.open_cloud_initial_terminal_with_renderer(false, Some("vm-first"), Some(&first), || {
+        panic!("ineligible first user")
+    })
+    .unwrap();
+    let surface = mux.with_state(|state| *state.surfaces.keys().next().unwrap());
+    mux.close_surface(surface).unwrap();
+    let replay = mux
+        .open_cloud_initial_terminal_with_renderer(true, Some("vm-first"), Some(&first), || {
+            panic!("a closed first terminal never rearms the welcome")
+        })
+        .unwrap();
+    assert!(replay["created_path"].is_null());
+    assert!(mux.with_state(|state| state.surfaces.is_empty()));
 }

@@ -133,9 +133,14 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
-    public final EmptyResult cloudBootstrap(CloudBootstrapRequest request) throws CmuxException {
+    public final CloudBootstrapResult cloudBootstrap(CloudBootstrapRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_BOOTSTRAP, request.toWire());
-        return EmptyResult.fromWire(result);
+        return CloudBootstrapResult.fromWire(result);
+    }
+
+    public final CloudBootstrapResult cloudFirstWorkspace(CloudFirstWorkspaceRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_FIRST_WORKSPACE, request.toWire());
+        return CloudBootstrapResult.fromWire(result);
     }
 
     public final CopyResult copy(CopyRequest request) throws CmuxException {

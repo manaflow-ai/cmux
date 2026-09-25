@@ -748,7 +748,7 @@ const TERMINAL_IDS_JQ = `[.. | objects | (.terminal_id? // .id?) | strings | sel
  */
 export function devboxPrepareTemplateTerminalCommand(timeoutSeconds = 60): string {
   const run = (args: string) => cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json ${args}`);
-  return [
+  const legacy = [
     `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 755 ${TEMPLATE_RUN_DIR}`,
     `rm -f ${TEMPLATE_RUN_DIR}/template-arm ${TEMPLATE_RUN_DIR}/template-shell-ready ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
     `(${run("terminal list")} > /tmp/cmux-template-terminals.json || :)`,
@@ -762,6 +762,16 @@ export function devboxPrepareTemplateTerminalCommand(timeoutSeconds = 60): strin
     `test "$(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json | wc -l)" = 1`,
     "echo template-terminal-ready",
   ].join(" && ");
+  const firstWorkspace = [
+    `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 755 ${TEMPLATE_RUN_DIR}`,
+    `(${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} raw command --request-json '${JSON.stringify({ cmd: "identify" })}'`)} > /tmp/cmux-first-workspace-capabilities.json)`,
+    `jq -e '(.data.capabilities // .capabilities) | index("cloud-first-workspace-v1") != null' /tmp/cmux-first-workspace-capabilities.json >/dev/null`,
+    `${run("terminal list")} > /tmp/cmux-template-terminals.json`,
+    `for id in $(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json); do ${run('terminal "$id" close')} >/dev/null || exit 1; done`,
+    `rm -f ${TEMPLATE_RUN_DIR}/template-arm ${TEMPLATE_RUN_DIR}/template-shell-ready ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started`,
+    "echo first-workspace-reserved",
+  ].join(" && ");
+  return `if [ -f /etc/cmux/cloud-first-workspace-v1 ]; then ${firstWorkspace}; else ${legacy}; fi`;
 }
 
 /**
@@ -799,7 +809,7 @@ export function devboxWipeDaemonStateKeepingTemplateCommand(stateRoot: string): 
  * Run as root. Exits 0 only when the daemon is parked and the host is live.
  */
 export function devboxParkDaemonCommand(): string {
-  return [
+  const legacy = [
     cmuxTuiLayoutSelector(),
     `test -e ${TEMPLATE_RUN_DIR}/template-shell-ready`,
     `mkdir -p /etc/cmux && ${DEVBOX_INSTANCE_ID_COMMAND} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id`,
@@ -815,6 +825,26 @@ export function devboxParkDaemonCommand(): string {
     "! grep -qi ':0539 ' /proc/net/tcp6",
     "echo daemon-parked-for-clones",
   ].join(" && ");
+  // Bake-only cleanup of the builder's daemon state. New machines get their
+  // own registry and reserved first workspace; no user's session is reset.
+  const firstWorkspace = [
+    cmuxTuiLayoutSelector(),
+    `mkdir -p /etc/cmux && ${DEVBOX_INSTANCE_ID_COMMAND} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id`,
+    "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
+    "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
+    "systemctl is-active cmux-tui-daemon >/dev/null",
+    // Closing a bake terminal completes asynchronously. Never erase the host
+    // records until every builder host has exited: a snapshot could otherwise
+    // carry a live shell with no durable owner.
+    "for i in $(seq 1 30); do pgrep -f '[_]_terminal-host' >/dev/null || break; sleep 1; done",
+    "! pgrep -f '[_]_terminal-host' >/dev/null",
+    'case "$CMUX_TUI_HOME" in /home/cmux|/root) ;; *) exit 1 ;; esac',
+    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux-tui" "$CMUX_TUI_HOME/.local/state/cmux/remote"',
+    'rm -f /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',
+    `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
+    "echo daemon-parked-for-clones",
+  ].join(" && ");
+  return `if [ -f /etc/cmux/cloud-first-workspace-v1 ]; then ${firstWorkspace}; else ${legacy}; fi`;
 }
 
 export function defaultBakeTag(): string {
