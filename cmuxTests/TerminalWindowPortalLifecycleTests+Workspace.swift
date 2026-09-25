@@ -71,6 +71,29 @@ extension TerminalWindowPortalLifecycleTests {
         }
     }
 
+    /// Tests free their surfaces milliseconds after Ghostty spawns them, while
+    /// login(1) still ignores SIGHUP during its startup. Closing then waits out
+    /// Ghostty's whole 12 s SIGHUP grace, which is sized for agent exit hooks,
+    /// before it escalates to SIGKILL: every test in this suite took 12 s. A
+    /// test shell needs no graceful exit, so kill every process on the
+    /// surface's terminal first and the close finds nothing left to wait for.
+    func killShellProcesses(of surface: TerminalSurface) {
+        guard let device = surface.controllingTTYDeviceIdentifier else { return }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_TTY, Int32(truncatingIfNeeded: device)]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 8)
+        size = processes.count * stride
+        guard sysctl(&mib, 4, &processes, &size, nil, 0) == 0 else { return }
+        let ownGroup = getpgrp()
+        for process in processes.prefix(size / stride) {
+            let pid = process.kp_proc.p_pid
+            guard pid > 1, pid != getpid(), process.kp_eproc.e_pgid != ownGroup else { continue }
+            kill(pid, SIGKILL)
+        }
+    }
+
     func makeTrackedTerminalSurface() -> TerminalSurface {
         let workspace = testWorkspace ?? TerminalPortalTestWorkspace()
         testWorkspace = workspace
