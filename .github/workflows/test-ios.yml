@@ -5,7 +5,25 @@ run-name: >-
   on ${{ inputs.runner || 'auto' }}
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  # Pull requests that touch the iOS app or its packages run again (paused
+  # 2026-07-13 to cut CI load). A same-repository pull request takes an idle
+  # simulator mini through the `runner` job like an `auto` dispatch, with
+  # Blacksmith as overflow; a fork's never reaches an owned Mac.
+  # detect-ios-changes narrows further (and decides the conventions lint).
+  pull_request:
+    paths:
+      - "ios/**"
+      - "Packages/**"
+      - "Sources/Mobile/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      - "scripts/lint-ios-package-conventions*"
+      - "scripts/lint_swift_namespaces.py"
+      - "scripts/lint-namespace-types-baseline.txt"
+      - "scripts/swift_source_mask.py"
+      - "scripts/tests/test_ios_package_conventions.py"
+      - "scripts/ci/ios_runner_pool.py"
+      - "scripts/ci/select_ios_simulator.py"
+      - ".github/workflows/test-ios.yml"
   workflow_dispatch:
     inputs:
       ref:
@@ -80,6 +98,12 @@ permissions:
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
+
+# A newer push to the same pull request replaces its run; dispatches never
+# cancel each other.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || format('test-ios-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
     # The macOS pool mobile-core-package, ios-simulator-build and ios-simulator
@@ -135,6 +159,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
@@ -148,9 +173,15 @@ jobs:
           SEED_CACHE: ${{ inputs.seed_cache }}
         run: |
           set -euo pipefail
+          requested="$REQUESTED_RUNNER"
+          # A fork's pull request names the default pool outright, so it never
+          # takes an owned Mac: those keep build state between jobs.
+          if [ "$FORK_PULL_REQUEST" = true ]; then
+            requested="${RUNNER_VARIABLE:-blacksmith-6vcpu-macos-26}"
+          fi
           route="$(python3 scripts/ci/ios_runner_pool.py \
             --lane test-ios \
-            --requested "$REQUESTED_RUNNER" \
+            --requested "$requested" \
             --variable "$RUNNER_VARIABLE" \
             --ios-owned "$IOS_OWNED" \
             --owned "$POOL_OWNED" \
