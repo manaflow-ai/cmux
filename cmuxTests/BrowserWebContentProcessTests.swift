@@ -1032,6 +1032,25 @@ struct BrowserWebContentProcessTests {
         #expect(probe.receivedKinds == ["getCredential"])
     }
 
+    @Test(arguments: [nil, Data()] as [Data?])
+    func webAuthnAssertionReplyOmitsAbsentUserHandle(userHandle: Data?) throws {
+        let coordinator = BrowserWebAuthnCoordinator()
+        let credential = coordinator.assertionReply(
+            credentialID: Data([1, 2, 3]),
+            clientDataJSON: Data([4, 5]),
+            authenticatorData: Data([6, 7]),
+            signature: Data([8, 9]),
+            userHandle: userHandle,
+            attachment: "cross-platform",
+            clientExtensionResults: [:]
+        )
+        let response = try #require(credential["response"] as? [String: Any])
+
+        #expect(credential["id"] as? String == "AQID")
+        #expect(response["signature"] as? String == "CAk")
+        #expect(response["userHandle"] == nil)
+    }
+
     @Test
     func webAuthnNativeBridgeScopesParentDomainRelyingPartyIDs() throws {
         let googleOrigin = try #require(
