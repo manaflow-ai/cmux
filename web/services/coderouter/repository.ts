@@ -649,6 +649,25 @@ export async function listEncryptedCredentials(
     .then((rows) => rows.map(encryptedCredentialRow));
 }
 
+/** Whether `access` may manage the team's native account: it exists in the
+ * team and is shared or the caller's own private account. */
+export async function nativeAccountAccessible(
+  teamId: string,
+  accountId: string,
+  access: CoderouterAccountAccess,
+): Promise<boolean> {
+  const [row] = await cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, accountId),
+      eq(coderouterAccounts.teamId, teamId),
+      nativeAccess(access),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
 export async function encryptedCredentialForAccount(
   teamId: string,
   accountId: string,
