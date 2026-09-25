@@ -210,6 +210,39 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testLocalAutoResumeRunsRestoreVerbAsStartupCommand() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-vi-mode-restore-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+            XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+            let startupCommand = try XCTUnwrap(restoredPanel.surface.debugInitialCommand())
+            let scriptPath = try XCTUnwrap(
+                TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand)
+                    .last?.value
+            )
+            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            XCTAssertTrue(script.contains("cmux restore codex codex-vi-mode-restore-session"))
+            XCTAssertTrue(script.contains("exec \"$SHELL\" -lc"))
+        }
+    }
+
+    @MainActor
     func testRemoteWorkspaceAutoResumeKeepsRemoteStartupCommand() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
